@@ -73,7 +73,7 @@ async function cutStone(a: BotAgent, _args: Record<string, unknown>, signal: Abo
   // (what storage gave: each input's cuts cut down to it, in order)
   const left = { ...got };
   load = load.map((c) => {
-    const runs = Math.min(c.runs, Math.max(0, left[c.input] ?? 0));
+    const u = c.unit ?? 1, runs = Math.floor(Math.min(c.runs, Math.max(0, left[c.input] ?? 0)) / u) * u;
     left[c.input] = (left[c.input] ?? 0) - runs;
     return { ...c, runs, makes: Math.round((c.makes / c.runs) * runs) };
   }).filter((c) => c.runs > 0);
@@ -86,13 +86,17 @@ async function cutStone(a: BotAgent, _args: Record<string, unknown>, signal: Abo
   for (const c of load) {
     if (signal.aborted) throw new Error('cancelled');
     const have = await rcon.count(a.name, c.input);
-    const runs = Math.min(c.runs, have);
+    const u = c.unit ?? 1, runs = Math.floor(Math.min(c.runs, have) / u) * u;
     if (runs <= 0) { notes.push(`no ${c.input} carried`); continue; }
     const took = await rcon.take(a.name, c.input, runs, have);
     if (took <= 0) continue;
-    const makes = Math.round((c.makes / c.runs) * took);
+    // (a forged cut, copper blocks from ingots: whole blocks only, the odd ingots given back)
+    const whole = Math.floor(took / u) * u;
+    if (whole < took) await rcon.give(a.name, c.input, took - whole);
+    if (whole <= 0) continue;
+    const makes = Math.round((c.makes / c.runs) * whole);
     await rcon.give(a.name, c.item, makes);
-    done.push({ ...c, runs: took, makes });
+    done.push({ ...c, runs: whole, makes });
   }
   applyCuts(m.yard, done);
   const rec = m.cutter!;

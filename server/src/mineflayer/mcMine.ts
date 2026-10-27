@@ -327,7 +327,7 @@ async function digCell(a: BotAgent, m: Mine, p: Vec3, signal: AbortSignal, stand
     if (!/^needs \w+_pickaxe/.test(m2)) throw e;
     // (the iron level never digs an iron or coal ore it cannot harvest: its iron would be lost, the design review's M2;
     // gold or emerald a stone pickaxe cannot take is dug through as the cobblestone mine does, the diff review's H2)
-    if (opts.strict && KEEP.test(name)) throw Object.assign(new Error(`no pickaxe good enough for the ${name} at ${p.x},${p.y},${p.z} (${m2.slice(0, 80)})`), { tool: true });
+    if (opts.strict && keeps(name)) throw Object.assign(new Error(`no pickaxe good enough for the ${name} at ${p.x},${p.y},${p.z} (${m2.slice(0, 80)})`), { tool: true });
     // Stone with no pickaxe at all: make one. An ore this pickaxe cannot harvest (copper with a wooden one, StageH18):
     // dug through anyway, its drop lost, rather than the tunnel stopping there
     // (and none made from down there: the walk for logs is free to dig, the diff review's L1)
@@ -1174,6 +1174,14 @@ export function ironRetry(v: Village, m: Mine, i: IronLevel, reg: { note: (v: Vi
 const IRON_GOOD_Y = 28;
 /** The iron and coal a tunnel keeps from its walls and ceiling. */
 const KEEP = /^(?:deepslate_)?(iron|coal)_ore$/;
+/** #162 tier 3, chain B (MC_COPPER_ROOF): copper ore kept too while a monument's copper roof wants raw copper (mcWorld
+ *  sets it on each look at the yard's wants; the copper rung's "copper kept from the iron mine"). */
+let keepCopper = false;
+export const setKeepCopper = (on: boolean) => void (keepCopper = on);
+const COPPER_ORE = /^(?:deepslate_)?copper_ore$/;
+function keeps(name: string): boolean {
+  return KEEP.test(name) || (keepCopper && COPPER_ORE.test(name));
+}
 /** Villages whose iron level a bot is digging now (one at a time). */
 const ironBusy = new Set<string>();
 /** MC_IRON_AGE: tunnels at most per iron level (room for IRON_MINERS on their own legs), levels at most, how far below
@@ -1811,7 +1819,7 @@ async function digIronStairs(a: BotAgent, v: Village, m: Mine, i: IronLevel, sig
 async function keepOres(a: BotAgent, v: Village, m: Mine, cells: Vec3[], L: number, got: Record<string, number>, signal: AbortSignal, took?: Vec3[]): Promise<number> {
   const found: Array<{ q: Vec3; from: { x: number; z: number }; floor: boolean }> = [];
   const add = (q: Vec3, from: { x: number; z: number }, floor: boolean) => {
-    if (q.y < L - 1 || !KEEP.test(a.bot.blockAt(q)?.name ?? '') || found.some((f) => f.q.equals(q)) || cells.some((c) => c.equals(q))) return;
+    if (q.y < L - 1 || !keeps(a.bot.blockAt(q)?.name ?? '') || found.some((f) => f.q.equals(q)) || cells.some((c) => c.equals(q))) return;
     found.push({ q, from, floor });
   };
   for (const c of cells)
@@ -1871,6 +1879,44 @@ function filler(a: BotAgent): string | undefined {
 export const DEEP_STONE = /^(on|1|true|yes)$/i.test(rawSetting('MC_DEEP_STONE') ?? 'off');
 /** What the deep level keeps for the monument (cut at the stonecutter: deepslate tiles and stairs, tuff bricks). */
 export const DEEP_KEEP = ['cobbled_deepslate', 'tuff'];
+
+/** #162 tier 3, chain C: the iron levels a bot can walk to, each with the foot of its stairs (at its level's y). */
+export function ironLevelFeet(m: Mine | undefined): Array<{ x: number; y: number; z: number; k: number }> {
+  if (!m) return [];
+  return ironLevels(m).flatMap((p, k) => {
+    const foot = ironColumns(p).at(-1);
+    return foot && p.level !== undefined ? [{ x: foot.x, y: p.level, z: foot.z, k }] : [];
+  });
+}
+
+/** #162 tier 3, chain C: the tunnel cells dug on iron level `k` (its legs' cells, at its level's y). */
+export function ironLevelCells(m: Mine | undefined, k: number): Array<{ x: number; y: number; z: number }> {
+  const p = m ? ironLevels(m)[k] : undefined;
+  if (!p || p.level === undefined) return [];
+  return (p.legs ?? []).flatMap((l) => legCells(l).map((c) => ({ x: c.x, y: p.level!, z: c.z })));
+}
+
+/** #162 tier 3, chain C: a walk inside the mine's own tunnels (no digging on the way). */
+export const walkInMine = (a: BotAgent, pos: Vec3, range: number, signal: AbortSignal, ms = 120000) => walkMine(a, pos, range, signal, ms);
+
+/** #162 tier 3, chain C: down the mine to the foot of iron level `k`'s stairs, as an iron trip walks (no digging on the
+ *  way): whether the bot got there. */
+export async function walkToIronLevel(a: BotAgent, v: Village, k: number, signal: AbortSignal): Promise<boolean> {
+  const m = v.mine;
+  if (!m || m.level === undefined) return false;
+  const levels = ironLevels(m), feet = ironLevelFeet(m), to = feet.find((f) => f.k === k);
+  if (!to) return false;
+  const go = (p: Vec3, range: number, ms: number) => walkMine(a, p, range, signal, ms).catch((e: Error) => {
+    if (e.message === 'cancelled') throw e;
+  });
+  if (!inMine(a, m)) await go(new Vec3(m.top.x + 0.5, m.level + m.steps - 1, m.top.z + 0.5), 1.5, 90000);
+  for (const p of levels.slice(0, k + 1)) {
+    const f = feet.find((x) => levels[x.k] === p);
+    await go(new Vec3(p.x + 0.5, p.y, p.z + 0.5), 1.5, 120000);
+    if (f) await go(new Vec3(f.x + 0.5, f.y, f.z + 0.5), 1.5, 120000);
+  }
+  return a.bot.entity.position.distanceTo(new Vec3(to.x + 0.5, to.y, to.z + 0.5)) <= 2.5;
+}
 /** Deep enough that a level's walls are deepslate (it starts about y 8 and is whole below 0), and the deep level's aim. */
 export const DEEP_Y = 0, DEEP_DOWN = -4;
 
@@ -1961,7 +2007,7 @@ async function digVein(a: BotAgent, v: Village, m: Mine, cells: Vec3[], L: numbe
   let n = 0;
   const tryOre = async (q: Vec3): Promise<boolean> => {
     const b = a.bot.blockAt(q);
-    if (!b || !KEEP.test(b.name)) return false;
+    if (!b || !keeps(b.name)) return false;
     if (Math.abs(q.x - c.x) > VEIN_SIDE || Math.abs(q.z - c.z) > VEIN_SIDE || q.y < L - 1 - VEIN_DOWN || q.y > L + VEIN_UP) return leave('far'), false;
     if (q.equals(under) || eye.distanceTo(q.offset(0.5, 0.5, 0.5)) > 4.2) return leave('reach'), false;
     if (unsafe(a, v, m, q, false, 'tunnel', { x: c.x, z: c.z })) return leave('unsafe'), false;

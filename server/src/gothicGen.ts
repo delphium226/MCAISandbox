@@ -92,6 +92,12 @@ const M = {
   pane: 'glass_pane', blue: 'blue_stained_glass_pane', red: 'red_stained_glass_pane', yellow: 'yellow_stained_glass_pane',
 };
 
+/** #162 tier 3, chain B: the high roof's copper (cut at the stonecutter from copper blocks, 4 a block; it weathers green). */
+export const COPPER = { tile: 'cut_copper', tileStair: 'cut_copper_stairs', tileSlab: 'cut_copper_slab' };
+
+/** #162 tier 3, chain C: the geode's accents. */
+export const GEM = { calcite: 'calcite', amethyst: 'amethyst_block' };
+
 export const GOTHIC_STAGES = [
   'pad and floor', 'aisle walls and west-front base', 'piers and arcade', 'clerestory and buttresses',
   'vault and roof', 'towers', 'glass and rose', 'spires and pinnacles',
@@ -154,6 +160,11 @@ export interface GothicOpts {
   furnish?: boolean;
   /** With `furnish`: only these kinds drawn (#162 C-E's flags; absent: every kind). */
   furnishKinds?: { lanterns?: boolean; bell?: boolean; candles?: boolean; banners?: boolean };
+  /** #162 tier 3, chain B: the high roof (nave, choir, transepts) and the flèche's base in cut copper (off: deepslate). */
+  copperRoof?: boolean;
+  /** #162 tier 3, chain C (with `detail`): the geode's accents, calcite round the west portals and in a string course across
+   *  the west front at the aisles' height, amethyst at the roses' hubs and on the apse altar (off: the cells as before). */
+  accents?: boolean;
 }
 
 /** The item a block costs: its name without states (stained panes, tiles and bricks are items of their own). */
@@ -164,7 +175,7 @@ const STEP4: Array<[number, number, string]> = [[0, -1, 'north'], [1, 0, 'east']
 
 /** Draw a preset at 1:scale. `opts.jobMin`/`jobMax` set the job size (300/800); `opts.detail` the tier-2 palette. */
 export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOpts = {}): Cathedral {
-  const detail = !!opts.detail;
+  const detail = !!opts.detail, accents = detail && !!opts.accents;
   const colours = opts.colours?.length ? opts.colours : DETAIL_COLOURS;
   const s = (m: number, min = 1) => Math.max(min, Math.round(m / scale));
   const odd = (n: number) => (n % 2 ? n : n + 1);
@@ -335,6 +346,15 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
           const jx = alongX ? cx + o : cx, jz = alongX ? cz : cz + o;
           if (has(jx, y, jz) && !/glass|_wall$/.test(cells.get(key(jx, y, jz))!)) set(jx, y, jz, T2.jamb, stageOf.get(key(jx, y, jz))!);
         }
+    // (accents: a west portal's ring in calcite, the jambs and the course over the opening)
+    if (accents && cx === 0 && !alongX)
+      for (let o = -half - 1; o <= half + 1; o++)
+        for (let y = 1; y <= h + 1; y++) {
+          const inside = (u: number, w: number) => Math.abs(u) <= half && w >= 1 && w <= h - (Math.abs(u) === half && half > 0 ? 1 : 0);
+          if (inside(o, y) || ![[1, 0], [-1, 0], [0, 1], [0, -1]].some(([du, dw]) => inside(o + du, y + dw))) continue;
+          const jz = cz + o;
+          if (has(cx, y, jz) && !/glass|_wall$/.test(cells.get(key(cx, y, jz))!)) set(cx, y, jz, GEM.calcite, stageOf.get(key(cx, y, jz))!);
+        }
   };
   portal(0, zc, false, pw, ph);
   if (arm) {
@@ -368,7 +388,7 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
         const d = Math.hypot(a, b);
         if (d > r + 0.3) continue;
         const ring = `${colours[Math.floor(d) % colours.length]}_stained_glass_pane`;
-        const block = d < 0.8 ? (detail ? `${colours[colours.length > 7 ? 7 : 0]}_stained_glass_pane` : M.yellow)
+        const block = d < 0.8 ? (accents ? GEM.amethyst : detail ? `${colours[colours.length > 7 ? 7 : 0]}_stained_glass_pane` : M.yellow)
           : r >= 3 && d < r - 0.5 && (a === 0 || b === 0 || Math.abs(a) === Math.abs(b)) ? M.post
           : detail ? ring : d > r - 0.7 ? M.red : M.blue;
         set(alongX ? cx + a : cx, cy + b, alongX ? cz : cz + a, block, block === M.post ? 7 : 7);
@@ -425,7 +445,9 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
       const rib = (x <= xe && x % pitch === 0) || (x > xe && Math.abs(along(x, z)) % pitch === 0);
       for (let yy = Math.min(lo, y); yy <= y; yy++) set(x, yy, z, rib ? M.rib : M.vault, 5);
     }
-  const roofCell = (x: number, z: number, h: (u: number, v: number) => number, inside: (u: number, v: number) => boolean) => {
+  // (#162 tier 3: the high roof's own names, cut copper with `copperRoof`; the low roof keeps the deepslate)
+  const hiTile = opts.copperRoof ? COPPER.tile : M.tile, hiStair = opts.copperRoof ? COPPER.tileStair : M.tileStair;
+  const roofCell = (x: number, z: number, h: (u: number, v: number) => number, inside: (u: number, v: number) => boolean, tile = M.tile, tileStair = M.tileStair) => {
     const me = h(x, z);
     let best: string | null = null, bestH = me;
     for (const [dx, dz, f] of STEP4) {
@@ -434,12 +456,12 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
       const hn = h(u, v);
       if (hn > bestH) { bestH = hn; best = f; }
     }
-    return best ? `${M.tileStair}[facing=${best},half=bottom]` : M.tile;
+    return best ? `${tileStair}[facing=${best},half=bottom]` : tile;
   };
   for (let x = 0; x < W; x++)
     for (let z = 0; z < D; z++) {
       // (not over the west screen, which stands above the roof's end)
-      if (isHigh(x, z)) { if (!(x === 0 && p.towers === 2)) set(x, roofHigh(x, z), z, roofCell(x, z, roofHigh, isHigh), 5); }
+      if (isHigh(x, z)) { if (!(x === 0 && p.towers === 2)) set(x, roofHigh(x, z), z, roofCell(x, z, roofHigh, isHigh, hiTile, hiStair), 5); }
       else if (isLow(x, z)) {
         // The lean-to rises to the high wall, which it meets below the clerestory
         const y = roofLow(x, z);
@@ -508,12 +530,19 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
     else portal(cx, z0, true, 0, h), portal(cx, z1, true, 0, h);
   });
 
+  // (accents: a calcite string course across the west front at the aisles' height)
+  if (accents)
+    for (let z = 0; z < D; z++) {
+      const b = cells.get(key(0, Ha, z));
+      if (b === M.wall || b === M.tone) set(0, Ha, z, GEM.calcite, stageOf.get(key(0, Ha, z))!);
+    }
+
   // The crossing: a flèche above the ridge or a tower with a spire
   const cxC = Math.round((xt0 + xt1) / 2), czC = Math.round(zc);
   if (p.crossing === 'fleche') {
     const base = roofHigh(cxC, czC) + 1, h = s(p.crossingSpire, 6);
     for (let y = base; y < base + 3; y++) for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++)
-      if (Math.abs(dx) + Math.abs(dz) < 2 || y === base) set(cxC + dx, y, czC + dz, M.tile, 8);
+      if (Math.abs(dx) + Math.abs(dz) < 2 || y === base) set(cxC + dx, y, czC + dz, hiTile, 8);
     for (let y = base + 3; y < base + h; y++) set(cxC, y, czC, M.post, 8);
   } else if (p.crossing === 'tower') {
     const y1 = Math.max(s(p.crossingHeight), Hv + 6);
@@ -555,7 +584,7 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
     if (nave >= 7 && kind('candles')) {
       const ax = xe + Math.max(1, Math.floor(rI / 2));
       if ([-1, 0, 1].every((o) => isHigh(ax, zr + o) && !hWall(ax, zr + o) && empty(ax, 1, zr + o))) {
-        for (const o of [-1, 0, 1]) set(ax, 1, zr + o, T2.altar, 9);
+        for (const o of [-1, 0, 1]) set(ax, 1, zr + o, accents ? GEM.amethyst : T2.altar, 9);
         for (const o of [-1, 1]) set(ax, 2, zr + o, T2.candle, 9);
       }
     }

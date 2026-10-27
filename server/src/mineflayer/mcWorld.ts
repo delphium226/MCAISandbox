@@ -97,18 +97,23 @@ import { cutWork, cutterOn } from './mcCutter';
 import { bedBuilding, dyeBedOn } from './mcDyeBed';
 import { DYE_BED, DYE_FLOWERS, DYE_REACH, TALL_FLOWERS, dyeRecipes, makeableColours, windowColours } from '../dyeBed';
 import { DETAIL_COLOURS } from '../gothicGen';
-import { stoneStandIn, DEEP_BLOCKS, deepStandIn } from '../monument';
-import { DEEP_KEEP, deepenForStone } from './mcMine';
+import { stoneStandIn, DEEP_BLOCKS, deepStandIn, GEM_STAND, COPPER_ROOF, COPPER_BLOCKS, copperFrom, copperOn, copperReached, copperStandIn, reroofReturns } from '../monument';
+import { DEEP_KEEP, deepenForStone, setKeepCopper } from './mcMine';
 /** #162: minutes (game time) a stage waits for a quarried stone before the rest stands in as another. */
 const STONE_WAIT_MIN = 6;
 /** MC_DEEP_STONE: the wait for the deep level's stone before the wood and bricks stand in (its trips are 5 min), and its
  *  miners at once (the iron level's legs). */
 const DEEP_WAIT_MIN = 20, DEEP_LANES = 3;
+/** #162 tier 3, chain B: how long the copper roof waits on raw copper before the old roof stands in, and its trips at once. */
+// (B1: 7 iron trips brought 156 raw copper in the first 30 min, the roof short 90: an hour, and four at once)
+const COPPER_WAIT_MIN = 60, COPPER_LANES = 4;
+/** #162 tier 3, chain C: how long the accents wait on the geode before tier 2's blocks stand in; one gem cutter at a time. */
+const GEM_WAIT_MIN = 20;
 /** #165: the iron stored (raw and ingots) above which no member digs for more while a monument is built. */
 const IRON_MONUMENT_ENOUGH = 64;
 /** #140 (F324): minutes (game time) a village leaves a bed flower it ran out of out of new mixes. */
 const FLOWER_OUT_MIN = 60;
-import { kilnLanes, kilnLine } from '../kiln';
+import { kilnHolds, kilnLanes, kilnLine } from '../kiln';
 import { quarryLine } from '../quarry';
 
 /** Brains that only use the world interface (the scripted ones in brains.ts are sandbox-only). */
@@ -3691,6 +3696,8 @@ export class MineflayerWorld implements WorldAdapter {
   private monumentAt = new Map<string, number>();
   private monumentBack = new Map<string, number>();
   /** #162: when the stage began waiting for a quarried stone (village:item), for its stand-in after STONE_WAIT_MIN. */
+  /** #162 tier 3, chain C: failed geode trips by village (three stand the accents in). */
+  private gemFails = new Map<string, number>();
   private stoneWait = new Map<string, { since: number; last: number }>();
 
   /** M1 (#144, MC_MONUMENT): the cathedral begun once the iron age is complete (no vote: the user's, 10-25), and its
@@ -4851,6 +4858,10 @@ export class MineflayerWorld implements WorldAdapter {
         if (KILN.on) jobBuiltPlanned(m, mon.job, planOf(this), Date.now());
         else jobBuilt(m, mon.job, this.monumentRaw(m, monumentPlan(m).jobs[mon.job].bill), Date.now());
         this.villages.save();
+        // (#162 tier 3, chain B: a re-roof's old blocks back to storage)
+        const back = reroofReturns(m, mon.job);
+        for (const [item, q] of Object.entries(back))
+          void storeByCommand(this.payWorld.rcon, vm, item, q).then((got) => console.log(`[monument] ${c.village}: the re-roof's ${got} ${item} back in storage`)).catch(() => undefined);
         const st1 = currentStage(m);
         if (M3.roles) this.creditTrade(vm, c.agent, tradeOfStep(m, { step: 'job', job: mon.job }), { built: true });
         console.log(`[monument] ${c.village}: ${c.agent} built job ${mon.job}: ${monumentLine(m)}`);
@@ -6697,6 +6708,17 @@ export class MineflayerWorld implements WorldAdapter {
       if (!out.some((o) => o.kind === 'initiate')) reasons.initiate = why.find((w) => w !== 'busy' && w !== 'backing off') ?? 'no room';
     }
 
+    // #162 tier 3, chain B (MC_COPPER_ROOF): the copper rung reached, the cathedral's high roof in copper from now on; a roof
+    // built before it re-roofed by jobs of its own (a finished cathedral building again until they stand)
+    if (MONUMENT.on && COPPER_ROOF.on && v.monument && m3(v.monument).detail && !m3(v.monument).copper && copperReached(v)) {
+      const cells = copperOn(v.monument);
+      if (m3(v.monument).copper) {
+        this.villages.save();
+        const N = monumentNoun(v.monument);
+        this.villages.note(v, `the copper rung reached: the ${N}'s high roof is copper from now on${cells ? `, and the ${cells} roof blocks built before are re-roofed` : ''}`);
+        console.log(`[monument] ${v.name}: the copper rung reached: the ${N}'s high roof in cut copper${cells ? `; ${cells} cells built before it to re-roof in ${m3(v.monument).reroof!.length} jobs` : ''}`);
+      }
+    }
     // M1 (#144, MC_MONUMENT): the cathedral's site, a gathering trip for its stage's yard, a job the yard covers
     if (MONUMENT.on && v.monument && v.monument.state !== 'built' && v.storageHut) {
       const m = v.monument;
@@ -6716,6 +6738,8 @@ export class MineflayerWorld implements WorldAdapter {
       } else {
         // (M2, #145, MC_KILN: a plan of the stage's bill against the yard and the kiln's load: the yard holds made goods)
         const wants = KILN.on ? stageWantsPlanned(m, planOf(this)) : stageWants(m, (b) => this.monumentRaw(m, b));
+        // (#162 tier 3, chain B: the iron mine keeps the copper ore it meets while the roof wants raw copper)
+        if (COPPER_ROOF.on) setKeepCopper(!!m3(m).copper && (wants.raw_copper ?? 0) > 0);
         for (const [item, q] of Object.entries(wants)) {
           // (#162, MC_DYE_BED: a dye the stage wants, made by the dyer: up to 8 a chore, 2 at once)
           if (/_dye$/.test(item) && dyeBedOn(v)) {
@@ -6791,6 +6815,100 @@ export class MineflayerWorld implements WorldAdapter {
               name: `Dig the deep level (y ${deepY}) for the ${N}'s ${item.replace(/_/g, ' ')} (stage ${st}: ${stageName})`,
               facts: `the ${N}'s stage ${st} still wants ${q - Math.max(0, k)} ${item}; below y 0 the iron mine's tunnels are deepslate and tuff, cut at the stonecutter into roof tiles and plinth bricks`,
               effect: `+${item.replace(/_/g, ' ')} in storage for the ${N}'s yard`,
+            }, { kind: 'monument', step: 'deep', item });
+            continue;
+          }
+          // (#162 tier 3, chain B, MC_COPPER_ROOF: the copper roof's raw copper: storage's claimed first, then iron trips that
+          // keep copper ore; still short after COPPER_WAIT_MIN, or with no iron mine to dig, the old roof's blocks stand in
+          // from the first job the yard's copper does not cover)
+          // (#162 tier 3, chain C, MC_GEODE: the accents' calcite and amethyst: storage's claimed first, then the gem cutter's
+          // trips to the geode by the iron mine; short after GEM_WAIT_MIN, or with no iron level, tier 2's blocks stand in)
+          if (GEM_STAND[item] && m3(m).accents) {
+            const free = Math.floor((storageContents(v)[item] ?? 0) - (m.yard[item] ?? 0));
+            const k = Math.min(q, free);
+            if (k > 0) {
+              m.yard[item] = (m.yard[item] ?? 0) + k;
+              this.villages.save();
+              console.log(`[monument] ${v.name}: ${k} ${item} in storage claimed for the ${N}'s yard`);
+              if (k >= q) continue;
+            }
+            if ((m3(m).standIns ?? {})[item]) continue;
+            const standIn = (why: string) => {
+              const from = standInFrom(m, item, m.yard[item] ?? 0);
+              (m3(m).standIns ??= {})[item] = GEM_STAND[item];
+              (m3(m).standInFrom ??= {})[item] = from;
+              this.villages.save();
+              console.log(`[monument] ${v.name}: the ${N}'s ${item} stands in as ${GEM_STAND[item]} from job ${from} (${why}; short ${q - Math.max(0, k)})`);
+            };
+            const wk = `${v.name}:gem:${item}`;
+            const was = this.stoneWait.get(wk);
+            const since = was && now - was.last < 2 * 60000 ? was.since : now;
+            this.stoneWait.set(wk, { since, last: now });
+            if (now - since > GEM_WAIT_MIN * 60000 / timeScale()) {
+              this.stoneWait.delete(wk);
+              standIn(`after ${GEM_WAIT_MIN} min`);
+              continue;
+            }
+            if (!v.mine?.iron || (this.monumentBack.get(`${v.name}:gem`) ?? 0) > now && (this.gemFails.get(v.name) ?? 0) >= 3) {
+              standIn(v.mine?.iron ? 'the geode trips failed three times' : 'no iron mine to start a tunnel from');
+              continue;
+            }
+            if (busy.has('monument:gem') || out.some((o) => o.id === 'monument:gem') || (this.monumentBack.get(`${v.name}:gem`) ?? 0) > now) continue;
+            add({
+              id: 'monument:gem', kind: 'monument', key: 'monument:gem', excludes: ['monument:gem='], rank: 160,
+              name: `Work the geode by the iron mine for the ${N}'s ${item.replace(/_/g, ' ')} (stage ${st}: ${stageName})`,
+              facts: `the ${N}'s stage ${st} still wants ${q - Math.max(0, k)} ${item}; a geode is a hollow ball of amethyst in calcite and basalt; it is worked from a sealed tunnel beside the iron stairs, never from inside`,
+              effect: `+${item.replace(/_/g, ' ')} in storage for the ${N}'s yard`,
+            }, { kind: 'monument', step: 'gem', item, amount: Math.min(64, q - Math.max(0, k)) });
+            continue;
+          }
+          if (item === 'raw_copper' && m3(m).copper) {
+            const free = Math.floor((storageContents(v).raw_copper ?? 0) - (m.yard.raw_copper ?? 0));
+            const k = Math.min(q, free);
+            if (k > 0) {
+              m.yard.raw_copper = (m.yard.raw_copper ?? 0) + k;
+              this.villages.save();
+              console.log(`[monument] ${v.name}: ${k} raw_copper in storage claimed for the ${N}'s yard`);
+              if (k >= q) continue;
+            }
+            if (COPPER_BLOCKS.every((b) => (m3(m).standIns ?? {})[b])) continue;
+            const standIn = (why: string) => {
+              const held = { ...m.yard, copper_ingot: (m.yard.copper_ingot ?? 0) + (kilnHolds(m.kiln).copper_ingot ?? 0) };
+              const from = copperFrom(m, held);
+              const subs = COPPER_BLOCKS.map((b) => [b, copperStandIn(m, b)]);
+              for (const [b, sub] of subs) {
+                (m3(m).standIns ??= {})[b] = sub;
+                (m3(m).standInFrom ??= {})[b] = from;
+              }
+              // (a re-roof job from there on would put the old roof back over itself: done as it stands, B2)
+              const pj = monumentPlan(m).jobs;
+              const skip = pj.map((j, i) => (j.reroof !== undefined && i >= from && !m.done.includes(i) ? i : -1)).filter((i) => i >= 0);
+              for (const i of skip) jobBuilt(m, i, {}, now);
+              this.villages.save();
+              console.log(`[monument] ${v.name}: the ${N}'s copper roof stands in${skip.length ? ` (re-roof jobs ${skip.join(', ')} left as they stand)` : ''} as ${subs.map(([, x]) => x).join(', ')} from job ${from} (${why}; short ${q - Math.max(0, k)} raw_copper)`);
+            };
+            const wk = `${v.name}:copper`;
+            const was = this.stoneWait.get(wk);
+            const since = was && now - was.last < 2 * 60000 ? was.since : now;
+            this.stoneWait.set(wk, { since, last: now });
+            if (now - since > COPPER_WAIT_MIN * 60000 / timeScale()) {
+              this.stoneWait.delete(wk);
+              standIn(`after ${COPPER_WAIT_MIN} min`);
+              continue;
+            }
+            const iron = v.mine?.iron;
+            if (!iron || (iron.finished && !(m3(m).deep && deepenForStone(this.villages, v, a) !== null))) {
+              standIn('no iron mine to dig');
+              continue;
+            }
+            const n = Array.from({ length: COPPER_LANES }, (_, i) => i + 1).find((i) => !busy.has(`monument:copper:${i}`));
+            if (!n || (this.monumentBack.get(`${v.name}:deep`) ?? 0) > now) continue;
+            const key = `monument:copper:${n}`;
+            add({
+              id: 'monument:copper', kind: 'monument', key, excludes: [`${key}=`], rank: 160,
+              name: `Dig the iron mine for copper ore for the ${N}'s roof (stage ${st}: ${stageName})`,
+              facts: `the ${N}'s copper roof still wants ${q - Math.max(0, k)} raw copper; the iron mine's tunnels keep the copper ore they meet; the kiln smelts it and the carver forges and cuts the roof's copper`,
+              effect: `+raw copper in storage for the ${N}'s yard`,
             }, { kind: 'monument', step: 'deep', item });
             continue;
           }
@@ -6877,7 +6995,7 @@ export class MineflayerWorld implements WorldAdapter {
           shown++;
           add({
             id: key, kind: 'monument', key, excludes: [`${key}=`], rank: 158,
-            name: `Build part of the ${N}: its ${stageName} (${j.blocks} blocks)`,
+            name: j.reroof !== undefined ? `Re-roof the ${N} in copper (${j.blocks} blocks)` : `Build part of the ${N}: its ${stageName} (${j.blocks} blocks)`,
             facts: `stage ${st} of ${c.stageNames.length}; ${m.done.length} of ${c.jobs.length} jobs built; its materials are in the yard`,
             effect: `${j.blocks} more blocks of the ${N} stand`,
           }, { kind: 'monument', step: 'job', job: i });
@@ -7936,6 +8054,20 @@ export class MineflayerWorld implements WorldAdapter {
           console.log(`[monument] ${v.name}: ${worker.name} makes ${d.amount} ${d.item} for the furnishing`);
           return;
         }
+        if (d.step === 'gem') {
+          const st = worker.enqueue('work_geode', { item: d.item, want: d.amount, minutes: 5, chore: true });
+          worker.memory.monumentGather = d.item;
+          const failed = (why: string) => {
+            if (why === 'cancelled' || st.code) return;
+            this.gemFails.set(v.name, (this.gemFails.get(v.name) ?? 0) + 1);
+            this.monumentBack.set(`${v.name}:gem`, Date.now() + 3 * 60000);
+          };
+          this.setChore(v, worker, opt.key, [st], `work the geode for the ${N}'s ${d.item}`, failed, meta, opt.holds, opt);
+          const c = this.chores.get(worker.name.toLowerCase());
+          if (c) c.choice.monument = { item: d.item };
+          console.log(`[monument] ${v.name}: ${worker.name} works the geode for ${d.amount} ${d.item} (stage ${currentStage(m)})`);
+          return;
+        }
         if (d.step === 'cut') {
           const st = worker.enqueue('cut_stone', { chore: true });
           const failed = (why: string) => {
@@ -8887,7 +9019,7 @@ type OptionRun =
   | { kind: 'help'; id: string; step: InitiativeStep }
   | { kind: 'monument'; step: 'site' } | { kind: 'monument'; step: 'job'; job: number }
   | { kind: 'monument'; step: 'gather'; item: string; material: Material | 'flowers'; amount: number; block: string; deposit: string; bulk?: true }
-  | { kind: 'monument'; step: 'kiln'; lane: number } | { kind: 'monument'; step: 'cut' } | { kind: 'monument'; step: 'dye'; item: string; amount: number } | { kind: 'monument'; step: 'deep'; item: string } | { kind: 'monument'; step: 'furnish'; item: string; amount: number }
+  | { kind: 'monument'; step: 'kiln'; lane: number } | { kind: 'monument'; step: 'cut' } | { kind: 'monument'; step: 'dye'; item: string; amount: number } | { kind: 'monument'; step: 'deep'; item: string } | { kind: 'monument'; step: 'gem'; item: string; amount: number } | { kind: 'monument'; step: 'furnish'; item: string; amount: number }
   | { kind: 'grow'; houseless: number }
   | { kind: 'eat'; level: number; item: string; n: number; own?: boolean }
   | { kind: 'own'; what: 'chest' }

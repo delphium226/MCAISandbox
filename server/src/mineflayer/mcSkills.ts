@@ -15,6 +15,7 @@ import { FOUNDRY_SKILLS } from './foundry/list';
 import { HOME_SKILLS } from './mcHome';
 import { KILN_SKILLS } from './mcKiln';
 import { CUTTER_SKILLS } from './mcCutter';
+import { GEM_SKILLS } from './mcGemCutter';
 import { DYE_SKILLS } from './mcDyeBed';
 import { FURNISH_SKILLS } from './mcFurnish';
 import { at, goals, num, sleep, standableY, str, walk } from './mcUtil';
@@ -72,6 +73,7 @@ export const MC_SKILLS: Record<string, McSkill> = {
   ...HOME_SKILLS,
   ...KILN_SKILLS,
   ...CUTTER_SKILLS,
+  ...GEM_SKILLS,
   ...DYE_SKILLS,
   ...FURNISH_SKILLS,
   // (the foundry's, s41: one file each in foundry/)

@@ -45,6 +45,11 @@ export interface ChunkSummary {
   plants?: Record<string, [number, number, number, number]>;
   /** The village whose mine has dug in this chunk (kept through later summaries). */
   mine?: string;
+  /** #162 tier 3, chain C: budding amethyst in the column (a geode's mark, sealed or not): how many, and the first (x, y,
+   *  z). Missing when none or in summaries from before. */
+  geode?: [number, number, number, number];
+  /** Set on summaries that looked for budding amethyst (1). */
+  gv?: number;
 }
 
 /** Surface materials, with the letter a map cell gets when it is mostly that. */
@@ -114,6 +119,8 @@ export class Atlas {
   private logKind: Uint8Array;
   /** Per state: 1 + its index in ORE_KINDS (0: no ore), and whether it is air (an ore next to air is exposed). */
   private ore: Uint8Array;
+  /** Budding amethyst's state ids (one block, one state). */
+  private budding = new Set<number>();
   private air: Uint8Array;
   /** Per state: 1 + its index in PLANT_KINDS (0: no plant of a kind recorded). */
   private plant: Uint8Array;
@@ -139,6 +146,7 @@ export class Atlas {
     this.air = new Uint8Array(n);
     this.plant = new Uint8Array(n);
     for (const b of reg.blocksArray) {
+      if (b.name === 'budding_amethyst') for (let s = b.minStateId; s <= b.maxStateId; s++) this.budding.add(s);
       const pk = PLANT_KINDS.indexOf(b.name) + 1;
       if (pk) for (let s = b.minStateId; s <= b.maxStateId; s++) this.plant[s] = pk;
       const ore = /^(?:deepslate_)?(\w+?)_ore$/.exec(b.name);
@@ -177,7 +185,8 @@ export class Atlas {
   loaded(cx: number, cz: number) {
     const k = `${cx},${cz}`;
     const had = this.chunks.get(k);
-    if (!had || Date.now() - had.t > RESCAN_LOADED_MS) this.queue.set(k, [cx, cz]);
+    // (#162 tier 3: a summary from before budding amethyst was looked for is made again)
+    if (!had || !had.gv || Date.now() - had.t > RESCAN_LOADED_MS) this.queue.set(k, [cx, cz]);
   }
 
   /** A block changed at x, z: its chunk is summarised again (at most once a minute). */
@@ -337,7 +346,24 @@ export class Atlas {
       h, s, ores: this.exposedOres(col, top),
       // (always, empty too: "scanned, none" differs from a summary from before plants were recorded, the review's L2)
       plants,
+      ...this.buddingIn(col, top, cx, cz), gv: 1,
     };
+  }
+
+  /** #162 tier 3, chain C: the column's budding amethyst (sections whose palette holds it only). */
+  private buddingIn(col: Column, top: number, cx: number, cz: number): { geode?: [number, number, number, number] } {
+    let n = 0, at: [number, number, number] | null = null;
+    for (let i = 0; i <= top; i++) {
+      const sec = col.sections[i];
+      if (!sec || !sec.solidBlockCount || !sec.palette?.some((st) => this.budding.has(st))) continue;
+      const y0 = col.minY + i * 16;
+      for (let j = 0; j < 4096; j++) {
+        if (!this.budding.has(sec.data.get(j))) continue;
+        n++;
+        at ??= [cx * 16 + (j & 15), y0 + (j >> 8), cz * 16 + ((j >> 4) & 15)];
+      }
+    }
+    return n && at ? { geode: [n, ...at] } : {};
   }
 
   /**

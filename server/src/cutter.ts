@@ -20,8 +20,12 @@ export interface CutterRecord { x: number; y: number; z: number; at: number; by:
 
 /** A plan's steps as this reads them (mcMaterials' Step: a cut is a craft marked `cut`). */
 export interface CutStep { do: 'craft' | 'smelt'; item: string; runs: number; makes?: number; input?: string; cut?: true }
-/** One cut: `runs` of `input` into `makes` of `item`. */
-export interface Cut { item: string; input: string; runs: number; makes: number }
+/** One cut: `runs` of `input` into `makes` of `item` (`unit`: inputs a run takes together, a forged block's ingots). */
+export interface Cut { item: string; input: string; runs: number; makes: number; unit?: number }
+
+/** #162 tier 3, chain B: a cut's input the carver makes at the stonecutter's table first when the yard holds none (9 copper
+ *  ingots a copper block, the roof's cut copper cut from it); charged by command with the cut. */
+export const FORGE: Record<string, { input: string; n: number }> = { copper_block: { input: 'copper_ingot', n: 9 } };
 
 /** The most input a carver carries to the stonecutter at a time (three stacks, half its inventory). */
 export const CUT_LOAD = 192;
@@ -43,9 +47,17 @@ export function cutWants(steps: CutStep[], yard: Record<string, number>): Cut[] 
     if (!s.cut || !s.input) continue;
     const per = Math.max(1, Math.round((s.makes ?? s.runs) / s.runs));
     const runs = Math.min(s.runs, Math.floor(left[s.input] ?? 0));
-    if (runs <= 0) continue;
-    left[s.input] -= runs;
-    out.push({ item: s.item, input: s.input, runs, makes: runs * per });
+    if (runs > 0) {
+      left[s.input] -= runs;
+      out.push({ item: s.item, input: s.input, runs, makes: runs * per });
+    }
+    // (the rest from what the input is forged from)
+    const f = FORGE[s.input];
+    const more = f ? Math.min(s.runs - Math.max(0, runs), Math.floor((left[f.input] ?? 0) / f.n)) : 0;
+    if (f && more > 0) {
+      left[f.input] -= more * f.n;
+      out.push({ item: s.item, input: f.input, runs: more * f.n, makes: more * per, unit: f.n });
+    }
   }
   return out;
 }
@@ -56,7 +68,8 @@ export function cutLoad(wants: Cut[], cap = CUT_LOAD): Cut[] {
   let room = cap;
   for (const w of wants) {
     if (room <= 0) break;
-    const runs = Math.min(w.runs, room);
+    const u = w.unit ?? 1, runs = Math.floor(Math.min(w.runs, room) / u) * u;
+    if (runs <= 0) break;
     out.push({ ...w, runs, makes: Math.round((w.makes / w.runs) * runs) });
     room -= runs;
   }

@@ -30,7 +30,7 @@
  * fullBlock keeps the polished stones and chiselled bricks, and a job waits until the carver has cut its pieces
  * (cutter.ts: the build cuts nothing).
  */
-import { GOTHIC_PRESETS, generateCathedral, gothicCost, type Cathedral, type GothicJob } from './gothicGen';
+import { COPPER, GOTHIC_PRESETS, generateCathedral, gothicCost, gothicItem, type Cathedral, type GothicJob } from './gothicGen';
 import { CASTLE_PRESETS, generateCastle } from './castleGen';
 import { rawSetting } from './settings';
 import { placeOutward } from './outward';
@@ -120,6 +120,77 @@ export function deepStandIn(block: string, wood: string): string {
   return block === 'tuff_bricks' ? 'stone_bricks' : block === 'deepslate_tiles' ? `${wood}_planks` : block === 'deepslate_tile_stairs' ? `${wood}_stairs` : `${wood}_slab`;
 }
 
+/** MC_COPPER_ROOF (#162 tier 3, chain B; off): a detail cathedral's high roof in cut copper once the village has reached
+ *  the copper rung (`test`: the rung counted reached, for staged runs). Before it the roof is deepslate (chain A) or wood;
+ *  a roof already built so is re-roofed in copper (copperOn's `reroof` jobs). */
+export const COPPER_ROOF = (() => {
+  const v = (rawSetting('MC_COPPER_ROOF') ?? 'off').toLowerCase();
+  return { on: /^(on|1|true|yes|test)$/.test(v), test: v === 'test' };
+})();
+/** MC_GEODE (#162 tier 3, chain C; off): a detail cathedral begun with it has the geode's accents (gothicGen's `accents`:
+ *  calcite round the west portals and across the west front, amethyst at the roses' hubs and on the altar), from a geode
+ *  the gem cutter works from a sealed tunnel (mcGemCutter.ts); short after a wait, tier 2's blocks stand in. */
+export const GEODE_ON = /^(on|1|true|yes)$/i.test(rawSetting('MC_GEODE') ?? 'off');
+/** The accents' blocks and what each stands in as (tier 2's, with chains of their own). */
+export const GEM_STAND: Record<string, string> = { calcite: 'polished_diorite', amethyst_block: 'chiseled_stone_bricks' };
+
+/** The copper roof's blocks. */
+export const COPPER_BLOCKS = [COPPER.tile, COPPER.tileStair, COPPER.tileSlab];
+/** A copper roof's block as the generator draws it without copper (deepslate, its states kept). */
+export const copperOff = (block: string) => block.replace(/^cut_copper(_stairs|_slab)?\b/, (_, k: string | undefined) => (k === '_stairs' ? 'deepslate_tile_stairs' : k === '_slab' ? 'deepslate_tile_slab' : 'deepslate_tiles'));
+/** Whether the village has reached the copper rung (MC_COPPER_ROOF=test: always). */
+export const copperReached = (v: Village) => COPPER_ROOF.test || !!v.ladder?.reached?.some((r) => r.rung === 'copper');
+/** The rung reached (#162 tier 3, chain B): the monument drawn with its copper roof from now on; the jobs already built with
+ *  copper cells (in deepslate or wood) listed for the re-roof, whose jobs come after the plan's (a stage 5 or 8 job each,
+ *  the cells only), and a finished monument building again until they stand. Returns the re-roof's cells. */
+export function copperOn(m: Monument): number {
+  const r = m3(m);
+  if (r.copper || !r.detail || monumentType(m) !== 'cathedral') return 0;
+  r.copper = true;
+  r.reroof = [];
+  const c = monumentPlan(m);
+  r.reroof = c.jobs.map((_, i) => (m.done.includes(i) && c.copperCells.get(i)?.length ? i : -1)).filter((i) => i >= 0);
+  const n = r.reroof.reduce((t, i) => t + (c.copperCells.get(i)?.length ?? 0), 0);
+  if (r.reroof.length && m.state === 'built') m.state = 'building';
+  return n;
+}
+
+/** A copper roof block's stand-in when the village is short of copper: the roof's old block (deepslate or its stand-in). */
+export function copperStandIn(m: Monument, block: string): string {
+  const r = m3(m);
+  return gothicItem(standIn(fullBlock(copperOff(block), m.wood || 'oak', m.colours, !!r.detail, !!r.detail && !!r.deep), r.standIns ?? {}));
+}
+/** The first job (by index, the jobs not built) whose copper `held` no longer covers (cut copper first, then 4 pieces a
+ *  copper block, 9 ingots or raw copper a block; a slab half a piece): the old roof stands in from there. */
+export function copperFrom(m: Monument, held: Record<string, number>): number {
+  const c = monumentPlan(m);
+  const left: Record<string, number> = Object.fromEntries(COPPER_BLOCKS.map((b) => [b, held[b] ?? 0]));
+  let units = 4 * ((held.copper_block ?? 0) + Math.floor(((held.copper_ingot ?? 0) + (held.raw_copper ?? 0)) / 9));
+  for (let i = 0; i < c.jobs.length; i++) {
+    if (m.done.includes(i)) continue;
+    for (const b of COPPER_BLOCKS) {
+      const need = c.jobs[i].bill[b] ?? 0, own = Math.min(need, left[b]);
+      left[b] -= own;
+      units -= (need - own) * (b === COPPER.tileSlab ? 0.5 : 1);
+    }
+    if (units < 0) return i;
+  }
+  return c.jobs.length;
+}
+
+/** A re-roof job's old blocks, by item (what its cells held before: the re-roofed job's palette); {} for any other job. */
+export function reroofReturns(m: Monument, index: number): Record<string, number> {
+  const c = monumentPlan(m), j = c.jobs[index], out: Record<string, number> = {};
+  if (j?.reroof === undefined || !j.cells) return out;
+  const pal = c.jobs[j.reroof].palette ?? c.design.palette;
+  for (const k of j.cells) {
+    const [x, y, z] = k.split(',').map(Number);
+    const [item, n] = gothicCost(pal[c.design.layers[y][z][x]]);
+    out[item] = (out[item] ?? 0) + n;
+  }
+  return out;
+}
+
 /** A block with its stand-in, if it has one (its states kept). */
 export function standIn(block: string, standIns: Record<string, string>): string {
   const m = /^([^[]+)(\[.*\])?$/.exec(block)!;
@@ -147,6 +218,7 @@ export function newMonument(wood: string, now: number, type: MonumentType = MONU
     m.detail = true;
     if (furnishOn()) m.furnish = furnishKinds();
     if (DEEP_STONE_ON) m.deep = true;
+    if (GEODE_ON) m.accents = true;
   }
   return m;
 }
@@ -168,8 +240,13 @@ export function todayBlock(block: string, wood: string): string {
   return block;
 }
 
-/** A monument's plan: the generator's cathedral or castle with its stages' names. */
-export type MonumentPlan = Cathedral & { stageNames: readonly string[]; jobs: Array<GothicJob & { palette?: Record<string, string> }> };
+/** A monument's plan: the generator's cathedral or castle with its stages' names. A re-roof job (chain B) names the job
+ *  it re-roofs and its cells ("x,y,z" in the grid); `copperCells`: each job's copper cells. */
+export type MonumentPlan = Omit<Cathedral, 'jobs'> & {
+  stageNames: readonly string[];
+  jobs: Array<GothicJob & { palette?: Record<string, string>; reroof?: number; cells?: string[] }>;
+  copperCells: Map<number, string[]>;
+};
 const plans = new Map<string, MonumentPlan>();
 /** The monument's cathedral or castle (generated once per type, preset, scale, palette and wood: ~50 ms at 1:2), its
  *  palette applied. */
@@ -177,25 +254,45 @@ export function monumentPlan(m: Monument): MonumentPlan {
   const type = monumentType(m);
   const detail = !!(m as MonumentM3).detail, deep = detail && !!(m as MonumentM3).deep;
   const standIns = (m as MonumentM3).standIns ?? {}, from = (m as MonumentM3).standInFrom ?? {}, fk = detail ? (m as MonumentM3).furnish : undefined;
-  const key = `${type}|${m.preset}|${m.scale}|${m.palette}|${m.wood}|${JSON.stringify(m.colours ?? {})}|${detail}|${JSON.stringify(standIns)}|${JSON.stringify(from)}|${JSON.stringify(fk ?? null)}|${deep}`;
+  // (#162 tier 3, chain B: the copper roof once the rung is reached; the jobs built before it keep their roof's old blocks)
+  const copper = detail && type === 'cathedral' && !!m3(m).copper, reroof = copper ? m3(m).reroof ?? [] : [];
+  const accents = detail && type === 'cathedral' && !!m3(m).accents;
+  const key = `${type}|${m.preset}|${m.scale}|${m.palette}|${m.wood}|${JSON.stringify(m.colours ?? {})}|${detail}|${JSON.stringify(standIns)}|${JSON.stringify(from)}|${JSON.stringify(fk ?? null)}|${deep}|${copper}|${reroof.join(',')}|${accents}`;
   let c = plans.get(key);
   if (c) return c;
-  c = type === 'castle' ? generateCastle(CASTLE_PRESETS[m.preset] ?? CASTLE_PRESETS.conwy, m.scale)
-    : generateCathedral(GOTHIC_PRESETS[m.preset] ?? GOTHIC_PRESETS.notre_dame, m.scale, { detail, furnish: !!fk, ...(fk ? { furnishKinds: fk } : {}) });
+  const gen: Cathedral = type === 'castle' ? generateCastle(CASTLE_PRESETS[m.preset] ?? CASTLE_PRESETS.conwy, m.scale)
+    : generateCathedral(GOTHIC_PRESETS[m.preset] ?? GOTHIC_PRESETS.notre_dame, m.scale, { detail, furnish: !!fk, ...(fk ? { furnishKinds: fk } : {}), ...(copper ? { copperRoof: true } : {}), ...(accents ? { accents: true } : {}) });
   {
     const wood = m.wood || 'oak';
     const pal: Record<string, string> = {}, pal0: Record<string, string> = {};
-    for (const [ch, b] of Object.entries(c.design.palette)) {
+    // (the copper characters as the roof stood before the rung: deepslate or its stand-in)
+    const old: Record<string, string> = {}, old0: Record<string, string> = {};
+    for (const [ch, b] of Object.entries(gen.design.palette)) {
       pal0[ch] = m.palette === 'today' ? todayBlock(b, wood) : fullBlock(b, wood, m.colours, detail, deep);
       pal[ch] = standIn(pal0[ch], standIns);
+      if (COPPER_BLOCKS.includes(gothicItem(b))) {
+        old0[ch] = fullBlock(copperOff(b), wood, m.colours, detail, deep);
+        old[ch] = standIn(old0[ch], standIns);
+      }
     }
+    const copperCells = new Map<number, string[]>();
+    if (copper) gen.design.layers.forEach((layer, y) => layer.forEach((row, z) => {
+      for (let x = 0; x < row.length; x++) {
+        if (!old[row[x]]) continue;
+        const i = gen.cellJob.get(`${x},${y},${z}`) ?? 0;
+        (copperCells.get(i) ?? copperCells.set(i, []).get(i)!).push(`${x},${y},${z}`);
+      }
+    }));
+    const fromOf = (b: string, i: number) => (from[b.replace(/\[.*$/, '')] ?? 0) > i;
     // (#165: a stand-in from its job on; the jobs before it keep the block, as far as the yard's own stone went)
     const palOf = (i: number) => {
-      if (!Object.keys(from).length) return pal;
+      const re = reroof.includes(i);
+      if (!Object.keys(from).length && !re) return pal;
       const out: Record<string, string> = {};
-      for (const ch of Object.keys(pal)) out[ch] = (from[pal0[ch].replace(/\[.*$/, '')] ?? 0) > i ? pal0[ch] : pal[ch];
+      for (const ch of Object.keys(pal)) out[ch] = re && old[ch] ? (fromOf(old0[ch], i) ? old0[ch] : old[ch]) : fromOf(pal0[ch], i) ? pal0[ch] : pal[ch];
       return out;
     };
+    c = { ...gen, stageNames: gen.stageNames, copperCells };
     const swap = (cells: Array<[string, number]>) => {
       const out: Record<string, number> = {};
       for (const [b, q] of cells) {
@@ -220,7 +317,20 @@ export function monumentPlan(m: Monument): MonumentPlan {
       return [...n];
     };
     const design = { ...c.design, palette: pal };
-    const jobs = c.jobs.map((j, i) => ({ ...j, bill: swap(charCount(j)), ...(Object.keys(from).length ? { palette: palOf(i) } : {}) }));
+    const jobs: MonumentPlan['jobs'] = c.jobs.map((j, i) => ({ ...j, bill: swap(charCount(j)), ...(Object.keys(from).length || reroof.includes(i) ? { palette: palOf(i) } : {}) }));
+    // (the re-roof: each listed job's copper cells again, in copper, as a job of its stage after the plan's own)
+    for (const r of reroof) {
+      const cells = copperCells.get(r) ?? [];
+      if (!cells.length) continue;
+      const pts = cells.map((k) => k.split(',').map(Number));
+      const n = new Map<string, number>();
+      for (const [x, y, z] of pts) n.set(pal[gen.design.layers[y][z][x]], (n.get(pal[gen.design.layers[y][z][x]]) ?? 0) + 1);
+      jobs.push({
+        stage: c.jobs[r].stage, index: jobs.length, blocks: cells.length, bill: swap([...n]), reroof: r, cells,
+        x0: Math.min(...pts.map((p) => p[0])), x1: Math.max(...pts.map((p) => p[0])), y0: Math.min(...pts.map((p) => p[1])),
+        y1: Math.max(...pts.map((p) => p[1])), z0: Math.min(...pts.map((p) => p[2])), z1: Math.max(...pts.map((p) => p[2])),
+      });
+    }
     c = { ...c, design, jobs, bill: swap(charCount(null)) };
   }
   plans.set(key, c);
@@ -321,7 +431,8 @@ export function kilnWants(m: Monument, plan: PlanOf): Record<string, number> {
   for (const s of plan(stageBill(m, AHEAD), hadWithKiln(m)).steps) {
     if (s.do !== 'smelt' || !s.input) continue;
     const input = rawName(m, s.input);
-    if (input !== 'cobblestone' && input !== 'sand') continue;
+    // (#162 tier 3, chain B: raw copper for the copper roof's ingots)
+    if (input !== 'cobblestone' && input !== 'sand' && input !== 'raw_copper') continue;
     const n = Math.min(s.runs, Math.floor(m.yard[input] ?? 0) - (out[input] ?? 0));
     if (n > 0) out[input] = (out[input] ?? 0) + n;
   }
@@ -382,6 +493,14 @@ export function jobTargets(m: Monument, index: number, turn: (block: string, rot
   const c = monumentPlan(m), d = c.design, rot = ((Math.round(m.site!.rotate / 90) % 4) + 4) % 4;
   const out: Array<{ x: number; y: number; z: number; block: string }> = [];
   const j = c.jobs[index];
+  // (a re-roof job: its cells only, over the roof's old blocks)
+  if (j.cells) {
+    for (const k of j.cells) {
+      const [x, y, z] = k.split(',').map(Number);
+      out.push({ ...worldCell(m, x, y, z), block: turn(d.palette[d.layers[y][z][x]], rot) });
+    }
+    return out.sort((p, q) => p.y - q.y);
+  }
   for (let y = j.y0; y <= j.y1; y++)
     for (let z = j.z0; z <= j.z1; z++)
       for (let x = j.x0; x <= j.x1; x++) {
@@ -413,7 +532,7 @@ export function capShare<T extends { rank: number }>(out: T[], isMon: (o: T) => 
 export function monumentLine(m: Monument): string {
   const c = monumentPlan(m), st = currentStage(m);
   const yard = Object.entries(m.yard).map(([n, q]) => `${q} ${n}`).join(', ') || 'empty';
-  return `${m.preset} 1:${m.scale} ${m.state}${st ? `, stage ${st}` : ''}: ${m.done.length} of ${c.jobs.length} jobs, ${c.jobs.filter((_, i) => m.done.includes(i)).reduce((t, j) => t + j.blocks, 0)} of ${c.design.blocks} blocks; yard ${yard}`;
+  return `${m.preset} 1:${m.scale} ${m.state}${st ? `, stage ${st}` : ''}: ${m.done.length} of ${c.jobs.length} jobs, ${c.jobs.filter((j, i) => m.done.includes(i) && j.reroof === undefined).reduce((t, j) => t + j.blocks, 0)} of ${c.design.blocks} blocks; yard ${yard}`;
 }
 
 /** The site search's hub (the meeting point's pad, else the storage hut, else the village's home) and home level. */
@@ -549,6 +668,12 @@ export type MonumentM3 = Monument & {
   detail?: boolean;
   /** #162 tier 3 (MC_DEEP_STONE): its deepslate roof and tuff plinth kept, from the iron mine's deep level. */
   deep?: boolean;
+  /** #162 tier 3, chain B (MC_COPPER_ROOF): its high roof drawn in copper, since the village reached the copper rung; the
+   *  jobs built before then, re-roofed in copper by the plan's re-roof jobs. */
+  copper?: boolean;
+  reroof?: number[];
+  /** #162 tier 3, chain C (MC_GEODE): drawn with the geode's accents (calcite, amethyst). */
+  accents?: boolean;
   /** #162: its stonecutter (mcCutter.ts) and dye bed (mcDyeBed.ts). */
   cutter?: CutterRecord;
   dyeBed?: DyeBed;
@@ -639,7 +764,7 @@ export function stageParts(m: Monument): { stage: number; built: number; of: num
  *  with its latest news for a village day and, under MC_MONUMENT_ROLES, the member's trade. */
 export function progressLine(m: Monument, now: number, dayMs: number, member?: string): string {
   const c = monumentPlan(m), n = m3(m);
-  const blocks = c.jobs.filter((_, i) => m.done.includes(i)).reduce((t, j) => t + j.blocks, 0);
+  const blocks = c.jobs.filter((j, i) => m.done.includes(i) && j.reroof === undefined).reduce((t, j) => t + j.blocks, 0);
   const head = `The village's monument: ${cathedralName(m)} (${presetWords(m.preset)} at 1:${m.scale})`;
   let what: string;
   if (m.state === 'built') {

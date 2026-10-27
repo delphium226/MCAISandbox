@@ -18,7 +18,8 @@ export const KILN = {
 };
 
 /** What the kiln smelts (input -> output). */
-export const KILN_SMELTS: Record<string, string> = { cobblestone: 'stone', sand: 'glass' };
+// (#162 tier 3, chain B: raw copper for the copper roof, loaded only when a plan asks for its ingots: monument.ts kilnWants)
+export const KILN_SMELTS: Record<string, string> = { cobblestone: 'stone', sand: 'glass', raw_copper: 'copper_ingot' };
 /** A furnace's input slot, and an item's cook at 1x (ms). */
 export const SLOT = 64, COOK_MS = 10000;
 
