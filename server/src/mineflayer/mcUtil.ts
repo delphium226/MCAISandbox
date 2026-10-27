@@ -184,7 +184,7 @@ function groundTop(a: BotAgent, x: number, z: number, level: number, floor: numb
 }
 
 /**
- * Open ground to climb out to from under a village (#133): the column within 48 blocks, off every village's ground and
+ * Open ground to climb out to from under a village (#133): the column within 96 blocks, off every village's ground and
  * fields, nearest the bot (and then the goal), whose top lies over it. It stands back from village ground by the height
  * of the climb over the ground's lowest kept level: no path digs into village ground, so stairs out from under it rise
  * a block a step outside it (an exit at its edge left the search the steps in a band 4 wide, and it ran out of time,
@@ -193,7 +193,8 @@ function groundTop(a: BotAgent, x: number, z: number, level: number, floor: numb
 export function openGroundNear(a: BotAgent, from: Vec3, gx: number, gy: number, gz: number, boxes: Box[]): Vec3 | null {
   const farm = a.farmGround();
   let best: { s: number; r: number; p: Vec3 } | null = null;
-  for (let r = 0; r <= 48; r += 4) {
+  // (every 4 blocks out to 48, then every 8: a 25-member village's plots reach 60 blocks round its storage hut)
+  for (let r = 0; r <= 96; r += r < 48 ? 4 : 8) {
     if (best && r > best.r + 8) break;
     const n = r ? 16 : 1;
     for (let i = 0; i < n; i++) {
@@ -210,6 +211,19 @@ export function openGroundNear(a: BotAgent, from: Vec3, gx: number, gy: number, 
     }
   }
   return best?.p ?? null;
+}
+
+/**
+ * The goal of a climb out to open ground: GoalNear with its distance counted 4 times over (weighted A*). Each step of a
+ * dug stair costs 3 breaks, many times what the distance says, so the plain search went through nearly every cell
+ * nearer than the exit and timed out on a 40-block climb (i133's staged run: Ada 40 blocks under her exit after 2
+ * minutes); weighted, it heads for the exit, on a path a little longer than the best.
+ */
+export function climbGoal(p: { x: number; y: number; z: number }): InstanceType<typeof goals.Goal> {
+  const g = new goals.GoalNear(p.x, p.y, p.z, 1);
+  const h = g.heuristic.bind(g);
+  g.heuristic = (n) => 4 * h(n);
+  return g;
 }
 
 /** Each bot's last way out from under village ground that got nowhere: not tried again from there for 3 minutes. */
@@ -234,8 +248,9 @@ export async function outFromUnder(a: BotAgent, goal: InstanceType<typeof goals.
   const f = outFailed.get(a.name);
   if (f && Date.now() - f.t < 180000 && f.p.distanceTo(p) < 6) return null;
   const tried: string[] = [];
+  // (in the mine or beside it, as tunnels dug from it are: train 7's under the hut ran 2-3 blocks below its level)
   const m = a.village()?.mine;
-  if (m?.level !== undefined && boxes.some((q) => q.y2 !== undefined && p.x >= q.x1 && p.x <= q.x2 && p.z >= q.z1 && p.z <= q.z2 && p.y >= q.y && p.y <= q.y2 + 1)) {
+  if (m?.level !== undefined && boxes.some((q) => q.y2 !== undefined && p.x >= q.x1 - 8 && p.x <= q.x2 + 8 && p.z >= q.z1 - 8 && p.z <= q.z2 + 8 && p.y >= q.y - 8 && p.y <= q.y2 + 1)) {
     // Up the mine's stairs to the hut, along the tunnels only
     const up = new goals.GoalNearXZ(m.top.x, m.top.z, 2), top = m.level + m.steps - 2;
     const isEnd = up.isEnd.bind(up);
@@ -257,17 +272,23 @@ export async function outFromUnder(a: BotAgent, goal: InstanceType<typeof goals.
   const here = a.bot.entity.position.floored();
   const out = openGroundNear(a, here, g.x, g.y, g.z, boxes);
   if (out) {
-    try {
-      await walkOnce(a, new goals.GoalNear(out.x, out.y, out.z, 1), `open ground at ${at(out)}`, signal, 180000);
-    } catch (e) {
-      if ((e as Error).message === 'cancelled') throw e;
-      tried.push((e as Error).message.slice(0, 80));
+    // (on while each try gets closer: a long dig out stalls between partial paths, 12 blocks of 70 at a time live)
+    for (let i = 0; i < 8; i++) {
+      const d0 = a.bot.entity.position.distanceTo(out);
+      try {
+        await walkOnce(a, climbGoal(out), `open ground at ${at(out)}`, signal, 120000);
+        break;
+      } catch (e) {
+        if ((e as Error).message === 'cancelled') throw e;
+        if (!i) tried.push((e as Error).message.slice(0, 80));
+      }
+      if (!covered(a, a.bot.entity.position) || a.bot.entity.position.distanceTo(out) > d0 - 2) break;
     }
     if (!covered(a, a.bot.entity.position)) {
       console.log(`[underground] ${a.name} climbed from ${at(p)} to open ground at ${at(a.bot.entity.position)} on the way to ${at(g as Vec3)}`);
       return `climbed out to open ground at ${at(a.bot.entity.position)}`;
     }
-  } else tried.push('no open ground off the village within 48 blocks');
+  } else tried.push('no open ground off the village within 96 blocks');
   outFailed.set(a.name, { t: Date.now(), p: a.bot.entity.position.floored() });
   console.log(`[underground] ${a.name} at ${at(a.bot.entity.position)} found no way out from under village ground (${tried.join('; ')})`);
   return null;

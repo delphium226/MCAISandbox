@@ -16,7 +16,7 @@
  */
 import { createRequire } from 'node:module';
 import { performance } from 'node:perf_hooks';
-import { covered, openGroundNear } from '../../server/src/mineflayer/mcUtil.ts';
+import { climbGoal, covered, openGroundNear } from '../../server/src/mineflayer/mcUtil.ts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const require = createRequire(import.meta.url);
@@ -42,6 +42,8 @@ const PLOT = { x1: 30, z1: 30, x2: 90, z2: 90, y: 64 };
 const HUT = { x1: 56, z1: 56, x2: 62, z2: 64, y: 64 };
 const DOOR = { x: 59, z: 64 };
 const POCKET = [...Array(8).keys()].map((i) => ({ x: 59 + i, z: 60 }));
+// (and a cell 45 blocks down, as a failed amethyst trip leaves a member)
+const DEEP = { x: 57, z: 58 };
 // What protectedGround gives for them (botAgent.ts): the plot and its margin from 4 under its level, the hut and a block
 // round it from a block under its floor
 const boxes = [
@@ -56,6 +58,7 @@ function nameAt(x: number, y: number, z: number): string | null {
   if (inHut && y >= 65 && y <= 67 && (x === HUT.x1 || x === HUT.x2 || z === HUT.z1 || z === HUT.z2) && !(x === DOOR.x && z === DOOR.z && y <= 66)) return 'oak_planks';
   if (inHut && y === 68) return 'oak_planks';
   if ((y === 54 || y === 55) && POCKET.some((p) => p.x === x && p.z === z)) return 'air';
+  if ((y === 20 || y === 21) && x === DEEP.x && z === DEEP.z) return 'air';
   if (y <= 60) return 'stone';
   if (y <= 63) return 'dirt';
   if (y === 64) return 'grass_block';
@@ -141,9 +144,20 @@ say(`open ground chosen: ${out ? `${out.x},${out.y},${out.z}` : 'none'} (${(perf
 ok(!!out && !boxes.some((q) => out.x >= q.x1 - 6 && out.x <= q.x2 + 6 && out.z >= q.z1 - 6 && out.z <= q.z2 + 6), 'it lies off the plot, back from it by the climb');
 ok(!!out && out.y === 65 && Math.hypot(out.x - start.x, out.z - start.z) <= 48, 'on the surface, within 48 blocks');
 ok(!!out && !covered(a, out), 'there counts as out (open sky)');
-const up = out ? follow(start, new goals.GoalNear(out.x, out.y, out.z, 1), 2000, 6) : null;
+const plain = out ? search(start, new goals.GoalNear(out.x, out.y, out.z, 1), 2000) : null;
+if (plain) say(`one plain search there: ${plain.status} in ${plain.ms.toFixed(0)} ms, ${plain.nodes} nodes`);
+const up = out ? follow(start, climbGoal(out), 2000, 6) : null;
 if (up) say(`from the pocket to that open ground: ${up.ends.join(' | ')} (${(up.ms / 1000).toFixed(1)} s of search)`);
-ok(up?.reached, 'a walk there gets out (six searches of 2 s at most)');
+ok(up?.reached && up.ends.length === 1 && up.ms < 1000, 'a walk there gets out on its first search, in under a second (the weighted goal)');
+
+// 2b. From 45 blocks down (i133's staged run: a plain search's walk stalled 40 blocks under its exit)
+{
+  const deep = new Vec3(DEEP.x, 20, DEEP.z);
+  const o = openGroundNear(a, deep, aisle.x, aisle.y, aisle.z, boxes);
+  const r = o ? follow(deep, climbGoal(o), 2000, 6) : null;
+  say(`from 45 down (${deep.x},${deep.y},${deep.z}) to open ground ${o ? `${o.x},${o.y},${o.z}` : 'none'}: ${r ? `${r.ends.join(' | ')} (${(r.ms / 1000).toFixed(1)} s of search)` : '-'}`);
+  ok(r?.reached && r.ends.length <= 2, 'from 45 blocks down a walk gets out in two searches at most');
+}
 
 // 3. On to the hut over the surface
 const on = up?.reached ? follow(up.at, aisle, 2000, 2) : null;

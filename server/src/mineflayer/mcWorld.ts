@@ -1860,15 +1860,17 @@ export class MineflayerWorld implements WorldAdapter {
     return f.members;
   }
 
-  /** #133's backstop: since when each member has been under ground, and the last check. */
-  private underSince = new Map<string, number>();
+  /** #133's backstop: since when each member has been under ground, where it stood at each check since, and the last check. */
+  private underSince = new Map<string, { t: number; at: Array<{ t: number; x: number; y: number; z: number }> }>();
   private underAt = 0;
 
   /**
    * #133's backstop, every 30 s: a member under ground, 6 or more blocks below its home's level, for UNDER_MS with no
    * action finished in that time (train 7: six members spent 10-30 minutes in the rock under the storage hut, every walk
-   * failing, until teleported by hand) is stopped and teleported home, and the tasks it holds go back on the board.
-   * Miners and smiths finish a trip every few minutes, so the mine's work never trips it.
+   * failing, until teleported by hand), or never more than 5 blocks from where it stood (sealed in, a harvest_slot
+   * finished every minute without reaching anything, i133's staged run), is stopped and teleported home, and the tasks
+   * it holds go back on the board. Miners and smiths finish a trip every few minutes along their tunnels, so the mine's
+   * work never trips it.
    */
   private undergroundWatch() {
     const now = Date.now();
@@ -1880,15 +1882,20 @@ export class MineflayerWorld implements WorldAdapter {
         this.underSince.delete(a.name);
         continue;
       }
-      const since = this.underSince.get(a.name) ?? now;
-      this.underSince.set(a.name, since);
-      if (now - since < UNDER_MS || a.history.some((s) => s.state === 'done' && !UNDER_IDLE.has(s.type) && (s.endedAt ?? 0) >= now - UNDER_MS)) continue;
+      const u = this.underSince.get(a.name) ?? { t: now, at: [] };
+      const p = a.bot.entity.position;
+      u.at = [...u.at.filter((q) => now - q.t <= UNDER_MS), { t: now, x: p.x, y: p.y, z: p.z }];
+      this.underSince.set(a.name, u);
+      if (now - u.t < UNDER_MS) continue;
+      const done = a.history.some((s) => s.state === 'done' && !UNDER_IDLE.has(s.type) && (s.endedAt ?? 0) >= now - UNDER_MS);
+      const moved = u.at.some((q) => Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z) > 5);
+      if (done && moved) continue;
       this.underSince.delete(a.name);
-      void this.bringUp(a, v, now - since);
+      void this.bringUp(a, v, now - u.t, done ? 'never more than 5 blocks from here' : 'with nothing done');
     }
   }
 
-  private async bringUp(a: BotAgent, v: Village, ms: number) {
+  private async bringUp(a: BotAgent, v: Village, ms: number, why: string) {
     const p = a.bot.entity.position.clone(), min = Math.round(ms / 60000);
     a.stop();
     const how = await teleportHome(a, new AbortController().signal).catch((e: Error) => `the teleport failed: ${e.message}`);
@@ -1896,8 +1903,8 @@ export class MineflayerWorld implements WorldAdapter {
     for (const t of held) this.villages.unclaim(v, t.id, a.name, `stuck under ground for ${min} min`);
     if (held.length) this.villages.save();
     const back = held.length ? `; handed back ${held.map((t) => `${t.id} "${t.title}"`).join(', ')}` : '';
-    console.log(`[underground] ${a.name} stuck under ground at ${at(p)} for ${min} min with nothing done: ${how ?? 'no home to go to'}${back}`);
-    a.pushEvent('system', `Rescue: you were stuck under ground at ${at(p)} for ${min} minutes with nothing done; ${how ?? 'there is no home to go to'}${held.length ? `. Your task${held.length > 1 ? 's' : ''} ${held.map((t) => t.id).join(', ')} went back on the board for anyone to take` : ''}. Carry on from here.`);
+    console.log(`[underground] ${a.name} stuck under ground at ${at(p)} for ${min} min ${why}: ${how ?? 'no home to go to'}${back}`);
+    a.pushEvent('system', `Rescue: you were stuck under ground at ${at(p)} for ${min} minutes ${why}; ${how ?? 'there is no home to go to'}${held.length ? `. Your task${held.length > 1 ? 's' : ''} ${held.map((t) => t.id).join(', ')} went back on the board for anyone to take` : ''}. Carry on from here.`);
   }
 
   /** #67: who is busy, every 5 s, as the runs' BusyClock counts it (an action running), for the panel's graphs. */
