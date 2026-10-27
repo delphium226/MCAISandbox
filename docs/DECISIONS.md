@@ -900,3 +900,9 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 10-27 (the user's) **Monuments at 1:3 from now on**: MC_MONUMENT_SCALE defaults to 0.3333 (was 0.5). Built so far at
   1:3: Conwy (2,008 blocks), Salisbury (3,149), Cologne (6,902). M4's 1:2 target and 1:1 are dropped for now; 1:4
   stays for quick tests.
+- 10-27 (the user's, on runs/2026-10-27/houses/spec.md) **Bigger houses with decorations (#141)**: +2 on each wall
+  (`both`: interior x2.1, wood +50%), both flags built and A/B'd in one train, small vanilla houses as fillers, trades
+  stock decorations and owners place them, HOUSE_UNITS 225 and LANDMARK_UNITS ~400, +30-45% build cost accepted.
+  Built after the 10-27 budget reset.
+- 10-27 (the user's, tier 3 spec) **Deepslate needs no rung; the copper roof waits for the copper rung** (deepslate
+  first, re-roofed later).
