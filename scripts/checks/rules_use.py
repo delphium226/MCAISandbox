@@ -1,21 +1,71 @@
 """G3's rules in a run, from its ledgers (NAME.acts.jsonl, NAME.choices.jsonl): laws proposed (refused, by type), backing,
 the council's meetings (agenda, ballots cast, yes share, results), rules enacted, refusals by rule and member (the measure of
 a code-enforced rule's pressure), and duties kept: for each duty in force, the share of member-days after its enactment on
-which the member did the kind (from the decision log, village days from the clock's records).
+which the member did the kind (from the decision log, village days from the clock's records). #164: the typed share of
+laws, backs counted by a failure, repeals, and customs (members doing one by day, seeded apart); `summary()` gives
+run_report.py its rows (train 7's report grepped the agent log for laws, which go only to the acts ledger: F330).
 
 Usage: python scripts/checks/rules_use.py DIR/NAME
 """
-import json, re, sys
+import json, os, re, sys
 from collections import Counter, defaultdict
 
 
+def load(base):
+    """The run's acts and choices ledgers (base: DIR/NAME, or either ledger's or the log's path); [] where missing."""
+    base = re.sub(r"\.(acts|choices)\.jsonl$|\.log$", "", base)
+    def rows(p):
+        return [json.loads(l) for l in open(p, encoding="utf-8") if l.strip()] if os.path.exists(p) else []
+    return rows(f"{base}.acts.jsonl"), rows(f"{base}.choices.jsonl")
+
+
+def summary(acts):
+    """#164's rows for run_report.py: laws (typed share), ballots and rules passed, compliance, repeals, customs. {} when
+    the run has no council or custom records."""
+    laws = [a for a in acts if a.get("type") == "law" and a.get("id") and not a.get("op")]
+    ballots = [a for a in acts if a.get("type") == "ballot"]
+    customs = [a for a in acts if a.get("type") == "custom" and a.get("op") == "did"]
+    if not laws and not ballots and not customs:
+        return {}
+    r = {}
+    typed = sum(1 for a in laws if a.get("rule") != "norm")
+    r["laws (typed)"] = f"{len(laws)} ({typed / max(1, len(laws)):.0%} typed)"
+    backs = [a for a in acts if a.get("type") == "law" and a.get("op") == "back"]
+    counted = [a for a in backs if a.get("counted", True)]
+    r["backs counted (by a failure)"] = f"{len(counted)} of {len(backs)} ({sum(1 for a in counted if a.get('by') == 'failure')})"
+    enacted = [a for a in acts if a.get("type") == "rule" and a.get("op") == "enacted"]
+    r["rules passed"] = ", ".join(f"{a.get('rule')} {a.get('id')}" for a in enacted) or "none"
+    ltype = {a["id"]: a.get("rule") for a in laws}
+    yes = defaultdict(Counter)
+    for b in ballots:
+        for k, v in (b.get("votes") or {}).items():
+            if k in ltype:
+                yes["norm" if ltype[k] == "norm" else "typed"][v] += 1
+    r["yes: norms / typed"] = " / ".join(f"{yes[t]['yes'] / max(1, yes[t]['yes'] + yes[t]['no']):.0%}" if yes[t] else "-" for t in ("norm", "typed"))
+    days = [a for a in acts if a.get("type") == "compliance" and a.get("op") == "day"]
+    comp = []
+    for rid in sorted({a["rule"] for a in days}):
+        ds = [a for a in days if a["rule"] == rid]
+        comp.append(f"{rid} {sum(1 for a in ds if a.get('met')) / len(ds):.0%}")
+    if comp:
+        r["compliance by rule"] = ", ".join(comp)
+    rep = [a for a in acts if a.get("type") == "law" and a.get("rule") == "repeal" and not a.get("op")]
+    gone = [a for a in acts if a.get("type") == "rule" and a.get("op") == "repealed"]
+    if rep or gone:
+        r["repeals proposed / passed"] = f"{len(rep)} / {len(gone)}"
+    if customs:
+        by = defaultdict(set)
+        for a in customs:
+            if not a.get("seeded"):
+                by[a.get("custom")].add(a.get("agent"))
+        r["customs: non-seeded members"] = ", ".join(f"{c} {len(m)}" for c, m in by.items()) or "0"
+    return r
+
+
 def main():
-    base = re.sub(r"\.(acts|choices)\.jsonl$|\.log$", "", sys.argv[1] if len(sys.argv) > 1 else "")
-    acts = [json.loads(l) for l in open(f"{base}.acts.jsonl", encoding="utf-8") if l.strip()]
-    try:
-        choices = [json.loads(l) for l in open(f"{base}.choices.jsonl", encoding="utf-8") if l.strip()]
-    except FileNotFoundError:
-        choices = []
+    acts, choices = load(sys.argv[1] if len(sys.argv) > 1 else "")
+    if not acts:
+        raise SystemExit(__doc__)
     out = []
     laws = [a for a in acts if a.get("type") == "law" and a.get("id") and not a.get("op")]
     ops = Counter((a.get("op"), a.get("counted", True)) for a in acts if a.get("type") == "law" and a.get("op"))
@@ -107,6 +157,7 @@ def main():
         days = sorted({day_at(c["t"]) for c in choices if c.get("type") == "choice" and day_at(c["t"]) >= since})
         kept = sum(len(done[d]) for d in days)
         out.append(f"DUTY {kind}: kept on {kept} of {len(days) * len(members)} member-days after day {since - 1}")
+    out += [f"#164 {k}: {v}" for k, v in summary(acts).items()]
     print("\n".join(out))
 
 

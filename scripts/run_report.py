@@ -13,6 +13,8 @@ import json, os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from scorecard import chore_busy_bins, jsonl  # noqa: E402  (the scorecard's chore busy, #80: one code for both)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "checks"))
+from rules_use import load as load_ledgers, summary as rules_summary  # noqa: E402  (#164: the council's rows)
 
 # Widest cell; a longer value is cut (MCAI_REPORT_WIDTH to change)
 W = int(os.environ.get("MCAI_REPORT_WIDTH", "44"))
@@ -135,6 +137,8 @@ def report(log):
     r["tokens / cost"] = first(r"; tokens (.*)$", t)
     for k, n in agent_log_counts(log).items():
         r[k] = str(n)
+    # (#164: laws, ballots, rules, compliance and customs, from the acts ledger as rules_use.py reads it)
+    r.update(rules_summary(load_ledgers(log)[0]))
     r.update(perf_summary(log[:-len(".log")] + ".perf.jsonl"))
     return r
 
