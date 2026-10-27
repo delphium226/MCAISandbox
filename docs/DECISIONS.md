@@ -908,3 +908,7 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   first, re-roofed later).
 - 10-27 (the user's, on #141's A/B: wood per home +51%, interior x2.2, growth to 12 houses +23%, no [lag]) **MC_BIG_HOUSES
   on by default (both)**; MC_HOUSE_DECOR stays off until decorations pass a rerun with beds done.
+- 10-27 (the user's, on test train 7, F326-F328) **The monument goes on by default once stage 7's dyes have a supply
+  or a stand-in** (red, pink, bone meal); it held hour-2 busy at 54-64% against 13% without it. **Pad villages get room
+  for small works** by more or bigger greens (pads and outward growth stay on). **#164 gives the model's choices stakes**
+  (options whose results differ: rungs, laws, trades), not more on/off pairs first.
