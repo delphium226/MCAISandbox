@@ -8,6 +8,7 @@
  */
 import type { Village } from '../village';
 import { BELL_EMERALDS, furnishPlan } from '../furnish';
+import { HOUSE_DECOR, isDecorItem } from '../houseDecor';
 import { BUYS, MERCHANT_ON, OFFERS } from '../merchant';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
@@ -60,12 +61,14 @@ async function shears(a: BotAgent, v: Village, signal: AbortSignal): Promise<voi
 
 async function makeFurnishing(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const v = a.village(), m = v?.monument;
-  if (!v || !m) throw new Error('make_furnishing: the village has no monument');
   const item = str(args.item, 'item');
+  // (#141, MC_HOUSE_DECOR: a house decoration's chore (`decor`) makes it into storage, monument or none)
+  const decor = HOUSE_DECOR && isDecorItem(item) && !!args.decor;
+  if (!v || (!m && !decor)) throw new Error('make_furnishing: the village has no monument');
   const n = Math.max(1, Math.floor(num(args.count ?? 1, 'count')));
   const notes: string[] = [];
   const store = spare(v);
-  const wood = `${m.wood || 'oak'}_planks`;
+  const wood = `${m?.wood || v.wood || 'oak'}_planks`;
   const plan = furnishPlan(item, n, store);
   // (generic makings as the village holds them: planks of its wood or any, coal or charcoal)
   const takes: Record<string, number> = {};
@@ -125,9 +128,10 @@ async function makeFurnishing(a: BotAgent, args: Record<string, unknown>, signal
     });
   }
   const made = await has(a, item);
-  console.log(`[furnish] ${v.name}: ${a.name} made ${made} ${item} for the monument${notes.length ? ` (${notes.join('; ')})` : ''}`);
+  const forWhat = decor ? "the village's houses" : 'the monument';
+  console.log(`[furnish] ${v.name}: ${a.name} made ${made} ${item} for ${forWhat}${notes.length ? ` (${notes.join('; ')})` : ''}`);
   if (made < 1) throw new Error(`make_furnishing: no ${item} made (${notes.join('; ') || 'short of its makings'})`);
-  return `made ${made} ${item} for the monument's furnishing${notes.length ? ` (${notes.join('; ')})` : ''}`;
+  return `made ${made} ${item} for ${decor ? "the village's houses (into storage)" : "the monument's furnishing"}${notes.length ? ` (${notes.join('; ')})` : ''}`;
 }
 
 export const FURNISH_SKILLS: Record<string, McSkill> = {

@@ -888,6 +888,101 @@ export function buildingDecor(p: SignPlace, wood: string, opts: { lights?: Light
   });
 }
 
+/** A decoration's cell in a placed house (#141): on the floor (a carpet), on an inner wall at head height (a banner, its
+ *  `facing` away from the wall), on top of a piece of furniture (a pot or a candle), or hung from the ceiling (a lantern). */
+export interface DecorSlot { x: number; layer: number; z: number; kind: 'floor' | 'wall' | 'surface' | 'ceiling'; facing?: SignSpot['facing'] }
+
+/**
+ * A placed house's decoration slots (#141, MC_HOUSE_DECOR; spec runs/2026-10-27/houses/spec.md 5), after its basics and
+ * furniture (`taken`: their cells, layer and all, and the cells their pieces' tops are, `surfaces`): clamp(inside cells / 8,
+ * 2, 6) of them, the kinds in turn floor, wall, surface, ceiling (at most 2 surfaces and 2 ceilings). Floor: an inside cell
+ * with a floor under it, off the doors, the entrance's inside cell and the taken cells, beside a taken cell first (a rug by
+ * the bed or the table), then farthest from the entrance. Wall: a head-height (layer 2) inside cell against a solid wall,
+ * off the doors' ring, the lights, the signs and the taken cells, each the farthest from the walls chosen. Surface: the free
+ * cell over a full-block piece. Ceiling: the highest free cell of an open column (layer 3 or up) under a solid block,
+ * nearest the room's middle. Worked out in the design's own cells, so the same slots turn with the house; pure
+ * (scripts/checks/decor_slots.mts checks it at four turns).
+ */
+export function decorSlots(p: SignPlace, opts: { taken?: Array<{ x: number; layer: number; z: number }>; surfaces?: Array<{ x: number; layer: number; z: number }>; lights?: LightSpot[]; signs?: SignSpot[] } = {}): DecorSlot[] {
+  const g = placedGrid(p), d = p.design, rot = ((p.rot % 4) + 4) % 4;
+  const cell = (l: number, i: number, j: number) => {
+    const ch = d.layers[l]?.[j]?.[i];
+    return ch === undefined ? undefined : ch === '_' || ch === '.' ? ch : d.palette[ch] ?? 'air';
+  };
+  const world = (i: number, j: number) => { const [u, w] = turnCell(i, j, d.width, d.depth, rot); return { x: g.area.x1 + u, z: g.area.z1 + w }; };
+  const wk = (i: number, l: number, j: number) => { const w = world(i, j); return `${w.x},${l},${w.z}`; };
+  const isDoorBlock = (c: string | undefined) => !!c && c !== '.' && c !== '_' && /_door$/.test(c.replace(/^minecraft:/, '').replace(/\[.*$/, ''));
+  const solidBlock = (c: string | undefined) => !!c && c !== '.' && c !== '_' && c !== 'air';
+  const taken = new Set((opts.taken ?? []).map((c) => `${c.x},${c.layer},${c.z}`));
+  for (const s of [...(opts.lights ?? []), ...(opts.signs ?? [])]) taken.add(`${s.x},${s.layer},${s.z}`);
+  const near = new Set<string>();
+  const ring = (i: number, j: number) => { for (const [a, b] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) near.add(`${i + a},${j + b}`); };
+  for (let j = 0; j < d.depth; j++) for (let i = 0; i < d.width; i++) if (isDoorBlock(cell(1, i, j))) ring(i, j);
+  const { door, out } = doorOf(d);
+  const inCell = `${door[0] - out[0]},${door[1] - out[1]}`;
+  const DIRS = ['north', 'east', 'south', 'west'] as const;
+  const turned = (f: SignSpot['facing']) => { let t = f; for (let r = 0; r < rot; r++) t = CLOCKWISE[t]; return t; };
+  const dist2 = (a: { i: number; j: number }, b: { i: number; j: number }) => (a.i - b.i) ** 2 + (a.j - b.j) ** 2;
+  const from0 = { i: door[0], j: door[1] };
+  let inside = 0, si = 0, sj = 0;
+  const floor: Array<{ i: number; j: number; by: boolean }> = [], walls: Array<{ i: number; j: number; f: SignSpot['facing'] }> = [], ceil: Array<{ i: number; j: number; l: number }> = [];
+  for (let j = 0; j < d.depth; j++)
+    for (let i = 0; i < d.width; i++) {
+      if (cell(1, i, j) !== '.') continue;
+      inside++;
+      si += i;
+      sj += j;
+      // (a carpet is walked over: the door's ring is fine, but not the entrance's inside cell; "_" is vanilla's ground floor)
+      if (!taken.has(wk(i, 1, j)) && (solidBlock(cell(0, i, j)) || cell(0, i, j) === '_') && `${i},${j}` !== inCell) {
+        const by = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => { const w = world(i + a, j + b); return taken.has(`${w.x},1,${w.z}`); });
+        floor.push({ i, j, by });
+      }
+      if (cell(2, i, j) === '.' && !near.has(`${i},${j}`) && !taken.has(wk(i, 2, j))) {
+        const f = DIRS.find((q) => { const [a, b] = STEPS[q]; return holdsSign(cell(2, i + a, j + b)); });
+        // (a banner faces away from its wall)
+        if (f) walls.push({ i, j, f: CLOCKWISE[CLOCKWISE[f]] });
+      }
+      // (the column open from the floor up to a solid block, 3 layers up or more)
+      let l = 1;
+      while (cell(l + 1, i, j) === '.') l++;
+      if (l >= 3 && solidBlock(cell(l + 1, i, j)) && !taken.has(wk(i, l, j))) ceil.push({ i, j, l });
+    }
+  const want = Math.max(2, Math.min(6, Math.floor(inside / 8)));
+  const mid = { i: si / Math.max(1, inside), j: sj / Math.max(1, inside) };
+  const surf = (opts.surfaces ?? []).filter((s) => !taken.has(`${s.x},${s.layer},${s.z}`));
+  // (stable sorts: ties keep the design's row, column order, the same at every turn)
+  floor.sort((a, b) => Number(b.by) - Number(a.by) || dist2(b, from0) - dist2(a, from0));
+  ceil.sort((a, b) => dist2(a, mid) - dist2(b, mid));
+  const out2: DecorSlot[] = [];
+  const usedFloor = new Set<string>(), usedWall: Array<{ i: number; j: number }> = [];
+  let s = 0, c = 0;
+  const order = ['floor', 'wall', 'surface', 'ceiling'] as const;
+  for (let k = 0, miss = 0; out2.length < want && miss < order.length; k++) {
+    const kind = order[k % order.length];
+    let got = false;
+    if (kind === 'floor') {
+      const f = floor.find((q) => !usedFloor.has(`${q.i},${q.j}`));
+      if (f) { usedFloor.add(`${f.i},${f.j}`); out2.push({ ...world(f.i, f.j), layer: 1, kind }); got = true; }
+    } else if (kind === 'wall') {
+      let best: (typeof walls)[number] | null = null, bestD = -1;
+      for (const q of walls) {
+        if (usedWall.some((u) => u.i === q.i && u.j === q.j)) continue;
+        const dd = usedWall.length ? Math.min(...usedWall.map((u) => dist2(q, u))) : dist2(q, from0);
+        if (dd > bestD) [best, bestD] = [q, dd];
+      }
+      if (best) { usedWall.push(best); out2.push({ ...world(best.i, best.j), layer: 2, kind, facing: turned(best.f) }); got = true; }
+    } else if (kind === 'surface') {
+      if (s < 2 && s < surf.length) { out2.push({ x: surf[s].x, layer: surf[s].layer, z: surf[s].z, kind }); s++; got = true; }
+    } else if (c < 2) {
+      // (lanterns spread: none beside another)
+      const q = ceil.find((x) => !out2.some((o) => o.kind === 'ceiling' && Math.abs(o.x - world(x.i, x.j).x) + Math.abs(o.z - world(x.i, x.j).z) < 3));
+      if (q) { out2.push({ ...world(q.i, q.j), layer: q.l, kind }); c++; got = true; }
+    }
+    miss = got ? 0 : miss + 1;
+  }
+  return out2;
+}
+
 /** A placed building's entrance door and its way out (placedGrid's `door`, null for a noSign place: a town centre). */
 export function placedDoor(p: SignPlace): { x: number; z: number; ox: number; oz: number } | null {
   return p.noSign ? null : placedGrid(p).door;

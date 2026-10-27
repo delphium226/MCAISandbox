@@ -8,12 +8,20 @@
  */
 import { V2_LIMITS, generateDesign, type BuildingStyle } from './buildingGen';
 import { goalFromValues, hexacoOf, hexacoWeights, valuesOf, VALUES, type Value } from './character';
-import { HOUSE_UNITS, HOUSE_UNITS_LARGE, MAX_SMELTS } from './designs';
+import { BIG_HOUSES, HOUSE_UNITS, HOUSE_UNITS_LARGE, MAX_SMELTS } from './designs';
 import type { Design } from './village';
 import { rawSetting } from './settings';
 
 // (on by default since 10-25, the user's: "always use the newer building style"; =off turns it off)
 export const GEN_HOMES = !/^(off|0|false|no)$/i.test(rawSetting('MC_GEN_HOMES') ?? 'on');
+
+/** A wall's length under #141's MC_BIG_HOUSES (designs.ts): +2 (both; long on the longer wall only) or x1.5 kept odd (x15). */
+const grown = (n: number) => (BIG_HOUSES === 'both' || BIG_HOUSES === 'long' ? n + 2 : BIG_HOUSES === 'x15' ? Math.floor(n * 0.75) * 2 + 1 : n);
+/** A house's walls grown (#141): long grows the longer wall (the width when even), the others both. */
+export function growWalls(width: number, depth: number): [number, number] {
+  if (BIG_HOUSES === 'long') return width >= depth ? [grown(width), depth] : [width, grown(depth)];
+  return [grown(width), grown(depth)];
+}
 
 /** A neighbourhood's look, after vanilla's village of its biome. */
 export interface Family {
@@ -120,6 +128,7 @@ export function memberStyle(member: string, familyName: string, wood?: string): 
     depth = 5;
     wing = { side: rnd() < 0.5 ? 'east' : 'west', width: width === 9 && rnd() < 0.5 ? 5 : 3, depth: overhang ? 2 : porch ? 2 : 3 };
   } else if (porch && overhang) depth = 5;
+  [width, depth] = growWalls(width, depth);
   // (a hard-working member elaborates a log frame into timber where the walls are long enough, whatever its conformity)
   const frame = h.C >= 0.3 && family.frame === 'logs' && Math.min(width, depth) >= 7 ? 'timber' : look(family.frame, h.C >= 0.3 ? 'logs' : h.C <= -0.3 ? 'none' : family.frame);
   const door_offset = footprint === 'rect' && h.C < 0.3 ? Math.floor(rnd() * 3) - 1 : 0;
@@ -161,7 +170,7 @@ export function fitHome(style: BuildingStyle, budget: number, bill: HomeBill = {
     && (!bill.units || bill.units(d) <= budget) && (!bill.smelts || bill.smelts(d) <= MAX_SMELTS);
   const steps: Array<[string, (s: BuildingStyle) => BuildingStyle | null]> = [
     ['one storey', (s) => (s.storeys === 2 ? { ...s, storeys: 1, upper_walls: undefined } : null)],
-    ['no wing', (s) => (s.footprint && s.footprint !== 'rect' ? { ...s, footprint: 'rect', wing: undefined, width: Math.min(s.width, 7), depth: Math.min(s.depth, s.porch && s.overhang ? 5 : 7), overhang: s.roof === 'flat' ? 0 : 1 } : null)],
+    ['no wing', (s) => (s.footprint && s.footprint !== 'rect' ? { ...s, footprint: 'rect', wing: undefined, width: Math.min(s.width, grown(7)), depth: Math.min(s.depth, grown(s.porch && s.overhang ? 5 : 7)), overhang: s.roof === 'flat' ? 0 : 1 } : null)],
     ['smaller', (s) => (s.width >= 7 && s.width >= s.depth ? { ...s, width: s.width - 2 } : s.depth >= 7 ? { ...s, depth: s.depth - 2 } : s.width >= 7 ? { ...s, width: s.width - 2 } : null)],
     ['smaller', (s) => (s.width >= 7 ? { ...s, width: s.width - 2 } : s.depth >= 7 ? { ...s, depth: s.depth - 2 } : null)],
     ['no chimney', (s) => (s.chimney ? { ...s, chimney: false } : null)],

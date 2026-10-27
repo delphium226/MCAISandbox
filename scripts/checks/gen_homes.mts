@@ -16,7 +16,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import minecraftData from 'minecraft-data';
-import { stairShape, type BuildingStyle } from '../../server/src/buildingGen';
+import { V2_LIMITS, stairShape, type BuildingStyle } from '../../server/src/buildingGen';
 import { elevations, HOUSE_UNITS, HOUSE_UNITS_LARGE, outsideCells, outwardStep, validateDesign } from '../../server/src/designs';
 import { FAMILY, homeOwner, homeTraits, isHomeName, ownHomes } from '../../server/src/houseStyle';
 import { isDwelling } from '../../server/src/grow';
@@ -74,7 +74,7 @@ function check(d: Design, budget: number): string[] {
   const problems: string[] = [];
   const { errors } = validateDesign({ ...d, layers: d.layers.map((l) => [...l]), palette: { ...d.palette } }, 'check', { isPlaceable, states: true });
   problems.push(...errors.map((e) => `validateDesign: ${e}`));
-  if (d.width > 9 || d.depth > 9) problems.push(`box ${d.width}x${d.depth} over 9x9`);
+  if (d.width > V2_LIMITS.maxBox || d.depth > V2_LIMITS.maxBox) problems.push(`box ${d.width}x${d.depth} over ${V2_LIMITS.maxBox}x${V2_LIMITS.maxBox}`);
   if (d.height > 12) problems.push(`${d.height} layers`);
   const c = cost(d);
   if (c.units > budget) problems.push(`${c.units} units over ${budget}`);
@@ -221,6 +221,22 @@ if (process.env.OUT) {
     const s = d.style as BuildingStyle;
     fs.writeFileSync(path.join(process.env.OUT, `${s.family}-${s.owner}.json`), JSON.stringify({ ...woodVariant(d, FAMILY[s.family!].wood), name: `${s.owner} (${s.family})` }));
   }
+}
+// The size (#141, MC_BIG_HOUSES): the mean box, free ground-floor cells inside the walls and wood blocks, so a run asserts the
+// built sizes and not the flag (a budget left unscaled cuts every home back to today's)
+{
+  const n = all.length;
+  const interior = (d: Design) => {
+    const l1 = d.layers[1] ?? [];
+    const out = outsideCells(l1);
+    let c = 0;
+    for (let z = 0; z < d.depth; z++) for (let x = 0; x < d.width; x++) if (!out.has(`${x},${z}`) && !solid(d, at(d, 1, x, z))) c++;
+    return c;
+  };
+  const wood = (d: Design) => d.layers.reduce((t, l) => t + l.reduce((u, row) => u + [...row].filter((ch) => /oak|spruce|birch|acacia|jungle|dark_oak|mangrove|cherry|planks|_log/.test(d.palette[ch] ?? '')).length, 0), 0);
+  const plains = all.filter((d) => (d.style as BuildingStyle).family === 'plains');
+  const m = (ds: Design[], f: (d: Design) => number) => ds.reduce((t, d) => t + f(d), 0) / (ds.length || 1);
+  lines.push(`size (MC_BIG_HOUSES=${process.env.MC_BIG_HOUSES ?? 'off'}): box ${m(all, (d) => d.width).toFixed(1)} x ${m(all, (d) => d.depth).toFixed(1)}, interior ${m(all, interior).toFixed(1)} cells; plains: interior ${m(plains, interior).toFixed(1)}, wood ${m(plains, wood).toFixed(0)}, units ${m(plains, (d) => cost(d).units).toFixed(0)} (${n} homes)`);
 }
 console.log(lines.join('\n'));
 console.log(failed ? `FAIL gen_homes: ${failed} problems` : `PASS gen_homes: ${all.length} homes in 5 families, every one valid, in budget and in its box`);

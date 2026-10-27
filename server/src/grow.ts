@@ -5,7 +5,7 @@
  * neighbourhood's first on (ids are registry-wide and rising), so the claim gates need no new field. No model call decides
  * any of it. World-independent: the world's tick decides (MineflayerWorld.growTick), a chore lays out (lay_out_houses).
  */
-import { HOUSE_UNITS, HOUSE_UNITS_LARGE, VANILLA_ALL, VARIANT_WOODS, WOOD_VARIANTS, baseName, isLargeHome, variantName, variantWood, woodVariant } from './designs';
+import { BIG_HOUSES, HOUSE_UNITS, HOUSE_UNITS_LARGE, VANILLA_ALL, VARIANT_WOODS, WOOD_VARIANTS, baseName, isLargeHome, variantName, variantWood, woodVariant } from './designs';
 import { GEN_HOMES, isHomeName, ownHomes } from './houseStyle';
 import { MINING_HUT, STORAGE_HUT } from './huts';
 import { doorOf, placeFarm, placeLamps, planStreets } from './streetPlan';
@@ -110,12 +110,16 @@ export function pickHouses(v: Village, n: number, lib: Design[] | null, units?: 
   // (R1: which candidates are larger homes, by their bill when the world can say, else by name)
   const big = new Set(VANILLA_ALL ? cands.filter((d) => isLargeHome(d.name, units?.(d))).map((d) => d.name) : []);
   const out: string[] = [];
-  let bigs = 0;
+  let bigs = 0, smalls = 0;
+  // (#141, MC_BIG_HOUSES: vanilla's small houses only as fillers, at most one in four, while a roomier pick is left)
+  const small = (d: Design) => BIG_HOUSES !== 'off' && SMALL_VANILLA.test(baseName(d.name));
   for (let i = 0; i < n; i++) {
-    const pool = bigs ? cands.filter((c) => !big.has(c.name)) : cands;
+    let pool = bigs ? cands.filter((c) => !big.has(c.name)) : cands;
+    if (smalls >= Math.ceil(n / 4) && pool.some((c) => !small(c))) pool = pool.filter((c) => !small(c));
     if (!pool.length) break;
     const d = pool.reduce((b, c) => (built.get(c.name)! < built.get(b.name)! ? c : b));
     if (big.has(d.name)) bigs++;
+    if (small(d)) smalls++;
     built.set(d.name, built.get(d.name)! + 1);
     out.push(d.name);
   }

@@ -7,6 +7,7 @@
  * checks.
  */
 import type { Design } from './village';
+import { HOME_BOX, HOUSE_WALLS, LANDMARK_WALLS } from './designs';
 
 /** What the architect gives instead of layers (the submit_style tool). Sizes are the walls; an overhang adds a ring. */
 export interface BuildingStyle {
@@ -269,7 +270,7 @@ export function generateDesign(style: BuildingStyle, by = 'code'): Design {
 // ---------------------------------------------------------------------------------------------
 
 /** What a v2 home may take (houseStyle.ts holds them): its box, overhang and porch included, and its layers. */
-export const V2_LIMITS = { maxBox: 9, maxLayers: 12 };
+export const V2_LIMITS = { maxBox: HOME_BOX, maxLayers: 12 };
 
 interface Part { x0: number; x1: number; z0: number; z1: number; axis: 'x' | 'z'; joined?: Dir }
 
@@ -601,8 +602,8 @@ export const STYLE_TOOL = {
     properties: {
       name: { type: 'string', description: 'Short name, e.g. "stone cottage".' },
       description: { type: 'string', description: 'One sentence describing the building.' },
-      width: { type: 'integer', description: `Walls west to east, odd: ${STYLE_LIMITS.minSide} to 9 for a house, to 11 for a hall or other landmark.` },
-      depth: { type: 'integer', description: `Walls north to south, odd: ${STYLE_LIMITS.minSide} to 9 for a house, to 11 for a hall or other landmark.` },
+      width: { type: 'integer', description: `Walls west to east, odd: ${STYLE_LIMITS.minSide} to ${HOUSE_WALLS} for a house, to ${LANDMARK_WALLS} for a hall or other landmark.` },
+      depth: { type: 'integer', description: `Walls north to south, odd: ${STYLE_LIMITS.minSide} to ${HOUSE_WALLS} for a house, to ${LANDMARK_WALLS} for a hall or other landmark.` },
       wall_height: { type: 'integer', description: 'Wall layers above the floor, 3 or 4.' },
       floor: { type: 'string', enum: [...OPTIONS.floor], description: 'none keeps the levelled ground (cheapest).' },
       base: { type: 'string', enum: [...OPTIONS.base], description: 'The lowest course of the walls, e.g. a stone base under wood.' },

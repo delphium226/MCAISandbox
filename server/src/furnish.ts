@@ -26,13 +26,14 @@ export const FURNISH_STAGE = 'furnishing';
 /** Whether an item is a furnishing piece the furnishing chore makes (the altar's chiselled bricks are the carver's). */
 export const furnishItem = (item: string) => /^(lantern|iron_chain|candle|bell|\w+_banner)$/.test(item);
 
-/** Who makes an item: lanterns, chains, candles and the bell the smith, banners the weaver. */
-export const furnishTrade = (item: string): 'smith' | 'weaver' | 'carver' => (/_banner$/.test(item) ? 'weaver' : item === 'chiseled_stone_bricks' ? 'carver' : 'smith');
+/** Who makes an item: lanterns, chains, candles, the bell and flower pots the smith, banners and carpets the weaver. */
+export const furnishTrade = (item: string): 'smith' | 'weaver' | 'carver' => (/_(banner|carpet)$/.test(item) ? 'weaver' : item === 'chiseled_stone_bricks' ? 'carver' : 'smith');
 
 /** The most of an item one chore makes (a chore's trip and table time: a stack of wool is ~11 sheep). */
 export function furnishBatch(item: string): number {
   if (item === 'bell') return 1;
-  if (/_banner$/.test(item)) return 4;
+  if (/_banner$/.test(item) || item === 'flower_pot') return 4;
+  if (/_carpet$/.test(item)) return 6;
   return 8;
 }
 
@@ -77,6 +78,19 @@ export function furnishPlan(item: string, n: number, have: Record<string, number
       crafts.push({ item: `${colour}_wool`, makes: 6 * n });
     }
     sticks(n);
+  } else if (/_carpet$/.test(item)) {
+    // (#141's house decorations: 2 wool make 3 carpets, the wool dyed first as a banner's)
+    const colour = item.replace(/_carpet$/, ''), runs = Math.ceil(n / 3);
+    add('white_wool', 2 * runs);
+    if (colour !== 'white') {
+      add(`${colour}_dye`, 2 * runs);
+      crafts.push({ item: `${colour}_wool`, makes: 2 * runs });
+    }
+    crafts.push({ item, makes: 3 * runs });
+    return { takes, crafts };
+  } else if (item === 'flower_pot') {
+    // (#141: 3 bricks a pot, the bricks smelted from clay)
+    add('brick', 3 * n);
   } else if (item === 'candle') {
     add('string', n);
     add('honeycomb', n);

@@ -26,11 +26,25 @@ export const DESIGN_BLOCKS = [
  * village. A flat 7x7 cottage was ~108 units and a flat 9x9 hall ~213 (designbench, 10-04); a stair gable adds ~20-40.
  */
 // (250 and 400 until D.2: generated buildings, fuller and with overhangs, made a village ~760 units, Minevale13)
-export const HOUSE_UNITS = 150;
-export const LANDMARK_UNITS = 300;
+/**
+ * #141's bigger houses (MC_BIG_HOUSES=off|long|both|x15; off by default; spec runs/2026-10-27/houses/spec.md): a member's
+ * own house grows by 2 on its longer wall (long), on each wall (both: 7x5 to 9x7, the user's pick, 10-27) or by half (x15),
+ * and the budgets and caps with it, a hall staying bigger than a house. `box` is V2_LIMITS.maxBox (overhang included).
+ */
+export const BIG_HOUSES = (/^(long|both|x15)$/i.exec(rawSetting('MC_BIG_HOUSES') ?? 'off')?.[1]?.toLowerCase() ?? 'off') as 'off' | 'long' | 'both' | 'x15';
+const SIZES = {
+  off: { house: 150, large: 230, landmark: 300, walls: 9, landmarkWalls: 11, box: 9 },
+  long: { house: 180, large: 275, landmark: 350, walls: 9, landmarkWalls: 11, box: 11 },
+  both: { house: 225, large: 345, landmark: 400, walls: 11, landmarkWalls: 13, box: 11 },
+  x15: { house: 300, large: 460, landmark: 500, walls: 11, landmarkWalls: 13, box: 15 },
+}[BIG_HOUSES];
+export const HOUSE_UNITS = SIZES.house;
+export const LANDMARK_UNITS = SIZES.landmark;
 /** The most a style's walls may span (D.2, after Minevale14's 13x13 hall): a house, a landmark. */
-export const HOUSE_WALLS = 9;
-export const LANDMARK_WALLS = 11;
+export const HOUSE_WALLS = SIZES.walls;
+export const LANDMARK_WALLS = SIZES.landmarkWalls;
+/** The most a generated home's box may span, overhang and porch included (buildingGen's V2_LIMITS). */
+export const HOME_BOX = SIZES.box;
 export const MAX_SMELTS = 32;
 /**
  * #104's R1 (MC_VANILLA_ALL=on; off by default): the jar's village pieces opened up. Every passing vanilla dwelling is
@@ -42,7 +56,7 @@ export const MAX_SMELTS = 32;
 export const VANILLA_ALL = !/^(off|0|false|no)$/i.test(rawSetting('MC_VANILLA_ALL') ?? 'on');
 /** A larger home's budget (R1): vanilla's medium and big houses, and its small houses over HOUSE_UNITS (plains 5, taiga 1, 3
  *  and 5). A bigger house bills more; nothing is discounted. */
-export const HOUSE_UNITS_LARGE = 230;
+export const HOUSE_UNITS_LARGE = SIZES.large;
 /** A vanilla dwelling by its name (grow.ts isDwelling's rule for vanilla pieces). */
 const VANILLA_DWELLING = /^(plains|desert|savanna|taiga|snowy)_(small|medium|big)_house_\d+$/;
 /** Whether a design is a larger home (R1): a vanilla dwelling that `units` puts over HOUSE_UNITS, or by its name a medium or

@@ -43,7 +43,8 @@ import type { AgentBrain } from '../world';
 import type { Area, Design, Initiative, Monument, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
 import { PART_RE, freeSpots, storageContents, storageFlow, storageGross, storageSlots, storageStrays } from './mcStorage';
-import { HOME_BASICS, basicsCost, basicsFacts, basicsLeft, sheepPlace, woolInHand, type BasicsCells } from './mcHome';
+import { HOME_BASICS, basicsCost, basicsFacts, basicsLeft, freeDecorSlots, houseDecorOf, sheepPlace, woolInHand, type BasicsCells } from './mcHome';
+import { HOUSE_DECOR, decorPicks, decorWants } from '../houseDecor';
 import { contractOf, deliveriesOf, deliveryWords, earmarked, levyOwed, levySweep, markAtEnd, reconcilePay, startPay, storeByCommand, type PayWorld } from './mcPay';
 import { PAY, payOf } from '../pay';
 import { INNOVATE, LIBRARY, attemptPoints, candidates, chanceFor, needOf, payRoyalties, pointsIn, ROYALTY, ptsText, techGoods, techOf, techOwnRecipes } from '../tech';
@@ -53,7 +54,7 @@ import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 import { Atlas } from './mcAtlas';
 import { VILLAGE_BIOMES, listPieces, pieceToDesign, readPiece, vanillaLibrary, vanillaLights, vanillaShelves, villageBiome } from '../vanillaPieces';
-import { buildingDecor, buildingLights, type HomeBasics, placedDoor, signLabel, type DecorSpot, type LightSpot, type SignPlace, type SignSpot } from '../streetPlan';
+import { buildingDecor, buildingLights, decorSlots, type DecorSlot, type HomeBasics, placedDoor, signLabel, type DecorSpot, type LightSpot, type SignPlace, type SignSpot } from '../streetPlan';
 import { buildCatalog, type ActivitySpec } from '../activities';
 import { LETTERS_PACE } from '../ladderFlags';
 import { isPaused } from '../runClock';
@@ -88,7 +89,7 @@ import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodA
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
 import { quarryFeeds } from './mcQuarry';
-import { bannerStandIn, furnishBatch, furnishItem, furnishWants } from '../furnish';
+import { bannerStandIn, furnishBatch, furnishItem, furnishTrade, furnishWants } from '../furnish';
 import { FLOWER_DYE, KILN, MONUMENT, capShare, currentStage, furnishStage, standInFrom, dyeFlowers, glassColours, ironReached, jobBuilt, jobBuiltPlanned, jobReady, monumentLine, monumentPlan, newMonument, openJobs, stageWants, stageWantsPlanned, yardCovers, M3, TRADE_WEIGHT, noteTrade, tradeOfStep, tradeOf, progressLine as monumentProgress, partLine, cathedralName, presetWords, stageNames as monumentStages, monumentNoun, m3, architectOptions, dyesOnOffer, ARCHITECT_SYSTEM, ARCHITECT_TOOL, architectPrompt, checkArchitect, newMonumentPicked, type ArchitectFacts, type ArchitectPick, type Trade } from '../monument';
 import { kilnOn, laneWork, planOf } from './mcKiln';
 import { BULK_LANES, LODGE, TRIP_MIN, bulkTrip } from '../lodge';
@@ -186,7 +187,11 @@ export type DecorPart = {
   chest?: { x: number; y: number; z: number; facing: string };
   /** MC_HOME_BASICS: an owned dwelling's bed, chest and crafting table cells (buildingDecor's `basics`, inside the box). */
   basics?: BasicsCells;
+  /** #141 (MC_HOUSE_DECOR): an owned dwelling's decoration slots (decorSlots, after its basics and furniture, in the box). */
+  slots?: DecorSlotY[];
 };
+/** A decoration slot in the world (`y` the cell's). */
+export type DecorSlotY = DecorSlot & { y: number };
 
 /** Vanilla's facade torches lit too (D4: vanilla's own look); off, only the spots inside. */
 const LIGHT_FACADES = rawSetting('MC_LIGHT_FACADES') !== '0';
@@ -919,11 +924,29 @@ export class MineflayerWorld implements WorldAdapter {
         ...(b.table && inBox(b.table) ? { table: { ...b.table, y: st.y + 1 } } : {}),
       } : undefined;
       if (chest && basics?.chest) chest.spot = { x: basics.chest.x, z: basics.chest.z, facing: basics.chest.facing as SignSpot['facing'] };
+      // (#141: an owned dwelling's decoration slots, off its furniture's and basics' cells; a full-block piece's top a surface)
+      let slots: DecorSlotY[] | undefined;
+      if (HOUSE_DECOR && st.owner && isDwelling(st.kind)) {
+        const taken: Array<{ x: number; layer: number; z: number }> = [], surfaces: Array<{ x: number; layer: number; z: number }> = [];
+        for (const q of spots) {
+          taken.push({ x: q.x, layer: q.layer, z: q.z });
+          if (q.also) taken.push({ x: q.x, layer: q.also.layer, z: q.z });
+          else if (/^(crafting_table|barrel)/.test(q.block)) surfaces.push({ x: q.x, layer: q.layer + 1, z: q.z });
+        }
+        if (basics?.bed) taken.push({ x: basics.bed.x, layer: 1, z: basics.bed.z }, { x: basics.bed.foot.x, layer: 1, z: basics.bed.foot.z });
+        if (basics?.chest) taken.push({ x: basics.chest.x, layer: 1, z: basics.chest.z });
+        if (basics?.table) {
+          taken.push({ x: basics.table.x, layer: 1, z: basics.table.z });
+          surfaces.unshift({ x: basics.table.x, layer: 2, z: basics.table.z });
+        }
+        slots = decorSlots(place, { taken, surfaces, lights, signs })
+          .filter((q) => inBox(q) && q.layer >= 1 && q.layer < place.design.height).map((q) => ({ ...q, y: st.y + q.layer }));
+      }
       if (!spots.length && !basics) continue;
       const r = v.decor?.[P.part];
       const open = spots.filter((q) => !r?.done.includes(`${q.x},${q.y},${q.z}`) && !r?.never?.includes(`${q.x},${q.y},${q.z}`));
       const own = chest?.spot && chest.spot.x >= st.x1 && chest.spot.x <= st.x2 && chest.spot.z >= st.z1 && chest.spot.z <= st.z2 ? { x: chest.spot.x, y: st.y + 1, z: chest.spot.z, facing: chest.spot.facing } : undefined;
-      parts.push({ part: P.part, label: P.label, structure: st, place, walk: P.walk, spots, open, ...(own ? { chest: own } : {}), ...(basics ? { basics } : {}) });
+      parts.push({ part: P.part, label: P.label, structure: st, place, walk: P.walk, spots, open, ...(own ? { chest: own } : {}), ...(basics ? { basics } : {}), ...(slots?.length ? { slots } : {}) });
     }
     parts.sort((p, q) => q.open.length - p.open.length);
     this.decorCache.set(v.name, { sig, quick: { light, key }, parts });
@@ -5574,6 +5597,22 @@ export class MineflayerWorld implements WorldAdapter {
           }, { kind: 'own', what: 'shear', make: !shears });
         } else reasons.own ??= `storage is short for your house: ${short.map(([q, c]) => `${q}: ${(c as { short: string }).short}`).join('; ')}`;
       }
+      // #141 (MC_HOUSE_DECOR): basics in, the owner decorates its house from the trades' stock (2 pieces a chore, its taste's)
+      if (HOUSE_DECOR && st && P?.slots && P.basics && !left.length) {
+        const free = freeDecorSlots(v, P);
+        const placed = houseDecorOf(v)[st.id] ?? [];
+        const picks = free.length ? decorPicks(a.name, free, placed, store) : [];
+        if (picks.length) {
+          const at = picks[0].slot;
+          const named = picks.map((p) => words(p.cost.block.replace(/\[.*$/, ''))).join(' and ');
+          add({
+            id: 'own:decor', kind: 'own', key: me, excludes: [`${me}=`], name: 'Decorate your own house', rank: 945,
+            at: { x: at.x, z: at.z },
+            facts: `your ${words(st.kind)} has ${placed.length} decoration${placed.length === 1 ? '' : 's'} and room for ${free.length} more; storage pays for ${named}; ${dist(at.x, at.z)}`,
+            effect: `${named} in your own house, in your own colour`,
+          }, { kind: 'own', what: 'decor' });
+        } else if (free.length) reasons.own ??= 'storage holds no decoration your house has room for';
+      }
     }
 
     // #68 (MC_OWN): a chest in the member's own house, then its share carried home once 8 items are owed (ahead of the
@@ -6391,6 +6430,31 @@ export class MineflayerWorld implements WorldAdapter {
         }, { kind: 'furnish', part: P.part, n, items, open: P.open.length, label: P.label });
       }
       if (!out.some((o) => o.kind === 'furnish')) reasons.furnish = ['furniture short', 'backing off', 'busy', "others' houses"].find((w) => why.includes(w)) ?? 'nothing to furnish';
+      // #141 (MC_HOUSE_DECOR): the trades stock storage with what the owned houses' free decoration slots want, two items a
+      // menu at most (make_furnishing into storage); a colour only where its dye is stored, else white
+      if (HOUSE_DECOR) {
+        const store = facts.spare();
+        const houses = this.decorParts(v).filter((P) => P.slots?.length && P.structure.owner).map((P) => ({ owner: P.structure.owner!, free: freeDecorSlots(v, P) })).filter((h) => h.free.length);
+        const wants = decorWants(houses, store);
+        const can = (item: string) => item === 'flower_pot' ? (store.brick ?? 0) >= 3 : item === 'lantern' ? (store.iron_ingot ?? 0) >= 1 || (store.iron_nugget ?? 0) >= 8
+          : item === 'candle' ? (store.string ?? 0) >= 1 && (store.honeycomb ?? 0) >= 1 : true;
+        let shown = 0;
+        for (const [want, q] of Object.entries(wants).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))) {
+          if (shown >= 2) break;
+          const colour = /^(\w+)_(carpet|banner)$/.exec(want);
+          const item = colour && colour[1] !== 'white' && (store[`${colour[1]}_dye`] ?? 0) < 2 ? `white_${colour[2]}` : want;
+          const key = `decor:make:${item}`;
+          if (!can(item) || excluded([`${key}=`], busy) || (this.decorBack.get(`${v.name}:decor:${item}`) ?? 0) > now || out.some((o) => o.id === key)) continue;
+          const amount = Math.min(furnishBatch(item), q);
+          shown++;
+          add({
+            id: key, kind: 'furnish', key, excludes: [`${key}=`], rank: 1010 + shown,
+            name: `Make ${amount} ${words(item)} for the village's houses`,
+            facts: `${houses.length} house${houses.length === 1 ? ' has' : 's have'} room for decorations; they want ${q} more ${words(want)}; storage holds ${store[item] ?? 0}; the ${furnishTrade(item)}'s work; ${record('furnish')}`,
+            effect: `+${amount} ${words(item)} in storage, for members to decorate their own houses`,
+          }, { kind: 'decor', item, amount });
+        }
+      }
     }
 
     // #21 (MC_LETTERS): the library's shelves and lectern from storage into its cells, while letters is current (a furnishing,
@@ -7516,6 +7580,11 @@ export class MineflayerWorld implements WorldAdapter {
           console.log(`[pay] ${v.name}: ${worker.name} goes to deliver ${k ? deliveryWords(k) : 'goods'} to ${k?.payer ?? '?'} (${d.contract})`);
           return;
         }
+        if (d.what === 'decor') {
+          this.setChore(v, worker, opt.key, [worker.enqueue('decorate_home', { chore: true })], 'decorate your own house', undefined, meta, opt.holds, opt);
+          console.log(`[decor] ${v.name}: ${worker.name} goes to decorate its house`);
+          return;
+        }
         if (d.what === 'basics') {
           this.setChore(v, worker, opt.key, [worker.enqueue('home_basics', { chore: true })], 'set up your own house', undefined, meta, opt.holds, opt);
           console.log(`[home] ${v.name}: ${worker.name} goes to set up its house`);
@@ -7918,6 +7987,17 @@ export class MineflayerWorld implements WorldAdapter {
         // Its furniture earmarked until it withdraws it (D6), set after the chore as a make's inputs
         holdsSet(holdKey(v.name, worker.name), d.items);
         console.log(`[furnish] ${v.name}: ${worker.name} furnishes ${d.part} (${d.label}): ${d.n} of ${d.open} open spots, takes ${countsList(d.items)}`);
+        return;
+      }
+      case 'decor': {
+        // (#141: a house decoration made into storage; a failure backs the item off 5 minutes)
+        const make = worker.enqueue('make_furnishing', { item: d.item, count: d.amount, decor: true, chore: true });
+        const deposit = worker.enqueue('deposit', { item: 'all', chore: true });
+        const failed = (why: string) => {
+          if (why !== 'cancelled' && !make.code) this.decorBack.set(`${v.name}:decor:${d.item}`, Date.now() + 5 * 60000);
+        };
+        this.setChore(v, worker, opt.key, [make, deposit], `make ${d.amount} ${d.item} for the village's houses`, failed, meta, opt.holds, opt);
+        console.log(`[decor] ${v.name}: ${worker.name} makes ${d.amount} ${d.item} for the village's houses`);
         return;
       }
       case 'shelve': {
@@ -8800,6 +8880,8 @@ type OptionRun =
   | { kind: 'eat'; level: number; item: string; n: number; own?: boolean }
   | { kind: 'own'; what: 'chest' }
   | { kind: 'own'; what: 'basics' }
+  | { kind: 'own'; what: 'decor' }
+  | { kind: 'decor'; item: string; amount: number }
   | { kind: 'own'; what: 'shear'; make: boolean }
   | { kind: 'own'; what: 'carry'; want: Counts }
   | { kind: 'own'; what: 'deliver'; contract: string }

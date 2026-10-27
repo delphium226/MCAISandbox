@@ -9,7 +9,8 @@
 import { Vec3 } from 'vec3';
 import type { Village } from '../village';
 import type { BotAgent } from './botAgent';
-import type { DecorPart } from './mcWorld';
+import type { DecorPart, DecorSlotY } from './mcWorld';
+import { decorPicks, type DecorPlaced } from '../houseDecor';
 import type { McSkill } from './mcSkills';
 import type { Counts } from './mcMaterials';
 import { isDwelling } from '../grow';
@@ -287,6 +288,74 @@ async function homeBasics(a: BotAgent, _args: Record<string, unknown>, signal: A
   return `put ${done.join(' and ')} in your house${has.length ? `; it still lacks ${has.join(', ')}${short.length ? ` (storage is short: ${short.join('; ')})` : ''}` : ': it has a bed, a chest and a crafting table'}`;
 }
 
+// ---------------------------------------------------------------------------------------------
+// #141 (MC_HOUSE_DECOR): the owner decorates its house from what the trades stocked
+// ---------------------------------------------------------------------------------------------
+
+/** The decorations placed in each house (the village's record, by structure id). */
+export function houseDecorOf(v: Village): Record<string, DecorPlaced[]> {
+  const r = v as Village & { houseDecor?: Record<string, DecorPlaced[]> };
+  return (r.houseDecor ??= {});
+}
+
+/** A house's slots still free (its record's cells taken out). */
+export function freeDecorSlots(v: Village, P: DecorPart): DecorSlotY[] {
+  const placed = houseDecorOf(v)[P.structure.id] ?? [];
+  return (P.slots ?? []).filter((s) => !placed.some((q) => q.x === s.x && q.y === s.y && q.z === s.z));
+}
+
+/**
+ * decorate_home: up to 2 decorations for the member's own house (decorPicks: the kinds it lacks first, in its taste's
+ * order and colour, each with a free slot and storage's stock to pay), withdrawn in one trip, then set by command on their
+ * slots from beside the door, each confirmed on the server, the items taken from the member only for a piece that went
+ * down. A slot something else stands in is skipped.
+ */
+async function decorateHome(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('decorate_home: not in a village');
+  const st = v.structures.find((s) => s.owner === a.name && isDwelling(s.kind));
+  if (!st) throw new Error('decorate_home: you have no house of your own yet');
+  const P = a.world.decorParts(v).find((q) => q.structure.id === st.id);
+  if (!P?.slots?.length) throw new Error(`decorate_home: your house (${st.kind}) has no room for decorations`);
+  const free = freeDecorSlots(v, P);
+  if (!free.length) return 'every decoration slot of your house is taken';
+  const rec = (houseDecorOf(v)[st.id] ??= []);
+  const picks = decorPicks(a.name, free, rec, storageContents(v));
+  if (!picks.length) throw new Error('decorate_home: storage holds no decoration your house has room for (the trades make carpets, banners, flower pots, candles and lanterns)');
+  const want: Counts = {};
+  for (const p of picks) for (const [n, q] of Object.entries(p.cost.take)) want[n] = (want[n] ?? 0) + q;
+  const before: Counts = {};
+  for (const n of Object.keys(want)) before[n] = await a.world.rcon.count(a.name, n).catch(() => 0);
+  await withdrawItems(a, v, want, signal);
+  for (const [n, q] of Object.entries(want)) {
+    const have = await a.world.rcon.count(a.name, n).catch(() => 0);
+    if (have - before[n] < q) throw new ContentionError(`decorate_home: another agent took the ${n}`, 'taken', `stock:${n}`);
+  }
+  const walked = await toDoor(a, P, signal);
+  const done: string[] = [], failed: string[] = [];
+  for (const p of picks) {
+    const at = { x: p.slot.x, y: (p.slot as DecorSlotY).y, z: p.slot.z };
+    if (!/passed/i.test(await a.world.rcon.command(`execute if block ${at.x} ${at.y} ${at.z} minecraft:air`).catch(() => ''))) { failed.push(`${p.kind} (its cell is not free)`); continue; }
+    const took: Counts = {};
+    let paid = true;
+    for (const [n, q] of Object.entries(p.cost.take)) {
+      const t = await a.world.rcon.take(a.name, n, q).catch(() => 0);
+      took[n] = t;
+      if (t < q) paid = false;
+    }
+    const giveBack = async () => { for (const [n, q] of Object.entries(took)) if (q > 0) await a.world.rcon.command(`give ${a.name} minecraft:${n} ${q}`).catch(() => undefined); };
+    if (!paid) { await giveBack(); failed.push(`${p.kind} (its items were not all in your inventory)`); continue; }
+    if (!(await setConfirmed(a, at, p.cost.block))) { await giveBack(); failed.push(`${p.kind} (it did not go down)`); continue; }
+    rec.push({ ...at, kind: p.kind, block: p.cost.block.replace(/\[.*$/, ''), at: Date.now(), by: a.name });
+    done.push(p.cost.block.replace(/\[.*$/, '').replace(/_/g, ' '));
+  }
+  a.world.villages.save();
+  const left = freeDecorSlots(v, P).length;
+  console.log(`[decor] ${v.name}: ${a.name} put ${done.join(', ') || 'nothing'} in its house${failed.length ? `; not ${failed.join(', ')}` : ''}${walked ? '' : ' (from where it stood)'}; ${rec.length} placed, ${left} slots free`);
+  if (!done.length) throw new Error(`decorate_home: nothing went down: ${failed.join('; ')}`);
+  return `put ${done.join(' and ')} in your house (${rec.length} decorations; room for ${left} more)`;
+}
+
 /** The atlas's sheep place for the village (the wool skill's own pick: the biggest recent cluster near the hut), or why none. */
 export function sheepPlace(a: BotAgent, v: Village): { x: number; y: number; z: number } | string {
   const h = v.storageHut;
@@ -337,5 +406,6 @@ async function shearWool(a: BotAgent, v: Village, signal: AbortSignal): Promise<
 
 export const HOME_SKILLS: Record<string, McSkill> = {
   home_basics: { run: homeBasics },
+  decorate_home: { run: decorateHome },
   shear_for_bed: { run: shearForBed },
 };
