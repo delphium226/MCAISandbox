@@ -6,7 +6,7 @@
  */
 import { Vec3 } from 'vec3';
 import type { BotAgent } from './botAgent';
-import { at, checkAbort, goals, sleep, walk } from './mcUtil';
+import { at, checkAbort, covered, goals, outFromUnder, sleep, walk } from './mcUtil';
 import { timeScale } from './mcRules';
 // Blocks the climb may dig through: natural terrain only, never anything built
 import { RESCUE_DIGGABLE as DIGGABLE } from './mcBlocks';
@@ -91,14 +91,23 @@ function openSky(a: BotAgent): boolean {
  * Is the bot out (F131: a walk-out 7 blocks along a sealed mine tunnel was counted as getting out)? A village member is out
  * when a path home exists, and sealed in when the search finds none (it is exhaustive, and the walks' bans keep a sealed
  * space small); a search that runs out of time (home far off, partly unloaded, several bots sharing the loop) counts as
- * out. A bot in no village is out under the open sky.
+ * out, except under ground (#133: under the storage hut a search home always ran out of time, and each walk 10 blocks
+ * along the rock there counted as out, 3 rescues in a row before the teleport). A bot in no village is out under the
+ * open sky.
  */
 async function isOut(a: BotAgent, signal: AbortSignal): Promise<'out' | 'in' | 'sealed'> {
   const goal = homeGoal(a);
   if (!goal) return openSky(a) ? 'out' : 'in';
   const r = await search(a, goal, signal);
   if (r === 'success') return 'out';
-  return r === 'noPath' ? 'sealed' : 'out';
+  return r === 'noPath' ? 'sealed' : underHome(a, 6) ? 'in' : 'out';
+}
+
+/** Under ground, `depth` or more blocks below home's level (the storage's, else the first plot's; #133). */
+export function underHome(a: BotAgent, depth: number): boolean {
+  const p = a.bot.entity.position;
+  const level = home(a)?.y ?? a.village()?.plots[0]?.y;
+  return level !== undefined && p.y <= level - depth && covered(a, p);
 }
 
 /**
@@ -184,7 +193,7 @@ async function climb(a: BotAgent, signal: AbortSignal): Promise<{ rose: number; 
 }
 
 /** Where a village member belongs: beside its storage chest, else its first plot, else the world spawn. */
-function home(a: BotAgent): { x: number; y?: number; z: number; what: string } | null {
+export function home(a: BotAgent): { x: number; y?: number; z: number; what: string } | null {
   const v = a.village();
   const c = v?.storage?.chests[0];
   // Just inside the storage hut's doorway (the aisle: two blocks of air on the floor, chests stand at floor level + 1;
@@ -225,6 +234,10 @@ export async function rescue(a: BotAgent, signal: AbortSignal): Promise<{ how: '
   // the aquifers; the iron design review's H3)
   const deep = inIronLevel(a);
   if (deep) done.push('stuck in the iron level');
+  // Deep under village ground (#133): by the mine's stairs or up to open ground off the village, as a walk there would
+  const hg = deep ? null : homeGoal(a);
+  const up = hg ? await outFromUnder(a, hg, signal) : null;
+  if (up) return { how: 'walked', text: [...done, up].join(', then ') };
   const sealed = deep || (homeGoal(a) ? (await isOut(a, signal)) === 'sealed' : false);
   if (sealed && !deep) done.push('sealed in (no path home)');
   else if (await walkOut(a, from, signal)) return { how: 'walked', text: `${[...done, 'walked out'].join(', then ')} to ${at(bot.entity.position)}` };

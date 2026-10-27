@@ -109,6 +109,8 @@ async function walkRetrying(a: BotAgent, goal: InstanceType<typeof goals.Goal>, 
       moves.scafoldingBlocks = blocks;
     }
   }
+  // From deep under ground toward village ground (#133): out first, then the walk
+  await outFromUnder(a, goal, signal);
   // Far away: go in legs of ~40 blocks toward it (a single path search over 150 blocks found "no path" home), trying
   // a little to either side when a leg is blocked
   const g = goal as unknown as { x?: number; z?: number };
@@ -149,6 +151,126 @@ async function walkRetrying(a: BotAgent, goal: InstanceType<typeof goals.Goal>, 
       moves.maxDropDown = drop;
     }
   }
+}
+
+type Box = { x1: number; z1: number; x2: number; z2: number; y: number; y2?: number };
+const inBox = (q: Box, x: number, y: number, z: number) => x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2 && y >= q.y && (q.y2 === undefined || y <= q.y2);
+
+/** Solid ground over the head within 48 blocks (leaves aside): under ground, or under a roof. */
+export function covered(a: BotAgent, p: Vec3): boolean {
+  for (let y = Math.floor(p.y) + 2; y <= p.y + 48 && y < 320; y++) {
+    const b = a.bot.blockAt(new Vec3(Math.floor(p.x), y, Math.floor(p.z)));
+    if (!b) return false;
+    if (b.boundingBox === 'block' && !b.name.endsWith('_leaves')) return true;
+  }
+  return false;
+}
+
+/**
+ * The top of a column's open ground: the highest solid block with two cells of air over it, scanning down from 40 over
+ * `level` to `floor`; null when that is a tree, water, a column standing higher than the scan starts, or unloaded.
+ */
+function groundTop(a: BotAgent, x: number, z: number, level: number, floor: number): number | null {
+  const v = new Vec3(x, 0, z);
+  for (let y = Math.min(319, level + 40); y > floor; y--) {
+    const b = a.bot.blockAt(v.set(x, y, z));
+    if (!b) return null;
+    if (/^(water|lava|bubble_column)$/.test(b.name)) return null;
+    if (b.boundingBox !== 'block') continue;
+    if (y === Math.min(319, level + 40) || /_(leaves|log|wood)$|ice$/.test(b.name)) return null;
+    return y;
+  }
+  return null;
+}
+
+/**
+ * Open ground to climb out to from under a village (#133): the column within 48 blocks, off every village's ground and
+ * fields, nearest the bot (and then the goal), whose top lies over it. It stands back from village ground by the height
+ * of the climb over the ground's lowest kept level: no path digs into village ground, so stairs out from under it rise
+ * a block a step outside it (an exit at its edge left the search the steps in a band 4 wide, and it ran out of time,
+ * scripts/checks/under_hut.mts). Null if none is loaded.
+ */
+export function openGroundNear(a: BotAgent, from: Vec3, gx: number, gy: number, gz: number, boxes: Box[]): Vec3 | null {
+  const farm = a.farmGround();
+  let best: { s: number; r: number; p: Vec3 } | null = null;
+  for (let r = 0; r <= 48; r += 4) {
+    if (best && r > best.r + 8) break;
+    const n = r ? 16 : 1;
+    for (let i = 0; i < n; i++) {
+      const x = Math.round(from.x + r * Math.cos((2 * Math.PI * i) / n)), z = Math.round(from.z + r * Math.sin((2 * Math.PI * i) / n));
+      // (a mine's box only near its tunnels' level: the ground over them is free)
+      if (boxes.some((q) => q.y2 === undefined && x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2)) continue;
+      if (farm.some((q) => x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2)) continue;
+      const top = groundTop(a, x, z, gy, Math.floor(from.y) + 1);
+      if (top === null || boxes.some((q) => inBox(q, x, top + 1, z))) continue;
+      const room = (q: Box) => Math.max(1, Math.min(12, top + 3 - q.y));
+      if (boxes.some((q) => q.y2 === undefined && x >= q.x1 - room(q) && x <= q.x2 + room(q) && z >= q.z1 - room(q) && z <= q.z2 + room(q))) continue;
+      const s = Math.hypot(x - from.x, z - from.z) + 0.25 * Math.hypot(x - gx, z - gz);
+      if (!best || s < best.s) best = { s, r, p: new Vec3(x, top + 1, z) };
+    }
+  }
+  return best?.p ?? null;
+}
+
+/** Each bot's last way out from under village ground that got nowhere: not tried again from there for 3 minutes. */
+const outFailed = new Map<string, { t: number; p: Vec3 }>();
+
+/**
+ * Out from deep under ground first, when a walk goes up to village ground (#133, train 7: members left 50 blocks down by a
+ * failed amethyst trip walked to the storage hut by digging straight toward it, and every one ended in the rock under
+ * the hut: digging into village ground costs too much for any path, so the search ran out of time and its best partial
+ * path stopped under the floor, for 10-30 minutes). In the mine, by its stairs without digging; else up to open ground
+ * off the village. Says how it got out, or null when not needed or it could not.
+ */
+export async function outFromUnder(a: BotAgent, goal: InstanceType<typeof goals.Goal>, signal: AbortSignal): Promise<string | null> {
+  const g = goal as unknown as { x?: number; y?: number; z?: number };
+  if (typeof g.x !== 'number' || typeof g.y !== 'number' || typeof g.z !== 'number') return null;
+  const p = a.bot.entity.position.floored();
+  if (p.y > g.y - 6 || !covered(a, p)) return null;
+  const boxes = a.protectedGround();
+  // (village ground over the bot, not the mine's: walks within the mine go between its levels and tunnels)
+  const gx = Math.floor(g.x), gy = Math.floor(g.y), gz = Math.floor(g.z);
+  if (boxes.some((q) => q.y2 !== undefined && inBox(q, gx, gy, gz)) || !boxes.some((q) => q.y2 === undefined && (inBox(q, gx, gy, gz) || inBox(q, gx, gy - 1, gz)))) return null;
+  const f = outFailed.get(a.name);
+  if (f && Date.now() - f.t < 180000 && f.p.distanceTo(p) < 6) return null;
+  const tried: string[] = [];
+  const m = a.village()?.mine;
+  if (m?.level !== undefined && boxes.some((q) => q.y2 !== undefined && p.x >= q.x1 && p.x <= q.x2 && p.z >= q.z1 && p.z <= q.z2 && p.y >= q.y && p.y <= q.y2 + 1)) {
+    // Up the mine's stairs to the hut, along the tunnels only
+    const up = new goals.GoalNearXZ(m.top.x, m.top.z, 2), top = m.level + m.steps - 2;
+    const isEnd = up.isEnd.bind(up);
+    up.isEnd = (n) => isEnd(n) && n.y >= top;
+    const mv = a.moves();
+    const saved = { canDig: mv.canDig, scafoldingBlocks: mv.scafoldingBlocks, allow1by1towers: mv.allow1by1towers };
+    Object.assign(mv, { canDig: false, scafoldingBlocks: [], allow1by1towers: false });
+    try {
+      await walkOnce(a, up, 'the mine stairs', signal, 120000);
+      console.log(`[underground] ${a.name} came up the mine stairs from ${at(p)} on the way to ${at(g as Vec3)}`);
+      return 'came up the mine stairs';
+    } catch (e) {
+      if ((e as Error).message === 'cancelled') throw e;
+      tried.push(`the mine stairs: ${(e as Error).message.slice(0, 80)}`);
+    } finally {
+      Object.assign(mv, saved);
+    }
+  }
+  const here = a.bot.entity.position.floored();
+  const out = openGroundNear(a, here, g.x, g.y, g.z, boxes);
+  if (out) {
+    try {
+      await walkOnce(a, new goals.GoalNear(out.x, out.y, out.z, 1), `open ground at ${at(out)}`, signal, 180000);
+    } catch (e) {
+      if ((e as Error).message === 'cancelled') throw e;
+      tried.push((e as Error).message.slice(0, 80));
+    }
+    if (!covered(a, a.bot.entity.position)) {
+      console.log(`[underground] ${a.name} climbed from ${at(p)} to open ground at ${at(a.bot.entity.position)} on the way to ${at(g as Vec3)}`);
+      return `climbed out to open ground at ${at(a.bot.entity.position)}`;
+    }
+  } else tried.push('no open ground off the village within 48 blocks');
+  outFailed.set(a.name, { t: Date.now(), p: a.bot.entity.position.floored() });
+  console.log(`[underground] ${a.name} at ${at(a.bot.entity.position)} found no way out from under village ground (${tried.join('; ')})`);
+  return null;
 }
 
 /** Swim toward a point (or just up and forward) for up to 6 seconds, until out of the water. */

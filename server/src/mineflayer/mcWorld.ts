@@ -18,7 +18,8 @@ import { LIBRARY_KEEP, loadLibrary, type LibrarySpec } from '../library';
 import { MERCHANT_ON, MERCHANT_RESTOCK_MIN, MERCHANT_TAG, OFFERS, ORDERS_ON, ORDER_EXPIRE_RESTOCKS, ORDER_RAW_CAP, ORDER_SIZE, levelOf, offersCommands, orderPay, ordersOpen, stablePick, stallCell, summonCommand, villageTag, type MerchantOffer, type MerchantOrder } from '../merchant';
 import { Vec3 } from 'vec3';
 import { collectFilter, collectTargets, exposed, villageStationCell } from './mcSurvival';
-import { nearestBlocks, onVillageGround, stateAt } from './mcUtil';
+import { at, nearestBlocks, onVillageGround, stateAt } from './mcUtil';
+import { teleportHome, underHome } from './mcRescue';
 import { annexBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, storeBusy, surfaceAt, wheatKeep } from './mcBuild';
 import { ironDone, mineAreas, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PEN_KINDS, PEN_ORDER, PEN_VARIETY, SLOT_KINDS, SLOT_ORDER, penCap, penLure, penPlan, penSlotFit, penWords, worksFurnaces } from '../farmSlots';
@@ -111,6 +112,10 @@ const COPPER_WAIT_MIN = 60, COPPER_LANES = 4;
 const GEM_WAIT_MIN = 20;
 /** #165: the iron stored (raw and ingots) above which no member digs for more while a monument is built. */
 const IRON_MONUMENT_ENOUGH = 64;
+/** #133's backstop: a member under ground this long with nothing done is brought home. */
+const UNDER_MS = 8 * 60000;
+/** ...and what it may finish there without going anywhere (not progress). */
+const UNDER_IDLE = new Set(['wait', 'experiment']);
 /** #140 (F324): minutes (game time) a village leaves a bed flower it ran out of out of new mixes. */
 const FLOWER_OUT_MIN = 60;
 import { kilnHolds, kilnLanes, kilnLine } from '../kiln';
@@ -1855,6 +1860,46 @@ export class MineflayerWorld implements WorldAdapter {
     return f.members;
   }
 
+  /** #133's backstop: since when each member has been under ground, and the last check. */
+  private underSince = new Map<string, number>();
+  private underAt = 0;
+
+  /**
+   * #133's backstop, every 30 s: a member under ground, 6 or more blocks below its home's level, for UNDER_MS with no
+   * action finished in that time (train 7: six members spent 10-30 minutes in the rock under the storage hut, every walk
+   * failing, until teleported by hand) is stopped and teleported home, and the tasks it holds go back on the board.
+   * Miners and smiths finish a trip every few minutes, so the mine's work never trips it.
+   */
+  private undergroundWatch() {
+    const now = Date.now();
+    if (isPaused() || now - this.underAt < 30000) return;
+    this.underAt = now;
+    for (const a of this.agents.values()) {
+      const v = a.village();
+      if (!v || !a.bot.entity || a.gamemode === 'creative' || !underHome(a, 6)) {
+        this.underSince.delete(a.name);
+        continue;
+      }
+      const since = this.underSince.get(a.name) ?? now;
+      this.underSince.set(a.name, since);
+      if (now - since < UNDER_MS || a.history.some((s) => s.state === 'done' && !UNDER_IDLE.has(s.type) && (s.endedAt ?? 0) >= now - UNDER_MS)) continue;
+      this.underSince.delete(a.name);
+      void this.bringUp(a, v, now - since);
+    }
+  }
+
+  private async bringUp(a: BotAgent, v: Village, ms: number) {
+    const p = a.bot.entity.position.clone(), min = Math.round(ms / 60000);
+    a.stop();
+    const how = await teleportHome(a, new AbortController().signal).catch((e: Error) => `the teleport failed: ${e.message}`);
+    const held = v.tasks.filter((t) => t.status === 'claimed' && t.claimedBy === a.name);
+    for (const t of held) this.villages.unclaim(v, t.id, a.name, `stuck under ground for ${min} min`);
+    if (held.length) this.villages.save();
+    const back = held.length ? `; handed back ${held.map((t) => `${t.id} "${t.title}"`).join(', ')}` : '';
+    console.log(`[underground] ${a.name} stuck under ground at ${at(p)} for ${min} min with nothing done: ${how ?? 'no home to go to'}${back}`);
+    a.pushEvent('system', `Rescue: you were stuck under ground at ${at(p)} for ${min} minutes with nothing done; ${how ?? 'there is no home to go to'}${held.length ? `. Your task${held.length > 1 ? 's' : ''} ${held.map((t) => t.id).join(', ')} went back on the board for anyone to take` : ''}. Carry on from here.`);
+  }
+
   /** #67: who is busy, every 5 s, as the runs' BusyClock counts it (an action running), for the panel's graphs. */
   private util = new UtilClock();
   private utilAt = 0;
@@ -2091,6 +2136,11 @@ export class MineflayerWorld implements WorldAdapter {
       console.error('[food] appetite check failed:', e);
     }
     this.utilTick();
+    try {
+      this.undergroundWatch();
+    } catch (e) {
+      console.error('[underground] check failed:', e);
+    }
     try {
       this.endChoices();
     } catch (e) {

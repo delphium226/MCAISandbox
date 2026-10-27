@@ -2226,3 +2226,17 @@ CLAUDE.md when a phase ends.
   650 vs 0, promises 26 vs 0, pay lines 97 vs 26, barter offers 87 vs 56; letters chosen and reached (B: diamond from
   predicted ballots, not begun); proposals 0 vs 1, laws and customs 0 in both; failed after 324 vs 415; $1.00 (1,870
   calls) vs $0.25 (331). One pair. Logs: runs/2026-10-27/train7/ (report.md).
+- F329 (10-27, i133, #133) **Members trapped under the storage hut came from failed amethyst trips, and the trap is the
+  walk home's search, not a tunnel anyone planned.** All six (A: Tess, Rosa, Sam; B: Rosa, Victor, Wren) had just run
+  harvest_amethyst at a geode near y -22; when its climb back failed (the bot fell into a cave below its own stairs, its
+  own stair stopped: "dig a way up from here before the next job") it stood ~50 blocks down, and the next walk to the
+  hut (eat_meal, deposit) dug straight toward it. The pathfinder refuses any break costing 100 or more, so village ground
+  (plots from 4 below their level, the hut from a block under its floor, the mine) is a wall from below; the search
+  under the village then explores the whole rock volume, runs out of time, and its best partial path ends under the
+  floor (y 54-58, the train's spot; the y 54-55 maze is those walks and rescue walk-outs). Rescue made it worse: a
+  timed-out search home counted as out, so each 10-block walk along the rock was a success (3 rescues before its
+  teleport). Reproduced offline by scripts/checks/under_hut.mts (6 searches end at y 58 under the hut; climbing to open
+  ground off the plot first takes 2.2 s of search, then 3 ms to the hut). Fix: walks up to village ground from 6+
+  blocks under cover go out first (by the mine's stairs without digging, else to open ground standing back from village
+  ground by the climb), rescue does the same and counts a timeout under ground as in, and a backstop teleports a member
+  under ground 8 min with nothing done and hands back its tasks. Not yet run live.
