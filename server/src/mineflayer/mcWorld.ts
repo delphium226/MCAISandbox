@@ -6748,11 +6748,18 @@ export class MineflayerWorld implements WorldAdapter {
               if (k >= q) continue;
             }
             const blocks = item === 'tuff' ? ['tuff_bricks'] : DEEP_BLOCKS;
+            // (stood in already: nothing more to do for it; D1 logged it on every look)
+            if (blocks.every((b) => (m3(m).standIns ?? {})[b])) continue;
             const standIn = (why: string) => {
               for (const b of blocks) {
                 if ((m3(m).standIns ?? {})[b]) continue;
+                // (its job first, from the plan without the stand-in: after it no job holds the block, and D2's tuff stood
+                // in "from job 15", none, with job 3 waiting on 22 tuff)
+                // (the yard's raw tuff too, cut 1:1 into the plinth's bricks: tuff claimed but not yet cut still covers its
+                // jobs)
+                const from = standInFrom(m, b, (m.yard[b] ?? 0) + (b === 'tuff_bricks' ? m.yard.tuff ?? 0 : 0));
                 (m3(m).standIns ??= {})[b] = deepStandIn(b, m.wood || 'oak');
-                (m3(m).standInFrom ??= {})[b] = standInFrom(m, b, m.yard[b] ?? 0);
+                (m3(m).standInFrom ??= {})[b] = from;
               }
               this.villages.save();
               console.log(`[monument] ${v.name}: the ${N}'s ${blocks.join(', ')} stand in (${why}; short ${q - Math.max(0, k)} ${item})`);

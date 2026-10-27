@@ -8,9 +8,10 @@
  * Usage: node node_modules/tsx/dist/cli.mjs scripts/checks/deep_stone_unit.mts (sets MC_DEEP_STONE itself)
  */
 process.env.MC_DEEP_STONE = 'on';
+process.env.MC_IRON_AGE = 'on';
 const { default: minecraftData } = await import('minecraft-data');
 const { Materials } = await import('../../server/src/mineflayer/mcMaterials');
-const { deepLevel } = await import('../../server/src/mineflayer/mcMine');
+const { deepLevel, deepenForStone } = await import('../../server/src/mineflayer/mcMine');
 const { fullBlock, deepStandIn, standIn } = await import('../../server/src/monument');
 import type { Mine } from '../../server/src/village';
 
@@ -42,6 +43,13 @@ if (fullBlock('tuff_bricks', 'oak', {}, true, true) !== 'tuff_bricks') fail('dee
 if (fullBlock('deepslate_tiles', 'oak', {}, true, false) !== 'oak_planks' || fullBlock('tuff_bricks', 'oak', {}, true) !== 'stone_bricks') fail('without deep: not the wood and bricks');
 if (standIn('deepslate_tile_stairs[facing=east]', { deepslate_tile_stairs: deepStandIn('deepslate_tile_stairs', 'spruce') }) !== 'spruce_stairs[facing=east]') fail('stair stand-in');
 if (deepStandIn('tuff_bricks', 'oak') !== 'stone_bricks' || deepStandIn('deepslate_tile_slab', 'oak') !== 'oak_slab') fail('stand-ins');
+
+// deepenForStone: a level whose stairs still go down to a deep aim is the deep level (D1: it stood the tuff in at once)
+const reg0 = { note: () => {}, save: () => {} };
+const vOf = (iron: object) => ({ name: 'T', mine: { iron } }) as never;
+if (deepenForStone(reg0, vOf({ x: 0, z: 0, y: 8, dir: [1, 0], steps: 3, legs: [], dug: 0, got: {}, targetY: -4 })) !== -4) fail('stairs going down to a deep aim not the deep level');
+if (deepenForStone(reg0, vOf({ x: 0, z: 0, y: 8, dir: [1, 0], steps: 3, legs: [], dug: 0, got: {}, targetY: 8 })) !== null) fail('a shallow aim taken for deep');
+if (deepenForStone(reg0, vOf({ x: 0, z: 0, y: 0, dir: [1, 0], steps: 9, level: -4, legs: [], dug: 0, got: {} })) !== -4) fail('a deep level not found');
 
 console.log(failures ? `deep_stone_unit: ${failures} failed` : 'deep_stone_unit: ok');
 process.exit(failures ? 1 : 0);

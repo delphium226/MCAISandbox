@@ -1881,7 +1881,10 @@ export const DEEP_Y = 0, DEEP_DOWN = -4;
  */
 export function deepenForStone(reg: { note: (v: Village, s: string) => void; save: () => void }, v: Village, a?: BotAgent): number | null {
   const m = v.mine, i = m?.iron;
-  if (!DEEP_STONE || !IRON_AGE || !m || !i || i.level === undefined) return null;
+  if (!DEEP_STONE || !IRON_AGE || !m || !i) return null;
+  // (a level whose stairs are still going down: its aim, while that is deep; D1 stood the tuff in as soon as the deep
+  // level was laid, its level not yet known)
+  if (i.level === undefined) return !i.finished && i.targetY !== undefined && i.targetY <= DEEP_Y ? i.targetY : null;
   if (i.level <= DEEP_Y) return i.finished && !ironDone(m) ? i.level : i.finished ? null : i.level;
   if ((m as Mine & { deepTried?: number }).deepTried && Date.now() - (m as Mine & { deepTried?: number }).deepTried! < IRON_RETRY_MS) return null;
   const was = i.finished;
