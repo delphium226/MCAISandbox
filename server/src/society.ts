@@ -19,7 +19,7 @@ import { CHOOSE } from './choose';
 import { SOCIAL, memberSocial, profileLine, roleLine, type Profile } from './social';
 import { PROPOSALS_ON, addProposal, allProposals, endorse, parsePropose, proposeLine, withPropose, type CheckCtx, type Proposal } from './proposals';
 import { refusedSince } from './acts';
-import { addLaw, backLaw, classOf, lawFrom, laws, putClassOf, ruleResults, rulesInForce, type Law } from './rules';
+import { RULES, addLaw, backLaw, classOf, lawFrom, laws, putClassOf, ruleResults, rulesInForce, type Law } from './rules';
 import { rawSetting } from './settings';
 
 /** #164 (MC_LAW_BACKING=failures): a back also counts when the backer's failed chores that day name the law's target. */
@@ -182,7 +182,7 @@ export function lawLines(inForce: string[], openLaws: Array<Pick<Law, 'id' | 'te
     inForce.length ? `Village rules in force: ${inForce.join('; ')}.` : 'The village has no rules yet.',
     ...(openLaws.length ? [`Rules members proposed, waiting for backing (back or oppose up to 2 with \`back_laws\`; a rule backed by 2 others goes to the next dusk's secret vote):\n${openLaws.map((l) => `- [${l.id}] ${capital(l.text)} (backed by ${l.backers.length})`).join('\n')}`] : []),
     // (lawbench, 10-23: a template of sentences narrowed the laws to one type, 29 of 33; the kinds in prose keep their spread)
-    `You may propose one village rule (\`law\`, one sentence) if your day showed a need for it${openLaws.length ? ' and none above says it' : ''}: a daily quota on tools, logs or torches taken from storage, a minimum storage keeps of an item, an amount of something each member puts into storage a day, a duty every member does once a day, a levy on members' shares, a place kept free of building, or a custom in words. Most nights there is none.`,
+    `You may propose one village rule (\`law\`, one sentence) if your day showed a need for it${openLaws.length ? ' and none above says it' : ''}: a daily quota on tools, logs or torches taken from storage, a minimum storage keeps of an item, an amount of something each member puts into storage a day, a duty every member does once a day, a levy on members' shares, a place kept free of building, or a custom in words${RULES.results && inForce.length ? ', or the repeal of a rule in force by its id ("repeal [rl5]")' : ''}. Most nights there is none.`,
   ].join('\n');
 }
 
@@ -366,7 +366,12 @@ export function applyLaws(village: string, agent: string, input: unknown, day: n
   // level's stairs", so a back of a law on what failed counts; train 7 refused 85-92% of backs on chore lines alone)
   const failWords = LAW_BACKING === 'failures' ? (a?.log ?? []).filter((e) => e.day === day && !e.ok).map((e) => `${e.name} ${e.line} ${e.msg ?? ''}`.toLowerCase()).join(' ') : '';
   let words = dayWords;
-  const touches = (l: Law) => {
+  const touches = (l: Pick<Law, 'type' | 'params' | 'text'>): boolean => {
+    // (#164: a repeal is backed where the rule it ends touched the day)
+    if (l.type === 'repeal') {
+      const r = rulesInForce(village).find((x) => x.id === l.params.of);
+      return !!r && touches({ type: r.type as Law['type'], params: r.params, text: r.text });
+    }
     if (l.type === 'quota') return [...words.matchAll(/[a-z_]+/g)].some((w) => classOf(w[0]) === l.params.class) || words.includes(String(l.params.class).replace(/s$/, ''));
     if (l.type === 'floor') return l.params.class !== undefined ? [...words.matchAll(/[a-z_]+/g)].some((w) => (putClassOf(w[0]) ?? '') === l.params.class) || words.includes(String(l.params.class).replace(/s$/, '')) : words.includes(String(l.params.item).replace(/_/g, ' '));
     if (l.type === 'duty') return words.includes(String(l.params.kind));

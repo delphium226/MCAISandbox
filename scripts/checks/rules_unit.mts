@@ -175,7 +175,7 @@ ok(rules.readLaw({ what: 'Each villager must add at least one item to the commun
 ok(rules.readLaw({ what: 'Each villager may take no more than 2 meals from storage per day.' }).params.class === 'food' && !!rules.validate('quota', { class: 'food', n: 2 }), 'a meal quota read, refused');
 
 // The contribution: puts by member-day, the options that put the class tagged until met, the day judged
-const cr = rules.enact(V, { id: 'lc', by: 'Ada', at: 0, day: 4, type: 'contribute', params: { class: 'torches', n: 2 }, text: rules.ruleText('contribute', { class: 'torches', n: 2 }), what: '', why: '', backers: [], opposers: [], status: 'passed' } as never, { yes: 5, no: 1, abstain: 0 }, at(5, 0.05));
+const cr = rules.enact(V, { id: 'l50', by: 'Ada', at: 0, day: 4, type: 'contribute', params: { class: 'torches', n: 2 }, text: rules.ruleText('contribute', { class: 'torches', n: 2 }), what: '', why: '', backers: [], opposers: [], status: 'passed' } as never, { yes: 5, no: 1, abstain: 0 }, at(5, 0.05));
 ok(cr.text === 'each member puts at least 2 torches a day into storage', cr.text);
 ok(rules.contributeTag(V, 'Ben', 'make:torch', at(5, 0.1)) === null, 'no tag before the option is known to put torches');
 rules.notePuts(V, 'Ada', 'make:torch', { torch: 1 }, at(5, 0.1));
@@ -251,6 +251,31 @@ ok(rules.levyRate(V) !== 0.3, 'not before the count\'s moment');
 council.councilTick(V, members, at(11, 0.93));
 ok(rules.levyRate(V) === 0.3 && /From today the levy is 30%\.( |$)/.test(council.councilLine(V, at(12, 0.2))), `the imposed arm: set at the same moment, the same words without the vote (${council.councilLine(V, at(12, 0.2))})`);
 council.setCouncilSettings({ levySet: null, influencers: '' });
+
+// #164's repeal (MC_RULE_RESULTS): read by id or words, the rule found in force, its result on the ballot, ended on passing
+ok(rules.readLaw({ what: 'Repeal [rl50]: nobody meets it' }).type === 'norm', 'no repeal with the flag off');
+rules.setRulesSettings({ results: true });
+const rp = rules.readLaw({ what: 'Repeal [rl50]: nobody meets it' });
+ok(rp.type === 'repeal' && rp.params.of === 'rl50', `a repeal by id (${JSON.stringify(rp)})`);
+ok(rules.readLaw({ what: 'End each day by depositing 2 torches into storage' }).type !== 'repeal', '"end each day" is no repeal');
+ok(rules.ruleResults(V, at(13, 0.2)).some((x) => x.startsWith('[rl50] each member puts')), `results carry ids (${rules.ruleResults(V, at(13, 0.2))})`);
+ok(rules.addLaw(V, 'Nora', { what: 'Repeal rl99' }, at(13, 0.3)).status === 'refused', 'a repeal of no rule in force refused');
+const rw = rules.addLaw(V, 'Omar', { what: 'Drop the rule that each member puts torches into storage' }, at(13, 0.3));
+ok(rw.status === 'open' && rw.params.of === 'rl50' && rw.text.startsWith('repeal the rule [rl50]'), `a repeal in words finds its rule (${rw.text} ${rw.refused ?? ''})`);
+ok(/its result so far: met by/.test(rules.preview(V, 'repeal', rw.params, at(13, 0.3))), `its result on the ballot (${rules.preview(V, 'repeal', rw.params, at(13, 0.3))})`);
+const rbp = council.ballotPrompt(V, 'Ada', [rw], '', at(13, 0.8));
+ok(rbp.user.includes('[rl50] each member puts') && rbp.user.includes('its result so far'), 'the ballot shows rules with ids and the repeal\'s result');
+mem.noteEnd(V, 'Pia', { kind: 'make', option: 'make:torch', name: 'Make torches', ok: true, productive: true, cut: false, minutes: 1, line: 'Make torches: done, 1 min', message: '' }, at(13, 0.5));
+ok(soc.applyLaws(V, 'Pia', { back_laws: [rw.id] }, 13, at(13, 0.9)).includes(`backed ${rw.id}`), 'a repeal backed where its rule touched the day');
+ok(soc.lawLines(['x'], []).includes('repeal of a rule in force'), 'the night invites a repeal');
+const ended = rules.enact(V, { ...rw, status: 'passed' }, { yes: 5, no: 1, abstain: 0 }, at(13, 0.93));
+ok(ended.id === 'rl50' && ended.supersededBy === `r${rw.id}` && !rules.rulesInForce(V).some((r) => r.id === 'rl50') && !rules.rulesInForce(V).some((r) => r.type === 'repeal'), 'repealed: out of force, nothing in its place');
+const b2 = fs.readFileSync(path.join(dir, 'acts.jsonl'), 'utf8').length;
+rules.judgeDays(V, ['Ada', 'Ben'], at(15, 0.1));
+const after = fs.readFileSync(path.join(dir, 'acts.jsonl'), 'utf8').slice(b2).split('\n').filter(Boolean).map((l) => JSON.parse(l));
+ok(after.some((r) => r.rule === cr.id && r.day === 13) && !after.some((r) => r.rule === cr.id && r.day === 14), `judged on day 13, not after its repeal (${after.filter((r) => r.rule === cr.id).map((r) => r.day)})`);
+ok(fs.readFileSync(path.join(dir, 'acts.jsonl'), 'utf8').includes('"op":"repealed","id":"rl50"'), 'the repeal in the ledger');
+rules.setRulesSettings({ results: false });
 
 console.log(`rules_unit: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

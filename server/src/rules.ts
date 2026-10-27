@@ -40,7 +40,7 @@ export function setRulesSettings(s: Partial<typeof RULES>): void {
   Object.assign(RULES, s);
 }
 
-export const RULE_TYPES = ['quota', 'floor', 'zone', 'duty', 'levy', 'contribute', 'norm'] as const;
+export const RULE_TYPES = ['quota', 'floor', 'zone', 'duty', 'levy', 'contribute', 'norm', 'repeal'] as const;
 export type RuleType = (typeof RULE_TYPES)[number];
 export const QUOTA_CLASSES = ['tools', 'logs', 'torches'] as const;
 export type QuotaClass = (typeof QUOTA_CLASSES)[number];
@@ -88,6 +88,8 @@ function state(village: string): RulesState {
   const s = villageSocialOf(village) as { council?: RulesState };
   return (s.council ??= { next: 1, laws: [], takes: {} });
 }
+/** A rule a repeal ended (#164): superseded by the repeal's id, with no successor rule, from `repealedAt`. */
+type RepealedRule = Rule & { repealedAt?: number };
 function rulesOf(village: string): Rule[] {
   const s = villageSocialOf(village) as { rules?: Rule[] };
   return (s.rules ??= []);
@@ -127,6 +129,8 @@ export function validate(type: RuleType, p: Record<string, number | string>): st
       return Number.isInteger(Number(p.n)) && Number(p.n) >= 1 && Number(p.n) <= 64 ? null : 'a contribution must be 1 to 64 a day';
     case 'norm':
       return typeof p.text === 'string' && p.text.trim().length >= 8 ? null : 'a norm needs words';
+    case 'repeal':
+      return typeof p.of === 'string' && /^r/.test(p.of) && p.rule ? null : 'a repeal must name a rule in force by its id (as [rl5]); the levy changes by its own vote';
     case 'zone':
       if (p.use !== 'nobuild' && p.use !== 'farms') return 'a zone keeps a place free of building, or for farms only';
       return [p.x1, p.z1, p.x2, p.z2].every((x) => Number.isFinite(Number(x))) ? null : `a zone must name a place of the village (${ZONE_PLACES})`;
@@ -147,6 +151,7 @@ export function ruleText(type: RuleType, p: Record<string, number | string>): st
     case 'duty': return `every member does ${KIND_WORDS[String(p.kind)] ?? p.kind} once a day`;
     case 'levy': return `members leave ${p.rate}% of their share in the village storage`;
     case 'norm': return String(p.text).slice(0, 120);
+    case 'repeal': return `repeal the rule [${p.of}] "${p.rule}"`;
     case 'zone': return p.use === 'farms' ? `${p.place ?? p.area} is kept for farms` : `nothing new is built on ${p.place ?? p.area}`;
   }
 }
@@ -271,7 +276,11 @@ export function readLaw(raw: Record<string, unknown>): { type: RuleType; params:
   const t = String(r.type ?? raw.type ?? '').toLowerCase();
   const p = (r.params && typeof r.params === 'object' ? r.params : {}) as Record<string, number | string>;
   const text = `${raw.what ?? ''} ${raw.text ?? ''}`.trim();
-  if ((RULE_TYPES as readonly string[]).includes(t) && t !== 'norm' && Object.keys(p).length) return { type: t as RuleType, params: p };
+  if ((RULE_TYPES as readonly string[]).includes(t) && t !== 'norm' && (t !== 'repeal' || RULES.results) && Object.keys(p).length) return { type: t as RuleType, params: p };
+  // (#164, MC_RULE_RESULTS: a repeal opens the law and names a rule, by its id or in words; addLaw finds the rule in force)
+  if (RULES.results && REPEAL.test(text) && (RULE_ID.test(text) || REPEAL_NAMES.test(text.split(/[,;.]/)[0]))) {
+    return { type: 'repeal', params: { of: RULE_ID.exec(text)?.[1].toLowerCase() ?? '', text: text.slice(0, 200) } };
+  }
   // (the first clause only: "take up to 30 logs a day, but leave at least 50" is the quota)
   const s = digits(text.split(/;|, but |\bbut\b|\bunless\b|\bexcept\b/i)[0]);
   const daily = DAILY.test(s);
@@ -319,6 +328,10 @@ export function readLaw(raw: Record<string, unknown>): { type: RuleType; params:
   if (t === 'duty' && typeof p.kind === 'string') return { type: 'duty', params: { kind: kindOfWord(p.kind) ?? p.kind } };
   return { type: 'norm', params: { text } };
 }
+
+const REPEAL = /^\s*(?:let us |let's |we should |i propose (?:to |that we )?)?(?:repeal|drop|abolish|scrap|revoke|rescind|cancel|end|lift|retire)\b/i;
+const RULE_ID = /\[?\b(r(?:l\d+|levy-d\d+))\b\]?/i;
+const REPEAL_NAMES = /\b(rules?|laws?|duty|quota|requirement|norm|contribution)\b/i;
 
 /**
  * A law as the night's reply wrote it (F2xx: gpt-oss wrote Long1's 238 laws as their own key, {"dailyToolQuota": "Each
@@ -384,6 +397,7 @@ export function lawTarget(type: RuleType, p: Record<string, number | string>): s
     case 'levy': return 'levy';
     case 'zone': return `zone:${p.area}`;
     case 'norm': return `norm:${contentWords(String(p.text)).slice(0, 8).sort().join(' ')}`;
+    case 'repeal': return `repeal:${p.of}`;
   }
 }
 const STOP = new Set('each every member members villager villagers must should shall may will their they them with from into that this have least most more than once day days daily before after other others village communal storage'.split(' '));
@@ -413,6 +427,14 @@ export function addLaw(village: string, by: string, raw: Record<string, unknown>
     const v = villageOf?.(village);
     const pa = v ? placeArea(v, String(params.area)) : null;
     if (pa) Object.assign(params, { place: pa.name, ...pa.box });
+  }
+  // (#164: a repeal's rule in force, by its id, else the one whose words it shares most, 2 at least; never the levy)
+  if (type === 'repeal') {
+    const rs = rulesInForce(village).filter((r) => r.type !== 'levy');
+    const words = contentWords(String(params.text ?? '').replace(REPEAL, ''));
+    const shared = (r: Rule) => contentWords(r.text).filter((w) => words.includes(w)).length;
+    const r = rs.find((x) => x.id === params.of) ?? (params.of ? undefined : rs.filter((x) => shared(x) >= 2).sort((a, b) => shared(b) - shared(a))[0]);
+    if (r) Object.assign(params, { of: r.id, rule: r.text.slice(0, 120) });
   }
   let bad = validate(type, params);
   const target = lawTarget(type, params);
@@ -470,9 +492,18 @@ export function backLaw(village: string, id: string, by: string, oppose = false,
   return true;
 }
 
-/** A passed law into force: a rule of the same type and target is superseded. */
+/** A passed law into force: a rule of the same type and target is superseded. A repeal (#164) ends the rule it names: it is
+ *  superseded by the repeal's id and no rule takes its place. */
 export function enact(village: string, l: Law, votes: { yes: number; no: number; abstain: number }, now: number): Rule {
   const all = rulesOf(village);
+  if (l.type === 'repeal') {
+    const old = all.find((x) => x.id === l.params.of && !x.supersededBy);
+    const r: Rule = old ?? { id: String(l.params.of), type: 'norm', params: {}, text: String(l.params.rule ?? ''), since: now };
+    if (old) Object.assign(old, { supersededBy: `r${l.id}`, repealedAt: now });
+    logAct({ type: 'rule', village, op: 'repealed', id: r.id, rule: r.type, text: r.text, votes, from: l.id, found: !!old });
+    touchMemory();
+    return r;
+  }
   const r: Rule = { id: `r${l.id}`, type: l.type as Rule['type'], params: l.params, text: l.text, since: now, votedBy: votes };
   const target = (x: Rule) => (x.type === 'norm' ? x.id : lawTarget(x.type as RuleType, x.params));
   for (const old of all) if (!old.supersededBy && old.type === r.type && target(old) === target(r)) old.supersededBy = r.id;
@@ -629,7 +660,7 @@ export function judgeDays(village: string, members: string[], now: number): void
     // counts from the next)
     const c = clockOf(village, now);
     const mid = (c ? c.dayStart - (c.day - day - 1) * c.dayMs : now) - (c ? c.dayMs / 2 : 0);
-    const rs = all.filter((r) => r.since < mid && !all.some((x) => x.id === r.supersededBy && x.since < mid));
+    const rs = all.filter((r) => r.since < mid && !all.some((x) => x.id === r.supersededBy && x.since < mid) && !((r as RepealedRule).repealedAt! < mid));
     for (const r of rs) {
       const t = r.type as RuleType;
       if (t !== 'duty' && t !== 'contribute') continue;
@@ -723,26 +754,34 @@ export function feasibility(village: string, type: RuleType, p: Record<string, n
  */
 export function ruleResults(village: string, now: number): string[] {
   if (!RULES.results) return [];
+  // (each with its id, so a member can name it in a repeal)
+  return rulesInForce(village).map((r) => `[${r.id}] ${r.text} (${ruleResult(village, r, now)})`);
+}
+
+/** One rule's result in code's counts (ruleResults; a repeal's ballot line). */
+export function ruleResult(village: string, r: Rule, now: number): string {
   const today = dayOf(village, now);
   const c = clockOf(village, now);
-  return rulesInForce(village).map((r) => {
-    const t = r.type as RuleType;
-    // (village days finished since it passed: a rule passed at a dusk counts from the next day)
-    const since = c ? c.day - Math.floor((now - r.since) / c.dayMs) : today;
-    const days = [today - 3, today - 2, today - 1].filter((d) => d > since && d >= 1);
-    let res: string;
-    if (t === 'duty' || t === 'contribute') {
-      const per = days.map((d) => meeting(village, t, r.params, d)).filter((m): m is { did: number; of: number } => !!m);
-      res = per.length ? `met by ${per.map((m) => `${m.did} of ${m.of}`).join(', then ')} members a day` : 'no full day yet';
-    } else if (t === 'norm') res = 'words only: not enforced or counted';
-    else if (t === 'levy') res = `in force at ${r.params.rate}%`;
-    else res = 'enforced by code (options that break it leave the menu)';
-    return `${r.text} (${res})`;
-  });
+  const t = r.type as RuleType;
+  // (village days finished since it passed: a rule passed at a dusk counts from the next day)
+  const since = c ? c.day - Math.floor((now - r.since) / c.dayMs) : today;
+  const days = [today - 3, today - 2, today - 1].filter((d) => d > since && d >= 1);
+  if (t === 'duty' || t === 'contribute') {
+    const per = days.map((d) => meeting(village, t, r.params, d)).filter((m): m is { did: number; of: number } => !!m);
+    return per.length ? `met by ${per.map((m) => `${m.did} of ${m.of}`).join(', then ')} members a day` : 'no full day yet';
+  }
+  if (t === 'norm') return 'words only: not enforced or counted';
+  if (t === 'levy') return `in force at ${r.params.rate}%`;
+  return 'enforced by code (options that break it leave the menu)';
 }
 
 /** Code's dry-run preview of a quota over the last 3 village days (spec 13): the takes it would have refused. */
 export function preview(village: string, type: RuleType, p: Record<string, number | string>, now: number): string {
+  // (#164: a repeal shows the result of the rule it ends)
+  if (type === 'repeal') {
+    const r = rulesInForce(village).find((x) => x.id === p.of);
+    return r ? `its result so far: ${ruleResult(village, r, now)}` : 'that rule is no longer in force';
+  }
   if (type !== 'quota') return '';
   const st = state(village);
   const day = dayOf(village, now);
