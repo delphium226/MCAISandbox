@@ -33,7 +33,9 @@ const KEEP_DIRT = 16;
 /** Whether a village's cathedral trip for an item digs the quarry. */
 export function quarryFeeds(v: Village | undefined, item: string): boolean {
   const m = v?.monument;
-  return QUARRY.on && MONUMENT.on && item === 'cobblestone' && !!m?.site?.prepared && m.quarry?.state !== 'done' && (m.quarryBackoff ?? 0) <= Date.now();
+  // (#165: a dug-out pit is followed by a new one while the monument still wants cobblestone: Cologne 1:3's 27x27 pit gave
+  // 2,395 of the ~5,000 it was sized for, 25 rows cut by caves and water, and the towers waited 19 minutes on the mine)
+  return QUARRY.on && MONUMENT.on && item === 'cobblestone' && !!m?.site?.prepared && (m.quarryBackoff ?? 0) <= Date.now();
 }
 
 /** The cobblestone the cathedral still wants in all (the whole plan's raw bill less its yard): the pit's size. */
@@ -85,7 +87,8 @@ async function chooseQuarry(a: BotAgent, v: Village, signal: AbortSignal): Promi
       console.log(`[quarry] ${v.name}: no site for a ${side}x${side} pit near the cathedral (backing off 10 min)`);
       return null;
     }
-    const q = newQuarry(found.area, found.y, depth, found.side, a.name, Date.now());
+    const q = newQuarry(found.area, found.y, depth, found.side, a.name, Date.now(), soil);
+    if (m.quarry) (m.quarriesDone ??= []).push(m.quarry);
     const id = reg.id('s');
     // (its ground down to the floor: collect's filter keeps off a structure from its y up)
     v.structures.push({ id, ...found.area, y: found.y - depth, kind: 'quarry', builtBy: a.name });
@@ -134,7 +137,7 @@ function cellRule(a: BotAgent, q: Quarry, x: number, y: number, z: number): stri
 export async function quarryFor(a: BotAgent, v: Village, want: number, have: () => number, signal: AbortSignal, tripMs = TRIP_MS): Promise<{ got: number; why: string }> {
   const m = v.monument!;
   const reg = a.world.villages;
-  const q = m.quarry ?? (await chooseQuarry(a, v, signal));
+  const q = m.quarry && m.quarry.state !== 'done' ? m.quarry : await chooseQuarry(a, v, signal);
   if (!q) throw new Error('the cathedral\'s quarry has no site yet; collect again (the village mine gives meanwhile)');
   const start = have(), t0 = Date.now();
   let dug = 0, rows = 0, why = '';

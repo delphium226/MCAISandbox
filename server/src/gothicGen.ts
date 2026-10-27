@@ -152,6 +152,8 @@ export interface GothicOpts {
   banners?: string[];
   /** With `detail`: the ninth stage, the furnishing (default on; off: eight stages, no lanterns, bell, candles or banners). */
   furnish?: boolean;
+  /** With `furnish`: only these kinds drawn (#162 C-E's flags; absent: every kind). */
+  furnishKinds?: { lanterns?: boolean; bell?: boolean; candles?: boolean; banners?: boolean };
 }
 
 /** The item a block costs: its name without states (stained panes, tiles and bricks are items of their own). */
@@ -523,9 +525,10 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
   // arcade piers facing into the nave
   const furnish = detail && opts.furnish !== false;
   if (furnish) {
+    const fk = opts.furnishKinds, kind = (k: 'lanterns' | 'bell' | 'candles' | 'banners') => !fk || !!fk[k];
     const empty = (x: number, y: number, z: number) => !has(x, y, z);
     const zr = Math.round(zc);
-    for (let i = 0; i <= Math.floor(xe / pitch); i++) {
+    for (let i = 0; kind('lanterns') && i <= Math.floor(xe / pitch); i++) {
       const x = i * pitch;
       if (inTower(x, zr) || x < tower0) continue;
       let yv = 2;
@@ -539,7 +542,7 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
     }
     // (the bell stands on a west tower's belfry floor, or hangs from the crossing tower's ceiling)
     const bellBox: [number, number, number, number] | null = towerBoxes[0] ?? (p.crossing === 'tower' ? [xt0, xt1, zP, zP2] : null);
-    if (bellBox) {
+    if (bellBox && kind('bell')) {
       const bx = Math.floor((bellBox[0] + bellBox[1]) / 2), bz = Math.floor((bellBox[2] + bellBox[3]) / 2);
       if (towerBoxes[0]) {
         const belfry = towerH - Math.max(3, Math.round((towerH - 1) * 0.25));
@@ -549,7 +552,7 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
         if (has(bx, top - 1, bz) && empty(bx, top - 2, bz)) set(bx, top - 2, bz, T2.bell, 9);
       }
     }
-    if (nave >= 7) {
+    if (nave >= 7 && kind('candles')) {
       const ax = xe + Math.max(1, Math.floor(rI / 2));
       if ([-1, 0, 1].every((o) => isHigh(ax, zr + o) && !hWall(ax, zr + o) && empty(ax, 1, zr + o))) {
         for (const o of [-1, 0, 1]) set(ax, 1, zr + o, T2.altar, 9);
@@ -558,7 +561,7 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
     }
     const banners = opts.banners?.length ? opts.banners : ['white', colours[0]];
     let nb = 0;
-    for (let x = tower0; x <= xe; x++)
+    for (let x = tower0; kind('banners') && x <= xe; x++)
       for (let z = 0; z < D; z++) {
         if (!hWall(x, z) || inTower(x, z) || STEP4.some(([dx, dz]) => at(x + dx, z + dz) === 0) || !has(x, 1, z) || (arm && x >= xt0 && x <= xt1)) continue;
         if (!STEP4.some(([dx, dz]) => hWall(x + dx, z + dz) && !has(x + dx, 1, z + dz))) continue;

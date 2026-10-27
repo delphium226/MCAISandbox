@@ -37,6 +37,8 @@ export interface Quarry extends Area {
   /** What its digging gave, by item. */
   got: Record<string, number>;
   state: 'open' | 'done';
+  /** #165: the topsoil's layers when chosen (its rows are dug deepest first, so the first trips reach stone). */
+  soil?: number;
   by: string;
   at: number;
   /** The structure record that keeps its ground (its id). */
@@ -117,7 +119,9 @@ export function rowCell(q: Quarry, k: number, v: number, i: number): { x: number
   return { ...c, y, stand: i === 0 ? { ...s, y: y + 1 } : { ...s, y } };
 }
 
-/** Rows ready to dig (open, not finished), shallowest first, then nearest `near` (a row v); `held`: rows others dig. */
+/** Rows ready to dig (open, not finished), shallowest first, then nearest `near` (a row v); `held`: rows others dig.
+ *  #165: rows in the stone (the layers below `soil`) before the topsoil's, and the topsoil's deepest first, so a slice
+ *  goes down to stone before the top layer is cleared: Cologne 1:3's first five 5-minute trips dug only topsoil. */
 export function openRows(q: Quarry, held: Set<string>, near = 0): Array<{ k: number; v: number }> {
   const S = pitSide(q);
   const out: Array<{ k: number; v: number }> = [];
@@ -126,7 +130,8 @@ export function openRows(q: Quarry, held: Set<string>, near = 0): Array<{ k: num
       if (held.has(`${k},${v}`) || rowDone(q, k, v) || !rowLength(q, k, v)) continue;
       out.push({ k, v });
     }
-  return out.sort((a, b) => a.k - b.k || Math.abs(a.v - near) - Math.abs(b.v - near));
+  const soil = q.soil ?? 0, rank = (k: number) => (k >= soil ? k - soil : soil + (soil - k));
+  return out.sort((a, b) => rank(a.k) - rank(b.k) || Math.abs(a.v - near) - Math.abs(b.v - near));
 }
 
 /** Whether the pit has nothing left to dig (every row finished or never to be opened). */
@@ -200,8 +205,8 @@ export function searchQuarry(input: {
 }
 
 /** A new quarry record. */
-export function newQuarry(area: Area, y: number, depth: number, side: Quarry['side'], by: string, now: number): Quarry {
-  return { ...area, y, depth, side, rows: {}, cut: {}, dug: 0, open: 0, got: {}, state: 'open', by, at: now };
+export function newQuarry(area: Area, y: number, depth: number, side: Quarry['side'], by: string, now: number, soil?: number): Quarry {
+  return { ...area, y, depth, side, rows: {}, cut: {}, dug: 0, open: 0, got: {}, state: 'open', by, at: now, ...(soil ? { soil } : {}) };
 }
 
 /** The record's line for logs. */

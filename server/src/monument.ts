@@ -38,6 +38,7 @@ import { villageHome, type Area, type Monument, type Village } from './village';
 import { KILN, kilnHolds } from './kiln';
 import { CUTTER, needsCutting, type CutStep, type CutterRecord } from './cutter';
 import type { DyeBed } from './dyeBed';
+import { FURNISH_STAGE, furnishKinds, furnishOn, furnishTrade } from './furnish';
 
 export { KILN };
 export const MONUMENT = {
@@ -131,7 +132,10 @@ export function newMonument(wood: string, now: number, type: MonumentType = MONU
   const m: MonumentM3 = { preset, scale: Math.round(1 / MONUMENT.scale), palette: MONUMENT.palette, wood, at: now, state: 'site', done: [], yard: {}, stages: [] };
   if (type === 'castle') m.type = type;
   // (#162: kept on the record, so a cathedral begun with the detail palette is drawn with it whatever the flag says later)
-  else if (CUTTER.on && MONUMENT.palette === 'full') m.detail = true;
+  else if (CUTTER.on && MONUMENT.palette === 'full') {
+    m.detail = true;
+    if (furnishOn()) m.furnish = furnishKinds();
+  }
   return m;
 }
 
@@ -153,23 +157,33 @@ export function todayBlock(block: string, wood: string): string {
 }
 
 /** A monument's plan: the generator's cathedral or castle with its stages' names. */
-export type MonumentPlan = Cathedral & { stageNames: readonly string[] };
+export type MonumentPlan = Cathedral & { stageNames: readonly string[]; jobs: Array<GothicJob & { palette?: Record<string, string> }> };
 const plans = new Map<string, MonumentPlan>();
 /** The monument's cathedral or castle (generated once per type, preset, scale, palette and wood: ~50 ms at 1:2), its
  *  palette applied. */
 export function monumentPlan(m: Monument): MonumentPlan {
   const type = monumentType(m);
   const detail = !!(m as MonumentM3).detail;
-  const standIns = (m as MonumentM3).standIns ?? {};
-  const key = `${type}|${m.preset}|${m.scale}|${m.palette}|${m.wood}|${JSON.stringify(m.colours ?? {})}|${detail}|${JSON.stringify(standIns)}`;
+  const standIns = (m as MonumentM3).standIns ?? {}, from = (m as MonumentM3).standInFrom ?? {}, fk = detail ? (m as MonumentM3).furnish : undefined;
+  const key = `${type}|${m.preset}|${m.scale}|${m.palette}|${m.wood}|${JSON.stringify(m.colours ?? {})}|${detail}|${JSON.stringify(standIns)}|${JSON.stringify(from)}|${JSON.stringify(fk ?? null)}`;
   let c = plans.get(key);
   if (c) return c;
   c = type === 'castle' ? generateCastle(CASTLE_PRESETS[m.preset] ?? CASTLE_PRESETS.conwy, m.scale)
-    : generateCathedral(GOTHIC_PRESETS[m.preset] ?? GOTHIC_PRESETS.notre_dame, m.scale, { detail, furnish: false });
+    : generateCathedral(GOTHIC_PRESETS[m.preset] ?? GOTHIC_PRESETS.notre_dame, m.scale, { detail, furnish: !!fk, ...(fk ? { furnishKinds: fk } : {}) });
   {
     const wood = m.wood || 'oak';
-    const pal: Record<string, string> = {};
-    for (const [ch, b] of Object.entries(c.design.palette)) pal[ch] = standIn(m.palette === 'today' ? todayBlock(b, wood) : fullBlock(b, wood, m.colours, detail), standIns);
+    const pal: Record<string, string> = {}, pal0: Record<string, string> = {};
+    for (const [ch, b] of Object.entries(c.design.palette)) {
+      pal0[ch] = m.palette === 'today' ? todayBlock(b, wood) : fullBlock(b, wood, m.colours, detail);
+      pal[ch] = standIn(pal0[ch], standIns);
+    }
+    // (#165: a stand-in from its job on; the jobs before it keep the block, as far as the yard's own stone went)
+    const palOf = (i: number) => {
+      if (!Object.keys(from).length) return pal;
+      const out: Record<string, string> = {};
+      for (const ch of Object.keys(pal)) out[ch] = (from[pal0[ch].replace(/\[.*$/, '')] ?? 0) > i ? pal0[ch] : pal[ch];
+      return out;
+    };
     const swap = (cells: Array<[string, number]>) => {
       const out: Record<string, number> = {};
       for (const [b, q] of cells) {
@@ -181,18 +195,20 @@ export function monumentPlan(m: Monument): MonumentPlan {
     // (bills again from the swapped palette: each job's cells by its character)
     const charCount = (j: GothicJob | null) => {
       const n = new Map<string, number>();
+      const pals = c!.jobs.map((_, i) => palOf(i));
       c!.design.layers.forEach((layer, y) => layer.forEach((row, z) => {
         for (let x = 0; x < row.length; x++) {
           const ch = row[x];
           if (ch === '.') continue;
           if (j && !(c!.cellJob.get(`${x},${y},${z}`) === c!.jobs.indexOf(j))) continue;
-          n.set(pal[ch], (n.get(pal[ch]) ?? 0) + 1);
+          const b = pals[c!.cellJob.get(`${x},${y},${z}`) ?? 0]?.[ch] ?? pal[ch];
+          n.set(b, (n.get(b) ?? 0) + 1);
         }
       }));
       return [...n];
     };
     const design = { ...c.design, palette: pal };
-    const jobs = c.jobs.map((j) => ({ ...j, bill: swap(charCount(j)) }));
+    const jobs = c.jobs.map((j, i) => ({ ...j, bill: swap(charCount(j)), ...(Object.keys(from).length ? { palette: palOf(i) } : {}) }));
     c = { ...c, design, jobs, bill: swap(charCount(null)) };
   }
   plans.set(key, c);
@@ -201,6 +217,24 @@ export function monumentPlan(m: Monument): MonumentPlan {
 
 /** The names of the monument's stages (index 0 = stage 1). */
 export const stageNames = (m: Monument): readonly string[] => monumentPlan(m).stageNames;
+
+/** #165: the first job (by index, the jobs not built in order) whose `block` the yard's `have` no longer covers: a
+ *  stand-in for it applies from there on (monumentPlan's standInFrom). */
+export function standInFrom(m: Monument, block: string, have: number): number {
+  const c = monumentPlan(m);
+  let left = have;
+  for (let i = 0; i < c.jobs.length; i++) {
+    if (m.done.includes(i)) continue;
+    left -= c.jobs[i].bill[block] ?? 0;
+    if (left < 0) return i;
+  }
+  return c.jobs.length;
+}
+
+/** #162 C-E: the furnishing stage's number (0: none drawn). */
+export function furnishStage(m: Monument): number {
+  return (m as MonumentM3).furnish ? monumentPlan(m).stageNames.indexOf(FURNISH_STAGE) + 1 : 0;
+}
 
 /** The stage now being built: the lowest with a job not done (0 when every job is done). */
 export function currentStage(m: Monument): number {
@@ -238,7 +272,9 @@ export function stageBill(m: Monument, ahead = 0): Record<string, number> {
   const c = monumentPlan(m), bill: Record<string, number> = {}, st = currentStage(m);
   // (`ahead`: the next stages' jobs too, MC_KILN: the quarry and the kiln work ahead while a stage waits on its smelting;
   // M2's live check left 17 members idle with the stage's cobblestone in and its bricks still cooking)
-  const jobs = ahead ? c.jobs.map((j, i) => (st && j.stage >= st && j.stage <= st + ahead && !m.done.includes(i) ? i : -1)).filter((i) => i >= 0) : openJobs(m);
+  // (#162 C-E: never the furnishing stage ahead: its pieces are made by their own chores, after the cathedral stands)
+  const fs = furnishStage(m);
+  const jobs = ahead ? c.jobs.map((j, i) => (st && j.stage >= st && j.stage <= st + ahead && (j.stage === st || j.stage !== fs) && !m.done.includes(i) ? i : -1)).filter((i) => i >= 0) : openJobs(m);
   for (const i of jobs) for (const [n, q] of Object.entries(c.jobs[i].bill)) bill[n] = (bill[n] ?? 0) + q;
   return bill;
 }
@@ -312,7 +348,9 @@ export function jobBuilt(m: Monument, index: number, rawBill: Record<string, num
   const s = (m.stages[st - 1] ??= {});
   s.began ??= now;
   if (currentStage(m) !== st) s.ended = now;
-  if (!currentStage(m)) {
+  // (#162 C-E: built once only the furnishing is left; its jobs come after and never hold the cathedral)
+  const cur = currentStage(m);
+  if (m.state !== 'built' && (!cur || cur === furnishStage(m))) {
     m.state = 'built';
     m.built = now;
   }
@@ -337,7 +375,7 @@ export function jobTargets(m: Monument, index: number, turn: (block: string, rot
       for (let x = j.x0; x <= j.x1; x++) {
         const ch = d.layers[y][z][x];
         if (ch === '.' || c.cellJob.get(`${x},${y},${z}`) !== index) continue;
-        out.push({ ...worldCell(m, x, y, z), block: turn(d.palette[ch], rot) });
+        out.push({ ...worldCell(m, x, y, z), block: turn((j.palette ?? d.palette)[ch], rot) });
       }
   return out;
 }
@@ -464,13 +502,15 @@ export function setM3(s: Partial<typeof M3>): void {
   Object.assign(M3, s);
 }
 
-export const TRADES = ['quarryman', 'mason', 'glazier', 'carpenter', 'carver', 'dyer'] as const;
+export const TRADES = ['quarryman', 'mason', 'glazier', 'carpenter', 'carver', 'dyer', 'smith', 'weaver'] as const;
 export type Trade = (typeof TRADES)[number];
 /** What each trade does for the cathedral, in the prompt's words. */
 export const TRADE_WORK: Record<Trade, string> = {
   quarryman: 'its stone dug and its site levelled', mason: 'its kiln and its stonework', glazier: 'its sand, dye flowers and glass', carpenter: 'its logs, roof and fuel',
   carver: 'its stone cut at the stonecutter: capitals, arches, tracery and polished stone',
   dyer: 'its dyes: flowers, lapis and bone meal, the dye bed, the mixes',
+  smith: 'its furnishing in iron and wax: lanterns, chains, candles and the bell',
+  weaver: 'its banners: wool sheared, dyed and woven',
 };
 /** M3: the weight an option of the member's own trade carries (and its tag says so). */
 export const TRADE_WEIGHT = 1.5;
@@ -500,6 +540,10 @@ export type MonumentM3 = Monument & {
   dyeBed?: DyeBed;
   /** #162: blocks standing in for others the village could not get (polished_andesite -> polished_granite), by name. */
   standIns?: Record<string, string>;
+  /** #165: the job a stand-in applies from (by index; jobs before it keep the block the yard's own stone covers). */
+  standInFrom?: Record<string, number>;
+  /** #162 C-E: the furnishing kinds drawn (kept on the record as `detail` is), absent: no furnishing stage. */
+  furnish?: { lanterns: boolean; banners: boolean; candles: boolean; bell: boolean };
   trades?: Record<string, TradeRecord>;
   /** MC_MONUMENT_NEWS: the latest news (shown for a village day). */
   news?: { t: number; text: string };
@@ -530,6 +574,7 @@ export function tradeOfStep(m: Monument, step: { step: string; item?: string; jo
   if (step.step === 'kiln') return 'mason';
   if (step.step === 'cut') return 'carver';
   if (step.step === 'dye') return 'dyer';
+  if (step.step === 'furnish') return furnishTrade(step.item ?? '');
   if (step.step === 'job' && step.job !== undefined) return tradeOfJob(m, step.job);
   return tradeOfItem(step.item ?? '');
 }
@@ -583,7 +628,10 @@ export function progressLine(m: Monument, now: number, dayMs: number, member?: s
   const blocks = c.jobs.filter((_, i) => m.done.includes(i)).reduce((t, j) => t + j.blocks, 0);
   const head = `The village's monument: ${cathedralName(m)} (${presetWords(m.preset)} at 1:${m.scale})`;
   let what: string;
-  if (m.state === 'built') what = `finished, ${c.design.blocks} blocks`;
+  if (m.state === 'built') {
+    const fs = furnishStage(m), p = fs && currentStage(m) === fs ? stageParts(m) : null;
+    what = p ? `finished; its furnishing goes on: ${p.built} of ${p.of} parts` : `finished, ${c.design.blocks} blocks`;
+  }
   else if (m.state === 'site') what = 'its site is being chosen and levelled';
   else {
     const p = stageParts(m);

@@ -88,7 +88,8 @@ import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodA
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
 import { quarryFeeds } from './mcQuarry';
-import { FLOWER_DYE, KILN, MONUMENT, capShare, currentStage, dyeFlowers, glassColours, ironReached, jobBuilt, jobBuiltPlanned, jobReady, monumentLine, monumentPlan, newMonument, openJobs, stageWants, stageWantsPlanned, yardCovers, M3, TRADE_WEIGHT, noteTrade, tradeOfStep, tradeOf, progressLine as monumentProgress, partLine, cathedralName, presetWords, stageNames as monumentStages, monumentNoun, m3, architectOptions, dyesOnOffer, ARCHITECT_SYSTEM, ARCHITECT_TOOL, architectPrompt, checkArchitect, newMonumentPicked, type ArchitectFacts, type ArchitectPick, type Trade } from '../monument';
+import { bannerStandIn, furnishBatch, furnishItem, furnishWants } from '../furnish';
+import { FLOWER_DYE, KILN, MONUMENT, capShare, currentStage, furnishStage, standInFrom, dyeFlowers, glassColours, ironReached, jobBuilt, jobBuiltPlanned, jobReady, monumentLine, monumentPlan, newMonument, openJobs, stageWants, stageWantsPlanned, yardCovers, M3, TRADE_WEIGHT, noteTrade, tradeOfStep, tradeOf, progressLine as monumentProgress, partLine, cathedralName, presetWords, stageNames as monumentStages, monumentNoun, m3, architectOptions, dyesOnOffer, ARCHITECT_SYSTEM, ARCHITECT_TOOL, architectPrompt, checkArchitect, newMonumentPicked, type ArchitectFacts, type ArchitectPick, type Trade } from '../monument';
 import { kilnOn, laneWork, planOf } from './mcKiln';
 import { BULK_LANES, LODGE, TRIP_MIN, bulkTrip } from '../lodge';
 import { cutWork, cutterOn } from './mcCutter';
@@ -98,6 +99,8 @@ import { DETAIL_COLOURS } from '../gothicGen';
 import { stoneStandIn } from '../monument';
 /** #162: minutes (game time) a stage waits for a quarried stone before the rest stands in as another. */
 const STONE_WAIT_MIN = 6;
+/** #165: the iron stored (raw and ingots) above which no member digs for more while a monument is built. */
+const IRON_MONUMENT_ENOUGH = 64;
 /** #140 (F324): minutes (game time) a village leaves a bed flower it ran out of out of new mixes. */
 const FLOWER_OUT_MIN = 60;
 import { kilnLanes, kilnLine } from '../kiln';
@@ -145,7 +148,7 @@ type ChoiceState = {
   /** s36: an initiative's gathering trip (its own field: the workshop's demand must not count it as incoming). */
   initiative?: { id: string; material: Material | 'flowers' | 'saplings' | 'sandstone'; n: number; item?: string };
   /** M1 (#144): a monument chore: a gathering trip's item, material and amount, a job's index, or the site. */
-  monument?: { item?: string; material?: Material | 'flowers'; n?: number; job?: number; site?: boolean; kiln?: number; cut?: boolean; dye?: boolean };
+  monument?: { item?: string; material?: Material | 'flowers'; n?: number; job?: number; site?: boolean; kiln?: number; cut?: boolean; dye?: boolean; furnish?: boolean };
   /** S.9: a works furnace placement's k (its 8 cobblestone earmarked, so gathering's demand leaves it out). */
   furnace?: number;
   /** B.4: a light chore's part and its torches. */
@@ -1098,7 +1101,12 @@ export class MineflayerWorld implements WorldAdapter {
     let added = 0;
     const slot = Array.from({ length: IRON_MINERS }, (_, i) => i + 1).find((q) => !busy.has(`irondig:${q}`));
     // (#113: a level ended with no way down is offered again once its back-off is over: ironDone)
+    // (#165: no digging while a monument is under way and storage holds IRON_MONUMENT_ENOUGH: Cologne's 1:3 run sent three
+    // diggers down one shaft for 127 minutes with 230 ingots stored, 512 of its 1,376 [stuck] lines and most of its meals'
+    // climbs out of the mine)
+    const monumentBusy = MONUMENT.on && !!v.monument && v.monument.state !== 'site' && (v.monument.state !== 'built' || furnishStage(v.monument) > 0 && currentStage(v.monument) === furnishStage(v.monument));
     if (ironDone(m, now)) why.push('iron level finished');
+    else if (monumentBusy && raw + ingots >= IRON_MONUMENT_ENOUGH) why.push(`iron enough while the monument is built (${raw + ingots} stored)`);
     else if (slot === undefined) why.push('every leg busy');
     else if (backing('dig')) why.push('digging backs off');
     else {
@@ -4806,7 +4814,7 @@ export class MineflayerWorld implements WorldAdapter {
         }
         if (n > 0) {
           m.yard[mon.item] = (m.yard[mon.item] ?? 0) + n;
-          if (M3.roles) this.creditTrade(vm, c.agent, tradeOfStep(m, { step: 'gather', item: mon.item }), { item: mon.item, n });
+          if (M3.roles) this.creditTrade(vm, c.agent, tradeOfStep(m, { step: mon.furnish ? 'furnish' : 'gather', item: mon.item }), { item: mon.item, n });
           this.villages.save();
           console.log(`[monument] ${c.village}: ${c.agent} brings ${n} ${mon.item} to the yard (${monumentLine(m)})`);
         }
@@ -6657,6 +6665,8 @@ export class MineflayerWorld implements WorldAdapter {
           // storage holds of them (the mine's and the quarry's by-products, 256 each at iron_age_g1), claimed for the yard:
           // T2a and T2b's trips to the open stone 50-70 out failed 32 of 40)
           const stone = !!m3(m).detail && /^(andesite|diorite|granite)$/.test(item);
+          // (#162 C-E: never the furnishing's own pieces here; they have their own chores after the cathedral stands)
+          if (furnishItem(item)) continue;
           if (stone) {
             const free = Math.floor((storageContents(v)[item] ?? 0) - (m.yard[item] ?? 0));
             const k = Math.min(q, free);
@@ -6665,6 +6675,20 @@ export class MineflayerWorld implements WorldAdapter {
               this.villages.save();
               console.log(`[monument] ${v.name}: ${k} ${item} in storage claimed for the ${N}'s yard`);
               if (k >= q) continue;
+            }
+            // (#165: the yard's own stone before the open: while it holds some, the jobs it covers keep the polished stone and
+            // the rest stands in from the first job it does not cover, at once. Cologne 1:3 sent 11 trips into the open (1
+            // found any) and then stood the whole floor in as plain stone, with 265 andesite in the yard left unused)
+            if ((m.yard[item] ?? 0) > 0 && !(m3(m).standIns ?? {})[`polished_${item}`]) {
+              const free: Record<string, number> = {};
+              for (const [n2, q2] of Object.entries(storageContents(v))) free[n2] = q2 - (m.yard[n2] ?? 0);
+              const sub = stoneStandIn(item, q, free);
+              const from = standInFrom(m, `polished_${item}`, (m.yard[item] ?? 0) + (m.yard[`polished_${item}`] ?? 0));
+              (m3(m).standIns ??= {})[`polished_${item}`] = sub;
+              (m3(m).standInFrom ??= {})[`polished_${item}`] = from;
+              this.villages.save();
+              console.log(`[monument] ${v.name}: the ${N}'s polished_${item} stands in as ${sub} from job ${from} (the yard's ${m.yard[item]} ${item} cover the jobs before it; short ${q})`);
+              continue;
             }
             // (still short after STONE_WAIT_MIN: the rest stands in as another stone, the spec's rule; T2d waited on 60
             // andesite for 10 minutes with 256 granite in storage)
@@ -6773,6 +6797,37 @@ export class MineflayerWorld implements WorldAdapter {
           }, { kind: 'monument', step: 'cut' });
       }
       if (!out.some((o) => o.kind === 'monument')) reasons.monument = m.state === 'site' ? 'the site is being chosen' : 'nothing wanted now';
+    }
+
+    // #162 C-E (MC_FURNISH_*): once the cathedral stands, its furnishing: each piece made by its trade's chore (the smith's
+    // lanterns, chains, candles and bell, the weaver's banners), a job once the yard holds a job's pieces
+    if (MONUMENT.on && v.monument?.state === 'built' && v.storageHut && furnishStage(v.monument) && currentStage(v.monument) === furnishStage(v.monument)) {
+      const m = v.monument, c = monumentPlan(m), N = monumentNoun(m), open = openJobs(m);
+      const wants = furnishWants(open.map((i) => c.jobs[i].bill), m.yard);
+      for (const [item, q] of Object.entries(wants)) {
+        const key = `monument:furnish:${item}`;
+        if (busy.has(key) || (this.monumentBack.get(`${v.name}:furnish:${item}`) ?? 0) > now) continue;
+        const amount = Math.min(furnishBatch(item), q);
+        add({
+          id: key, kind: 'monument', key, excludes: [`${key}=`], rank: 161,
+          name: `Make ${amount} ${words(item)} for the ${N}'s furnishing`,
+          facts: `the ${N} stands; its furnishing still wants ${q} ${words(item)}; its yard holds ${m.yard[item] ?? 0}; ${open.length} furnishing part${open.length === 1 ? '' : 's'} to place`,
+          effect: `+${amount} ${words(item)} in the ${N}'s yard for its furnishing`,
+        }, { kind: 'monument', step: 'furnish', item, amount });
+      }
+      let shown = 0;
+      for (const i of open) {
+        const key = `monument:job:${i}`;
+        if (shown >= 2 || busy.has(key) || (this.monumentBack.get(`${v.name}:${i}`) ?? 0) > now) continue;
+        if (Object.keys(furnishWants([c.jobs[i].bill], m.yard)).length) continue;
+        shown++;
+        add({
+          id: key, kind: 'monument', key, excludes: [`${key}=`], rank: 158,
+          name: `Furnish the ${N} (${c.jobs[i].blocks} pieces)`,
+          facts: `the ${N} stands; ${open.length} furnishing part${open.length === 1 ? '' : 's'} to place; its pieces are in the yard`,
+          effect: `${c.jobs[i].blocks} more pieces of the ${N}'s furnishing in place`,
+        }, { kind: 'monument', step: 'job', job: i });
+      }
     }
 
     // #122: the gated options stay only on a menu with nothing but filler makes (a meal aside), and the filler leaves it;
@@ -7715,6 +7770,27 @@ export class MineflayerWorld implements WorldAdapter {
           console.log(`[monument] ${v.name}: ${worker.name} makes ${d.amount} ${d.item} for stage ${currentStage(m)}`);
           return;
         }
+        if (d.step === 'furnish') {
+          const make = worker.enqueue('make_furnishing', { item: d.item, count: d.amount, chore: true });
+          const deposit = worker.enqueue('deposit', { item: 'all', chore: true });
+          worker.memory.monumentGather = d.item;
+          const failed = (why: string) => {
+            if (why === 'cancelled' || make.code) return;
+            this.monumentBack.set(`${v.name}:furnish:${d.item}`, Date.now() + 4 * 60000);
+            // (a coloured banner not made stands in as white: the furnishing is never held by a colour)
+            const sb = bannerStandIn(d.item);
+            if (sb && make.state === 'failed' && !(m3(m).standIns ?? {})[sb.block]) {
+              (m3(m).standIns ??= {})[sb.block] = sb.as;
+              this.villages.save();
+              console.log(`[monument] ${v.name}: the ${N}'s ${sb.block} stands in as ${sb.as} (${(make.message ?? why).slice(0, 120)})`);
+            }
+          };
+          this.setChore(v, worker, opt.key, [make, deposit], `make ${d.amount} ${d.item} for the ${N}'s furnishing`, failed, meta, opt.holds, opt);
+          const c = this.chores.get(worker.name.toLowerCase());
+          if (c) c.choice.monument = { item: d.item, material: 'flowers', n: d.amount, furnish: true };
+          console.log(`[monument] ${v.name}: ${worker.name} makes ${d.amount} ${d.item} for the furnishing`);
+          return;
+        }
         if (d.step === 'cut') {
           const st = worker.enqueue('cut_stone', { chore: true });
           const failed = (why: string) => {
@@ -8655,7 +8731,7 @@ type OptionRun =
   | { kind: 'help'; id: string; step: InitiativeStep }
   | { kind: 'monument'; step: 'site' } | { kind: 'monument'; step: 'job'; job: number }
   | { kind: 'monument'; step: 'gather'; item: string; material: Material | 'flowers'; amount: number; block: string; deposit: string; bulk?: true }
-  | { kind: 'monument'; step: 'kiln'; lane: number } | { kind: 'monument'; step: 'cut' } | { kind: 'monument'; step: 'dye'; item: string; amount: number }
+  | { kind: 'monument'; step: 'kiln'; lane: number } | { kind: 'monument'; step: 'cut' } | { kind: 'monument'; step: 'dye'; item: string; amount: number } | { kind: 'monument'; step: 'furnish'; item: string; amount: number }
   | { kind: 'grow'; houseless: number }
   | { kind: 'eat'; level: number; item: string; n: number; own?: boolean }
   | { kind: 'own'; what: 'chest' }

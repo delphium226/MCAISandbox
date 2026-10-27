@@ -275,6 +275,8 @@ export interface Monument {
   structure?: string;
   /** M2 (#145, MC_QUARRY): the terrace pit its cobblestone trips dig (quarry.ts), and no site search before this (ms). */
   quarry?: Quarry;
+  /** #165: pits dug out before the current one (a new pit is chosen while the monument still wants cobblestone). */
+  quarriesDone?: Quarry[];
   quarryBackoff?: number;
   /** M2 (#145, MC_KILN): the furnaces its masons load and unload (kiln.ts), and no kiln site search before this (ms). */
   kiln?: Kiln;

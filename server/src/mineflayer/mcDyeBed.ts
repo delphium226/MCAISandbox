@@ -197,7 +197,8 @@ async function tendBed(a: BotAgent, v: Village, bed: DyeBed, want: Record<string
 async function makeDye(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const v = a.village();
   const m = v?.monument as MonumentT2 | undefined;
-  if (!v || !m || !dyeBedOn(v)) throw new Error('make_dye: the village has no monument wanting dyes (or MC_DYE_BED is off)');
+  // (#162 D: also once the cathedral stands, for the furnishing's coloured banners)
+  if (!v || !m || !(dyeBedOn(v) || DYE_BED.on && m.state === 'built')) throw new Error('make_dye: the village has no monument wanting dyes (or MC_DYE_BED is off)');
   const item = str(args.item, 'item');
   if (!/_dye$/.test(item)) throw new Error(`make_dye: ${item} is not a dye`);
   const n = Math.max(1, Math.floor(num(args.count ?? 1, 'count')));
