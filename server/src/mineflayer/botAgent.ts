@@ -19,6 +19,7 @@ import { rescue } from './mcRescue';
 import { timeScale } from './mcRules';
 import { isPaused } from '../runClock';
 import { WALK_DIG } from './mcBlocks';
+import { GEODE_GROWTH, GEODE_GUARD, GEODE_LINING, geodeBreakCost, geodeStepCost, stateIds } from './mcGeode';
 
 const { pathfinder, Movements } = pathfinderPkg;
 
@@ -331,6 +332,26 @@ export class BotAgent implements WorldAgent {
           return this.farmGround().some((q) => on(q, b.position.x, b.position.z) && b.position.y >= q.y && b.position.y <= q.y + 2 && !(p && on(q, Math.floor(p.x), Math.floor(p.z)))) ? 1000 : 0;
         },
       ];
+      // MC_GEODE_GUARD (#133): no path digs a geode's shell or steps into its hollow (mcGeode.ts); a bot already inside
+      // walks out freely
+      if (GEODE_GUARD) {
+        const ex = m as unknown as Record<'exclusionAreasBreak' | 'exclusionAreasStep', Array<(b: { name?: string; position: { x: number; y: number; z: number } }) => number>>;
+        const lining = stateIds(this.bot.registry, GEODE_LINING), growth = stateIds(this.bot.registry, GEODE_GROWTH);
+        const at = (x: number, y: number, z: number) => this.bot.world.getBlockStateId(new Vec3(x, y, z)) ?? -1;
+        const inside = () => {
+          const p = this.bot.entity?.position;
+          if (!p) return false;
+          const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z);
+          return lining.has(at(x, y - 1, z)) || growth.has(at(x, y, z));
+        };
+        ex.exclusionAreasBreak.push((b) => geodeBreakCost(b.name));
+        ex.exclusionAreasStep.push((b) => {
+          if (!b.position) return 0;
+          const { x, y, z } = b.position;
+          const cost = geodeStepCost(growth.get(at(x, y, z)), lining.get(at(x, y - 1, z)), false);
+          return cost && !inside() ? cost : 0;
+        });
+      }
       // Around water rather than through it: a gatherer that walked into a lake stayed stuck in it for ten minutes
       (m as unknown as { liquidCost: number }).liquidCost = 20; // (missing from the typings)
       // Diagonal steps only with both sides clear: the pathfinder allows one side blocked, and a bot cutting past that

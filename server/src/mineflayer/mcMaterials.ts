@@ -158,7 +158,9 @@ export function cutOptions(): Map<string, Option[]> {
 }
 
 /** Stones the quarry and the mine give as they lie (#162): with `cut`, gathered rather than mixed from diorite. */
-const CUT_GATHER = ['andesite', 'diorite', 'granite', 'tuff', 'calcite'];
+const CUT_GATHER = ['andesite', 'diorite', 'granite', 'tuff', 'calcite',
+  // (MC_DEEP_STONE, #162 tier 3: the deep level's stone, cut 1:1 into deepslate tiles, bricks and their stairs)
+  ...(/^(on|1|true|yes)$/i.test(rawSetting('MC_DEEP_STONE') ?? 'off') ? ['cobbled_deepslate'] : [])];
 
 /**
  * Smelting options by output, from the jar's `minecraft:smelting` recipes, built once per process (one registry, the

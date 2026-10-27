@@ -1376,14 +1376,15 @@ function ironRestart(m: Mine, a?: BotAgent): { x: number; z: number; y: number; 
  * on (the new level's own cells count from `dugAt`). Returns the new level's note, or '' when none is laid (`finished`
  * then stays set: the dig option goes).
  */
-export function layNextIronLevel(reg: { note: (v: Village, s: string) => void; save: () => void }, v: Village, m: Mine, i: IronLevel, a?: BotAgent): string {
+export function layNextIronLevel(reg: { note: (v: Village, s: string) => void; save: () => void }, v: Village, m: Mine, i: IronLevel, a?: BotAgent, deep = false): string {
   if (!IRON_AGE || !i.finished || i.level === undefined || m.iron !== i) return '';
   const past = m.ironPast ?? [];
   // (MC_ORE_MINE: ORE_DROP below or deeper where the iron seen is thicker, toward it; ORE_LEVELS and ORE_MINE_CELLS in all)
-  const ore = ORE_ON ? (i.dug < ORE_MINE_CELLS ? oreNextLevel(i, a ? a.world.atlas.near(i.x, i.z, 80) : []) : null) : undefined;
+  // (`deep`, MC_DEEP_STONE: a level at DEEP_DOWN or lower for the monument's stone, past the levels' count and the ore's aim)
+  const ore = deep ? undefined : ORE_ON ? (i.dug < ORE_MINE_CELLS ? oreNextLevel(i, a ? a.world.atlas.near(i.x, i.z, 80) : []) : null) : undefined;
   if (ore === null) return '';
-  const target = ore ? ore.y : i.level - IRON_DROP;
-  if (past.length + 2 > (ore ? ORE_LEVELS : IRON_LEVELS) || target < IRON_FLOOR_Y) return '';
+  const target = deep ? Math.max(IRON_FLOOR_Y, Math.min(i.level - IRON_DROP, DEEP_DOWN)) : ore ? ore.y : i.level - IRON_DROP;
+  if ((!deep && past.length + 2 > (ore ? ORE_LEVELS : IRON_LEVELS)) || target < IRON_FLOOR_Y) return '';
   // (with a bot, the world's test too: stairsFit)
   const s = ironDeeperStart(i, [], a ? stairsFit(a, i.level, i.level - target + 1) : undefined, ore?.toward);
   if (!s) {
@@ -1857,10 +1858,56 @@ async function keepOres(a: BotAgent, v: Village, m: Mine, cells: Vec3[], L: numb
   return kept;
 }
 
-/** What a miner fills an ore's hole with: cobblestone; with MC_ORE_VEIN any of the mine's stone it carries. */
+/** What a miner fills an ore's hole with: cobblestone; with MC_ORE_VEIN any of the mine's stone it carries (with
+ *  MC_DEEP_STONE never the monument's deepslate or tuff, the roof's tiles and the plinth's bricks). */
 function filler(a: BotAgent): string | undefined {
   const have = new Set(a.bot.inventory.items().map((it) => it.name));
-  return (ORE_VEIN ? VEIN_FILL : ['cobblestone']).find((n) => have.has(n));
+  return (ORE_VEIN ? VEIN_FILL : ['cobblestone']).find((n) => have.has(n) && !(DEEP_STONE && DEEP_KEEP.includes(n)));
+}
+
+// MC_DEEP_STONE (#162 tier 3, chain A; off): the monument's deepslate roof and tuff plinth from the iron age's deep level.
+// Below y 0 every block the level digs is cobbled deepslate or tuff (G1: 1.1M deepslate, 89k tuff at y -16 to -1 within
+// 144); the iron age lays its next level IRON_DROP below the last, so G1's second (y 8 -> -4) is already deep.
+export const DEEP_STONE = /^(on|1|true|yes)$/i.test(rawSetting('MC_DEEP_STONE') ?? 'off');
+/** What the deep level keeps for the monument (cut at the stonecutter: deepslate tiles and stairs, tuff bricks). */
+export const DEEP_KEEP = ['cobbled_deepslate', 'tuff'];
+/** Deep enough that a level's walls are deepslate (it starts about y 8 and is whole below 0), and the deep level's aim. */
+export const DEEP_Y = 0, DEEP_DOWN = -4;
+
+/**
+ * MC_DEEP_STONE: the village's iron level made deep for the monument's stone (with MC_IRON_AGE): a level above DEEP_Y is
+ * closed ("the monument wants deepslate") and the next laid at DEEP_DOWN or lower. Returns the deep level's y, or null
+ * when there is none and none can be laid (no iron level yet, no way down: the stand-ins then hold).
+ */
+export function deepenForStone(reg: { note: (v: Village, s: string) => void; save: () => void }, v: Village, a?: BotAgent): number | null {
+  const m = v.mine, i = m?.iron;
+  if (!DEEP_STONE || !IRON_AGE || !m || !i || i.level === undefined) return null;
+  if (i.level <= DEEP_Y) return i.finished && !ironDone(m) ? i.level : i.finished ? null : i.level;
+  if ((m as Mine & { deepTried?: number }).deepTried && Date.now() - (m as Mine & { deepTried?: number }).deepTried! < IRON_RETRY_MS) return null;
+  const was = i.finished;
+  i.finished = 'the monument wants deepslate from a deeper level';
+  const note = layNextIronLevel(reg, v, m, i, a, true);
+  if (!note) {
+    // (no way down: the level as it was, tried again after the iron age's back-off)
+    if (was) i.finished = was; else delete i.finished;
+    (m as Mine & { deepTried?: number }).deepTried = Date.now();
+    return null;
+  }
+  console.log(`[mine] ${v.name}: a deep level for the monument's stone: ${note}`);
+  return m.iron!.targetY ?? null;
+}
+
+/**
+ * The village's deep level, for a deep stone trip (its iron trip on that level): the current iron level when its floor is
+ * at or below DEEP_Y and it is not finished, else null (no deep level yet: the stand-in rule holds the roof in wood).
+ * `next`: where the next level would be when the current one is above DEEP_Y (y, for the offer's facts), or none.
+ */
+export function deepLevel(m: Mine | undefined): { y: number; open: boolean } | null {
+  const i = m?.iron;
+  if (!i || i.level === undefined) return null;
+  if (i.level <= DEEP_Y) return { y: i.level, open: !ironDone(m) };
+  const next = i.level - IRON_DROP;
+  return next >= IRON_FLOOR_Y && next <= DEEP_Y ? { y: next, open: false } : null;
 }
 
 /** An ore's hole filled with a block of `item` the miner carries, charged (settled by counting when its answer is lost,

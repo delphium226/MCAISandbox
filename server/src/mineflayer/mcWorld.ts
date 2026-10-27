@@ -96,9 +96,13 @@ import { cutWork, cutterOn } from './mcCutter';
 import { bedBuilding, dyeBedOn } from './mcDyeBed';
 import { DYE_BED, DYE_FLOWERS, DYE_REACH, TALL_FLOWERS, dyeRecipes, makeableColours, windowColours } from '../dyeBed';
 import { DETAIL_COLOURS } from '../gothicGen';
-import { stoneStandIn } from '../monument';
+import { stoneStandIn, DEEP_BLOCKS, deepStandIn } from '../monument';
+import { DEEP_KEEP, deepenForStone } from './mcMine';
 /** #162: minutes (game time) a stage waits for a quarried stone before the rest stands in as another. */
 const STONE_WAIT_MIN = 6;
+/** MC_DEEP_STONE: the wait for the deep level's stone before the wood and bricks stand in (its trips are 5 min), and its
+ *  miners at once (the iron level's legs). */
+const DEEP_WAIT_MIN = 20, DEEP_LANES = 3;
 /** #165: the iron stored (raw and ingots) above which no member digs for more while a monument is built. */
 const IRON_MONUMENT_ENOUGH = 64;
 /** #140 (F324): minutes (game time) a village leaves a bed flower it ran out of out of new mixes. */
@@ -6667,6 +6671,53 @@ export class MineflayerWorld implements WorldAdapter {
           const stone = !!m3(m).detail && /^(andesite|diorite|granite)$/.test(item);
           // (#162 C-E: never the furnishing's own pieces here; they have their own chores after the cathedral stands)
           if (furnishItem(item)) continue;
+          // (#162 tier 3, MC_DEEP_STONE: the roof's cobbled deepslate and the plinth's tuff: storage's claimed first, then
+          // iron trips on a deep level; with no way down, or still short after DEEP_WAIT_MIN, the wood and stone bricks
+          // stand in from the first job the yard does not cover)
+          if (m3(m).deep && DEEP_KEEP.includes(item)) {
+            const free = Math.floor((storageContents(v)[item] ?? 0) - (m.yard[item] ?? 0));
+            const k = Math.min(q, free);
+            if (k > 0) {
+              m.yard[item] = (m.yard[item] ?? 0) + k;
+              this.villages.save();
+              console.log(`[monument] ${v.name}: ${k} ${item} in storage claimed for the ${N}'s yard`);
+              if (k >= q) continue;
+            }
+            const blocks = item === 'tuff' ? ['tuff_bricks'] : DEEP_BLOCKS;
+            const standIn = (why: string) => {
+              for (const b of blocks) {
+                if ((m3(m).standIns ?? {})[b]) continue;
+                (m3(m).standIns ??= {})[b] = deepStandIn(b, m.wood || 'oak');
+                (m3(m).standInFrom ??= {})[b] = standInFrom(m, b, m.yard[b] ?? 0);
+              }
+              this.villages.save();
+              console.log(`[monument] ${v.name}: the ${N}'s ${blocks.join(', ')} stand in (${why}; short ${q - Math.max(0, k)} ${item})`);
+            };
+            const wk = `${v.name}:deep:${item}`;
+            const was = this.stoneWait.get(wk);
+            const since = was && now - was.last < 2 * 60000 ? was.since : now;
+            this.stoneWait.set(wk, { since, last: now });
+            if (now - since > DEEP_WAIT_MIN * 60000 / timeScale()) {
+              this.stoneWait.delete(wk);
+              standIn(`after ${DEEP_WAIT_MIN} min`);
+              continue;
+            }
+            const deepY = deepenForStone(this.villages, v, a);
+            if (deepY === null) {
+              standIn('no deep level to dig');
+              continue;
+            }
+            const n = Array.from({ length: DEEP_LANES }, (_, i) => i + 1).find((i) => !busy.has(`monument:deep:${i}`));
+            if (!n || (this.monumentBack.get(`${v.name}:deep`) ?? 0) > now) continue;
+            const key = `monument:deep:${n}`;
+            add({
+              id: 'monument:deep', kind: 'monument', key, excludes: [`${key}=`], rank: 160,
+              name: `Dig the deep level (y ${deepY}) for the ${N}'s ${item.replace(/_/g, ' ')} (stage ${st}: ${stageName})`,
+              facts: `the ${N}'s stage ${st} still wants ${q - Math.max(0, k)} ${item}; below y 0 the iron mine's tunnels are deepslate and tuff, cut at the stonecutter into roof tiles and plinth bricks`,
+              effect: `+${item.replace(/_/g, ' ')} in storage for the ${N}'s yard`,
+            }, { kind: 'monument', step: 'deep', item });
+            continue;
+          }
           if (stone) {
             const free = Math.floor((storageContents(v)[item] ?? 0) - (m.yard[item] ?? 0));
             const k = Math.min(q, free);
@@ -7757,6 +7808,19 @@ export class MineflayerWorld implements WorldAdapter {
           console.log(`[monument] ${v.name}: ${worker.name} builds job ${job} (stage ${monumentPlan(m).jobs[job].stage}, ${monumentPlan(m).jobs[job].blocks} blocks)`);
           return;
         }
+        if (d.step === 'deep') {
+          // (an iron trip on the deep level: its tunnels' stone deposited in storage, claimed for the yard on the next look)
+          const dig = worker.enqueue('dig_iron', { chore: true, minutes: 5, want: 999 });
+          worker.memory.monumentGather = d.item;
+          const failed = (why: string) => {
+            if (why !== 'cancelled' && !dig.code) this.monumentBack.set(`${v.name}:deep`, Date.now() + 3 * 60000);
+          };
+          this.setChore(v, worker, opt.key, [dig], `dig the deep level for the ${N}'s ${d.item}`, failed, meta, opt.holds, opt);
+          const c = this.chores.get(worker.name.toLowerCase());
+          if (c) c.choice.monument = { item: d.item, material: 'cobblestone', n: 0 };
+          console.log(`[monument] ${v.name}: ${worker.name} digs the deep level for ${d.item} (stage ${currentStage(m)})`);
+          return;
+        }
         if (d.step === 'dye') {
           const make = worker.enqueue('make_dye', { item: d.item, count: d.amount, chore: true });
           const deposit = worker.enqueue('deposit', { item: 'all', chore: true });
@@ -8731,7 +8795,7 @@ type OptionRun =
   | { kind: 'help'; id: string; step: InitiativeStep }
   | { kind: 'monument'; step: 'site' } | { kind: 'monument'; step: 'job'; job: number }
   | { kind: 'monument'; step: 'gather'; item: string; material: Material | 'flowers'; amount: number; block: string; deposit: string; bulk?: true }
-  | { kind: 'monument'; step: 'kiln'; lane: number } | { kind: 'monument'; step: 'cut' } | { kind: 'monument'; step: 'dye'; item: string; amount: number } | { kind: 'monument'; step: 'furnish'; item: string; amount: number }
+  | { kind: 'monument'; step: 'kiln'; lane: number } | { kind: 'monument'; step: 'cut' } | { kind: 'monument'; step: 'dye'; item: string; amount: number } | { kind: 'monument'; step: 'deep'; item: string } | { kind: 'monument'; step: 'furnish'; item: string; amount: number }
   | { kind: 'grow'; houseless: number }
   | { kind: 'eat'; level: number; item: string; n: number; own?: boolean }
   | { kind: 'own'; what: 'chest' }

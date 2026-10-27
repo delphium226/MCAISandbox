@@ -91,7 +91,7 @@ export function glassColours(counts: Record<string, number>, min = 6): Record<st
 
 /** The full palette as the village can make it (M2): see the header. `detail` (#162): the detail palette's stones kept,
  *  a window's colour kept when the glazing's colours hold it, else plain. */
-export function fullBlock(block: string, wood: string, colours: Record<string, string> = {}, detail = false): string {
+export function fullBlock(block: string, wood: string, colours: Record<string, string> = {}, detail = false, deep = false): string {
   const m = /^([^[]+)(\[.*\])?$/.exec(block)!;
   const name = m[1], st = m[2] ?? '';
   if (detail) {
@@ -99,6 +99,8 @@ export function fullBlock(block: string, wood: string, colours: Record<string, s
     if (pane) return MONUMENT.glazing && Object.values(colours).includes(pane[1]) ? block : `glass_pane${st}`;
   }
   if (name === 'polished_andesite' && !detail) return 'stone';
+  // (#162 tier 3, MC_DEEP_STONE: the deep level's tuff and deepslate kept; standIns put the wood and bricks back when short)
+  if (deep && (name === 'tuff_bricks' || DEEP_BLOCKS.includes(name))) return block;
   if (name === 'tuff_bricks') return 'stone_bricks';
   if (name === 'deepslate_tile_stairs') return `${wood}_stairs${st}`;
   if (name === 'deepslate_tile_slab') return `${wood}_slab${st}`;
@@ -107,6 +109,15 @@ export function fullBlock(block: string, wood: string, colours: Record<string, s
   const glass = /^(\w+?)_stained_glass_pane$/.exec(name);
   if (glass) return MONUMENT.glazing && colours[glass[1]] ? `${colours[glass[1]]}_stained_glass_pane${st}` : `glass_pane${st}`;
   return block;
+}
+
+/** MC_DEEP_STONE (#162 tier 3, chain A): kept on a monument begun with it and the detail palette (`deep`). */
+export const DEEP_STONE_ON = /^(on|1|true|yes)$/i.test(rawSetting('MC_DEEP_STONE') ?? 'off');
+/** The roof's deepslate blocks (cut from cobbled deepslate) and the plinth's (from tuff). */
+export const DEEP_BLOCKS = ['deepslate_tiles', 'deepslate_tile_stairs', 'deepslate_tile_slab'];
+/** What a deep stone stands in as when the village is short (today's: the village wood, stone bricks). */
+export function deepStandIn(block: string, wood: string): string {
+  return block === 'tuff_bricks' ? 'stone_bricks' : block === 'deepslate_tiles' ? `${wood}_planks` : block === 'deepslate_tile_stairs' ? `${wood}_stairs` : `${wood}_slab`;
 }
 
 /** A block with its stand-in, if it has one (its states kept). */
@@ -135,6 +146,7 @@ export function newMonument(wood: string, now: number, type: MonumentType = MONU
   else if (CUTTER.on && MONUMENT.palette === 'full') {
     m.detail = true;
     if (furnishOn()) m.furnish = furnishKinds();
+    if (DEEP_STONE_ON) m.deep = true;
   }
   return m;
 }
@@ -163,9 +175,9 @@ const plans = new Map<string, MonumentPlan>();
  *  palette applied. */
 export function monumentPlan(m: Monument): MonumentPlan {
   const type = monumentType(m);
-  const detail = !!(m as MonumentM3).detail;
+  const detail = !!(m as MonumentM3).detail, deep = detail && !!(m as MonumentM3).deep;
   const standIns = (m as MonumentM3).standIns ?? {}, from = (m as MonumentM3).standInFrom ?? {}, fk = detail ? (m as MonumentM3).furnish : undefined;
-  const key = `${type}|${m.preset}|${m.scale}|${m.palette}|${m.wood}|${JSON.stringify(m.colours ?? {})}|${detail}|${JSON.stringify(standIns)}|${JSON.stringify(from)}|${JSON.stringify(fk ?? null)}`;
+  const key = `${type}|${m.preset}|${m.scale}|${m.palette}|${m.wood}|${JSON.stringify(m.colours ?? {})}|${detail}|${JSON.stringify(standIns)}|${JSON.stringify(from)}|${JSON.stringify(fk ?? null)}|${deep}`;
   let c = plans.get(key);
   if (c) return c;
   c = type === 'castle' ? generateCastle(CASTLE_PRESETS[m.preset] ?? CASTLE_PRESETS.conwy, m.scale)
@@ -174,7 +186,7 @@ export function monumentPlan(m: Monument): MonumentPlan {
     const wood = m.wood || 'oak';
     const pal: Record<string, string> = {}, pal0: Record<string, string> = {};
     for (const [ch, b] of Object.entries(c.design.palette)) {
-      pal0[ch] = m.palette === 'today' ? todayBlock(b, wood) : fullBlock(b, wood, m.colours, detail);
+      pal0[ch] = m.palette === 'today' ? todayBlock(b, wood) : fullBlock(b, wood, m.colours, detail, deep);
       pal[ch] = standIn(pal0[ch], standIns);
     }
     // (#165: a stand-in from its job on; the jobs before it keep the block, as far as the yard's own stone went)
@@ -535,6 +547,8 @@ export type MonumentM3 = Monument & {
   type?: MonumentType;
   /** #162: drawn with the detail palette, its stone cut at the stonecutter. */
   detail?: boolean;
+  /** #162 tier 3 (MC_DEEP_STONE): its deepslate roof and tuff plinth kept, from the iron mine's deep level. */
+  deep?: boolean;
   /** #162: its stonecutter (mcCutter.ts) and dye bed (mcDyeBed.ts). */
   cutter?: CutterRecord;
   dyeBed?: DyeBed;

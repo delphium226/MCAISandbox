@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-215 settings.
+217 settings.
 
 ## Game speed
 
@@ -201,10 +201,12 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 
 | Setting | Type | Default | Live | Requires | Description |
 | --- | --- | --- | --- | --- | --- |
+| `MC_DEEP_STONE` | flag | `off` |  | `MC_MONUMENT_DETAIL`, `MC_IRON_AGE` | MC_DEEP_STONE=on (#162, tier 3, chain A; off by default; with MC_MONUMENT_DETAIL and MC_IRON_AGE): a detail cathedral begun with it keeps the generator deepslate roof tiles and tuff plinth (otherwise the village wood and stone bricks), cut at the stonecutter from cobbled deepslate and tuff. What storage holds is claimed first; then the iron mine lays a deep level (y 0 or below, past the iron age level count) and members make iron trips there for the stone; short after a wait, or with no way down, the wood and stone bricks stand in. No ladder rung (the user, 10-27). |
 | `MC_DYE_BED` | flag | `off` |  | `MC_MONUMENT_DETAIL`, `MC_GLAZING` | MC_DYE_BED=on (#162, tier 2's chain B; off by default): the dye census counts tall flowers too, out to 144 (for the glass colours, the architect's and the detail palette's), the detail cathedral's windows take every colour the village can make (flowers, lapis, bone meal, mixes), its plan asks for the dyes, and the dyer's make_dye chore makes them: bone meal from a composter, tall flowers copied on a dye bed beside the storage hut, the mixes at the table. With MC_MONUMENT_DETAIL the merchant also sells a bell (12 emeralds). |
 | `MC_FURNISH_BANNERS` | flag | `off` |  | `MC_MONUMENT_DETAIL` | MC_FURNISH_BANNERS=on (#162, tier 2, chain D; off by default): the furnishing stage, its banners on the nave piers, white and the first window colour, made by the weaver (make_furnishing: sheep sheared for wool, the wool dyed, banners crafted). |
 | `MC_FURNISH_CANDLES` | flag | `off` |  | `MC_MONUMENT_DETAIL` | MC_FURNISH_CANDLES=on (#162, tier 2, chain E; off by default): the furnishing stage, its altar with candles (string from the merchant, honeycomb from bee nests) and the bell, which no recipe makes: the merchant sells one for 12 emeralds, and the smith sells the spare village goods to raise them. |
 | `MC_FURNISH_LANTERNS` | flag | `off` |  | `MC_MONUMENT_DETAIL` | MC_FURNISH_LANTERNS=on (#162, tier 2, chain C; off by default): the detail cathedral gets a ninth stage, the furnishing, with lanterns hung on chains from its vault, made by the smith (make_furnishing: ingots into nuggets, torches, lanterns and chains at the table). The cathedral counts as built when stages 1-8 stand; the furnishing comes after and never holds it. |
+| `MC_GEODE_GUARD` | flag | `off` |  |  | MC_GEODE_GUARD=on (the geode case of #133, #162 tier 3; off by default): no member path digs a geode shell (smooth basalt, calcite, amethyst) or steps into its hollow (a cell over a shell block or holding an amethyst bud); a member already inside walks out. Mining a geode on purpose is not affected. |
 | `MC_GLAZING` | flag | `off` |  | `MC_MONUMENT` | MC_GLAZING=on (M2, #145; off by default; with MC_MONUMENT_PALETTE=full): the cathedral's stained panes in the colours the flowers near the village give (chosen once), the flowers gathered for their dyes, its sand smelted into glass in the kiln; plain panes without. |
 | `MC_IRON_AGE` | flag | `off` |  |  | MC_IRON_AGE: the widened iron chain (dig on up to 3 legs, smelt at the works furnaces, forge for a named member, new iron levels as each ends); usable without the ladder. |
 | `MC_IRON_STAIRS2` | flag | `off` |  | `MC_IRON_AGE` | MC_IRON_STAIRS2 (with MC_IRON_AGE, #101): each iron level's stairs get a second lane beside the first, dug by a second miner (a lock per lane) or on a later trip; miners walk down one lane and up the other. |
