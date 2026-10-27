@@ -43,7 +43,7 @@ import type { AgentBrain } from '../world';
 import type { Area, Design, Initiative, Monument, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
 import { PART_RE, freeSpots, storageContents, storageFlow, storageGross, storageSlots, storageStrays } from './mcStorage';
-import { HOME_BASICS, basicsCost, basicsFacts, basicsLeft, freeDecorSlots, houseDecorOf, sheepPlace, woolInHand, type BasicsCells } from './mcHome';
+import { HOME_BASICS, basicsCost, basicsFacts, basicsLeft, basicsOf, freeDecorSlots, houseDecorOf, sheepPlace, woolInHand, type BasicsCells } from './mcHome';
 import { HOUSE_DECOR, decorPicks, decorWants } from '../houseDecor';
 import { contractOf, deliveriesOf, deliveryWords, earmarked, levyOwed, levySweep, markAtEnd, reconcilePay, startPay, storeByCommand, type PayWorld } from './mcPay';
 import { PAY, payOf } from '../pay';
@@ -5606,7 +5606,8 @@ export class MineflayerWorld implements WorldAdapter {
           const at = picks[0].slot;
           const named = picks.map((p) => words(p.cost.block.replace(/\[.*$/, ''))).join(' and ');
           add({
-            id: 'own:decor', kind: 'own', key: me, excludes: [`${me}=`], name: 'Decorate your own house', rank: 945,
+            // (rank 190, before the farms: at 945 the fixed order took it once in 77 offers, H141D; a chore is a walk and 2 commands)
+            id: 'own:decor', kind: 'own', key: me, excludes: [`${me}=`], name: 'Decorate your own house', rank: 190,
             at: { x: at.x, z: at.z },
             facts: `your ${words(st.kind)} has ${placed.length} decoration${placed.length === 1 ? '' : 's'} and room for ${free.length} more; storage pays for ${named}; ${dist(at.x, at.z)}`,
             effect: `${named} in your own house, in your own colour`,
@@ -6436,7 +6437,9 @@ export class MineflayerWorld implements WorldAdapter {
         const store = facts.spare();
         const houses = this.decorParts(v).filter((P) => P.slots?.length && P.structure.owner).map((P) => ({ owner: P.structure.owner!, free: freeDecorSlots(v, P) })).filter((h) => h.free.length);
         const wants = decorWants(houses, store);
-        const can = (item: string) => item === 'flower_pot' ? (store.brick ?? 0) >= 3 : item === 'lantern' ? (store.iron_ingot ?? 0) >= 1 || (store.iron_nugget ?? 0) >= 8
+        // (wool goes to the beds first: carpets and banners wait while an owned house lacks its bed, H141D's 20 bed failures)
+        const bedless = this.decorParts(v).some((P) => P.structure.owner && P.basics?.bed && !basicsOf(v)[P.structure.id]?.bed);
+        const can = (item: string) => /_(carpet|banner)$/.test(item) ? !bedless : item === 'flower_pot' ? (store.brick ?? 0) >= 3 : item === 'lantern' ? (store.iron_ingot ?? 0) >= 1 || (store.iron_nugget ?? 0) >= 8
           : item === 'candle' ? (store.string ?? 0) >= 1 && (store.honeycomb ?? 0) >= 1 : true;
         let shown = 0;
         for (const [want, q] of Object.entries(wants).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))) {
@@ -6447,8 +6450,10 @@ export class MineflayerWorld implements WorldAdapter {
           if (!can(item) || excluded([`${key}=`], busy) || (this.decorBack.get(`${v.name}:decor:${item}`) ?? 0) > now || out.some((o) => o.id === key)) continue;
           const amount = Math.min(furnishBatch(item), q);
           shown++;
+          // (the kind storage holds least first: at 1010 + shown carpets took every pick, H141D)
+          const held = Object.entries(store).filter(([k]) => k.replace(/^\w+?_(carpet|banner)$/, '$1') === item.replace(/^\w+?_(carpet|banner)$/, '$1')).reduce((t, [, n]) => t + n, 0);
           add({
-            id: key, kind: 'furnish', key, excludes: [`${key}=`], rank: 1010 + shown,
+            id: key, kind: 'furnish', key, excludes: [`${key}=`], rank: 1010 + Math.min(80, held) + shown,
             name: `Make ${amount} ${words(item)} for the village's houses`,
             facts: `${houses.length} house${houses.length === 1 ? ' has' : 's have'} room for decorations; they want ${q} more ${words(want)}; storage holds ${store[item] ?? 0}; the ${furnishTrade(item)}'s work; ${record('furnish')}`,
             effect: `+${amount} ${words(item)} in storage, for members to decorate their own houses`,
