@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-221 settings.
+225 settings.
 
 ## Game speed
 
@@ -150,6 +150,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_BALLOTS_PARALLEL` | number | `2` |  |  | Ballots of one vote at once (the gate's low class has 2 of the 3 cloud slots at most: the critique's M2). |
 | `MC_COUNCIL` | flag | `off` |  |  | The council: village votes on rules and levies. |
 | `MC_DELIBERATE` | flag | `off` |  |  | #107, deliberation's zero-cost form (MC_DELIBERATE, off): a later voter's ballot shows earlier voters' reasons for each item, attributed, both sides when both were given (the staggered offsets order the voters). |
+| `MC_LAW_BACKING` | string | (unset) |  |  | #164 (off by default): failures counts a night's back of a law also when the backer's failed chores that day name the law's target (their messages, not only the chore lines; train 7 refused 85-92% of backs). |
 | `MC_LEVY` | string | (unset) |  |  | A levy in force from the start, set by code (Experiment 2's imposed base, `MC_LEVY=0.2`), until a voted one replaces it. |
 | `MC_LEVY_MIN` | string | (unset) |  |  | Experiment 2: a pending share is asked once it holds at least this many items (MC_LEVY_MIN, default 1: G3m1's shares were 1-4 items, the levy of 1 the same as all, so every answer paid). |
 | `MC_LEVY_SET` | string | (unset) |  |  | Experiment 2's imposed arm: code sets the levy to R% at the moment the vote would be counted (MC_LEVY_SET=day2:30). |
@@ -159,6 +160,9 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_PROMISE_MIN` | number | `15` |  |  | Minutes a promise is due in (divided by the time scale). |
 | `MC_PROPOSALS` | flag | `off` |  |  | Members' proposals (G1). |
 | `MC_QUESTIONS` | flag | `off` |  | `MC_ACTS` | Question acts (with MC_ACTS). |
+| `MC_RULE_FEASIBLE` | flag | `off` |  |  | #164: a duty or contribution on the ballot says how many members did that work or put that class yesterday (train 7 passed a tool contribution met on 4% of member-days). |
+| `MC_RULE_RESULTS` | flag | `off` |  |  | #164: each rule in force with its result in code's counts (members who met it on the last days, or "words only") in the night prompt and on the ballot. |
+| `MC_RULE_WORDS` | flag | `off` |  |  | #164: a norm (a rule code cannot read as a type) says on the ballot that code will not enforce or count it (train 7: 94-98% yes on norms with no stake shown). |
 | `MC_RULES` | flag | `off` |  |  | Village rules (laws read by members). |
 | `MC_TALK_HOLDOUT` | string | (unset) |  |  | Members held out of talk (a holdout experiment). |
 | `MC_VOTE` | string | (unset) |  |  | The neighbourhood style vote: model, predicted or off. |

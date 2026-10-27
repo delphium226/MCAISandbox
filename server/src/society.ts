@@ -19,7 +19,11 @@ import { CHOOSE } from './choose';
 import { SOCIAL, memberSocial, profileLine, roleLine, type Profile } from './social';
 import { PROPOSALS_ON, addProposal, allProposals, endorse, parsePropose, proposeLine, withPropose, type CheckCtx, type Proposal } from './proposals';
 import { refusedSince } from './acts';
-import { addLaw, backLaw, classOf, lawFrom, laws, putClassOf, rulesInForce, type Law } from './rules';
+import { addLaw, backLaw, classOf, lawFrom, laws, putClassOf, ruleResults, rulesInForce, type Law } from './rules';
+import { rawSetting } from './settings';
+
+/** #164 (MC_LAW_BACKING=failures): a back also counts when the backer's failed chores that day name the law's target. */
+const LAW_BACKING = (rawSetting('MC_LAW_BACKING') ?? '').toLowerCase();
 import { councilOn, councilTick } from './council';
 import {
   FOCUS, MEMORY, agentMemory, applyWrites, clockOf, closeAgentDays, closeVillageDays, liveNotes, logAct, offsetIn, recordLine, scrub, villageLineShown, villageMemory,
@@ -161,7 +165,9 @@ export function reflectPrompt(village: string, m: Member, day: number, now: numb
   // review's 6)
   const openLaws = councilOn() ? laws(village).filter((l) => l.by !== m.name && l.status === 'open' && !l.backers.includes(m.name) && !l.opposers.includes(m.name) && l.backers.length - l.opposers.length < 2)
     .sort((x, y) => y.backers.length - x.backers.length || x.at - y.at).slice(0, 3) : [];
-  if (councilOn()) lines.push(lawLines(rulesInForce(village).map((r) => r.text), openLaws));
+  // (#164, MC_RULE_RESULTS: each rule with its result in code's counts)
+  const results = councilOn() ? ruleResults(village, now) : [];
+  if (councilOn()) lines.push(lawLines(results.length ? results : rulesInForce(village).map((r) => r.text), openLaws));
   // (G5, MC_PROPOSALS: the propose field on nights the day gave a reason, others' open proposals to back)
   const pr = proposing(village, m.name, day, v?.dayMs ?? MEMORY.dayMs, now);
   if (pr) lines.push(proposeLine(pr.others));
@@ -355,7 +361,11 @@ export function applyLaws(village: string, agent: string, input: unknown, day: n
     done.push(`law ${l.id}${l.refused ? ` refused (${l.refused})` : l.by !== agent ? ' joined' : ''}`);
   }
   const a = agentMemory(village, agent);
-  const words = (a?.log ?? []).filter((e) => e.day === day).map((e) => `${e.name} ${e.line}`.toLowerCase()).join(' ');
+  const dayWords = (a?.log ?? []).filter((e) => e.day === day).map((e) => `${e.name} ${e.line}`.toLowerCase()).join(' ');
+  // (#164, MC_LAW_BACKING=failures: the day's failed chores with their messages, "another worker is digging the iron
+  // level's stairs", so a back of a law on what failed counts; train 7 refused 85-92% of backs on chore lines alone)
+  const failWords = LAW_BACKING === 'failures' ? (a?.log ?? []).filter((e) => e.day === day && !e.ok).map((e) => `${e.name} ${e.line} ${e.msg ?? ''}`.toLowerCase()).join(' ') : '';
+  let words = dayWords;
   const touches = (l: Law) => {
     if (l.type === 'quota') return [...words.matchAll(/[a-z_]+/g)].some((w) => classOf(w[0]) === l.params.class) || words.includes(String(l.params.class).replace(/s$/, ''));
     if (l.type === 'floor') return l.params.class !== undefined ? [...words.matchAll(/[a-z_]+/g)].some((w) => (putClassOf(w[0]) ?? '') === l.params.class) || words.includes(String(l.params.class).replace(/s$/, '')) : words.includes(String(l.params.item).replace(/_/g, ' '));
@@ -369,12 +379,16 @@ export function applyLaws(village: string, agent: string, input: unknown, day: n
     const id = typeof b === 'string' ? b : String((b as { id?: unknown })?.id ?? '');
     const l = laws(village).find((x) => x.id === id);
     if (!l) continue;
-    if (!touches(l)) {
+    words = dayWords;
+    const byDay = touches(l);
+    words = failWords;
+    const byFailure = !byDay && !!failWords && touches(l);
+    if (!byDay && !byFailure) {
       logAct({ type: 'law', village, agent, id, op: 'back', counted: false, why: 'its day did not touch it' });
       continue;
     }
     const oppose = (b as { oppose?: unknown })?.oppose === true;
-    if (backLaw(village, id, agent, oppose)) done.push(`${oppose ? 'opposed' : 'backed'} ${id}`);
+    if (backLaw(village, id, agent, oppose, byFailure ? 'failure' : undefined)) done.push(`${oppose ? 'opposed' : 'backed'} ${id}`);
   }
   return done;
 }

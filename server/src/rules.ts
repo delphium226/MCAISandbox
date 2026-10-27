@@ -13,7 +13,7 @@
  *
  * Settings: MC_RULES off (default) | on: the store, the rules line, enforcement, compliance logs.
  */
-import { KIND_WORDS, agentMemory, clockOf, logAct, touchMemory, villageSocialOf } from './memory';
+import { KIND_WORDS, agentMemory, clockOf, logAct, membersOf, touchMemory, villageSocialOf } from './memory';
 import { FOOD_POINTS } from './appetite';
 import type { Rule } from './social';
 import type { Village } from './village';
@@ -28,6 +28,12 @@ export const RULES = {
   /** Experiment 2: a pending share is asked once it holds at least this many items (MC_LEVY_MIN, default 1: G3m1's shares
    *  were 1-4 items, the levy of 1 the same as all, so every answer paid). */
   levyMin: Math.max(1, Number(rawSetting('MC_LEVY_MIN')) || 1),
+  /** #164 (MC_RULE_WORDS): a norm's ballot line says code will not enforce or count it. */
+  words: /^(on|1|true|yes)$/i.test(rawSetting('MC_RULE_WORDS') ?? ''),
+  /** #164 (MC_RULE_FEASIBLE): a duty's or contribution's ballot line says how many members did it yesterday. */
+  feasible: /^(on|1|true|yes)$/i.test(rawSetting('MC_RULE_FEASIBLE') ?? ''),
+  /** #164 (MC_RULE_RESULTS): the rules in force with their results in code's counts (night prompt and ballot). */
+  results: /^(on|1|true|yes)$/i.test(rawSetting('MC_RULE_RESULTS') ?? ''),
 };
 /** Test hook. */
 export function setRulesSettings(s: Partial<typeof RULES>): void {
@@ -454,11 +460,12 @@ export function addLaw(village: string, by: string, raw: Record<string, unknown>
 }
 
 /** Backing or opposing an open law (once a member, never one's own). */
-export function backLaw(village: string, id: string, by: string, oppose = false): boolean {
+export function backLaw(village: string, id: string, by: string, oppose = false, reason?: 'failure'): boolean {
   const l = law(village, id);
   if (!l || l.by === by || (l.status !== 'open' && l.status !== 'agenda') || l.backers.includes(by) || l.opposers.includes(by)) return false;
   (oppose ? l.opposers : l.backers).push(by);
-  logAct({ type: 'law', village, agent: by, id, op: oppose ? 'oppose' : 'back' });
+  // (#164: `by: failure` when the back counted only through the backer's failures, MC_LAW_BACKING)
+  logAct({ type: 'law', village, agent: by, id, op: oppose ? 'oppose' : 'back', ...(reason ? { by: reason } : {}) });
   touchMemory();
   return true;
 }
@@ -677,6 +684,61 @@ export function stake(village: string, agent: string, type: RuleType, p: Record<
     return `storage holds ${have} now`;
   }
   return '';
+}
+
+/** #164: the ballot's words-only line for a norm (MC_RULE_WORDS): code reads no type in it, so nothing enforces or counts
+ *  it; '' for typed laws or with the flag off. */
+export function wordsOnly(type: RuleType): string {
+  return RULES.words && type === 'norm' ? 'words only: code will not enforce or count this; members keep it or not' : '';
+}
+
+/** Members of the village (from memory), and those of them whose day `day` did a duty's kind or put a contribution's class. */
+function meeting(village: string, type: RuleType, p: Record<string, number | string>, day: number): { did: number; of: number } | null {
+  if (type !== 'duty' && type !== 'contribute') return null;
+  const st = state(village);
+  const ms = membersOf(village);
+  const did = ms.filter((m) => (type === 'duty'
+    ? m.log.some((e) => e.day === day && e.kind === p.kind && e.ok)
+    : putToday(st, m.name, day, String(p.class)) >= Number(p.n))).length;
+  return { did, of: ms.length };
+}
+
+/**
+ * #164 (MC_RULE_FEASIBLE): what a duty or contribution would have asked of the village yesterday, in code's counts ("yesterday
+ * 3 of 25 members did lighting"; train 7 passed a tool contribution met on 4% of member-days and a lighting duty on 14%,
+ * the work seldom on members' menus); '' for other types or with the flag off.
+ */
+export function feasibility(village: string, type: RuleType, p: Record<string, number | string>, now: number): string {
+  if (!RULES.feasible) return '';
+  const m = meeting(village, type, p, dayOf(village, now) - 1);
+  if (!m || !m.of) return '';
+  if (type === 'duty') return `yesterday ${m.did} of ${m.of} members did ${KIND_WORDS[String(p.kind)] ?? p.kind}`;
+  return `yesterday ${m.did} of ${m.of} members put ${p.n} ${String(p.class).split('+').join(' or ')} or more into storage`;
+}
+
+/**
+ * #164 (MC_RULE_RESULTS): each rule in force with its result in code's counts over the last finished village days since it
+ * passed (at most 3): a duty or contribution met by members a day, a norm "words only, not counted", a levy its rate; a
+ * quota or floor names that it is enforced (its refusals are the world's). [] with the flag off.
+ */
+export function ruleResults(village: string, now: number): string[] {
+  if (!RULES.results) return [];
+  const today = dayOf(village, now);
+  const c = clockOf(village, now);
+  return rulesInForce(village).map((r) => {
+    const t = r.type as RuleType;
+    // (village days finished since it passed: a rule passed at a dusk counts from the next day)
+    const since = c ? c.day - Math.floor((now - r.since) / c.dayMs) : today;
+    const days = [today - 3, today - 2, today - 1].filter((d) => d > since && d >= 1);
+    let res: string;
+    if (t === 'duty' || t === 'contribute') {
+      const per = days.map((d) => meeting(village, t, r.params, d)).filter((m): m is { did: number; of: number } => !!m);
+      res = per.length ? `met by ${per.map((m) => `${m.did} of ${m.of}`).join(', then ')} members a day` : 'no full day yet';
+    } else if (t === 'norm') res = 'words only: not enforced or counted';
+    else if (t === 'levy') res = `in force at ${r.params.rate}%`;
+    else res = 'enforced by code (options that break it leave the menu)';
+    return `${r.text} (${res})`;
+  });
 }
 
 /** Code's dry-run preview of a quota over the last 3 village days (spec 13): the takes it would have refused. */

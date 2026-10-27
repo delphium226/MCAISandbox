@@ -12,7 +12,7 @@ import { callModel, parseSpec } from './modelCall';
 import { usage, isCloudModel, REASONING } from './modelUsage';
 import { CHOOSE, fnv1a, mulberry32, shuffled } from './choose';
 import { MEMORY, WINDOWS, clockOf, logAct, offsetIn, touchMemory, villageSocialOf } from './memory';
-import { RULES, enact, judgeDays, laws, levyRate, preview, rulesInForce, stake, type Law } from './rules';
+import { RULES, enact, feasibility, judgeDays, laws, levyRate, preview, ruleResults, rulesInForce, stake, wordsOnly, type Law } from './rules';
 import { rawSetting } from './settings';
 
 export const COUNCIL = {
@@ -233,10 +233,13 @@ export function ballotPrompt(village: string, agent: string, items: Law[], perso
   const lines: string[] = [];
   if (persona.trim()) lines.push(persona.trim());
   const rs = rulesInForce(village);
-  lines.push(rs.length ? `Rules in force: ${rs.map((r) => r.text).join('; ')}.` : 'No village rules are in force.');
+  // (#164, MC_RULE_RESULTS: each rule with its result in code's counts)
+  const res = ruleResults(village, now);
+  lines.push(res.length ? `Rules in force: ${res.join('; ')}.` : rs.length ? `Rules in force: ${rs.map((r) => r.text).join('; ')}.` : 'No village rules are in force.');
   lines.push('Tonight\'s ballot:');
   for (const l of shuffled(items, `ballot|${agent}|${l0(items)}`)) {
-    const pv = preview(village, l.type, l.params, now);
+    // (#164: a norm's words-only line, MC_RULE_WORDS; a duty's or contribution's yesterday, MC_RULE_FEASIBLE)
+    const pv = [preview(village, l.type, l.params, now), wordsOnly(l.type), feasibility(village, l.type, l.params, now)].filter(Boolean).join('; ');
     // (10-23: what it would have meant for this member yesterday, code's facts: rulebench saw 99% yes without them)
     const sk = stake(village, agent, l.type, l.params, storeOf?.(village) ?? {}, now);
     lines.push(`- [${l.id}] ${capital(l.text)}${pv ? ` (${pv})` : ''}; proposed by a member, backed by ${l.backers.length}${l.opposers.length ? `, opposed by ${l.opposers.length}` : ''}.${sk ? ` For you: ${sk}.` : ''}`);
