@@ -73,6 +73,14 @@ async function makeFurnishing(a: BotAgent, args: Record<string, unknown>, signal
   // (generic makings as the village holds them: planks of its wood or any, coal or charcoal)
   const takes: Record<string, number> = {};
   for (const [k, q] of Object.entries(plan.takes)) {
+    // (no planks in storage: cut from its logs first, 4 a log; D4's banners failed on sticks with 395 logs stored)
+    const log = k === 'planks' && !Object.keys(store).some((x) => /_planks$/.test(x) && store[x] >= q)
+      ? [wood.replace(/_planks$/, '_log'), ...Object.keys(store).filter((x) => /_log$/.test(x))].find((x) => (store[x] ?? 0) * 4 >= q) : undefined;
+    if (log) {
+      takes[log] = (takes[log] ?? 0) + Math.ceil(q / 4);
+      plan.crafts.unshift({ item: log.replace(/_log$/, '_planks'), makes: Math.ceil(q / 4) * 4 });
+      continue;
+    }
     const name = k === 'planks' ? ((store[wood] ?? 0) >= q ? wood : Object.keys(store).find((x) => /_planks$/.test(x) && store[x] >= q) ?? wood)
       : k === 'coal' && (store.coal ?? 0) < q ? 'charcoal' : k;
     takes[name] = (takes[name] ?? 0) + q;
