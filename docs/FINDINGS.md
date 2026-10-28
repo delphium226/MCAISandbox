@@ -2296,3 +2296,18 @@ CLAUDE.md when a phase ends.
   green with its parterre (chequer7, knot7) at the centre and 2 trees, 7 kinds a green, top share 17%, [lag] 0, [stuck]
   31. Check: scripts/checks/greens_mix.mts. Renders: runs/renders/g3_green_a.png (a green read from the world),
   greens_mix_shapes.png.
+- F335 (10-28, train8, G3/G4, #164's pilot) **#164's world steps did not get tested: members wrote no claim or report law,
+  and two bugs ate the test.** Three 25-member runs from t7_c_greens_full, 1x, 150 min, code 6193892: R1 (model, the
+  effects on), R0 (model, effects off), F1 (fixed + the scripted council). Laws (rules_use.py): R1 24, 33% typed (norm 16,
+  floor 5, contribute 2, quota 1), R0 28 at 25%. **No claim or report law in 175 reflections in either model arm**, so no
+  claim was posted or report made (blocked trips 105 vs 101, nearly all "no free 9x9 site" for own farms); no repeal.
+  Norms got 63% yes in R1 and 68% in R0 (train 7: 94-98%), so the drop is not the words line. Cost R1 $1.47 vs R0 $1.55.
+  Pass rule (predictions 1, 2, 4, 7): not met. Bugs: (a) #170, the sign board is saved as `v.board`, barter's offer
+  board: once F1's scripted claim and report passed (day 2), every menu threw `b.offers is not iterable` and F1 sat at 0%
+  busy from +42 min; (b) #171, on t7_c's full 15-greens the custom stone has no free ground, and the option stays on the
+  menu after failing: custom:green_stone was 65% of R1's 6,444 choices (2,973 as the only option) and 3,385 of its 4,919
+  failures. The seeded door_flower was offered 52 times and never done, so custom uptake (prediction 7) could not be
+  measured. Busy in R1 and R0 (84/64 and 86/72 by hour) counts those failing chores. The greens (first model-driven run of
+  MC_GREENS_MORE + MC_GREENS_MIX): 111 works in R1 and R0 (train 7 C 70), top kind 20%, a parterre and 2-3 trees on each
+  new 21-green, 6-9 kinds a green, "greens full" 0. The default monument from t7_c reached stage 9, 3,523 of 3,587 blocks,
+  in both model arms. [lag] 0 everywhere. Report: runs/2026-10-28/train8/report.md.
