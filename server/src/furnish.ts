@@ -140,10 +140,15 @@ export function furnishKindOf(item: string): FurnishKind | null {
 export function refurnishReady(kind: FurnishKind, stock: Record<string, number>, items: Record<string, number>): boolean {
   if (!Object.keys(items).length) return false;
   if (kind === 'banners' && !(stock.shears ?? 0) && (stock.iron_ingot ?? 0) < 2) return false;
-  const need: Record<string, number> = {};
+  // (each item's plan against what the ones before it left: D4's lanterns and chains both counted its one nugget)
+  const left = { ...stock };
   for (const [item, n] of Object.entries(items))
-    for (const [k, q] of Object.entries(furnishPlan(item, n, stock).takes)) need[k] = (need[k] ?? 0) + q;
-  return Object.entries(need).every(([k, q]) => /^(planks|stick|coal|torch|white_wool)$/.test(k) || (stock[k] ?? 0) >= q);
+    for (const [k, q] of Object.entries(furnishPlan(item, n, left).takes)) {
+      if (/^(planks|stick|coal|torch|white_wool)$/.test(k)) continue;
+      if ((left[k] ?? 0) < q) return false;
+      left[k] -= q;
+    }
+  return true;
 }
 
 /** The emeralds the bell costs (merchant.ts' offer). */

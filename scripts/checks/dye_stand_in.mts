@@ -100,6 +100,8 @@ if (!existsSync(file)) {
     ok(items.lantern > 0 && items.iron_chain > 0 && Object.keys(items).length === 2, `the lanterns' pieces (${JSON.stringify(items)})`);
     ok(!refurnishReady('lanterns', { torch: 64 }, items), 'not back with no iron');
     ok(refurnishReady('lanterns', { iron_ingot: 64 }, items), 'back with 64 ingots in storage');
+    ok(refurnishReady('lanterns', { iron_ingot: 98, iron_nugget: 1, torch: 58 }, items), 'back with D4\'s storage (one nugget, counted once)');
+    ok(!refurnishReady('lanterns', { iron_ingot: 20 }, items), 'not back with too few ingots');
     ok(!refurnishReady('banners', { white_wool: 99 }, mon.leftOutItems(m5, 'banners')) && refurnishReady('banners', { shears: 1 }, mon.leftOutItems(m5, 'banners')), 'banners back with shears');
     const n = mon.refurnishOn(m5, 'lanterns');
     const p1 = mon.monumentPlan(m5), rj = p1.jobs[p1.jobs.length - 1];
