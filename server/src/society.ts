@@ -24,7 +24,8 @@ import { rawSetting } from './settings';
 
 /** #164 (MC_LAW_BACKING=failures): a back also counts when the backer's failed chores that day name the law's target. */
 const LAW_BACKING = (rawSetting('MC_LAW_BACKING') ?? '').toLowerCase();
-import { councilOn, councilTick } from './council';
+import { councilOn, councilScripted, councilTick } from './council';
+import { CUSTOMS, CUSTOM_IDS, TEMPLATES, noteStarted, readCustom } from './customs';
 import {
   FOCUS, MEMORY, agentMemory, applyWrites, clockOf, closeAgentDays, closeVillageDays, liveNotes, logAct, offsetIn, recordLine, scrub, villageLineShown, villageMemory,
   type Phase,
@@ -89,11 +90,12 @@ export function tick(now: number, villages: Array<{ name: string; members: Membe
         if (!due || a.nightDone >= c.day) continue;
         const had = a.log.some((e) => e.day === c.day && !e.cut);
         closeAgentDays(village, m.name, c.day);
-        if (had && MEMORY.reflect && CHOOSE.mode !== 'scripted') void reflect(village, m, c.day, now);
+        // (#164, MC_COUNCIL_SCRIPTED: F1's members reflect by the script, no model call)
+        if (had && MEMORY.reflect && CHOOSE.mode !== 'scripted' && !(councilOn() && councilScripted())) void reflect(village, m, c.day, now);
         // (G5, the scripted controller: a proposal from a script on a fixed night, so staged runs exercise the store,
         // triage and the answers without models)
         if (had && PROPOSALS_ON && CHOOSE.mode === 'scripted') scriptedProposal(village, m.name, c.day);
-        if (had && councilOn() && CHOOSE.mode === 'scripted') scriptedLaw(village, m.name, c.day, now);
+        if (had && councilOn() && councilScripted()) scriptedLaw(village, m.name, c.day, now);
       }
     } catch (e) {
       console.log(`[clock] ${village}: ${String((e as Error)?.stack ?? e).slice(0, 300)}`);
@@ -171,7 +173,9 @@ export function reflectPrompt(village: string, m: Member, day: number, now: numb
   // (G5, MC_PROPOSALS: the propose field on nights the day gave a reason, others' open proposals to back)
   const pr = proposing(village, m.name, day, v?.dayMs ?? MEMORY.dayMs, now);
   if (pr) lines.push(proposeLine(pr.others));
-  const tools = reflectTools({ live: live.map((n) => n.id), people: people.map((p) => p.of), openLaws: councilOn() ? openLaws.map((l) => l.id) : null, propose: pr ? pr.others.slice(0, 3).map((p) => p.id) : null });
+  // (#164, MC_CUSTOMS: the night's custom field, the customs code can keep named)
+  if (CUSTOMS.on) lines.push(customLine());
+  const tools = reflectTools({ live: live.map((n) => n.id), people: people.map((p) => p.of), openLaws: councilOn() ? openLaws.map((l) => l.id) : null, propose: pr ? pr.others.slice(0, 3).map((p) => p.id) : null, custom: CUSTOMS.on });
   return { system: REFLECT_SYSTEM, user: scrub(village, m.name, lines.join('\n\n')), tools };
 }
 
@@ -188,7 +192,7 @@ export function lawLines(inForce: string[], openLaws: Array<Pick<Law, 'id' | 'te
 
 /** The reflect tool for a night (pure:rulebench rebuilds it from a recorded prompt): the note ids it may replace or keep,
  *  the members it may write profiles of, the council's fields (open laws' ids, or null with the council off) and G5's. */
-export function reflectTools(o: { live: string[]; people: string[]; openLaws: string[] | null; propose: string[] | null }): ToolDef[] {
+export function reflectTools(o: { live: string[]; people: string[]; openLaws: string[] | null; propose: string[] | null; custom?: boolean }): ToolDef[] {
   const tools: ToolDef[] = [{
     name: 'reflect',
     description: 'Keep up to 2 notes and set your intention for tomorrow.',
@@ -225,6 +229,8 @@ export function reflectTools(o: { live: string[]; people: string[]; openLaws: st
     sch.properties.law = { type: 'object', description: 'Optional, and rare: a village rule you propose.', properties: { what: { type: 'string', maxLength: 140, description: 'The rule, one sentence.' }, why: { type: 'string', maxLength: 200 } }, required: ['what'] };
     if (o.openLaws.length) sch.properties.back_laws = { type: 'array', maxItems: 2, items: { type: 'object', properties: { id: { type: 'string', enum: o.openLaws }, oppose: { type: 'boolean' } }, required: ['id'] } };
   }
+  // (#164, MC_CUSTOMS: a custom a member starts, one sentence)
+  if (o.custom) (tools[0].input_schema as { properties: Record<string, unknown> }).properties.custom = { type: 'string', maxLength: 140, description: 'Optional, and rare: a village custom you start, one sentence.' };
   if (!o.propose) return tools;
   const withP = withPropose(tools);
   if (o.propose.length) {
@@ -292,6 +298,8 @@ async function reflect(village: string, m: Member, day: number, now: number): Pr
     if (PROPOSALS_ON) done.push(...applyProposal(village, m.name, c?.input ?? null, day));
     // (G3, MC_COUNCIL: a law and backing others' laws)
     if (councilOn()) done.push(...applyLaws(village, m.name, c?.input ?? null, day, Date.now()));
+    // (#164, MC_CUSTOMS: the night's custom, read as one the village can keep or refused with the reason)
+    if (CUSTOMS.on) done.push(...applyCustom(village, m.name, c?.input ?? null, Date.now()));
     logAct({ type: 'reflect', village, agent: m.name, day, system: p.system, prompt: p.user, reply: got ?? { text: r.reply.text.slice(0, 400) }, done, ms: r.ms, waitMs: r.waitMs, promptTokens: r.reply.promptTokens, outputTokens: r.reply.outputTokens });
     console.log(`[reflect] ${village}: ${m.name} day ${day}: ${done.join(', ') || 'nothing kept'}${got?.intention ? `; tomorrow: ${got.intention.slice(0, 100)}` : ''}`);
   } catch (e) {
@@ -333,10 +341,20 @@ const SCRIPTED_LAWS = [
   // (a floor on cobblestone, not torches: a torch floor would take the lighting duty's options away, the review's 7)
   { stone_minimum: { item: 'cobblestone', minimum: 16 } },
 ];
+/** #164's scripted laws (MC_RULE_TYPES, MC_CUSTOMS; MC_COUNCIL_SCRIPTED's F1 arm): a claim on the iron level, the report
+ *  rule, a stock contribution and a norm naming a custom, in the words train 7's members wrote (norm_classes.txt); with
+ *  any of them on they replace G3's four. */
+const scriptedLaws164 = (): unknown[] => [
+  ...(RULES.types.has('claim') ? [{ what: 'Members must post a claim on the board before digging on the iron level; others wait 10 minutes.' }] : []),
+  ...(RULES.types.has('report') ? [{ what: 'When a member discovers a resource or a blocked tunnel, they must post it on the common board.' }] : []),
+  ...(RULES.types.has('stock') ? [{ what: 'Each member deposits at least 2 seeds into storage each day.' }] : []),
+  ...(CUSTOMS.on ? [{ what: "Members place a flower on the green's custom stone to keep the village custom." }] : []),
+];
 export function scriptedLaw(village: string, agent: string, day: number, now: number): void {
   const h = [...`law|${agent}|${day}`].reduce((x, ch) => (Math.imul(x ^ ch.charCodeAt(0), 16777619) >>> 0), 2166136261);
   if (day === 1) {
-    const lw = lawFrom(SCRIPTED_LAWS[h % SCRIPTED_LAWS.length]);
+    const list = scriptedLaws164().length ? scriptedLaws164() : SCRIPTED_LAWS;
+    const lw = lawFrom(list[h % list.length]);
     if (lw) addLaw(village, agent, lw, now);
   } else if (h % 3 === 0) {
     const first = laws(village).find((l) => l.by !== agent && l.status === 'open');
@@ -396,6 +414,27 @@ export function applyLaws(village: string, agent: string, input: unknown, day: n
     if (backLaw(village, id, agent, oppose, byFailure ? 'failure' : undefined)) done.push(`${oppose ? 'opposed' : 'backed'} ${id}`);
   }
   return done;
+}
+
+/** #164: the night prompt's custom line (pure): the customs code can keep, and the field to start one. */
+export function customLine(): string {
+  return `A village custom is something members do by choice, for no goods or pay: ${CUSTOM_IDS.map((x) => TEMPLATES[x].name.toLowerCase()).join('; ')}. You may start one (\`custom\`, one sentence) if you want the others to keep it. Most nights there is none.`;
+}
+
+/** #164 (MC_CUSTOMS): the night's `custom` sentence read as a template (started, in the ledger) or refused with code's reason. */
+export function applyCustom(village: string, agent: string, input: unknown, now: number): string[] {
+  let o = input as Record<string, unknown> | string | null;
+  if (typeof o === 'string') {
+    try { o = JSON.parse(o) as Record<string, unknown>; } catch { return []; }
+  }
+  if (!o || typeof o !== 'object' || o.custom === undefined || o.custom === null || o.custom === '') return [];
+  const r = readCustom(o.custom);
+  if ('refused' in r) {
+    logAct({ type: 'custom', village, agent, op: 'refused', text: String(o.custom).slice(0, 140), why: r.refused });
+    return [`custom refused (${r.refused.slice(0, 60)})`];
+  }
+  noteStarted(village, agent, r.custom, 'night', now);
+  return [`custom ${r.custom}`];
 }
 
 /** G5 (#90): the night's proposal and backing from the reflect call's input. A proposal is checked by code (the world's

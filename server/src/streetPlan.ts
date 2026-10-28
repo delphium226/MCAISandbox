@@ -987,3 +987,26 @@ export function decorSlots(p: SignPlace, opts: { taken?: Array<{ x: number; laye
 export function placedDoor(p: SignPlace): { x: number; z: number; ox: number; oz: number } | null {
   return p.noSign ? null : placedGrid(p).door;
 }
+
+/**
+ * #164: where the village board's signs may stand by the storage hut (writeBoard checks each against the world): two cells
+ * out from each side, from the middle of the south side outward, then north, east and west; each sign faces away from the
+ * hut (rotation 0 south, 8 north, 12 east, 4 west).
+ */
+export function boardCells(hut: Area): Array<{ x: number; z: number; rot: number }> {
+  const out: Array<{ x: number; z: number; rot: number }> = [];
+  const mx = Math.floor((hut.x1 + hut.x2) / 2), mz = Math.floor((hut.z1 + hut.z2) / 2);
+  const fan = (lo: number, hi: number, mid: number) => {
+    const xs: number[] = [];
+    for (let d = 0; mid - d >= lo || mid + d <= hi; d++) {
+      if (mid + d <= hi) xs.push(mid + d);
+      if (d && mid - d >= lo) xs.push(mid - d);
+    }
+    return xs;
+  };
+  for (const x of fan(hut.x1, hut.x2, mx)) out.push({ x, z: hut.z2 + 2, rot: 0 });
+  for (const x of fan(hut.x1, hut.x2, mx)) out.push({ x, z: hut.z1 - 2, rot: 8 });
+  for (const z of fan(hut.z1, hut.z2, mz)) out.push({ x: hut.x2 + 2, z, rot: 12 });
+  for (const z of fan(hut.z1, hut.z2, mz)) out.push({ x: hut.x1 - 2, z, rot: 4 });
+  return out;
+}

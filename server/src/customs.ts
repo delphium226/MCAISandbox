@@ -43,8 +43,9 @@ const DECOR = String.raw`(?:flower ?pots?|potted|lanterns?|flowers?|decorat\w*|o
 const COMMUNAL = String.raw`(?:green|square|commons?|communal (?:area|space|spot|place)|public (?:area|space)|village (?:centre|center|stone)|(?:custom|green's|village) stone)`;
 export const TEMPLATES: Record<CustomId, CustomTemplate> = {
   door_flower: {
-    id: 'door_flower', name: 'Put a flower pot or lantern at your door', did: 'put a flower pot or lantern at their door', when: 'day',
-    blocks: ['flower_pot', 'lantern'],
+    // (the world's act: a flower from storage planted beside the house's door, the block checked; a pot or lantern in words)
+    id: 'door_flower', name: 'Plant a flower by your door', did: 'planted a flower by their door', when: 'day',
+    blocks: ['poppy', 'dandelion', 'cornflower', 'oxeye_daisy', 'azure_bluet', 'allium', 'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip', 'lily_of_the_valley', 'blue_orchid'],
     words: new RegExp(String.raw`\b${DECOR}\b[^.]*\b(?:doors?|doorsteps?|porch(?:es)?|entrances?|houses?|homes?)\b|\b(?:doors?|doorsteps?|porch(?:es)?|entrances?)\b[^.]*\b${DECOR}\b`, 'i'),
   },
   green_stone: {

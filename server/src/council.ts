@@ -30,12 +30,17 @@ export const COUNCIL = {
   /** #107, deliberation's zero-cost form (MC_DELIBERATE, off): a later voter's ballot shows earlier voters' reasons for
    *  each item, attributed, both sides when both were given (the staggered offsets order the voters). */
   deliberate: /^(on|1|true|yes)$/i.test(rawSetting('MC_DELIBERATE') ?? ''),
+  /** #164 (MC_COUNCIL_SCRIPTED, off; test train 8's F1 arm): under the fixed chooser the night's laws come from the script
+   *  (society.ts scriptedLaw) and the dusk ballots are predicted, with no model call, as under the scripted controller. */
+  scripted: /^(on|1|true|yes)$/i.test(rawSetting('MC_COUNCIL_SCRIPTED') ?? ''),
 };
 /** Test hook. */
 export function setCouncilSettings(s: Partial<typeof COUNCIL>): void {
   Object.assign(COUNCIL, s);
 }
 export const councilOn = () => COUNCIL.on && RULES.on && MEMORY.clock;
+/** Whether the council is scripted: the scripted controller's, or MC_COUNCIL_SCRIPTED under the fixed chooser (#164's F1). */
+export const councilScripted = () => CHOOSE.mode === 'scripted' || (COUNCIL.scripted && CHOOSE.mode === 'fixed');
 
 /** At most this many items a meeting; a law lapses after this many days without reaching a ballot. */
 export const ITEMS_MAX = 3, LAPSE_DAYS = 3;
@@ -450,8 +455,8 @@ export function councilTick(village: string, members: CouncilMember[], now: numb
 }
 
 async function castOne(village: string, mem: CouncilMember, items: Law[], m: Meeting, now: number): Promise<void> {
-  // (the scripted controller: predicted ballots, seeded: yes 70%)
-  if (CHOOSE.mode === 'scripted') {
+  // (the scripted controller, and MC_COUNCIL_SCRIPTED's fixed chooser: predicted ballots, seeded: yes 70%)
+  if (councilScripted()) {
     const rnd = mulberry32(fnv1a(`ballot|${village}|${m.day}|${mem.name}`));
     m.cast[mem.name] = Object.fromEntries(items.map((l) => [l.id, rnd() < 0.7 ? 'yes' : 'no'])) as Record<string, Vote>;
     // (a need item: the chore offered most, A)

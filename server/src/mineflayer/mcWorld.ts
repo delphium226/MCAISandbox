@@ -20,7 +20,7 @@ import { Vec3 } from 'vec3';
 import { collectFilter, collectTargets, exposed, villageStationCell } from './mcSurvival';
 import { at, nearestBlocks, onVillageGround, stateAt } from './mcUtil';
 import { teleportHome, underHome } from './mcRescue';
-import { annexBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, storeBusy, surfaceAt, wheatKeep } from './mcBuild';
+import { annexBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, storeBusy, surfaceAt, wheatKeep, writeBoard } from './mcBuild';
 import { ironDone, ironStairsHeld, mineAreas, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PEN_KINDS, PEN_ORDER, PEN_VARIETY, SLOT_KINDS, SLOT_ORDER, penCap, penLure, penPlan, penSlotFit, penWords, worksFurnaces } from '../farmSlots';
 import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
@@ -80,7 +80,8 @@ import { topWanted, wantedList } from '../wanted';
 import { SELLS } from '../merchant';
 import { clockOf, noteAnswer, scrub, setProjectLines, toldAnswer, villageMemory } from '../memory';
 import { codeNews, tellMember } from '../acts';
-import { RULES, breaks, contributeTag, duties, levyRate, noteCompliance, notePuts, noteTakes, rulesLine, setZoneVillages, zoneBoxes } from '../rules';
+import { RULES, boardSigns, breaks, claimHeld, claimRule, contributeTag, duties, levyRate, noteBlocked, noteClaimWait, noteCompliance, notePuts, noteReportUsed, noteTakes, pendReport, pendingReport, postClaim, postReport, reportFor, reportRule, rulesLine, setZoneVillages, skipReport, zoneBoxes, type ClaimWork, type Report } from '../rules';
+import { CUSTOMS, CUSTOM_IDS, TEMPLATES, customFacts, didOn, noteDid, noteExposed, offered as customOffered, seedLine, type CustomId } from '../customs';
 import { lapsePending, levyLeft, pendShare, pendingOf, settlePending } from '../own';
 import { councilLine, needBoost, noteNeedOffer, noteNeedStatus, setCouncilStore, withInfluence } from '../council';
 import { CHARACTER, characterAny, characterFactor, characterRunBegin, goalFromValues, helpWeight, hexacoOf, hexacoWeights, identityLine, initCharacter, moodLine, moodWeight, needsLine, noteDecision, noteLines, noteRest, noteWork, requestWeight, restWeight, sample as characterSample, temperamentWords, think, valuesLine } from '../character';
@@ -4787,6 +4788,12 @@ export class MineflayerWorld implements WorldAdapter {
 
   private setChore(v: Village, worker: BotAgent, key: string, status: ActionStatus[], what: string, failed?: (why: string) => void, meta?: ChoiceMeta, holds: string[] = [], opt?: ChoiceOption) {
     const id = worker.name.toLowerCase();
+    // (#164: a claimed chore's walk to the board, queued first by runOption, is its first step)
+    const pre = this.boardFirst.get(id);
+    if (pre) {
+      this.boardFirst.delete(id);
+      status = [pre, ...status];
+    }
     // (G8: the kinds of work a member takes, for the forge's recipients: a dig trip, milking and shearing by their ids)
     if (IRON_AGE && opt) {
       const wk = opt.id.startsWith('iron:dig') ? 'iron:dig' : /milk/.test(opt.id) ? 'milk' : /shear/.test(opt.id) ? 'shear' : opt.kind;
@@ -5021,6 +5028,8 @@ export class MineflayerWorld implements WorldAdapter {
       return n;
     };
     if (RULES.on && v && c.choice.flow) notePuts(v.name, c.agent, c.choice.option ?? '', netOf(c.choice.flow), Date.now());
+    // (#164: claims' blocked trips, finds to post, cited reports, customs kept)
+    if (v && (RULES.on || CUSTOMS.on)) this.rulesAtEnd(v, c, ok, message);
     // #68: the member's share of the new goods the chore put into the commons, owed until it carries it home (a member
     // with a house of its own; chores that bring goods from the world only, own.ts SHARED)
     if (OWN.on && v && c.choice.flow && SHARED.has(c.choice.kind ?? '') && this.homeOf(v, c.agent)) {
@@ -7185,6 +7194,9 @@ export class MineflayerWorld implements WorldAdapter {
       }
     }
 
+    // #164 (MC_RULE_TYPES, MC_CUSTOMS): the board's claims and reports, the member's own find to post, the village customs
+    if ((RULES.on && RULES.types.size) || CUSTOMS.on) this.boardOptions(v, a, busy, now, out, reasons, add, store);
+
     // #122: the gated options stay only on a menu with nothing but filler makes (a meal aside), and the filler leaves it;
     // otherwise they go and their kinds keep the gate's reason
     if (gated.size) {
@@ -7574,6 +7586,211 @@ export class MineflayerWorld implements WorldAdapter {
     return {};
   }
 
+  // ---- #164: the board by the storage hut (claims, reports) and the village customs ---------------------------------
+
+  /** #164: a claimed chore's walk to the board, queued before its own steps (setChore puts it first). */
+  private boardFirst = new Map<string, ActionStatus>();
+  /** #164: the report each member's chore under way cited (its outcome logged at the end). */
+  private reportCited = new Map<string, Report>();
+  /** #164: where each gather chore's collecting ended (the report's place), by choice id. */
+  private foundAt = new Map<string, { x: number; z: number }>();
+  /** #164: the board's text last written, by village (rewritten only when it changes). */
+  private boardText = new Map<string, string>();
+
+  /** #164: the claimable work an option is (the iron level's digs, a small work on a green), or undefined. */
+  private claimWorkOf(o: ChoiceOption): { work: ClaimWork; key: string; label: string } | undefined {
+    if (o.id.startsWith('iron:dig')) return { work: 'iron', key: 'iron', label: 'iron level' };
+    const d = OPTION_RUN.get(o);
+    if (d?.kind === 'initiate' && d.green) return { work: 'green', key: 'green', label: "greens' plots" };
+    return undefined;
+  }
+
+  /**
+   * #164 (spec 2.1, 2.6): another member's claim on the board takes its work off the menu, the rule and the claimant named
+   * (the user's Q1: claims are enforced); a posted report is a fact on others' options of the same work; the member's own
+   * find is an option to post it ("go on" is any other pick); and the village customs (MC_CUSTOMS).
+   */
+  private boardOptions(v: Village, a: BotAgent, busy: Set<string>, now: number, out: ChoiceOption[], reasons: Partial<Record<ChoiceKind, string>>,
+    add: (o: Omit<ChoiceOption, 'holds'> & { holds?: string[] }, data: OptionRun) => void, store: Counts) {
+    for (let i = out.length - 1; i >= 0; i--) {
+      const o = out[i];
+      const w = this.claimWorkOf(o);
+      const c = w ? claimHeld(v.name, w.work, w.key, a.name, now) : undefined;
+      if (!c) continue;
+      out.splice(i, 1);
+      reasons[o.kind] ??= `held on the board by ${c.by} for ${Math.max(1, Math.ceil((c.until - now) / 60000))} more min (the claim rule)`;
+      noteClaimWait(v.name, a.name, o.id, c, now);
+    }
+    for (const o of out) {
+      const r = reportFor(v.name, a.name, o.id, now);
+      if (!r) continue;
+      o.facts = `${o.facts}; ${r.by}'s report: ${r.text}`;
+      REPORT_OF.set(o, r);
+    }
+    const me = `board:${a.name.toLowerCase()}`;
+    const hut = v.storageHut;
+    const p = hut && !busy.has(me) ? pendingReport(v.name, a.name, now) : undefined;
+    if (p && hut) add({
+      id: 'report:post', kind: 'tidy', key: me, excludes: [`${me}=`], name: 'Post your find on the board by the storage hut (~0.3 min)', rank: 650,
+      at: { x: Math.floor((hut.x1 + hut.x2) / 2), z: hut.z2 + 2 }, facts: `your last trip: ${p.text}`, effect: 'the others see it beside that work for 30 minutes',
+    }, { kind: 'board', what: 'report', text: p.text });
+    if (CUSTOMS.on && v.complete && !busy.has(me)) this.customOptions(v, a, now, add, reasons, store, me);
+  }
+
+  /** #164: the first green's area (the custom stone's and the gathering's place), or undefined. */
+  private firstGreen(v: Village): { x1: number; z1: number; x2: number; z2: number } | undefined {
+    for (const l of v.layouts ?? []) {
+      const g = l.green as unknown as { x1?: number; z1?: number; x2?: number; z2?: number } | undefined;
+      if (g && [g.x1, g.z1, g.x2, g.z2].every((x) => Number.isFinite(x))) return g as { x1: number; z1: number; x2: number; z2: number };
+    }
+    return undefined;
+  }
+
+  /**
+   * #164 (spec 2.6, MC_CUSTOMS): the village customs on every member's menu from the start, in every arm: once a member and
+   * village day, in their phase (a dusk custom at dusk), each where the world can do it (a flower in storage, a house with a
+   * door, a green, tools carried). Its facts are code's (MC_CUSTOM_FACTS: who did it yesterday; the member's own last time),
+   * the same in every arm; a facts line naming others is the member's exposure. No goods, no pay (the user's Q2).
+   */
+  private customOptions(v: Village, a: BotAgent, now: number, add: (o: Omit<ChoiceOption, 'holds'> & { holds?: string[] }, data: OptionRun) => void,
+    reasons: Partial<Record<ChoiceKind, string>>, store: Counts, me: string) {
+    const c = clockOf(v.name, now);
+    const flower = CUSTOM_FLOWERS.find((f) => (store[f] ?? 0) > 0);
+    const green = this.firstGreen(v);
+    const why: string[] = [];
+    for (const id of CUSTOM_IDS) {
+      if (!customOffered(id, c?.phase)) continue;
+      if (c && didOn(v.name, id, c.day).includes(a.name)) continue;
+      let run: OptionRun | undefined;
+      let at: { x: number; z: number } | undefined;
+      if (id === 'door_flower') {
+        const st = v.structures.find((q) => q.owner === a.name && isDwelling(q.kind));
+        const d = st ? v.designs[st.kind] : undefined;
+        const place = st && d ? this.structurePlace(v, st, d) : null;
+        const door = place ? placedDoor(place) : null;
+        if (!st || !door) why.push('no house door of your own');
+        else if (!flower) why.push('no flower in storage');
+        else {
+          at = { x: door.x + door.ox, z: door.z + door.oz };
+          run = { kind: 'custom', custom: id, x: at.x, y: st.y, z: at.z, item: flower, tools: [], avoid: { x1: st.x1, z1: st.z1, x2: st.x2, z2: st.z2 } };
+        }
+      } else if (id === 'green_stone' || id === 'dusk_gathering') {
+        if (!green) why.push('no green yet');
+        else if (id === 'green_stone' && !flower && (store.torch ?? 0) < 1) why.push('no flower or torch in storage');
+        else {
+          at = { x: Math.floor((green.x1 + green.x2) / 2), z: Math.floor((green.z1 + green.z2) / 2) };
+          const y = v.plots[0]?.y ?? Math.floor(a.bot.entity?.position.y ?? 64);
+          run = { kind: 'custom', custom: id, x: at.x, y, z: at.z, item: id === 'green_stone' ? flower ?? 'torch' : undefined, tools: [], avoid: green };
+        }
+      } else if (id === 'tools_dusk') {
+        const tools = [...new Set((a.bot.inventory?.items() ?? []).map((i) => i.name).filter((n) => /(_pickaxe|_axe|_shovel|_hoe|^shears|^fishing_rod|^bucket)$/.test(n)))];
+        if (!tools.length) why.push('no tools carried');
+        else if (v.storageHut) {
+          at = { x: Math.floor((v.storageHut.x1 + v.storageHut.x2) / 2), z: Math.floor((v.storageHut.z1 + v.storageHut.z2) / 2) };
+          run = { kind: 'custom', custom: id, x: at.x, y: v.plots[0]?.y ?? 64, z: at.z, tools };
+        }
+      }
+      if (!run) continue;
+      const facts = customFacts(v.name, a.name, id, now);
+      if (/^done yesterday by/.test(facts)) noteExposed(v.name, a.name, id, now);
+      add({
+        id: `custom:${id}`, kind: 'tidy', key: me, excludes: [`${me}=`], name: TEMPLATES[id].name, rank: 985, ...(at ? { at } : {}),
+        facts: [`a village custom${TEMPLATES[id].when === 'dusk' ? ', at dusk' : ''}`, facts].filter(Boolean).join('; '), effect: 'no goods and no pay: a custom kept',
+      }, run);
+    }
+    if (why.length) reasons.tidy ??= `customs: ${why.join('; ')}`;
+  }
+
+  /**
+   * #164: a chore's end for the rules and customs: a trip of claimable work turned back by another member counted (with
+   * any claim rule or none: the before and after), a find or failure offered for posting (with a report rule in force), a
+   * cited report's outcome, and a custom kept (its block checked by the skill, the gathering by the member's place).
+   */
+  private rulesAtEnd(v: Village, c: ChoreEnd, ok: boolean, message: string) {
+    const now = Date.now();
+    const option = c.choice.option ?? '';
+    const kind = c.choice.kind;
+    const cut = message === 'cancelled' || message === 'agent gone';
+    if (RULES.on) {
+      if (kind === 'iron' && option.startsWith('iron:dig') && IRON_BLOCKED.test(message)) noteBlocked(v.name, c.agent, 'iron', option, message, now);
+      else if (option.startsWith('own:farm') && /no free \d+x\d+ site/.test(message)) noteBlocked(v.name, c.agent, 'farm_site', option, message, now);
+      else if (kind === 'initiate' && /no room|greens full|is taken now/.test(message)) noteBlocked(v.name, c.agent, 'green', option, message, now);
+      const cited = this.reportCited.get(c.agent.toLowerCase());
+      if (cited) {
+        noteReportUsed(v.name, c.agent, cited, option, now, ok);
+        this.reportCited.delete(c.agent.toLowerCase());
+      }
+      if (reportRule(v.name) && !cut && kind && kind !== 'eat' && kind !== 'tidy' && kind !== 'rest') {
+        const name = (c.choice.name ?? option).replace(/\s*\(.*$/, '').slice(0, 50);
+        const hut = v.storageHut;
+        const f = this.foundAt.get(c.choice.id);
+        const g = c.choice.gather;
+        if (ok && g && f && hut) {
+          const hx = (hut.x1 + hut.x2) / 2, hz = (hut.z1 + hut.z2) / 2, dx = f.x - hx, dz = f.z - hz;
+          const dir = Math.abs(dx) > Math.abs(dz) ? (dx > 0 ? 'east' : 'west') : dz > 0 ? 'south' : 'north';
+          pendReport(v.name, c.agent, option, `${words(g.material)} ${Math.round(Math.hypot(dx, dz))} blocks ${dir} of the storage hut`, now);
+        } else if (ok && option.startsWith('iron:dig')) {
+          const up = /brought up (\d+) raw iron/.exec(message);
+          if (up && Number(up[1]) > 0) pendReport(v.name, c.agent, option, `${up[1]} raw iron in one trip on the iron level${/level y=(-?\d+)/.exec(message) ? ` (y ${/level y=(-?\d+)/.exec(message)![1]})` : ''}`, now);
+        } else if (!ok) pendReport(v.name, c.agent, option, `${name} failed: ${message.replace(/^[a-z_]+: /, '').slice(0, 70)}`, now);
+      }
+      this.foundAt.delete(c.choice.id);
+    }
+    if (CUSTOMS.on && ok && option.startsWith('custom:')) {
+      const id = option.slice(7) as CustomId;
+      const placed = /placed 1 ([a-z_]+) at (-?\d+),(-?\d+),(-?\d+) \(checked\)/.exec(message);
+      if (placed) {
+        const rec = ((v as Village & { customBlocks?: Array<{ x: number; y: number; z: number; block: string; by: string; day: number }> }).customBlocks ??= []);
+        rec.push({ x: Number(placed[2]), y: Number(placed[3]), z: Number(placed[4]), block: placed[1], by: c.agent, day: clockOf(v.name, now)?.day ?? 0 });
+        if (rec.length > 400) rec.splice(0, rec.length - 400);
+        this.villages.save();
+        noteDid(v.name, c.agent, id, now, { blocks: 1, block: placed[1], at: `${placed[2]},${placed[3]},${placed[4]}` });
+      } else if (id === 'dusk_gathering') {
+        const g = this.firstGreen(v), p = this.agents.get(c.agent.toLowerCase())?.bot.entity?.position;
+        if (g && p && Math.hypot(p.x - (g.x1 + g.x2) / 2, p.z - (g.z1 + g.z2) / 2) <= 10) noteDid(v.name, c.agent, id, now, { at: 'green' });
+      } else if (id === 'tools_dusk' && /deposited|put into storage|stored/i.test(message)) noteDid(v.name, c.agent, id, now);
+    }
+  }
+
+  /** #164: each sweep, a gather chore whose collecting has ended keeps the member's place there (its report's place). */
+  private noteFinds(v: Village) {
+    if (!reportRule(v.name)) return;
+    for (const c of this.chores.values()) {
+      if (c.village !== v.name || c.choice.ended || !c.choice.gather || this.foundAt.has(c.choice.id)) continue;
+      if (c.status[0]?.state !== 'done') continue;
+      const p = this.agents.get(c.agent.toLowerCase())?.bot.entity?.position;
+      if (p) this.foundAt.set(c.choice.id, { x: Math.floor(p.x), z: Math.floor(p.z) });
+    }
+  }
+
+  /** #164: the board's signs by the storage hut, rewritten when their text changes (claims count down, reports come and go),
+   *  while a claim or report rule is in force; and once a village day, the customs' blocks still standing counted. */
+  private boardTick(v: Village, now: number) {
+    const on = !!reportRule(v.name) || (['iron', 'farm_site', 'green'] as const).some((w) => claimRule(v.name, w));
+    if (on) {
+      const signs = boardSigns(v.name, now, 3);
+      const text = JSON.stringify(signs);
+      if (this.boardText.get(v.name) !== text) {
+        this.boardText.set(v.name, text);
+        void writeBoard(this.rcon, v, signs, () => this.villages.save()).catch((e: Error) => console.log(`[board] ${v.name}: the board not written: ${e.message}`));
+      }
+    }
+    if (CUSTOMS.on) {
+      const day = clockOf(v.name, now)?.day;
+      const rec = (v as Village & { customBlocks?: Array<{ x: number; y: number; z: number; block: string; by: string; day: number }> }).customBlocks;
+      if (day !== undefined && rec?.length && this.customCounted.get(v.name) !== day) {
+        this.customCounted.set(v.name, day);
+        void (async () => {
+          let standing = 0;
+          for (const b of rec) if (/passed/i.test(await this.rcon.command(`execute if block ${b.x} ${b.y} ${b.z} minecraft:${b.block}`).catch(() => ''))) standing++;
+          logAct({ type: 'custom', village: v.name, op: 'standing', day, placed: rec.length, standing });
+          console.log(`[custom] ${v.name}: day ${day}: ${standing} of ${rec.length} custom blocks still stand`);
+        })();
+      }
+    }
+  }
+  private customCounted = new Map<string, number>();
+
   /** G5: the village day whose triage marking is done, by village. */
   private triageDay = new Map<string, number>();
 
@@ -7736,7 +7953,8 @@ export class MineflayerWorld implements WorldAdapter {
     const char = this.characterLines(v, a, facts.t);
     return {
       // (Experiment 2, MCAI_INFLUENCERS: an influencer's line on the levy; unchanged for everyone else)
-      persona: withInfluence(a.name, own || char.persona || personaOf(a.name)),
+      // (#164, MC_CUSTOMS: a seeded member's custom line after its persona)
+      persona: [withInfluence(a.name, own || char.persona || personaOf(a.name)), seedLine(v.name, a.name)].filter(Boolean).join(' '),
       ...(char.character ? { character: char.character } : {}),
       ...(pattern ? { pattern } : {}),
       village: village.slice(0, 300), others: others.slice(0, 200),
@@ -7770,7 +7988,40 @@ export class MineflayerWorld implements WorldAdapter {
     this.needNote(v, undefined, opt);
     const d = OPTION_RUN.get(opt);
     if (!d) throw new Error(`no run data for ${opt.id}`);
+    // #164: a find left unposted when the member chose other work on the menu that offered posting it ("go on"); a report
+    // the pick cited; and claimed work's claim posted, the walk to the board first (its cost)
+    if (RULES.on && RULES.types.size) {
+      const now = Date.now();
+      if (opt.id !== 'report:post' && meta.menu?.options.some((o) => o.id === 'report:post')) skipReport(v.name, worker.name, now);
+      const cited = REPORT_OF.get(opt);
+      if (cited) {
+        noteReportUsed(v.name, worker.name, cited, opt.id, now);
+        this.reportCited.set(worker.name.toLowerCase(), cited);
+      } else this.reportCited.delete(worker.name.toLowerCase());
+      const cw = this.claimWorkOf(opt);
+      if (cw && postClaim(v.name, cw.work, cw.key, worker.name, cw.label, now)) {
+        this.boardFirst.set(worker.name.toLowerCase(), worker.enqueue('post_board', { chore: true, what: `a claim on the ${cw.label}` }));
+        console.log(`[board] ${v.name}: ${worker.name} posts a claim on the ${cw.label} before starting`);
+      }
+    }
     switch (d.kind) {
+      case 'board': {
+        const r = postReport(v.name, worker.name, Date.now());
+        this.setChore(v, worker, opt.key, [worker.enqueue('post_board', { chore: true, what: d.text })], 'post a find on the board', undefined, meta, opt.holds, opt);
+        console.log(`[board] ${v.name}: ${worker.name} posts its find on the board${r ? ` (${r.id}: ${r.text})` : ''}`);
+        return;
+      }
+      case 'custom': {
+        const steps = d.custom === 'tools_dusk'
+          ? [...d.tools.map((t) => worker.enqueue('deposit', { item: t, chore: true }))]
+          : d.custom === 'dusk_gathering'
+          ? [worker.enqueue('move_to', { x: d.x, y: d.y, z: d.z, range: 4, chore: true }), worker.enqueue('wait', { seconds: Math.max(10, Math.round(60 / timeScale())), chore: true })]
+          : [...(d.item ? [worker.enqueue('withdraw', { item: d.item, count: 1, chore: true })] : []),
+            worker.enqueue('keep_custom', { custom: d.custom, x: d.x, y: d.y, z: d.z, item: d.item ?? '', ...(d.avoid ? { avoid: d.avoid } : {}), chore: true })];
+        this.setChore(v, worker, opt.key, steps, `keep a custom: ${TEMPLATES[d.custom].name.toLowerCase()}`, undefined, meta, opt.holds, opt);
+        console.log(`[custom] ${v.name}: ${worker.name} goes to ${TEMPLATES[d.custom].name.toLowerCase()}`);
+        return;
+      }
       case 'rest':
         this.setChore(v, worker, opt.key, [worker.enqueue('move_to', { x: d.x, y: d.y, z: d.z, range: 3, chore: true }), worker.enqueue('wait', { seconds: Math.max(10, Math.round(120 / timeScale())), chore: true })], 'rest at home', undefined, meta, opt.holds, opt);
         return;
@@ -8416,7 +8667,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (G1: the village clock's sweep, with the members present)
     if (MEMORY.clock) {
       const members = [...this.agents.values()].filter((b) => b.village()?.name === v.name).map((b) => ({
-        name: b.name, persona: withInfluence(b.name, (typeof b.memory.persona === 'string' && b.memory.persona) || this.characterLines(v, b, now).persona || personaOf(b.name)),
+        name: b.name, persona: [withInfluence(b.name, (typeof b.memory.persona === 'string' && b.memory.persona) || this.characterLines(v, b, now).persona || personaOf(b.name)), seedLine(v.name, b.name)].filter(Boolean).join(' '),
         model: typeof b.memory.chooseModel === 'string' ? b.memory.chooseModel : typeof b.memory.execModel === 'string' ? b.memory.execModel : undefined,
       }));
       clockTick(now, [{ name: v.name, members }]);
@@ -8425,6 +8676,11 @@ export class MineflayerWorld implements WorldAdapter {
     if (observing()) observe(v.name, this.presences(v), now);
     if (ACTS.on) actsSweep(v.name, this.actsWorld(v, now), now);
     if (PROPOSALS_ON) this.proposalSweep(v, now);
+    // (#164: the board's signs, finds' places, the customs' blocks counted)
+    if ((RULES.on && RULES.types.size) || CUSTOMS.on) {
+      this.noteFinds(v);
+      this.boardTick(v, now);
+    }
     // (character v2: a point per member once a village minute, the matrix every 10)
     if (characterAny()) characterSample(v.name, [...this.agents.values()].filter((b) => b.village()?.name === v.name).map((b) => ({ name: b.name })), now);
     // (G8: the ladder started, and after a rung the start-of-day ballot on the next)
@@ -9162,8 +9418,17 @@ type OptionRun =
   | { kind: 'own'; what: 'pledge'; entry: string; item: string; n: number }
   | { kind: 'innovate'; entry: string; chance: number; boost: number }
   | { kind: 'rest'; x: number; y: number; z: number }
-  | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number; needs: Counts; gives: string[] };
+  | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number; needs: Counts; gives: string[] }
+  // (#164: posting one's find on the board; a village custom, its spot and the flower it takes, the tools it returns)
+  | { kind: 'board'; what: 'report'; text: string }
+  | { kind: 'custom'; custom: CustomId; x: number; y: number; z: number; item?: string; tools: string[]; avoid?: { x1: number; z1: number; x2: number; z2: number } };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
+/** #164: the posted report an option's facts cite (the pick counts as a trip that used it). */
+const REPORT_OF = new WeakMap<ChoiceOption, Report>();
+/** #164: the small flowers a custom places (one from storage). */
+const CUSTOM_FLOWERS = ['poppy', 'dandelion', 'cornflower', 'oxeye_daisy', 'azure_bluet', 'allium', 'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip', 'lily_of_the_valley', 'blue_orchid'];
+/** #164: the iron level's answers that mean another miner held it (the claim rule's blocked trips). */
+const IRON_BLOCKED = /another worker is digging|miners are on the iron level|has its miner|another miner finished/;
 
 /** The first growth waits this long after the village is first seen complete (s30, D2); a neighbourhood whose open tasks
  *  nobody holds or can claim for GROW_STUCK_MS is ended as stuck (D13); a site within the village's range (D6). */

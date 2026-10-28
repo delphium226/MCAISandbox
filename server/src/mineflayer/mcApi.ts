@@ -27,6 +27,8 @@ import { MC_SKILLS } from './mcSkills';
 import type { MineflayerWorld } from './mcWorld';
 import { pause, resume, runState } from '../runClock';
 import { SETTING_CHANGES, rawSetting, setSetting, settingsNow } from '../settings';
+import { RULES, addLaw, boardSigns, enact, liveClaims, liveReports } from '../rules';
+import { CUSTOMS, CUSTOM_IDS, seed as seedCustom, seeds, type CustomId } from '../customs';
 
 // GET /api/perf's figures (E.1: [lag] shows only stalls over 2 s): the event loop's delay, sampled every 10 ms and started
 // over every minute, reported over that minute and the one before it (a stall recorded just before a restart would be
@@ -330,6 +332,35 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
       const str = (x: unknown) => (x === undefined || x === null ? undefined : String(x));
       const fields = Object.fromEntries(['act', 'act_to', 'act_item', 'act_project', 'act_price', 'act_steps', 'act_amount', 'say'].map((k) => [k, str(b[k])]).filter(([, x]) => x !== undefined));
       return sendJson(res, 200, { done: w.payTest(v, String(b.agent ?? ''), fields) });
+    }
+    // #164 (E.7's seeding, MC_CUSTOMS): {agents, custom, persona?}: members seeded with a custom, a persona line each, marked
+    // in the ledger
+    if (v && parts[3] === 'seed' && req.method === 'POST') {
+      if (!CUSTOMS.on) return sendJson(res, 400, { error: 'customs are off on this agent server (MC_CUSTOMS)' });
+      const b = await readJson(req);
+      const custom = String(b.custom ?? '') as CustomId;
+      if (!(CUSTOM_IDS as readonly string[]).includes(custom)) return sendJson(res, 400, { error: `custom: one of ${CUSTOM_IDS.join(', ')}` });
+      const agents = Array.isArray(b.agents) ? b.agents.map(String) : [];
+      const stray = agents.filter((n: string) => w.get(n)?.village()?.name !== v.name);
+      if (!agents.length || stray.length) return sendJson(res, 400, { error: `agents: members of ${v.name} in the world${stray.length ? ` (not: ${stray.join(', ')})` : ''}` });
+      const done = seedCustom(v.name, agents, custom, typeof b.persona === 'string' ? b.persona : undefined, Date.now());
+      return sendJson(res, 200, { seeded: done, custom, seeds: seeds(v.name) });
+    }
+    // #164's test hook (MC_RULES): {what, by?}: a law read from its words and put into force at once, as if voted (staged
+    // checks of a claim or report rule without a council's days)
+    if (v && parts[3] === 'rule' && req.method === 'POST') {
+      if (!RULES.on) return sendJson(res, 400, { error: 'rules are off on this agent server (MC_RULES)' });
+      const b = await readJson(req);
+      const l = addLaw(v.name, String(b.by ?? 'api'), { what: String(b.what ?? '') }, Date.now());
+      if (l.status !== 'open') return sendJson(res, 400, { error: `the law was ${l.status}${l.refused ? `: ${l.refused}` : ''}`, law: l });
+      l.status = 'passed';
+      const r = enact(v.name, l, { yes: 1, no: 0, abstain: 0 }, Date.now());
+      return sendJson(res, 200, { law: l, rule: r });
+    }
+    // #164: the board by the storage hut: claims holding, reports posted, the signs' text and where they stand
+    if (v && parts[3] === 'board' && req.method === 'GET') {
+      const now = Date.now();
+      return sendJson(res, 200, { claims: liveClaims(v.name, now), reports: liveReports(v.name, now), signs: boardSigns(v.name, now, 3), cells: (v as { board?: unknown }).board ?? null });
     }
     // The chore menu a village member would choose from now (A.2; pure, nothing written): ?agent=Worker1
     if (v && parts[3] === 'choices' && req.method === 'GET') {

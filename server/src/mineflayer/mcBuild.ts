@@ -50,7 +50,8 @@ import { pathLamps, planPadPaths } from '../padPaths';
 import { parseRefit } from '../refit';
 import { CHOOSE } from '../choose';
 import { IRON_AGE, LETTERS, LETTERS_PACE, OWN_TOOLS } from '../ladderFlags';
-import { zoneBoxes } from '../rules';
+import { boardSigns, claimRule, zoneBoxes } from '../rules';
+import { boardCells } from '../streetPlan';
 import { rawSetting } from '../settings';
 import { jobTargets, monumentNoun, monumentPlan, searchSite, siteHub, siteTaken } from '../monument';
 
@@ -4225,7 +4226,9 @@ async function layOutField(a: BotAgent, args: Record<string, unknown>, signal: A
   const r = reach + Math.ceil(S / 2) + 1;
   const why: Rejections = { wet: 0, steep: 0, occupied: 0, unloaded: 0 };
   // (the survey takes the scan turn as growSite's does, E.1)
-  const g = await withScanTurn(signal, () => surveyGround(a, home.x, home.z, r, growTaken(a, v, home, r, 'farm'), signal, true));
+  // (#164, a farm-site claim in force: the land by other members' houses with no farm of their own yet is kept for theirs)
+  const kept = farmPlotsKept(v, a.name);
+  const g = await withScanTurn(signal, () => surveyGround(a, home.x, home.z, r, [...growTaken(a, v, home, r, 'farm'), ...kept], signal, true));
   let c: ReturnType<typeof bestSite> = null;
   for (const slope of [2, 4]) {
     for (const k of Object.keys(why) as Array<keyof Rejections>) why[k] = 0;
@@ -4239,7 +4242,7 @@ async function layOutField(a: BotAgent, args: Record<string, unknown>, signal: A
   const farm = placeFarm([], square, { near: hut });
   if (!farm) throw new Error(`lay_out_field: no 5x7 field fits the ${S}x${S} pad at ${areaText(square)}`);
   // (no await from the read to the hold: the village's records may have changed during the survey, D7)
-  const clash = growTaken(a, v, home, r, 'farm').find((q) => overlaps(square, q));
+  const clash = [...growTaken(a, v, home, r, 'farm'), ...kept].find((q) => overlaps(square, q));
   if (clash) throw new Error(`lay_out_field: the village changed during the survey (the square at ${areaText(square)} is taken now)`);
   console.log(`[needwork] ${v.name}: ${a.name} prepares a ${S}x${S} field pad at ${areaText(square)}`);
   const held = a.world.villages.reserve(v, { x1: square.x1 - 2, z1: square.z1 - 2, x2: square.x2 + 2, z2: square.z2 + 2 }, a.name, 'lay out a wheat field');
@@ -5726,6 +5729,164 @@ async function tradeOffer(a: BotAgent, args: Record<string, unknown>, signal: Ab
   if (taker.chest) await writeOwnChest(a, taker.chest);
   console.log(`[barter] ${v.name}: ${a.name} took ${o.by}'s offer ${o.id}: ${offerText(o)}`);
   return `traded ${o.wantN} ${o.want} for ${o.giveN} ${o.give} with ${o.by}`;
+}
+
+/** #164: how far from a house's walls the land kept for its own farm reaches (a farm-site claim). */
+const FARM_PLOT_REACH = 10;
+
+/** #164 (a farm-site claim in force, the user's Q3): the land by each other member's house whose owner has no farm of its own
+ *  yet, kept for that farm (own and village fields keep off it). */
+export function farmPlotsKept(v: Village, agent: string): Area[] {
+  if (!claimRule(v.name, 'farm_site')) return [];
+  const farmed = new Set((v.layouts ?? []).map((l) => l.owner).filter(Boolean));
+  return v.structures.filter((s) => s.owner && s.owner !== agent && isDwelling(s.kind) && !farmed.has(s.owner))
+    .map((s) => ({ x1: s.x1 - FARM_PLOT_REACH, z1: s.z1 - FARM_PLOT_REACH, x2: s.x2 + FARM_PLOT_REACH, z2: s.z2 + FARM_PLOT_REACH }));
+}
+
+type Rcon = { command(c: string): Promise<string> };
+type BoardCell = { x: number; y: number; z: number; rot: number };
+
+/**
+ * #164: the village board by the storage hut: up to four standing signs on free ground beside it (found once by RCON:
+ * replaceable and dry, air above, firm ground below, no path, outside every structure), a heading and then one sign a claim
+ * or report (rules.ts boardSigns). Text is free, as the street signs' rewrite; a sign gone is set again where it stood.
+ */
+export async function writeBoard(rcon: Rcon, v: Village, signs: string[][], save: () => void): Promise<void> {
+  const hut = v.storageHut;
+  if (!hut) return;
+  const rec = v as Village & { board?: BoardCell[] };
+  const ask = async (c: string) => /passed/i.test(await rcon.command(c).catch(() => ''));
+  if (!rec.board?.length) {
+    const y0 = v.structures.find((s) => s.kind === STORAGE_HUT)?.y ?? v.plots[0]?.y ?? 64;
+    const cells: BoardCell[] = [];
+    const inside = (x: number, z: number) => v.structures.some((s) => x >= s.x1 && x <= s.x2 && z >= s.z1 && z <= s.z2);
+    for (const q of boardCells(hut)) {
+      if (cells.length >= 4) break;
+      if (inside(q.x, q.z)) continue;
+      for (let y = y0 - 2; y <= y0 + 3; y++) {
+        if (await ask(`execute if block ${q.x} ${y} ${q.z} #minecraft:replaceable unless block ${q.x} ${y} ${q.z} minecraft:water if block ${q.x} ${y + 1} ${q.z} minecraft:air unless block ${q.x} ${y - 1} ${q.z} #minecraft:replaceable unless block ${q.x} ${y - 1} ${q.z} minecraft:dirt_path`)) {
+          cells.push({ x: q.x, y, z: q.z, rot: q.rot });
+          break;
+        }
+      }
+    }
+    if (!cells.length) throw new Error('no free ground beside the storage hut for the board');
+    rec.board = cells;
+    save();
+    console.log(`[board] ${v.name}: the board stands at ${cells.map((c) => `${c.x},${c.y},${c.z}`).join('; ')}`);
+  }
+  const texts = [['VILLAGE BOARD', 'claims and', 'reports', ''], ...signs];
+  const wood = v.wood ?? 'oak';
+  for (const [i, c] of rec.board.entries()) {
+    const nbt = signNbt(texts[i] ?? ['', '', '', '']);
+    const r = await rcon.command(`data merge block ${c.x} ${c.y} ${c.z} ${nbt}`).catch(() => '');
+    if (!/^Modified|nothing changed|already/i.test(r)) await rcon.command(`execute if block ${c.x} ${c.y} ${c.z} #minecraft:replaceable unless block ${c.x} ${c.y} ${c.z} minecraft:water run setblock ${c.x} ${c.y} ${c.z} minecraft:${wood}_sign[rotation=${c.rot}]${nbt}`).catch(() => '');
+  }
+}
+
+/**
+ * post_board (#164, a chore code queues): to the board by the storage hut, a short stay to write (~0.3 min, scaled), and
+ * the board rewritten: a claim posted before its work starts, or a member's find. The walk and the stay are the cost.
+ */
+async function postBoard(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('post_board: not in a village');
+  const hut = v.storageHut;
+  if (!hut) throw new Error('post_board: no storage hut for the board');
+  if (inIronLevel(a)) await teleportHome(a, signal);
+  const job: Job = { targets: [], area: { x1: hut.x1, z1: hut.z1, x2: hut.x2, z2: hut.z2 }, y: v.plots[0]?.y ?? 64, free: true, what: 'the board', task: 'post_board' };
+  await standBy(a, job, signal);
+  await sleep(Math.max(2000, 18000 / timeScale()), signal);
+  await writeBoard(a.world.rcon, v, boardSigns(v.name, Date.now(), 3), () => a.world.villages.save()).catch((e: Error) => console.log(`[board] ${v.name}: ${e.message}`));
+  return `posted on the board by the storage hut${args.what ? `: ${String(args.what).slice(0, 100)}` : ''}`;
+}
+
+/** #164: the cells round a spot, nearest first (rings 1 to `r`), outside a box. */
+function ringCells(x: number, z: number, r: number, avoid?: Area): Array<{ x: number; z: number }> {
+  const out: Array<{ x: number; z: number; d: number }> = [];
+  for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
+    const d = Math.max(Math.abs(dx), Math.abs(dz));
+    if (!d) continue;
+    const p = { x: x + dx, z: z + dz };
+    if (avoid && p.x >= avoid.x1 && p.x <= avoid.x2 && p.z >= avoid.z1 && p.z <= avoid.z2) continue;
+    out.push({ ...p, d: d + Math.hypot(dx, dz) / 10 });
+  }
+  return out.sort((p, q) => p.d - q.d);
+}
+
+/**
+ * keep_custom (#164, MC_CUSTOMS; a chore code queues): a village custom's block placed by command, charged to the member's
+ * inventory and checked in the world (lesson 4): `door_flower` a flower on the ground beside its house's door (never the
+ * doorstep, never inside), `green_stone` a torch on the green's custom stone or a flower round it (the stone, a mossy
+ * cobblestone, set by code the first time on free ground at the green's edge). The message names the block and its cell.
+ */
+async function keepCustom(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('keep_custom: not in a village');
+  const custom = str(args.custom, 'custom');
+  const item = str(args.item, 'item');
+  const x = Math.floor(num(args.x, 'x')), z = Math.floor(num(args.z, 'z')), y0 = Math.floor(num(args.y, 'y'));
+  const avoid = args.avoid as Area | undefined;
+  const rcon = (c: string) => a.world.rcon.command(c).catch(() => '');
+  const ask = async (c: string) => /passed/i.test(await rcon(c));
+  if (inIronLevel(a)) await teleportHome(a, signal);
+  if ((await serverCount(a, item).catch(() => 0)) < 1) throw new Error(`keep_custom: no ${item} carried (take one from storage first)`);
+  const groundY = async (cx: number, cz: number, below: string) => {
+    for (let y = y0 - 2; y <= y0 + 3; y++) if (await ask(`execute if block ${cx} ${y} ${cz} minecraft:air if block ${cx} ${y - 1} ${cz} ${below} unless block ${cx} ${y - 1} ${cz} minecraft:dirt_path`)) return y;
+    return null;
+  };
+  const near = async (tx: number, tz: number) => walk(a, new goals.GoalNearXZ(tx, tz, 3), 'the custom\'s place', signal, 90000).catch((e: Error) => {
+    if (e.message === 'cancelled') throw e;
+  });
+  const put = async (cx: number, cy: number, cz: number, block: string) => {
+    await rcon(`clear ${a.name} minecraft:${item} 1`);
+    await rcon(`setblock ${cx} ${cy} ${cz} minecraft:${block} keep`);
+    if (!(await ask(`execute if block ${cx} ${cy} ${cz} minecraft:${block}`))) throw new Error(`keep_custom: the ${block} at ${cx},${cy},${cz} did not stay`);
+    await syncInventory(a).catch(() => undefined);
+    return `placed 1 ${block} at ${cx},${cy},${cz} (checked)`;
+  };
+  const flower = item !== 'torch';
+  if (custom === 'door_flower') {
+    await near(x, z);
+    for (const c of ringCells(x, z, 2, avoid)) {
+      const y = await groundY(c.x, c.z, '#minecraft:dirt');
+      if (y !== null) return put(c.x, y, c.z, item);
+    }
+    throw new Error('keep_custom: no free ground for a flower beside your door');
+  }
+  if (custom === 'green_stone') {
+    const rec = v as Village & { customStone?: { x: number; y: number; z: number } };
+    if (!rec.customStone) {
+      // (the green's edge, the middle of each side first, one cell in; never inside a structure)
+      const g = avoid ?? { x1: x - 7, z1: z - 7, x2: x + 7, z2: z + 7 };
+      const inside = (cx: number, cz: number) => v.structures.some((s) => cx >= s.x1 && cx <= s.x2 && cz >= s.z1 && cz <= s.z2);
+      const mx = Math.floor((g.x1 + g.x2) / 2), mz = Math.floor((g.z1 + g.z2) / 2);
+      const spots = [{ x: mx, z: g.z1 + 1 }, { x: mx, z: g.z2 - 1 }, { x: g.x1 + 1, z: mz }, { x: g.x2 - 1, z: mz }, { x: g.x1 + 1, z: g.z1 + 1 }, { x: g.x2 - 1, z: g.z2 - 1 }];
+      for (const p of spots) {
+        if (inside(p.x, p.z)) continue;
+        const y = await groundY(p.x, p.z, '#minecraft:dirt');
+        if (y === null) continue;
+        await rcon(`setblock ${p.x} ${y} ${p.z} minecraft:mossy_cobblestone keep`);
+        if (await ask(`execute if block ${p.x} ${y} ${p.z} minecraft:mossy_cobblestone`)) {
+          rec.customStone = { x: p.x, y, z: p.z };
+          a.world.villages.save();
+          console.log(`[custom] ${v.name}: the green's custom stone set at ${p.x},${y},${p.z}`);
+          break;
+        }
+      }
+      if (!rec.customStone) throw new Error('keep_custom: no free ground at the green\'s edge for its custom stone');
+    }
+    const s = rec.customStone;
+    await near(s.x, s.z);
+    if (!flower && (await ask(`execute if block ${s.x} ${s.y + 1} ${s.z} minecraft:air`))) return put(s.x, s.y + 1, s.z, 'torch');
+    for (const c of ringCells(s.x, s.z, 3)) {
+      if (v.structures.some((q) => c.x >= q.x1 && c.x <= q.x2 && c.z >= q.z1 && c.z <= q.z2)) continue;
+      const y = await groundY(c.x, c.z, flower ? '#minecraft:dirt' : '#minecraft:mineable/pickaxe');
+      if (y !== null) return put(c.x, y, c.z, item);
+    }
+    throw new Error('keep_custom: no free ground left round the green\'s stone');
+  }
+  throw new Error(`keep_custom: ${custom} places no block`);
 }
 
 /**
@@ -7391,6 +7552,9 @@ const partsBack = (run: McSkill['run']): McSkill['run'] => async (a, args, signa
 };
 
 export const BUILD_SKILLS: Record<string, McSkill> = {
+  // (#164: the village board's posting and a custom's block)
+  post_board: { run: postBoard },
+  keep_custom: { check: (x) => (str(x.custom, 'custom'), num(x.x, 'x'), num(x.z, 'z')), run: keepCustom },
   find_site: { run: findSite },
   prepare_site: { run: prepareSite },
   build_design: { check: (x) => (str(x.design, 'design'), num(x.x, 'x'), num(x.z, 'z')), run: buildDesign },

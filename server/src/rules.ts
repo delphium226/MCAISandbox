@@ -35,20 +35,33 @@ export const RULES = {
   feasible: /^(on|1|true|yes)$/i.test(rawSetting('MC_RULE_FEASIBLE') ?? ''),
   /** #164 (MC_RULE_RESULTS): the rules in force with their results in code's counts (night prompt and ballot). */
   results: /^(on|1|true|yes)$/i.test(rawSetting('MC_RULE_RESULTS') ?? ''),
+  /** #164 (MC_RULE_TYPES, a list of claim, report and stock): the rule types read from members' words beside G3's: a claim on
+   *  shared work posted on the board, a report of a trip's find or failure, and contributions and floors of ore, seeds,
+   *  fuel and buckets. */
+  types: new Set((rawSetting('MC_RULE_TYPES') ?? '').toLowerCase().split(/[\s,]+/).filter((x) => x === 'claim' || x === 'report' || x === 'stock')),
 };
 /** Test hook. */
 export function setRulesSettings(s: Partial<typeof RULES>): void {
   Object.assign(RULES, s);
 }
 
-export const RULE_TYPES = ['quota', 'floor', 'zone', 'duty', 'levy', 'contribute', 'norm', 'repeal'] as const;
+export const RULE_TYPES = ['quota', 'floor', 'zone', 'duty', 'levy', 'contribute', 'norm', 'repeal', 'claim', 'report'] as const;
 export type RuleType = (typeof RULE_TYPES)[number];
 export const QUOTA_CLASSES = ['tools', 'logs', 'torches'] as const;
 export type QuotaClass = (typeof QUOTA_CLASSES)[number];
 /** What a `contribute` rule asks each member to put into storage a day (the user's, 10-23: the members' own most-proposed
- *  rule in Long1, "each member deposits at least one torch a day"); `goods` is anything. */
-export const PUT_CLASSES = ['logs', 'torches', 'tools', 'food', 'stone', 'goods'] as const;
+ *  rule in Long1, "each member deposits at least one torch a day"); `goods` is anything. #164's stock classes (ore, seeds,
+ *  fuel, bucket) only with MC_RULE_TYPES' stock. */
+export const PUT_CLASSES = ['logs', 'torches', 'tools', 'food', 'stone', 'goods', 'ore', 'seeds', 'fuel', 'bucket'] as const;
 export type PutClass = (typeof PUT_CLASSES)[number];
+/** #164's stock classes: 15 of the 80 norms of train 7 and G3m1 kept or put ore, seeds, fuel or a bucket. */
+export const STOCK_CLASSES = ['ore', 'seeds', 'fuel', 'bucket'] as const;
+/** #164: the shared work a claim holds on the board (the iron level, the land by each house for its own farm, the greens'
+ *  free plots), and the claim's minutes in code's band. */
+export const CLAIM_WORKS = ['iron', 'farm_site', 'green'] as const;
+export type ClaimWork = (typeof CLAIM_WORKS)[number];
+const CLAIM_WORDS: Record<ClaimWork, string> = { iron: 'the iron level', farm_site: 'the land by a house for its own farm', green: "a green's free plots" };
+const CLAIM_MIN = 3, CLAIM_MAX = 15, CLAIM_DEFAULT = 10;
 
 /** A member's proposed rule, from the night's `propose` (kind law) until its ballot. */
 export interface Law {
@@ -83,7 +96,21 @@ interface RulesState {
   optionPuts?: Record<string, Record<string, number>>;
   /** Village days whose compliance has been logged. */
   judged?: number;
+  /** #164: claims posted on the board (the live ones and the last hour's). */
+  claims?: Claim[];
+  /** #164: reports posted on the board, and each member's report waiting for its choice to post it. */
+  reports?: Report[];
+  pendingReports?: Record<string, PendingReport>;
+  reportNext?: number;
+  /** #164: counts by `what|work|day` (blocked, waited, posted, skipped, used: the results lines). */
+  counts?: Record<string, number>;
 }
+
+/** #164: a claim on shared work, posted on the board by the member who started it, held until `until`. */
+export interface Claim { work: ClaimWork; key: string; by: string; at: number; until: number; label: string; rule: string }
+/** #164: a trip's find or failure, posted on the board (a fact on other members' options of the same work until `until`). */
+export interface Report { id: string; by: string; at: number; until: number; option: string; text: string }
+export interface PendingReport { option: string; text: string; at: number }
 
 function state(village: string): RulesState {
   const s = villageSocialOf(village) as { council?: RulesState };
@@ -118,7 +145,7 @@ export function validate(type: RuleType, p: Record<string, number | string>): st
       if (!(QUOTA_CLASSES as readonly string[]).includes(String(p.class))) return 'a quota is on tools, logs or torches taken from storage (never food)';
       return Number.isInteger(Number(p.n)) && Number(p.n) >= 1 && Number(p.n) <= 64 ? null : 'a quota must be 1 to 64 a day';
     case 'floor':
-      if (p.class !== undefined) return [...QUOTA_CLASSES, 'food'].includes(String(p.class)) && Number.isInteger(Number(p.n)) && Number(p.n) >= 0 && Number(p.n) <= 256 ? null : 'a floor must be 0 to 256 of an item';
+      if (p.class !== undefined) return [...QUOTA_CLASSES, 'food', ...(RULES.types.has('stock') ? STOCK_CLASSES : [])].includes(String(p.class)) && Number.isInteger(Number(p.n)) && Number(p.n) >= 0 && Number(p.n) <= 256 ? null : 'a floor must be 0 to 256 of an item';
       if (!p.item || typeof p.item !== 'string') return 'a floor needs an item storage keeps';
       return Number.isInteger(Number(p.n)) && Number(p.n) >= 0 && Number(p.n) <= 256 ? null : 'a floor must be 0 to 256';
     case 'duty':
@@ -126,12 +153,17 @@ export function validate(type: RuleType, p: Record<string, number | string>): st
     case 'levy':
       return [0, 10, 20, 30, 40, 50].includes(Number(p.rate)) ? null : 'a levy is 0 to 50% in steps of 10';
     case 'contribute':
-      if (!String(p.class).split('+').every((c) => (PUT_CLASSES as readonly string[]).includes(c))) return 'a contribution is logs, torches, tools, food, stone or any goods put into storage';
+      if (!String(p.class).split('+').every((c) => (PUT_CLASSES as readonly string[]).includes(c) && (RULES.types.has('stock') || !(STOCK_CLASSES as readonly string[]).includes(c)))) return `a contribution is logs, torches, tools, food, stone${RULES.types.has('stock') ? ', ore, seeds, fuel, a bucket' : ''} or any goods put into storage`;
       return Number.isInteger(Number(p.n)) && Number(p.n) >= 1 && Number(p.n) <= 64 ? null : 'a contribution must be 1 to 64 a day';
     case 'norm':
       return typeof p.text === 'string' && p.text.trim().length >= 8 ? null : 'a norm needs words';
     case 'repeal':
       return typeof p.of === 'string' && /^r/.test(p.of) && p.rule ? null : 'a repeal must name a rule in force by its id (as [rl5]); the levy changes by its own vote';
+    case 'claim':
+      if (!(CLAIM_WORKS as readonly string[]).includes(String(p.work))) return 'a claim holds the iron level, the land by a house for its own farm, or a green\'s free plots';
+      return Number.isInteger(Number(p.min)) && Number(p.min) >= CLAIM_MIN && Number(p.min) <= CLAIM_MAX ? null : `a claim holds ${CLAIM_MIN} to ${CLAIM_MAX} minutes`;
+    case 'report':
+      return null;
     case 'zone':
       if (p.use !== 'nobuild' && p.use !== 'farms') return 'a zone keeps a place free of building, or for farms only';
       return [p.x1, p.z1, p.x2, p.z2].every((x) => Number.isFinite(Number(x))) ? null : `a zone must name a place of the village (${ZONE_PLACES})`;
@@ -154,6 +186,10 @@ export function ruleText(type: RuleType, p: Record<string, number | string>): st
     case 'norm': return String(p.text).slice(0, 120);
     case 'repeal': return `repeal the rule [${p.of}] "${p.rule}"`;
     case 'zone': return p.use === 'farms' ? `${p.place ?? p.area} is kept for farms` : `nothing new is built on ${p.place ?? p.area}`;
+    case 'claim': return p.work === 'farm_site'
+      ? 'the land by each member\'s house is kept for its own farm, posted on the board by the storage hut; others\' farms keep off it'
+      : `a member who starts on ${CLAIM_WORDS[p.work as ClaimWork] ?? p.work} posts a claim on the board by the storage hut; the others keep off it for ${p.min} minutes`;
+    case 'report': return 'a member whose trip found or failed something posts it on the board by the storage hut';
   }
 }
 
@@ -243,6 +279,11 @@ const PUT_WORDS: Array<[RegExp, PutClass]> = [
   [/\b(food|meals?|bread|cooked|edible|eggs?|wheat|pies?|crops?|fish)\b/i, 'food'], [/\b(stone|cobblestone|cobble)\b/i, 'stone'],
 ];
 const GENERIC = /\b(items?|resources?|materials?|goods|anything|things?|ores?|supplies)\b/i;
+/** #164 (MC_RULE_TYPES' stock): the stock classes' words, read before G3's (a bucket is its own class, not a tool's). */
+const STOCK_WORDS: Array<[RegExp, PutClass]> = [
+  [/\b(ores?|raw (?:iron|copper|gold)|iron ore|copper ore)\b/i, 'ore'], [/\bseeds?\b/i, 'seeds'], [/\b(fuel|coal|charcoal)\b/i, 'fuel'], [/\bbuckets?\b/i, 'bucket'],
+];
+const stockWords = () => (RULES.types.has('stock') ? STOCK_WORDS : []);
 /** Food words: a quota or floor on food is refused (never between a member and a meal: spec 13). */
 const FOOD = /\b(food|meals?|bread|cooked|edible|pies?)\b/i;
 const NUMBER_WORDS: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12, twenty: 20 };
@@ -250,15 +291,17 @@ const NUMBER_WORDS: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, thre
 const digits = (s: string) => s
   .replace(/\b(e\.g|i\.e)\.,?/gi, '').replace(/\b(?:a|one|1) (?:full )?stacks?(?: \(64\))? of\b/gi, '64')
   .replace(/\b(\d+|two|three|four) (?:full )?stacks of\b/gi, (_, n: string) => String(64 * (Number(n) || NUMBER_WORDS[n.toLowerCase()] || 1)))
-  .replace(/\b(a|an|one|two|three|four|five|six|seven|eight|nine|ten|twelve|twenty)\b(?= (?:\w+ ){0,3}?(?:logs?|torch|torches|tools?|items?|units?|stacks?|meals?|pieces?|pickaxes?|axes?|resources?|food|stone|cobblestone|bread|blocks?|planks?|saplings?|sticks?|iron|ores?|charcoal|coal|materials?|goods?)\b)/gi, (w) => String(NUMBER_WORDS[w.toLowerCase()]));
+  .replace(/\b(a|an|one|two|three|four|five|six|seven|eight|nine|ten|twelve|twenty)\b(?= (?:\w+ ){0,3}?(?:logs?|torch|torches|tools?|items?|units?|stacks?|meals?|pieces?|pickaxes?|axes?|resources?|food|stone|cobblestone|bread|blocks?|planks?|saplings?|sticks?|iron|ores?|charcoal|coal|materials?|goods?|buckets?|seeds?|fuel)\b)/gi, (w) => String(NUMBER_WORDS[w.toLowerCase()]));
 const DAILY = /\b(each|every|per|a|one) (day|night|evening|morning)\b|\bdaily\b|\bnightly\b|\bbefore (nightfall|sunset|dusk|night)\b|\bby (sunset|nightfall|dusk)\b|\bend of (each|the) day\b/i;
 const STORAGE = /\b(storage|stores?|chests?|stockpile|supply|pool|woodshed|commons)\b/i;
 
 /** A put class from the words naming what is put (one class named; several, or a generic word: goods). */
 function putClass(raw: string): PutClass {
   const phrase = raw.replace(/\b(food|logs?|torch(?:es)?|tools?|stone|wood)\s+(items?|units?)\b/i, '$1').replace(/\bunits? of\b/i, '');
-  const hits = new Set(PUT_WORDS.filter(([re]) => re.test(phrase)).map(([, c]) => c));
-  if (!hits.size || GENERIC.test(phrase.replace(/\bunits?\b/i, ''))) return 'goods';
+  const stock = stockWords().filter(([re]) => re.test(phrase)).map(([, c]) => c);
+  // (#164: a stock class named wins over the tools' words, "a bucket"; "ore" is no generic word with stock on)
+  const hits = new Set([...stock, ...PUT_WORDS.filter(([re, c]) => re.test(phrase) && !(c === 'tools' && stock.includes('bucket') && !/\b(tools?|pickaxes?|axes?|hoes?|shovels?|swords?|shears)\b/i.test(phrase))).map(([, c]) => c)]);
+  if (!hits.size || GENERIC.test(phrase.replace(/\bunits?\b/i, '').replace(stock.includes('ore') ? /\bores?\b/gi : /^$/, ''))) return 'goods';
   // (several classes named, "logs or torches": any of them, the review's 5)
   return [...hits].sort().join('+') as PutClass;
 }
@@ -277,7 +320,9 @@ export function readLaw(raw: Record<string, unknown>): { type: RuleType; params:
   const t = String(r.type ?? raw.type ?? '').toLowerCase();
   const p = (r.params && typeof r.params === 'object' ? r.params : {}) as Record<string, number | string>;
   const text = `${raw.what ?? ''} ${raw.text ?? ''}`.trim();
-  if ((RULE_TYPES as readonly string[]).includes(t) && t !== 'norm' && (t !== 'repeal' || RULES.results) && Object.keys(p).length) return { type: t as RuleType, params: p };
+  if ((RULE_TYPES as readonly string[]).includes(t) && t !== 'norm' && (t !== 'repeal' || RULES.results) && (t !== 'claim' && t !== 'report' || RULES.types.has(t)) && Object.keys(p).length) {
+    return { type: t as RuleType, params: t === 'claim' ? { min: CLAIM_DEFAULT, ...p } : p };
+  }
   // (#164, MC_RULE_RESULTS: a repeal opens the law and names a rule, by its id or in words; addLaw finds the rule in force)
   if (RULES.results && REPEAL.test(text) && (RULE_ID.test(text) || REPEAL_NAMES.test(text.split(/[,;.]/)[0]))) {
     return { type: 'repeal', params: { of: RULE_ID.exec(text)?.[1].toLowerCase() ?? '', text: text.slice(0, 200) } };
@@ -297,7 +342,8 @@ export function readLaw(raw: Record<string, unknown>): { type: RuleType; params:
     const words = floor[2].trim().replace(/^(units of|pieces of|of) /, '').replace(/ or .*$/, '');
     // (food in general is the class; a named food, "bread", stays an item)
     if (/\b(food|meals?|edible|cooked)\b/i.test(words)) return { type: 'floor', params: { class: 'food', n: Number(floor[1]) } };
-    const cls = CLASS_WORDS.find(([re]) => re.test(words))?.[1];
+    // (#164's stock classes first: "one empty bucket", "five seeds", "20 coal")
+    const cls = stockWords().find(([re]) => re.test(words))?.[1] ?? CLASS_WORDS.find(([re]) => re.test(words))?.[1];
     // (a wood's logs stay an item, "birch logs": birch_log; any other class word is the class, "spare torches": torches)
     const wood = /^(oak|birch|spruce|jungle|acacia|dark oak|mangrove|cherry|pale oak) (logs?|planks?)$/.test(words);
     const item = singular(words.replace(/ /g, '_'));
@@ -317,6 +363,13 @@ export function readLaw(raw: Record<string, unknown>): { type: RuleType; params:
   if (put && daily && STORAGE.test(s.slice(put.index)) && !/\bweek|\bmonth/i.test(s)) {
     return { type: 'contribute', params: { class: putClass(put[2]), n: Number(put[1]) } };
   }
+  // (#164, MC_RULE_TYPES: a claim on shared work before starting it, and a report of finds or failures, on the board; read
+  // from the whole sentence, before zones: "reserve a 9x9 farm plot by their house" is the farm-site claim, the user's Q3)
+  if (RULES.types.has('claim')) {
+    const c = readClaim(text);
+    if (c) return { type: 'claim', params: c };
+  }
+  if (RULES.types.has('report') && readReport(text)) return { type: 'report', params: { what: 'finds' } };
   // a zone: nothing is built on a place, or a place is kept for farms (only once the storage rules found nothing, and at a
   // clause's start: "...so nothing is built in a rush" is no zone, the review's 1; code finds the place: addLaw)
   const zone = readZone(text.split(/;|, but |\bbut\b|\bunless\b|\bexcept\b/i)[0]);
@@ -328,6 +381,37 @@ export function readLaw(raw: Record<string, unknown>): { type: RuleType; params:
   }
   if (t === 'duty' && typeof p.kind === 'string') return { type: 'duty', params: { kind: kindOfWord(p.kind) ?? p.kind } };
   return { type: 'norm', params: { text } };
+}
+
+/**
+ * #164: a claim's work and minutes from a law's words, or null. Train 7's and G3m1's claim norms (norm_classes.txt): "post a
+ * claim on the iron schedule board ... before digging for iron", "when a member begins digging a shared mine level, they must
+ * post a brief notice", "announce when they begin digging a resource level"; and the kept plot (Q3): "reserve a 9x9 personal
+ * farm plot within 24 blocks of their house", "maintain a clear 9x9 plot ... for personal farming". A building footprint is
+ * not a claim code holds: it stays a norm.
+ */
+export function readClaim(text: string): { work: ClaimWork; min: number } | null {
+  const s = text.toLowerCase();
+  const min = Math.min(CLAIM_MAX, Math.max(CLAIM_MIN, Number(/(\d+)\s*(?:min\b|mins\b|minutes?\b)/.exec(s)?.[1]) || CLAIM_DEFAULT));
+  // (the land by a house kept for its farm: a plot or 9x9 named with a house, kept, reserved or claimed)
+  if (/\b(reserve|reserves|keep|keeps|maintain|maintains|claim|claims|hold|holds)\b/.test(s) && /\b(9 ?x ?9|9×9|plots?|farm sites?|farm land)\b/.test(s) && /\b(house|houses|home|homes|personal|own)\b/.test(s) && /\bfarm/.test(s)) return { work: 'farm_site', min };
+  const verb = /\b(claims?|reserves?|announces?|posts?|registers?|books?|signs? up|notif(?:y|ies)|schedules?)\b/.test(s);
+  const before = /\bbefore (?:they )?(?:start|starting|begin|beginning|dig|digging|work|working|mine|mining|attempt|attempting|commenc\w*|plant\w*|lay\w*|build\w*)\b|\bwhen (?:a member |they |members )?(?:begins?|starts?)\b|\bwait for (?:clearance|confirmation)\b|\bclaims?\b/.test(s);
+  if (!verb || !before) return null;
+  if (/\b(iron|mine|mining|shaft|tunnel|ore|resource level|dig level|levels?)\b/.test(s) && !/\bfootprint\b/.test(s)) return { work: 'iron', min };
+  if (/\b(farm|field|plot|9 ?x ?9)\b/.test(s)) return { work: 'farm_site', min };
+  if (/\bgreens?\b/.test(s)) return { work: 'green', min };
+  return null;
+}
+
+/** #164: whether a law asks members to post a trip's finds or failures ("post its coordinates on the common board", "report
+ *  any dead-end or blocked tunnel they discover", "record the amount of ore collected on the board"); not a record of takes. */
+export function readReport(text: string): boolean {
+  const s = text.toLowerCase();
+  if (!/\b(reports?|posts?|records?|logs?|shares?|notes?|marks?|announces?|writes?)\b/.test(s)) return false;
+  if (/\b(taken|takes|took|withdraw\w*) from storage\b/.test(s)) return false;
+  return /\b(finds?|found|discover\w*|resource nodes?|coordinates|locations?|dead[- ]ends?|blocked|failures?|failed|veins?|sightings?|seen)\b/.test(s)
+    || (/\b(ore|iron|sugar cane|resources?)\b/.test(s) && /\b(board|map)\b/.test(s));
 }
 
 const REPEAL = /^\s*(?:let us |let's |we should |i propose (?:to |that we )?)?(?:repeal|drop|abolish|scrap|revoke|rescind|cancel|end|lift|retire)\b/i;
@@ -399,6 +483,8 @@ export function lawTarget(type: RuleType, p: Record<string, number | string>): s
     case 'zone': return `zone:${p.area}`;
     case 'norm': return `norm:${contentWords(String(p.text)).slice(0, 8).sort().join(' ')}`;
     case 'repeal': return `repeal:${p.of}`;
+    case 'claim': return `claim:${p.work}`;
+    case 'report': return 'report';
   }
 }
 const STOP = new Set('each every member members villager villagers must should shall may will their they them with from into that this have least most more than once day days daily before after other others village communal storage'.split(' '));
@@ -562,7 +648,7 @@ export function breaks(village: string, agent: string, takes: Record<string, num
       if (want && (st.takes[`${agent}|${day}|${cls}`] ?? 0) + want > Number(r.params.n)) return `the quota: ${r.text}`;
     } else if (r.type === 'floor') {
       // (a floor of a class sums the class's items: logs of every wood, food of every kind)
-      const of = (i: string) => (r.params.class !== undefined ? (r.params.class === 'food' ? isFood(i) : classOf(i) === r.params.class) : i === r.params.item);
+      const of = (i: string) => (r.params.class !== undefined ? inClass(i, String(r.params.class)) : i === r.params.item);
       const want = Object.entries(takes).filter(([i]) => of(i)).reduce((s, [, n]) => s + n, 0);
       const have = Object.entries(store).filter(([i]) => of(i)).reduce((s, [, n]) => s + n, 0);
       if (want && have - want < Number(r.params.n)) return `the floor: ${r.text}`;
@@ -594,6 +680,21 @@ export function putClassOf(item: string): PutClass | undefined {
   if (/^(cobblestone|stone|cobbled_deepslate|andesite|diorite|granite)$/.test(item)) return 'stone';
   return undefined;
 }
+/** #164: an item's stock classes (with MC_RULE_TYPES' stock): ore, seeds, fuel, a bucket. */
+export function stockClassesOf(item: string): PutClass[] {
+  if (!RULES.types.has('stock')) return [];
+  const out: PutClass[] = [];
+  if (/^(raw_(iron|copper|gold)|\w+_ore|diamond|emerald|lapis_lazuli|redstone)$/.test(item)) out.push('ore');
+  if (/_seeds$/.test(item)) out.push('seeds');
+  if (/^(coal|charcoal|coal_block)$/.test(item)) out.push('fuel');
+  if (item === 'bucket') out.push('bucket');
+  return out;
+}
+/** Whether an item is of a floor's or contribution's class (food, a quota class, a put class or a stock class). */
+export function inClass(item: string, cls: string): boolean {
+  if (cls === 'food') return isFood(item);
+  return classOf(item) === cls || putClassOf(item) === cls || stockClassesOf(item).includes(cls as PutClass);
+}
 /** Goods that do not count toward "any goods" (what digging and clearing turn up). */
 const JUNK = /^(dirt|coarse_dirt|gravel|sand|red_sand|stick|rotten_flesh|flint|clay_ball|\w+_seeds|\w+_sapling|\w+_leaves|short_grass|tall_grass|fern|dandelion|poppy|\w+_tulip|azure_bluet|oxeye_daisy|cornflower|allium|blue_orchid|lily_of_the_valley)$/;
 /** An item's weight toward a put class: planks a quarter log (a log taken out comes back as four planks, the review's 5). */
@@ -616,7 +717,7 @@ export function notePuts(village: string, agent: string, option: string, puts: R
     any = true;
     const cls = putClassOf(item);
     const w = n * putWeight(item);
-    for (const c of [...(cls ? [cls] : []), ...(JUNK.test(item) ? [] : ['goods'])]) {
+    for (const c of [...(cls ? [cls] : []), ...stockClassesOf(item), ...(JUNK.test(item) ? [] : ['goods'])]) {
       pm[`${agent}|${day}|${c}`] = (pm[`${agent}|${day}|${c}`] ?? 0) + w;
       opt[c] = (opt[c] ?? 0) + w;
     }
@@ -714,7 +815,7 @@ export function stake(village: string, agent: string, type: RuleType, p: Record<
   }
   if (type === 'floor') {
     if (!Object.keys(store).length) return '';
-    const of = (i: string) => (p.class !== undefined ? (p.class === 'food' ? isFood(i) : classOf(i) === p.class) : i === p.item);
+    const of = (i: string) => (p.class !== undefined ? inClass(i, String(p.class)) : i === p.item);
     const have = Object.entries(store).filter(([i]) => of(i)).reduce((s, [, n]) => s + n, 0);
     return `storage holds ${have} now`;
   }
@@ -776,7 +877,178 @@ export function ruleResult(village: string, r: Rule, now: number): string {
   }
   if (t === 'norm') return 'words only: not enforced or counted';
   if (t === 'levy') return `in force at ${r.params.rate}%`;
+  // (#164: a claim's blocked trips of its work since against the 2 days before, and the menus that waited on a claim; a
+  // report's finds posted of those reportable and the trips that used one)
+  if (t === 'claim' || t === 'report') {
+    // (by the day it passed: the days after it against the 2 days up to it)
+    const from = dayOf(village, r.since);
+    const after = (what: string, work: string) => sumDays(village, what, work, (d) => d > from);
+    const before = (what: string, work: string) => sumDays(village, what, work, (d) => d <= from && d > from - 2);
+    if (t === 'report') return `${after('posted', '*')} of ${after('reportable', '*')} finds posted since; ${after('used', '*')} trips used a report`;
+    const w = String(r.params.work);
+    return `${after('blocked', w)} blocked trips since (${before('blocked', w)} in the 2 days before); ${after('waited', w)} menus waited on a claim`;
+  }
   return 'enforced by code (options that break it leave the menu)';
+}
+
+// ---------------------------------------------------------------------------------------------
+// #164: claims and reports on the board by the storage hut (MC_RULE_TYPES; the world carries them out)
+// ---------------------------------------------------------------------------------------------
+
+/** A count by what, work and village day (`*` for a report's). */
+function count(village: string, what: string, work: string, now: number, n = 1): void {
+  const st = state(village);
+  const k = `${what}|${work}|${dayOf(village, now)}`;
+  (st.counts ??= {})[k] = (st.counts[k] ?? 0) + n;
+}
+function sumDays(village: string, what: string, work: string, day: (d: number) => boolean): number {
+  let n = 0;
+  for (const [k, q] of Object.entries(state(village).counts ?? {})) {
+    const [w, wk, d] = k.split('|');
+    if (w === what && wk === work && day(Number(d))) n += q;
+  }
+  return n;
+}
+
+/** The claim rule in force on a work, or undefined (MC_RULES and MC_RULE_TYPES' claim). */
+export function claimRule(village: string, work: ClaimWork): Rule | undefined {
+  if (!RULES.on || !RULES.types.has('claim')) return undefined;
+  return rulesInForce(village).find((r) => (r.type as RuleType) === 'claim' && r.params.work === work);
+}
+/** Whether a report rule is in force. */
+export function reportRule(village: string): Rule | undefined {
+  if (!RULES.on || !RULES.types.has('report')) return undefined;
+  return rulesInForce(village).find((r) => (r.type as RuleType) === 'report');
+}
+
+/** The claims on the board now, oldest first. */
+export function liveClaims(village: string, now: number): Claim[] {
+  return (state(village).claims ?? []).filter((c) => c.until > now && !!claimRule(village, c.work));
+}
+
+/** The reports on the board now, newest first. */
+export function liveReports(village: string, now: number): Report[] {
+  return reportRule(village) ? (state(village).reports ?? []).filter((r) => r.until > now).sort((a, b) => b.at - a.at) : [];
+}
+
+/** Another member's claim on a work and key holding now, or undefined (the menu takes the option off, the rule named). */
+export function claimHeld(village: string, work: ClaimWork, key: string, agent: string, now: number): Claim | undefined {
+  return liveClaims(village, now).find((c) => c.work === work && c.key === key && c.by !== agent);
+}
+
+/** A member starts claimed work: its claim posted (renewed when it holds one already) for the rule's minutes, and logged.
+ *  Undefined with no claim rule on that work. */
+export function postClaim(village: string, work: ClaimWork, key: string, agent: string, label: string, now: number): Claim | undefined {
+  const r = claimRule(village, work);
+  if (!r) return undefined;
+  const st = state(village);
+  const cs = (st.claims ??= []).filter((c) => c.until > now - 3600000);
+  st.claims = cs;
+  const until = now + Number(r.params.min) * 60000;
+  let c = cs.find((x) => x.work === work && x.key === key && x.by === agent && x.until > now);
+  if (c) c.until = until;
+  else cs.push((c = { work, key, by: agent, at: now, until, label: label.slice(0, 60), rule: r.id }));
+  count(village, 'posted', work, now);
+  logAct({ type: 'claim', village, agent, op: 'posted', work, key, until, rule: r.id });
+  touchMemory();
+  return c;
+}
+
+/** An option left a member's menu for another's claim (the rule's idle cost): counted, and logged once a member, option
+ *  and 10 minutes. */
+const waitLogged = new Map<string, number>();
+export function noteClaimWait(village: string, agent: string, option: string, c: Claim, now: number): void {
+  const k = `${village}|${agent}|${option}`;
+  if ((waitLogged.get(k) ?? 0) > now - 10 * 60000) return;
+  waitLogged.set(k, now);
+  count(village, 'waited', c.work, now);
+  logAct({ type: 'claim', village, agent, op: 'waited', work: c.work, key: c.key, option, by: c.by, until: c.until });
+}
+
+/** A trip of claimable work turned back by another member (the iron level's miners, "no free 9x9 site"): counted whether a
+ *  claim rule is in force or not (the before and after, and the off arm). */
+export function noteBlocked(village: string, agent: string, work: ClaimWork, option: string, msg: string, now: number): void {
+  if (!RULES.on) return;
+  count(village, 'blocked', work, now);
+  logAct({ type: 'claim', village, agent, op: 'blocked', work, option, msg: msg.slice(0, 160), ...(claimRule(village, work) ? { rule: claimRule(village, work)!.id } : {}) });
+}
+
+/** A trip found or failed something a member may post (with a report rule in force): kept for the member's next menu (10
+ *  minutes), logged as reportable. A newer find replaces an older one unposted (counted skipped). */
+export function pendReport(village: string, agent: string, option: string, text: string, now: number): void {
+  if (!reportRule(village)) return;
+  const st = state(village);
+  const pr = (st.pendingReports ??= {});
+  if (pr[agent]) skipReport(village, agent, now, 'replaced');
+  pr[agent] = { option, text: text.slice(0, 120), at: now };
+  count(village, 'reportable', '*', now);
+  logAct({ type: 'report', village, agent, op: 'reportable', option, text: text.slice(0, 120) });
+  touchMemory();
+}
+/** A member's find waiting for its choice (posted or not), or undefined. */
+export function pendingReport(village: string, agent: string, now: number): PendingReport | undefined {
+  const p = state(village).pendingReports?.[agent];
+  if (p && now - p.at > 10 * 60000) {
+    skipReport(village, agent, now, 'lapsed');
+    return undefined;
+  }
+  return p && reportRule(village) ? p : undefined;
+}
+/** The member chose to post its find: on the board for 30 minutes, a fact on the others' options of the same work. */
+export function postReport(village: string, agent: string, now: number): Report | undefined {
+  const st = state(village);
+  const p = st.pendingReports?.[agent];
+  if (!p) return undefined;
+  delete st.pendingReports![agent];
+  const rs = (st.reports ??= []).filter((r) => r.until > now - 3600000);
+  st.reportNext = (st.reportNext ?? 0) + 1;
+  const r: Report = { id: `rp${st.reportNext}`, by: agent, at: now, until: now + 30 * 60000, option: p.option, text: p.text };
+  rs.push(r);
+  st.reports = rs;
+  count(village, 'posted', '*', now);
+  logAct({ type: 'report', village, agent, op: 'posted', id: r.id, option: p.option, text: p.text, report: 'posted' });
+  touchMemory();
+  return r;
+}
+/** The member went on without posting its find (another chore chosen while it was offered, a newer find, or 10 minutes). */
+export function skipReport(village: string, agent: string, now: number, why = 'went on'): void {
+  const st = state(village);
+  const p = st.pendingReports?.[agent];
+  if (!p) return;
+  delete st.pendingReports![agent];
+  count(village, 'skipped', '*', now);
+  logAct({ type: 'report', village, agent, op: 'skipped', option: p.option, why, report: 'skipped' });
+  touchMemory();
+}
+/** The newest posted report by another member on an option's work (its id, or its base: gather:sugar_cane), or undefined. */
+export function reportFor(village: string, agent: string, option: string, now: number): Report | undefined {
+  if (!reportRule(village)) return undefined;
+  const base = optionBase(option);
+  return (state(village).reports ?? []).filter((r) => r.until > now && r.by !== agent && (r.option === option || optionBase(r.option) === base)).sort((a, b) => b.at - a.at)[0];
+}
+/** A member picked an option that cited a report (and, at its end, how the trip went). */
+export function noteReportUsed(village: string, agent: string, r: Report, option: string, now: number, ok?: boolean): void {
+  if (ok === undefined) count(village, 'used', '*', now);
+  logAct({ type: 'report', village, agent, op: ok === undefined ? 'used' : 'outcome', id: r.id, by: r.by, option, ...(ok === undefined ? {} : { ok }) });
+}
+
+/** The board's signs (4 lines of up to 15 letters each): one a claim holding, then one a report, newest first; at most `n`. */
+export function boardSigns(village: string, now: number, n = 4): string[][] {
+  const out: string[][] = [];
+  const cut = (s: string) => s.slice(0, 15);
+  for (const c of liveClaims(village, now)) out.push(['CLAIM', cut(c.label), cut(`by ${c.by}`), cut(`${Math.max(1, Math.ceil((c.until - now) / 60000))} min left`)]);
+  if (claimRule(village, 'farm_site')) out.push(['FARM PLOTS', 'by each house', 'kept for its', 'own farm']);
+  const rs = reportRule(village) ? (state(village).reports ?? []).filter((r) => r.until > now).sort((a, b) => b.at - a.at) : [];
+  for (const r of rs) {
+    const w = r.text.split(' ');
+    const lines: string[] = [];
+    for (const x of w) {
+      if (lines.length && (lines[lines.length - 1] + ' ' + x).length <= 15) lines[lines.length - 1] += ` ${x}`;
+      else lines.push(cut(x));
+    }
+    out.push([cut(`${r.by}:`), ...lines.slice(0, 3)]);
+  }
+  return out.slice(0, n);
 }
 
 /** Code's dry-run preview of a quota over the last 3 village days (spec 13): the takes it would have refused. */
