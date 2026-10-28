@@ -27,7 +27,8 @@ import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS,
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
 import { PROMPT_SELF, UNUSED_GOOD, UNUSED_TAG, ambitionGap, feedKinds, needsLine as basicNeedsLine, scarcityLine, selfLine, type HouseFacts, type SelfFacts } from '../promptSelf';
-import { BAN_MEMBER, CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, basicOf, buildPrompt, choose, choreProductive, fixedPick, fnv1a, mulberry32, shuffled, trimMenu, weighted, weights } from '../choose';
+import { BAN_MEMBER, CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, basicOf, buildPrompt, choose, choreProductive, fixedPick, fnv1a, menuView, mulberry32, shuffled, trimMenu, weighted, weights } from '../choose';
+import { Palette, reserved, type Dropped } from '../palette';
 import { workerNumber } from '../agentNames';
 import { KIND_PHRASE, TEMPERAMENT_MODE, activeKinds, kindWeights, optionWeight, personaOf, temperament, vectorOf } from '../temperament';
 import { GOALS_ON, ensureGoals, goalLine, goalScore, goalWeight, goalsOf, noteEnd as goalNoteEnd, serves, topCraft, type Goals, type OptionFacts } from '../goals';
@@ -5446,7 +5447,7 @@ export class MineflayerWorld implements WorldAdapter {
 
   /** The full menu: options (guarded and trimmed in model mode), the reasons for kinds with none, and the context; beside
    *  it the guarded options before the trim (`feasible`, what a model's pick is checked against). */
-  private menu(v: Village, a: BotAgent, busy: Set<string>, guards: boolean, facts: Facts, first?: SweepCtx['first']): { menu: ChoiceMenu; feasible: ChoiceOption[]; skips: string[] } {
+  private menu(v: Village, a: BotAgent, busy: Set<string>, guards: boolean, facts: Facts, first?: SweepCtx['first']): { menu: ChoiceMenu; feasible: ChoiceOption[]; skips: string[]; dropped: Dropped[] } {
     // (#97: the options other members' pending decisions were shown are busy for this one; the sets given stay as they were)
     const held = CHOICE_HOLDS ? this.heldFor(v, a) : [];
     if (held.length) {
@@ -5482,7 +5483,7 @@ export class MineflayerWorld implements WorldAdapter {
       if (nw.length) ctx.news = nw;
       if (an.length) ctx.answers = an;
     }
-    return { menu: { agent: a.name, village: v.name, t: facts.t, options: r.options, guarded: r.guarded, reasons: r.reasons, ctx }, feasible: r.feasible, skips: r.effects.skips };
+    return { menu: { agent: a.name, village: v.name, t: facts.t, options: r.options, guarded: r.guarded, reasons: r.reasons, ctx }, feasible: r.feasible, skips: r.effects.skips, dropped: r.dropped };
   }
 
   /** G2: item options seen on any member's menu lately, by village|option id (acts.ts' items on offer). */
@@ -5618,9 +5619,11 @@ export class MineflayerWorld implements WorldAdapter {
    * mode), banned and cooling options go to `guarded` and the rest are trimmed (choose.ts trimMenu).
    */
   private choiceOptions(v: Village, a: BotAgent, busy: Set<string>, guards: boolean, facts: Facts, first?: SweepCtx['first']):
-    { options: ChoiceOption[]; feasible: ChoiceOption[]; effects: { skips: string[] }; reasons: Partial<Record<ChoiceKind, string>>; guarded: Array<{ id: string; why: string }> } {
+    { options: ChoiceOption[]; feasible: ChoiceOption[]; effects: { skips: string[] }; reasons: Partial<Record<ChoiceKind, string>>; guarded: Array<{ id: string; why: string }>; dropped: Dropped[] } {
     const now = facts.t;
+    // (#172: the palette's live entries, filled by the sources below; the checks after them drop entries with a verdict)
     const out: ChoiceOption[] = [];
+    const pal = new Palette(out);
     const reasons: Partial<Record<ChoiceKind, string>> = {};
     const skips: string[] = [];
     const layouts = v.layouts ?? [];
@@ -7201,13 +7204,13 @@ export class MineflayerWorld implements WorldAdapter {
     // otherwise they go and their kinds keep the gate's reason
     if (gated.size) {
       const fillerOnly = out.every((o) => gated.has(o) || o.kind === 'eat' || isFiller(o));
-      for (let i = out.length - 1; i >= 0; i--) if (fillerOnly ? isFiller(out[i]) : gated.has(out[i])) out.splice(i, 1);
+      for (let i = out.length - 1; i >= 0; i--) if (fillerOnly ? isFiller(out[i]) : gated.has(out[i])) pal.drop(out[i], 'view', fillerOnly ? 'filler, left for the gated options' : 'gated: nothing wants it');
       if (!fillerOnly) {
         for (const [k, w] of Object.entries(gateWhy) as Array<[ChoiceKind, string]>) if (!out.some((o) => o.kind === k)) reasons[k] = w;
       } else if (!out.some((o) => o.kind === 'make')) reasons.make ??= 'filler left for the gated options';
     }
     // M1 (#144): the monument's options at most MONUMENT.share of the menu (one at least), the lowest-ranked kept
-    if (MONUMENT.on) capShare(out, (o) => o.kind === 'monument');
+    if (MONUMENT.on) for (const o of capShare([...out], (q) => q.kind === 'monument')) pal.drop(o, 'view', "over the monument's share");
     // A.3p: the temperament's weight on every option (both modes; the fixed pick and the trim read it), from the kind and
     // sociability's pull toward the kinds other members are on now
     if (TEMPERAMENT_MODE !== 'off') {
@@ -7282,7 +7285,7 @@ export class MineflayerWorld implements WorldAdapter {
         const o = out[i], q = (o.kind === 'farm' || o.kind === 'slot' || o.kind === 'penwork') ? v.claims[o.key] : undefined;
         if (q && q.by !== a.name) {
           reasons[o.kind] ??= `claimed by ${q.by}`;
-          out.splice(i, 1);
+          pal.drop(o, 'claimed', `claimed by ${q.by}`);
         }
       }
     }
@@ -7311,7 +7314,7 @@ export class MineflayerWorld implements WorldAdapter {
       out.sort((p, q) => p.rank - q.rank);
       if (state === 'hungry') {
         starved.push(...out.filter((o) => !isFoodKind(o.kind, o)));
-        out.splice(0, out.length, ...out.filter((o) => isFoodKind(o.kind, o)));
+        for (const o of starved) pal.drop(o, 'hungry', 'hungry');
         if (!guards) for (const o of starved) reasons[o.kind] ??= 'hungry';
       }
     }
@@ -7367,7 +7370,7 @@ export class MineflayerWorld implements WorldAdapter {
         if (Object.keys(takes).length) o.takes = takes;
         const why = Object.keys(takes).length ? breaks(v.name, a.name, takes, store, now) : null;
         if (why) {
-          out.splice(i, 1);
+          pal.drop(o, 'law', why);
           const k = `${v.name}|${a.name}|${o.id}|${Math.floor(now / 3600000)}`;
           if (!this.ruleLogged.has(k)) {
             this.ruleLogged.add(k);
@@ -7435,32 +7438,19 @@ export class MineflayerWorld implements WorldAdapter {
       const fix = out.find((o) => o.id === 'make:stone_pickaxe') ?? out.find((o) => o.id === 'gather:cobblestone');
       if (fix) fix.need = fix.id === 'make:stone_pickaxe' ? 'you need a pickaxe to dig for iron' : 'cobblestone for the pickaxe you need to dig for iron';
     }
-    const guarded: Array<{ id: string; why: string }> = guards ? starved.map((o) => ({ id: o.id, why: 'hungry' })) : [];
-    let options = out;
-    // (`feasible`: guarded but not trimmed; the trim only presents the menu, so a pick it would cut now is still runnable)
-    let feasible = out;
-    if (guards) {
-      options = [];
-      for (const o of out) {
+    // The menu, a view on the palette (#172, choose.ts menuView): model mode's guards (D5: bans, the agent's own cooldown,
+    // learning progress) and the trim; `feasible` is guarded but not trimmed (the trim only presents the menu, so a pick it
+    // would cut now is still runnable)
+    const { options, feasible, guarded } = menuView(out, starved, guards ? {
+      banned: (o) => {
         const ban = this.choiceStats.banned(v.name, o.kind, o.id, now, a.name);
-        if (ban) {
-          guarded.push({ id: o.id, why: `banned until ${clock(ban.until)}` });
-          continue;
-        }
-        if (this.choiceStats.agentCooling(v.name, a.name, o.kind, now, o.kind === 'make' || o.kind === 'gather' || o.kind === 'light' || o.kind === 'furnish' || o.kind === 'initiate' || o.kind === 'help' || o.kind === 'activity' ? o.id : undefined)) {
-          guarded.push({ id: o.id, why: 'you failed this kind in the last 5 minutes' });
-          continue;
-        }
-        if (o.lp === undefined) o.lp = Math.round((0.5 + this.choiceStats.learningProgress(v.name, o.kind)) * 100) / 100;
-        options.push(o);
-      }
-      feasible = options;
-      const kept = trimMenu(options);
-      for (const o of options) if (!kept.includes(o)) guarded.push({ id: o.id, why: 'trimmed' });
-      options = kept;
-    }
+        return ban ? `banned until ${clock(ban.until)}` : null;
+      },
+      cooling: (o) => this.choiceStats.agentCooling(v.name, a.name, o.kind, now, o.kind === 'make' || o.kind === 'gather' || o.kind === 'light' || o.kind === 'furnish' || o.kind === 'initiate' || o.kind === 'help' || o.kind === 'activity' ? o.id : undefined),
+      lp: (o) => Math.round((0.5 + this.choiceStats.learningProgress(v.name, o.kind)) * 100) / 100,
+    } : null);
     for (const o of options) if (reasons[o.kind]) delete reasons[o.kind];
-    return { options, feasible, effects: { skips }, reasons, guarded };
+    return { options, feasible, effects: { skips }, reasons, guarded, dropped: pal.dropped };
   }
 
   /** #79: the village's life goals, drawn over its members (their temperament vectors, whatever the mode) on first use. */
@@ -9576,19 +9566,8 @@ const FORGE_NEEDS: Array<[string, (k: Map<string, number>) => boolean, string]> 
   ['bucket', (k) => (k.get('milk') ?? 0) >= 1, 'milks cows without one'],
 ];
 
-/** An option matches a busy key (ChoiceOption.excludes: "x=" exactly, "x" as itself or a prefix of "x:..."). */
-function excluded(excludes: string[], busy: Set<string>): boolean {
-  for (const e of excludes) {
-    if (e.endsWith('=')) {
-      if (busy.has(e.slice(0, -1))) return true;
-      continue;
-    }
-    if (busy.has(e)) return true;
-    const p = `${e}:`;
-    for (const k of busy) if (k.startsWith(p)) return true;
-  }
-  return false;
-}
+/** An option matches a busy key (palette.ts reserved: "x=" exactly, "x" as itself or a prefix of "x:..."). */
+const excluded = reserved;
 
 /** Tries forgiven an hour after the last (the readers' effective value). */
 function effTries(tries: number | undefined, lastAt: number | undefined, now: number): number {

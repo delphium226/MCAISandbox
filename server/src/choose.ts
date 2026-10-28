@@ -105,6 +105,47 @@ export function trimMenu(options: ChoiceOption[], ambition = PROMPT_SELF): Choic
   return best.sort(byRank);
 }
 
+/** What the menu view asks of the world about one option (the guards' facts). */
+export interface ViewGuards {
+  /** A ban's why ("banned until 14:05"), or null. */
+  banned: (o: ChoiceOption) => string | null;
+  /** The agent failed this kind (or this option, for per-id kinds) in the last 5 minutes. */
+  cooling: (o: ChoiceOption) => boolean;
+  /** The kind's learning-progress weight, 0.5..1.5. */
+  lp: (o: ChoiceOption) => number;
+}
+
+/**
+ * The menu as a view on the palette (#172): in model mode the hungry entries' verdicts first, then bans, the agent's
+ * cooldown and learning progress (D5), then the trim (`trim` false: open mode, the whole palette); in fixed mode the
+ * palette as it is. `feasible` (guarded, not trimmed) is what a pick is checked against: the trim only presents.
+ */
+export function menuView(live: ChoiceOption[], hungry: ChoiceOption[], guards: ViewGuards | null, trim = true): { options: ChoiceOption[]; feasible: ChoiceOption[]; guarded: Array<{ id: string; why: string }> } {
+  const guarded: Array<{ id: string; why: string }> = guards ? hungry.map((o) => ({ id: o.id, why: 'hungry' })) : [];
+  if (!guards) return { options: live, feasible: live, guarded };
+  let options: ChoiceOption[] = [];
+  for (const o of live) {
+    const ban = guards.banned(o);
+    if (ban) {
+      guarded.push({ id: o.id, why: ban });
+      continue;
+    }
+    if (guards.cooling(o)) {
+      guarded.push({ id: o.id, why: 'you failed this kind in the last 5 minutes' });
+      continue;
+    }
+    if (o.lp === undefined) o.lp = guards.lp(o);
+    options.push(o);
+  }
+  const feasible = options;
+  if (trim) {
+    const kept = trimMenu(options);
+    for (const o of options) if (!kept.includes(o)) guarded.push({ id: o.id, why: 'trimmed' });
+    options = kept;
+  }
+  return { options, feasible, guarded };
+}
+
 /** MC_HOME_BASICS: the menu's basic need of the member's own house (the lowest rank of them), unless a meal comes first. */
 export function basicOf(menu: ChoiceMenu): ChoiceOption | undefined {
   if (menu.options.some((o) => o.kind === 'eat')) return undefined;
