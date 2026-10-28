@@ -6521,10 +6521,12 @@ async function makeGoods(a: BotAgent, args: Record<string, unknown>, signal: Abo
     const job: Job = { targets: [], area: { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 }, y: v.plots[0]?.y ?? 64, free: true, what, task: 'make' };
     await standBy(a, job, signal);
     // The chests read again only when the record cannot make it (make_into_storage's rule)
-    let p = a.world.makePlan(v, good, a.name);
+    // (#172: an open chooser's batch past the keep plans past it here too)
+    const past = args.past === true;
+    let p = a.world.makePlan(v, good, a.name, undefined, undefined, past);
     if ('why' in p && p.why === 'inputs short' && v.storage?.chests.length) {
       await refreshStorage(a, v, signal);
-      p = a.world.makePlan(v, good, a.name);
+      p = a.world.makePlan(v, good, a.name, undefined, undefined, past);
     }
     if ('why' in p) throw new ContentionError(`make: ${item}: ${p.why}`, 'taken', `stock:${item}`);
     // A batch offered as crafting that smelts now (the charcoal it counted on was taken): no furnace key is held for it, so

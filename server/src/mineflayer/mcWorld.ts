@@ -4882,7 +4882,7 @@ export class MineflayerWorld implements WorldAdapter {
     this.idleSince.set(c.agent.toLowerCase(), c.choice.endedAt);
     const bad = c.status.find((q) => q.state === 'failed');
     const agent = this.agents.get(c.agent.toLowerCase());
-    if ((agent ? this.chooseMode(agent) : CHOOSE.mode) === 'model') this.reportFailed(c);
+    if ((agent ? this.chooseMode(agent) : CHOOSE.mode === 'open' ? 'model' : CHOOSE.mode) === 'model') this.reportFailed(c);
     const done = c.status.every((q) => q.state === 'done');
     let message = bad?.message ?? (done ? c.status[c.status.length - 1]?.message ?? '' : 'agent gone');
     let ok = !bad && done;
@@ -5450,6 +5450,8 @@ export class MineflayerWorld implements WorldAdapter {
       }),
       gather: since(() => this.gatherWanted(v, store)),
       spare: since(() => this.makeSpare(v, '', undefined, store)),
+      // (#172: the open chooser's plans past the keep, once per good while the earmarks and makes under way stand)
+      pastPlans: since(() => new Map<string, MakePlan>()),
     };
   }
 
@@ -6394,8 +6396,13 @@ export class MineflayerWorld implements WorldAdapter {
         // (#172, open: a good at its keep gets one batch more while the spare storage holds its inputs, up to twice the keep;
         // the bench's 14 of 24 open picks were pickaxes past the keep)
         let p = plans.get(g.item);
-        const past = open && !!p && 'why' in p && p.why === 'at stock' && (store[g.item] ?? 0) < 2 * Math.max(target, g.batch);
-        if (past) p = this.makePlan(v, g, '', store, facts.spare(), true);
+        // (a good the village keeps none of now, a rung's good before its rung, is never made past it)
+        const past = open && !!p && 'why' in p && p.why === 'at stock' && target > 0 && (store[g.item] ?? 0) < 2 * Math.max(target, g.batch);
+        if (past) {
+          const cache = facts.pastPlans();
+          if (!cache.has(g.item)) cache.set(g.item, this.makePlan(v, g, '', store, facts.spare(), true));
+          p = cache.get(g.item);
+        }
         if (!p || 'why' in p) {
           if (p && p.why === 'at stock') atStock++;
           else why.add('inputs short');
@@ -6438,7 +6445,7 @@ export class MineflayerWorld implements WorldAdapter {
           // read as the reason with 28 stored for 10 spots, B.4's review, lens 2 L1)
           effect: `+${p.count} ${g.words} (${stock} stored): ${g.item === 'torch' && family('light') ? torchWhy(this.torchDemand(v), stock) : g.forWhat}`,
           ...(open ? { brief: `${stock} stored, ${target} kept${past ? '' : ' (short)'}; +${p.count} from ${countsText(p.inputs)}; ${(g.item === 'torch' && family('light') ? torchWhy(this.torchDemand(v), stock) : g.forWhat).slice(0, 60)}` } : {}),
-        }, { kind: 'make', good: g, count: p.count, inputs: p.inputs, smelts: p.smelts, stock, ...(k === undefined ? {} : { k }) });
+        }, { kind: 'make', good: g, count: p.count, inputs: p.inputs, smelts: p.smelts, stock, ...(k === undefined ? {} : { k }), ...(past ? { past: true } : {}) });
       }
       if (!out.some((o) => o.kind === 'make')) reasons.make = atStock === goods.length ? 'all at stock' : ['inputs short', 'hut busy', 'furnaces busy', 'backing off', 'busy'].find((w) => why.has(w)) ?? 'all at stock';
     }
@@ -8231,7 +8238,7 @@ export class MineflayerWorld implements WorldAdapter {
         const item = d.good.item;
         // (X.1: the catalogue's spec says the skill and its fixed arguments; the count and furnace are this batch's)
         const step = CHOOSE.families.has('catalog') ? this.catalog(v)?.specs.get(`make:${item}`)?.steps[0] : undefined;
-        const status = worker.enqueue(step?.skill ?? 'make', { ...(step?.args ?? {}), item, count: d.count, ...(d.k !== undefined ? { furnace: d.k } : {}), chore: true });
+        const status = worker.enqueue(step?.skill ?? 'make', { ...(step?.args ?? {}), item, count: d.count, ...(d.k !== undefined ? { furnace: d.k } : {}), ...(d.past ? { past: true } : {}), chore: true });
         // (a failure backs the good off, 10 minutes, an hour after 3; not a stop, nor another agent's work in the way)
         const failed = (why: string) => {
           if (why === 'cancelled' || status.code) return;
@@ -9280,7 +9287,7 @@ export class MineflayerWorld implements WorldAdapter {
     if (BAN_MEMBER && !ok && !cut && kind === 'iron' && /no (stone |iron )?pickaxe/i.test(message)) this.needTool.set(c.agent.toLowerCase(), { item: 'stone_pickaxe', until: now + 20 * 60000 });
     // Bans apply only in model mode (D5): a fixed run logs none
     const agent = this.agents.get(c.agent.toLowerCase());
-    if (!ok && !cut && !contention && (agent ? this.chooseMode(agent) : CHOOSE.mode) === 'model') {
+    if (!ok && !cut && !contention && (agent ? this.chooseMode(agent) : CHOOSE.mode === 'open' ? 'model' : CHOOSE.mode) === 'model') {
       const ban = this.choiceStats.banned(c.village, kind, id, now, c.agent);
       // (a ban of the whole kind is logged once, under the kind's name)
       const name = ban?.scope === 'kind' ? kind : id;
@@ -9377,6 +9384,7 @@ interface Facts {
   makePlans: () => Map<string, MakePlan>;
   gather: () => GatherWanted;
   spare: () => Counts;
+  pastPlans: () => Map<string, MakePlan>;
 }
 
 /** A chore as its end is handled: its actions, its `failed` callback and whether that was called (reportFailed). */
@@ -9426,7 +9434,7 @@ type OptionRun =
   | { kind: 'cake' }
   | { kind: 'iron'; stage: string; tool: string; iron: number; k?: number; count?: number; for?: string }
   | { kind: 'explore'; i: number; x: number; z: number; home: { x: number; z: number } }
-  | { kind: 'make'; good: MakeGood; count: number; inputs: Counts; smelts: boolean; k?: number; stock: number }
+  | { kind: 'make'; good: MakeGood; count: number; inputs: Counts; smelts: boolean; k?: number; stock: number; past?: boolean }
   | { kind: 'gather'; material: Material; n: number; amount: number; block: string; deposit: string; need: number; incoming: number; for: string[] }
   | { kind: 'works'; stage: 'prepare'; again: boolean; area: string }
   | { kind: 'works'; stage: 'furnace'; k: number }
