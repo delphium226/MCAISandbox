@@ -21,6 +21,9 @@ GOLDENS = {
     # tool-want fix, its own:tool options in 10 of 105 menus)
     "palette_golden": (["check", "runs/2026-10-28/palette/golden_law_tool.json", "--law"],
                        ["runs/2026-10-28/palette/golden_law_tool.json", "mc/testcheckpoints/t7_c_greens_full/villages.json", "runs/model-calls/2026-10-28-32228.jsonl"]),
+    # (#170: the village as train 9b saved it, the sign cells in barter's `board`, and a claim law passed: menus as many)
+    "palette_golden:old_board": (["check", "runs/2026-10-28/palette/golden_law_tool.json", "--law", "--old-board"],
+                                 ["runs/2026-10-28/palette/golden_law_tool.json", "mc/testcheckpoints/t7_c_greens_full/villages.json", "runs/model-calls/2026-10-28-32228.jsonl"]),
 }
 # The scripts/checks/*.mts that run with no arguments and no server (each under ~35 s)
 UNITS = ["board_version", "call_gate", "chat_route", "choose_unit", "model_usage", "save_debounce", "street_plan",
@@ -34,7 +37,7 @@ def commands():
     node = "node"
     out = {"typecheck": ([node, os.path.join(ROOT, "node_modules", "typescript", "bin", "tsc"), "--noEmit", "-p", "tsconfig.json"], [])}
     for name, (args, needs) in GOLDENS.items():
-        out[name] = ([node, TSX, f"scripts/checks/{name}.mts", *args], needs)
+        out[name] = ([node, TSX, f"scripts/checks/{name.split(':')[0]}.mts", *args], needs)
     for name in UNITS:
         out[name] = ([node, TSX, f"scripts/checks/{name}.mts"], [])
     # (G6: the foundry's CLI handling and its request queue, Python and offline)

@@ -26,8 +26,13 @@ export interface Offer { id: string; by: string; give: string; giveN: number; wa
 export interface Board { offers: Offer[]; factor: Record<string, number>; n: number; posted: number; taken: number; lapsed: number; traded: Record<string, number> }
 
 export function boardOf(v: Village): Board {
-  const x = v as Village & { board?: Board };
-  return (x.board ??= { offers: [], factor: {}, n: 0, posted: 0, taken: 0, lapsed: 0, traded: {} });
+  const x = v as Village & { board?: Board | unknown[]; signBoard?: unknown[] };
+  // (#170: a village saved while #164's sign cells lived in `board` holds a list there; the cells move to signBoard)
+  if (Array.isArray(x.board)) {
+    x.signBoard ??= x.board;
+    delete x.board;
+  }
+  return ((x as { board?: Board }).board ??= { offers: [], factor: {}, n: 0, posted: 0, taken: 0, lapsed: 0, traded: {} });
 }
 
 /** A good's code value: its food points; a recipe's input its share of the product's (raw fish 0.8 of cooked); else 1. */

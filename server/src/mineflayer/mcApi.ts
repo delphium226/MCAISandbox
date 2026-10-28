@@ -360,7 +360,7 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
     // #164: the board by the storage hut: claims holding, reports posted, the signs' text and where they stand
     if (v && parts[3] === 'board' && req.method === 'GET') {
       const now = Date.now();
-      return sendJson(res, 200, { claims: liveClaims(v.name, now), reports: liveReports(v.name, now), signs: boardSigns(v.name, now, 3), cells: (v as { board?: unknown }).board ?? null });
+      return sendJson(res, 200, { claims: liveClaims(v.name, now), reports: liveReports(v.name, now), signs: boardSigns(v.name, now, 3), cells: (v as { signBoard?: unknown; board?: unknown }).signBoard ?? (Array.isArray((v as { board?: unknown }).board) ? (v as { board?: unknown }).board : null) });
     }
     // The chore menu a village member would choose from now (A.2; pure, nothing written): ?agent=Worker1
     if (v && parts[3] === 'choices' && req.method === 'GET') {

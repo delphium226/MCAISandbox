@@ -5777,9 +5777,14 @@ type BoardCell = { x: number; y: number; z: number; rot: number };
 export async function writeBoard(rcon: Rcon, v: Village, signs: string[][], save: () => void): Promise<void> {
   const hut = v.storageHut;
   if (!hut) return;
-  const rec = v as Village & { board?: BoardCell[] };
+  // (#170: the cells are signBoard's; `board` is barter's offers board; a village saved with the cells in `board` hands them over)
+  const rec = v as Village & { board?: unknown; signBoard?: BoardCell[] };
+  if (Array.isArray(rec.board)) {
+    rec.signBoard ??= rec.board as BoardCell[];
+    delete rec.board;
+  }
   const ask = async (c: string) => /passed/i.test(await rcon.command(c).catch(() => ''));
-  if (!rec.board?.length) {
+  if (!rec.signBoard?.length) {
     const y0 = v.structures.find((s) => s.kind === STORAGE_HUT)?.y ?? v.plots[0]?.y ?? 64;
     const cells: BoardCell[] = [];
     const inside = (x: number, z: number) => v.structures.some((s) => x >= s.x1 && x <= s.x2 && z >= s.z1 && z <= s.z2);
@@ -5794,13 +5799,13 @@ export async function writeBoard(rcon: Rcon, v: Village, signs: string[][], save
       }
     }
     if (!cells.length) throw new Error('no free ground beside the storage hut for the board');
-    rec.board = cells;
+    rec.signBoard = cells;
     save();
     console.log(`[board] ${v.name}: the board stands at ${cells.map((c) => `${c.x},${c.y},${c.z}`).join('; ')}`);
   }
   const texts = [['VILLAGE BOARD', 'claims and', 'reports', ''], ...signs];
   const wood = v.wood ?? 'oak';
-  for (const [i, c] of rec.board.entries()) {
+  for (const [i, c] of rec.signBoard.entries()) {
     const nbt = signNbt(texts[i] ?? ['', '', '', '']);
     const r = await rcon.command(`data merge block ${c.x} ${c.y} ${c.z} ${nbt}`).catch(() => '');
     if (!/^Modified|nothing changed|already/i.test(r)) await rcon.command(`execute if block ${c.x} ${c.y} ${c.z} #minecraft:replaceable unless block ${c.x} ${c.y} ${c.z} minecraft:water run setblock ${c.x} ${c.y} ${c.z} minecraft:${wood}_sign[rotation=${c.rot}]${nbt}`).catch(() => '');

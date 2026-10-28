@@ -39,6 +39,10 @@ const ENV = Object.fromEntries((opt('--env') ?? '').split(',').filter(Boolean).m
 const SAVE = opt('--save');
 /** --law: a floor on logs and a quota of no torches enacted first, so the law's verdict runs on most menus. */
 const LAW = argv.includes('--law') ? (argv.splice(argv.indexOf('--law'), 1), true) : false;
+/** --old-board (#170): the village saved as train 9b's were, the sign board's four cells in `board` (barter's field), and
+ *  a claim law passed; the check is then that every member still gets a menu, the cells move to signBoard and barter
+ *  finds an offers board (not the golden: the claim law changes menus). */
+const OLD_BOARD = argv.includes('--old-board') ? (argv.splice(argv.indexOf('--old-board'), 1), true) : false;
 const [mode, golden] = argv;
 if (!/^(dump|check|open)$/.test(mode ?? '') || (mode !== 'open' && !golden)) {
   console.log('usage: palette_golden.mts dump|check|open GOLDEN.json [--checkpoint DIR] [--replay CALLS.jsonl] [--sweeps N]');
@@ -110,6 +114,11 @@ const dir = fs.mkdtempSync(path.join(SCRATCH, 'w-'));
 for (const f of ['villages.json', 'atlas.json', 'social.json', 'proposals.json']) if (fs.existsSync(path.join(CHECKPOINT, f))) fs.copyFileSync(path.join(CHECKPOINT, f), path.join(dir, f));
 const data = JSON.parse(fs.readFileSync(villagesFile, 'utf8')) as { villages: Any[] };
 const base = data.villages.find((x) => x.complete) ?? data.villages[0];
+const OLD_CELLS = [{ x: -1628, y: 65, z: 23, rot: 0 }, { x: -1627, y: 65, z: 23, rot: 0 }, { x: -1628, y: 65, z: 11, rot: 8 }, { x: -1627, y: 65, z: 11, rot: 8 }];
+if (OLD_BOARD) {
+  base.board = OLD_CELLS;
+  fs.writeFileSync(path.join(dir, 'villages.json'), JSON.stringify(data));
+}
 mute();
 const w = new MineflayerWorld('127.0.0.1', 0, '26.1', { command: async () => '' } as never, dir) as Any;
 unmute();
@@ -124,6 +133,7 @@ if (!v) {
 
 if (LAW) for (const [i, l] of [{ type: 'floor', params: { class: 'logs', n: 100000 }, text: 'the storage keeps 100000 logs' }, { type: 'quota', params: { class: 'torches', n: 0 }, text: 'no member takes torches' }].entries())
   enact(v.name, { id: `g${i}`, by: 'Mayor', at: clock, day: 1, what: '', why: '', backers: [], opposers: [], status: 'passed', ...l } as Any, { yes: 25, no: 0, abstain: 0 }, clock);
+if (OLD_BOARD) enact(v.name, { id: 'g9', by: 'Mayor', at: clock, day: 1, what: '', why: '', backers: [], opposers: [], status: 'passed', type: 'claim', params: { work: 'iron', min: 10 }, text: 'a claim holds the iron level 10 minutes' } as Any, { yes: 25, no: 0, abstain: 0 }, clock);
 const chest0 = v.storage?.chests?.[0];
 const plot0 = v.plots.find((p: Any) => !p.annex);
 const home = chest0 ? { x: chest0.x, y: chest0.y, z: chest0.z } : { x: Math.floor((plot0.x1 + plot0.x2) / 2), y: plot0.y + 1, z: Math.floor((plot0.z1 + plot0.z2) / 2) };
@@ -251,6 +261,21 @@ const bySource = (src: string) => dumpOut.sweeps.reduce((t: number, s: Any) => t
 say(`palette_golden ${mode}: ${CHECKPOINT}, village ${v.name}, ${SWEEPS} sweeps; ${nMenus} menus, ${nPicks} picks (model ${bySource('model')}, fallback ${bySource('fallback')}, fixed ${bySource('fixed')}); palette verdicts ${verdicts}; unreplayed calls ${unreplayed}; console.error ${errors.length}`);
 say(`members short of each tool after each sweep: ${toolWants.join(' | ')}; tool takes queued: ${dumpOut.sweeps.reduce((t: number, x: Any) => t + x.actions.filter((l: string) => / take_own_tool /.test(l)).length, 0)}`);
 for (const e of [...new Set(errors.map((e) => e.split('\n')[0]))].slice(0, 5)) say(`  ERROR ${e.slice(0, 300)}`);
+
+if (OLD_BOARD) {
+  const fails: string[] = [...new Set(errors.map((e) => e.split('\n')[0].slice(0, 200)))];
+  // (as many members offered chores as in the golden, which has no claim law: most are held to food work there too)
+  const ref = JSON.parse(fs.readFileSync(golden, 'utf8'));
+  const offered = (d: Any) => d.sweeps.reduce((t: number, sw: Any) => t + Object.values(sw.menus as Record<string, Any>).filter((m) => m?.options?.length).length, 0);
+  const refPicks = ref.sweeps.reduce((t: number, sw: Any) => t + sw.picks.length, 0);
+  if (offered(dumpOut) < offered(ref)) fails.push(`${offered(dumpOut)} menus with options, the golden ${offered(ref)}`);
+  if (!Array.isArray(v.board?.offers)) fails.push(`barter's board has no offers list: ${JSON.stringify(v.board).slice(0, 120)}`);
+  if (JSON.stringify(v.signBoard) !== JSON.stringify(OLD_CELLS)) fails.push(`the sign cells did not move to signBoard: ${JSON.stringify(v.signBoard).slice(0, 120)}`);
+  if (nPicks < 0.8 * refPicks) fails.push(`${nPicks} picks, the golden ${refPicks}`);
+  for (const f of fails.slice(0, 8)) say(`  FAIL ${f}`);
+  say(fails.length ? `FAIL palette_golden --old-board: ${fails.length}` : `PASS palette_golden --old-board: ${nMenus} menus with a claim law and the old board, ${nPicks} picks, the cells in signBoard`);
+  process.exit(fails.length ? 1 : 0);
+}
 
 if (mode === 'dump') {
   fs.writeFileSync(golden, JSON.stringify(dumpOut));
