@@ -986,10 +986,11 @@ export class MineflayerWorld implements WorldAdapter {
    * gather (lesson 1: code finds the batch). `inputs`: what the plan takes from storage plus the coal and charcoal it burns
    * (spare coal first); `smelts` by the plan's own fuel count, the rule the skill uses too (D5).
    */
-  makePlan(v: Village, good: MakeGood, agent: string, store: Counts = storageContents(v), base?: Counts): MakePlan {
+  makePlan(v: Village, good: MakeGood, agent: string, store: Counts = storageContents(v), base?: Counts, past = false): MakePlan {
     const stock = store[good.item] ?? 0;
     const going = this.goingS9(v, agent).make.filter((m) => m.item === good.item).reduce((s, m) => s + m.count, 0);
-    const want = this.makeTarget(v, good) - stock - going;
+    // (#172, `past`: the open chooser's batch beyond the keep, a whole batch)
+    const want = past ? Math.max(good.batch, this.makeTarget(v, good) - stock - going) : this.makeTarget(v, good) - stock - going;
     if (want <= 0) return { why: 'at stock' };
     // (`base`: makeSpare(v, agent, undefined, store) computed once for many goods, X.1's catalogue: its reserve is a plan of
     // every open build, too dear to repeat for each of ~70 goods; the good's own item left out as makeSpare's `except`)
@@ -5204,8 +5205,15 @@ export class MineflayerWorld implements WorldAdapter {
   private chooseMode(a: BotAgent): 'fixed' | 'model' {
     const m = a.memory.choose;
     // (G2: the scripted controller takes the model path's menus, guards and trim, and picks without a call)
-    if (m === 'scripted') return 'model';
-    return m === 'model' || m === 'fixed' ? m : CHOOSE.mode === 'scripted' ? 'model' : CHOOSE.mode;
+    // (#172: the open chooser is the model path on the whole palette)
+    if (m === 'scripted' || m === 'open') return 'model';
+    return m === 'model' || m === 'fixed' ? m : CHOOSE.mode === 'scripted' || CHOOSE.mode === 'open' ? 'model' : CHOOSE.mode;
+  }
+
+  /** #172 (MC_CHOOSE=open, or memory.choose 'open'): the model chooses from the whole palette, not the menu's view. */
+  private openMode(a: BotAgent): boolean {
+    const m = a.memory.choose;
+    return m === 'open' || (m !== 'model' && m !== 'fixed' && m !== 'scripted' && CHOOSE.mode === 'open');
   }
 
   /** G2 (MC_CHOOSE=scripted, or memory.choose 'scripted'): E.4's scripted controller, E.8's null picker. */
@@ -5454,8 +5462,10 @@ export class MineflayerWorld implements WorldAdapter {
       busy = new Set([...busy, ...held]);
       if (first) first = { ...first, busy: new Set([...first.busy, ...held]) };
     }
-    const r = this.choiceOptions(v, a, busy, guards, facts, first);
+    const open = guards && this.openMode(a);
+    const r = this.choiceOptions(v, a, busy, guards, facts, first, open);
     const ctx = this.choiceContext(v, a, facts, r.options.map((o) => o.kind));
+    if (open) ctx.villageNeeds = this.villageNeedsBlock(v, facts, r.dropped);
     // (#117: when nothing on the menu feeds the ambition's stage, why not)
     if (PROMPT_SELF && ctx.ladder && !r.options.some((o) => o.vw)) {
       const gap = this.ambitionWhyNot(v, r.guarded, r.reasons);
@@ -5483,7 +5493,34 @@ export class MineflayerWorld implements WorldAdapter {
       if (nw.length) ctx.news = nw;
       if (an.length) ctx.answers = an;
     }
-    return { menu: { agent: a.name, village: v.name, t: facts.t, options: r.options, guarded: r.guarded, reasons: r.reasons, ctx }, feasible: r.feasible, skips: r.effects.skips, dropped: r.dropped };
+    return { menu: { agent: a.name, village: v.name, t: facts.t, options: r.options, guarded: r.guarded, reasons: r.reasons, ctx, ...(open ? { open: true } : {}) }, feasible: r.feasible, skips: r.effects.skips, dropped: r.dropped };
+  }
+
+  /**
+   * #172 (MC_CHOOSE=open): what the village needs, one block (<= 600 chars): the materials the workshop wants most, the
+   * goods furthest under their keep, and what the laws in force refused this member now; the rules themselves and who does
+   * what are the context's own lines.
+   */
+  private villageNeedsBlock(v: Village, facts: Facts, dropped: Dropped[]): string {
+    const parts: string[] = [];
+    if (CHOOSE.families.has('gather')) {
+      const want = facts.gather();
+      const short = MATERIALS.filter((m) => want[m].want > 0).sort((p, q) => want[q].want - want[p].want).slice(0, 4);
+      if (short.length) parts.push(`materials short: ${short.map((m) => `${m} ${want[m].want}`).join(', ')}`);
+    }
+    if (CHOOSE.families.has('make')) {
+      const store = facts.store;
+      const under = this.goodsFor(v).map((g) => ({ g, t: this.makeTarget(v, g) })).filter(({ g, t }) => t > 0 && (store[g.item] ?? 0) < t)
+        .sort((p, q) => (store[p.g.item] ?? 0) / p.t - (store[q.g.item] ?? 0) / q.t).slice(0, 4);
+      if (under.length) parts.push(`goods under the village's keep: ${under.map(({ g, t }) => `${g.words} (${store[g.item] ?? 0} of ${t})`).join(', ')}`);
+    }
+    const laws = dropped.filter((d) => d.by === 'law');
+    if (laws.length) {
+      const by = new Map<string, number>();
+      for (const d of laws) by.set(d.why, (by.get(d.why) ?? 0) + 1);
+      parts.push(`the laws forbid you ${laws.length} of your options now (${[...by.entries()].map(([w, n]) => `${n} by ${w}`).join('; ')})`);
+    }
+    return parts.length ? `What the village needs: ${parts.join('; ')}.`.slice(0, 600) : '';
   }
 
   /** G2: item options seen on any member's menu lately, by village|option id (acts.ts' items on offer). */
@@ -5618,12 +5655,12 @@ export class MineflayerWorld implements WorldAdapter {
    * looking are the sweep's housekeeping, the option's run (runOption) or `effects.skips` (spec 1.3). With `guards` (model
    * mode), banned and cooling options go to `guarded` and the rest are trimmed (choose.ts trimMenu).
    */
-  private choiceOptions(v: Village, a: BotAgent, busy: Set<string>, guards: boolean, facts: Facts, first?: SweepCtx['first']):
+  private choiceOptions(v: Village, a: BotAgent, busy: Set<string>, guards: boolean, facts: Facts, first?: SweepCtx['first'], open = false):
     { options: ChoiceOption[]; feasible: ChoiceOption[]; effects: { skips: string[] }; reasons: Partial<Record<ChoiceKind, string>>; guarded: Array<{ id: string; why: string }>; dropped: Dropped[] } {
     const now = facts.t;
     // (#172: the palette's live entries, filled by the sources below; the checks after them drop entries with a verdict)
     const out: ChoiceOption[] = [];
-    const pal = new Palette(out);
+    const pal = new Palette(out, open);
     const reasons: Partial<Record<ChoiceKind, string>> = {};
     const skips: string[] = [];
     const layouts = v.layouts ?? [];
@@ -6354,7 +6391,11 @@ export class MineflayerWorld implements WorldAdapter {
       // (food goods present: by the flag, the catalogue's goods outnumber the keeps without any, the critique's 12)
       const foodLow = goods.some((g) => g.food) && foodPoints(store) < 5 * this.growMembers(v).length;
       for (const [r, { g, target }] of order.entries()) {
-        const p = plans.get(g.item);
+        // (#172, open: a good at its keep gets one batch more while the spare storage holds its inputs, up to twice the keep;
+        // the bench's 14 of 24 open picks were pickaxes past the keep)
+        let p = plans.get(g.item);
+        const past = open && !!p && 'why' in p && p.why === 'at stock' && (store[g.item] ?? 0) < 2 * Math.max(target, g.batch);
+        if (past) p = this.makePlan(v, g, '', store, facts.spare(), true);
         if (!p || 'why' in p) {
           if (p && p.why === 'at stock') atStock++;
           else why.add('inputs short');
@@ -6392,10 +6433,11 @@ export class MineflayerWorld implements WorldAdapter {
           id: `make:${g.item}`, kind: 'make', key: `make:${g.item}`, holds: k === undefined ? [] : [`furnace:${k}`], excludes: [`make:${g.item}=`, ...(k === undefined ? [] : [`furnace:${k}=`])],
           // (900 + r below gathering's 950 with the catalogue's many goods too, X.1: the options stay in rank order)
           name: `Make ${g.words}`, rank: g.food ? (foodLow ? 590 : 610) + (g.item === 'pumpkin_pie' ? 5 : 0) : 900 + Math.min(r, 49), ...(cell ? { at: { x: cell.x, y: cell.y, z: cell.z } } : {}),
-          facts: `${stock} of the ${target} kept are in storage; this batch of ${p.count} takes ${countsText(p.inputs)} (all spare); ${k === undefined ? `crafted at the hut, ~${min} min` : `smelted at ${k ? `works furnace ${numberWord(k)}` : "the hut's furnace"}, ~${min} min`}; ${record('make')}${others('make', `make:${g.item}`)}${lastOf('make', `make:${g.item}`)}`,
+          facts: `${stock} of the ${target} kept are in storage${past ? ' (past the keep)' : ''}; this batch of ${p.count} takes ${countsText(p.inputs)} (all spare); ${k === undefined ? `crafted at the hut, ~${min} min` : `smelted at ${k ? `works furnace ${numberWord(k)}` : "the hut's furnace"}, ~${min} min`}; ${record('make')}${others('make', `make:${g.item}`)}${lastOf('make', `make:${g.item}`)}`,
           // (torches with lighting on: the spots beyond what storage holds, or the reserve once it covers them; the demand alone
           // read as the reason with 28 stored for 10 spots, B.4's review, lens 2 L1)
           effect: `+${p.count} ${g.words} (${stock} stored): ${g.item === 'torch' && family('light') ? torchWhy(this.torchDemand(v), stock) : g.forWhat}`,
+          ...(open ? { brief: `${stock} stored, ${target} kept${past ? '' : ' (short)'}; +${p.count} from ${countsText(p.inputs)}; ${(g.item === 'torch' && family('light') ? torchWhy(this.torchDemand(v), stock) : g.forWhat).slice(0, 60)}` } : {}),
         }, { kind: 'make', good: g, count: p.count, inputs: p.inputs, smelts: p.smelts, stock, ...(k === undefined ? {} : { k }) });
       }
       if (!out.some((o) => o.kind === 'make')) reasons.make = atStock === goods.length ? 'all at stock' : ['inputs short', 'hut busy', 'furnaces busy', 'backing off', 'busy'].find((w) => why.has(w)) ?? 'all at stock';
@@ -6416,7 +6458,8 @@ export class MineflayerWorld implements WorldAdapter {
         // the gather's reasons)
         const anyway = w.want <= 0;
         // (#142: never sand: the lake-edge sand collect takes for dry sent train 3's gatherers into the water, 544 [stuck])
-        if (anyway && !(POLICY_OPTIONS && stored < GATHER_ANYWAY_MAX && m !== 'sand')) continue;
+        // (#172, open: any material nothing wants, whatever storage holds, but never sand)
+        if (anyway && !(((POLICY_OPTIONS && stored < GATHER_ANYWAY_MAX) || open) && m !== 'sand')) continue;
         const note = (x: string) => {
           if (!anyway) why.push(x);
         };
@@ -6468,6 +6511,7 @@ export class MineflayerWorld implements WorldAdapter {
             id: `gather:${m}`, kind: 'gather', key: `gather:${m}:${n}`, excludes: [`gather:${m}:${n}=`], name: `${spec.words.replace('for the workshop', 'for the storage')} (nothing wants it now)`, rank: 1300 + r, mark: PAST_TAG,
             facts: `${m}: ${spec.forWhat}; storage holds ${stored}; nothing the workshop makes wants more now, so it keeps for later work${extra}`,
             effect: `+${trip} ${m} into the village storage`,
+            ...(open ? { brief: `${stored} stored, nothing wants more now; +${trip}${extra}` } : {}),
           }, { kind: 'gather', material: m, n, amount: trip, block: spec.block(v.wood ?? (family('catalog') ? v.catalogWood : undefined)), deposit: spec.deposit(v.wood), need: 0, incoming: w.incoming, for: [] });
           gated.add(out[out.length - 1]);
           gateWhy.gather = 'nothing wanted';
@@ -6477,6 +6521,7 @@ export class MineflayerWorld implements WorldAdapter {
           id: `gather:${m}`, kind: 'gather', key: `gather:${m}:${n}`, excludes: [`gather:${m}:${n}=`], name: spec.words, rank: 950 + r,
           facts: `${m}: ${spec.forWhat}; storage holds ${stored}, the workshop wants ${w.need} (${goods}); ${w.incoming} on the way${extra}`,
           effect: `+${trip} ${m} toward ${goods}`,
+          ...(open ? { brief: `${stored} stored, the workshop wants ${w.need} (${goods.slice(0, 50)}); +${trip}${extra}` } : {}),
           // (the catalogue's wood goods plan from its pinned kind's logs: with the catalog family, that kind is felled, X.1)
         }, { kind: 'gather', material: m, n, amount: trip, block: spec.block(v.wood ?? (family('catalog') ? v.catalogWood : undefined)), deposit: spec.deposit(v.wood), need: w.need, incoming: w.incoming, for: w.for });
       }
@@ -7448,7 +7493,7 @@ export class MineflayerWorld implements WorldAdapter {
       },
       cooling: (o) => this.choiceStats.agentCooling(v.name, a.name, o.kind, now, o.kind === 'make' || o.kind === 'gather' || o.kind === 'light' || o.kind === 'furnish' || o.kind === 'initiate' || o.kind === 'help' || o.kind === 'activity' ? o.id : undefined),
       lp: (o) => Math.round((0.5 + this.choiceStats.learningProgress(v.name, o.kind)) * 100) / 100,
-    } : null);
+    } : null, !open);
     for (const o of options) if (reasons[o.kind]) delete reasons[o.kind];
     return { options, feasible, effects: { skips }, reasons, guarded, dropped: pal.dropped };
   }
@@ -9051,7 +9096,9 @@ export class MineflayerWorld implements WorldAdapter {
     const id = a.name.toLowerCase();
     const p: PendingChoice = {
       id, agent: a, village: v.name, decisionId: call.decisionId, ac: new AbortController(), since: Date.now(), state: 'queued', menu, ...(reaskOf ? { reaskOf } : {}),
-      ...(CHOICE_HOLDS ? { holds: [...new Set(menu.options.flatMap((o) => [o.key, ...o.holds]))], initiates: menu.options.some((o) => o.kind === 'initiate') } : {}),
+      // (#172: an open decision is shown the whole palette and holds none of it: the pick's fresh check, its backup and the
+      // re-ask settle contention)
+      ...(CHOICE_HOLDS && !menu.open ? { holds: [...new Set(menu.options.flatMap((o) => [o.key, ...o.holds]))], initiates: menu.options.some((o) => o.kind === 'initiate') } : {}),
     };
     this.pending.set(id, p);
     this.chooser.submit(a.name, async (queueWaitMs) => {

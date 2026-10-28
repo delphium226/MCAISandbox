@@ -393,6 +393,15 @@ run minutes from the agent server's start, paused time left out.
   `pay_acts.mts`, `pay_store.mts` (the command deposit against a fake server); the staged driver
   `runs/2026-10-24/g2-talk-pay/pay111_inject.py`; measures `python scripts/pay_use.py VILLAGES_JSON ACTS_JSONL`; bench
   `scripts/bench/paybench.mts` (priced against unpriced uptake, prices set, on Long4's prompts).
+- **The open palette (#172; `palette.ts`; spec `runs/2026-10-28/palette/spec.md`; off):** the palette is the base layer
+  (every entry the sources make, with the shared check's verdicts: claimed, law, hungry, the menu's own `view` shaping),
+  the menu a view on it (choose.ts `menuView`: guards and trim). `MC_CHOOSE=open` (or `memory.choose: 'open'`): the model
+  path on the whole palette (no trim, no gated filler or monument share, makes past their keep up to twice it, gathers of
+  anything but sand), grouped by skill with short lines, a "What the village needs" block, no holds while pending.
+  Check `scripts/checks/palette_golden.mts dump|check|open` (train 8's t7_c_greens_full with R1's flags and R1's model
+  calls replayed, network stubbed; `--law` enacts a test floor and quota; `--env MC_APPETITE=` feeds the members; in
+  check:offline against 5bcfed1's dump); bench `scripts/bench/openbench.mts MENU.json OPEN.json` (the dumps' prompts,
+  saved with `--save`, sent to the model side by side).
 - **Talk (#107; `acts.ts`, `council.ts`; all off):** `MC_NEWS=on` (a `news` field: delivered within 16 blocks whether or
   not the pick ran, in a "News you heard" section, passed on once, attributed, tagged checked/refuted/unchecked for the
   measures only), `MC_QUESTIONS=on` (`question` and `question_to`: starts the addressee's answer call, one code-picked

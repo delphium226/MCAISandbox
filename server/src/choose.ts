@@ -7,7 +7,7 @@
  * outcome statistics the guards read (learning progress, bans, the agent cooldown, the rate of model calls).
  *
  * Settings (read once, when the module loads; CHOOSE):
- *   MC_CHOOSE             fixed (default until A.2's exit) or model
+ *   MC_CHOOSE             fixed (default until A.2's exit), model, scripted, or open (#172: the model, from the whole palette)
  *   MC_CHOICE_INSTANCES   kinds that run as several instances at once, default "explore,start"; empty: single keys
  *   MC_CHOICE_FAMILIES    goal-2 families switched on, default "make,gather,works,light,catalog,furnish,initiatives,activities" (S.9, B.4; X.1's catalogue and furniture since s34; N.0's initiatives since s37; the library's activities since s42); empty: none
  *   MC_CHOOSE_PARALLEL    decisions in flight process-wide, default 2 (one below the gate's 3 cloud slots)
@@ -37,11 +37,12 @@ import { TALK, actFields, payingOn, type ActFields } from './acts';
 import { capFloor, characterAny } from './character';
 import { PROMPT_SELF, basicTag } from './promptSelf';
 import { onSetting, rawSetting } from './settings';
+import { SKILL_WORDS, skillOf } from './palette';
 
 export const MENU_MAX = 8, PER_KIND_MAX = 2;
 
 export const CHOOSE = {
-  mode: (rawSetting('MC_CHOOSE') ?? 'fixed') as 'fixed' | 'model' | 'scripted',
+  mode: (rawSetting('MC_CHOOSE') ?? 'fixed') as 'fixed' | 'model' | 'scripted' | 'open',
   instances: new Set((rawSetting('MC_CHOICE_INSTANCES') ?? 'explore,start').split(',').map((s) => s.trim()).filter(Boolean)),
   /** Goal-2 families switched on (S.9: make, gather, works; B.4: light); empty: none (the golden check, A.8's baselines). */
   families: new Set((rawSetting('MC_CHOICE_FAMILIES') ?? 'make,gather,works,light,catalog,furnish,initiatives,activities').split(',').map((s) => s.trim()).filter(Boolean)),
@@ -278,6 +279,8 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
   if (ctx.ladder?.trim()) lines.push(ctx.ladder.trim());
   // (M3, MC_MONUMENT_NEWS: the cathedral's progress, its news and the member's trade)
   if (ctx.monument?.trim()) lines.push(ctx.monument.trim());
+  // (#172, MC_CHOOSE=open: what the village needs, before the member's own record)
+  if (menu.open && ctx.villageNeeds?.trim()) lines.push(ctx.villageNeeds.trim());
   const outcomes = ctx.outcomes?.length ? ctx.outcomes : mem?.outcomes ?? [];
   lines.push(`Your last chores: ${outcomes.length ? outcomes.join(' | ') : 'none yet'}`);
   if (rc) lines.push(rc.text);
@@ -288,11 +291,14 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
   if (ctx.answers?.length) lines.push(`Answers to your questions:\n${ctx.answers.map((l) => `- ${l}`).join('\n')}`);
   if (ctx.acts?.trim()) lines.push(ctx.acts.trim());
   if (rc?.dawn) lines.push(`This is your first choice of village day ${rc.day}: set your intention for today in \`intention\`, and in \`focus\` the kind of work you mean to do most: one of ${FOCUS.join(', ')}.`);
-  lines.push('Options (in no particular order):');
-  for (const o of shown) {
-    const facts = o.facts?.trim();
-    const effect = o.effect?.trim();
-    lines.push(`- ${o.name}${facts ? `: ${facts}` : ''}${effect ? ` (expected: ${effect})` : ''}${o.need ? ` [${o.need}]` : ''}${tag(o)}`);
+  if (menu.open) lines.push(...openLines(shown));
+  else {
+    lines.push('Options (in no particular order):');
+    for (const o of shown) {
+      const facts = o.facts?.trim();
+      const effect = o.effect?.trim();
+      lines.push(`- ${o.name}${facts ? `: ${facts}` : ''}${effect ? ` (expected: ${effect})` : ''}${o.need ? ` [${o.need}]` : ''}${tag(o)}`);
+    }
   }
   lines.push((mem ? 'Call choose with your reason and the exact name of one option; add `remember` only when something is worth keeping for later.' : 'Call choose with your reason and the exact name of one option.')
     + (ctx.acts?.trim() ? ' Add an act or a line to say when it serves you, another member or the village.' : ''));
@@ -303,8 +309,9 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
       type: 'object',
       properties: {
         reason: { type: 'string', maxLength: 200, description: 'Why, in one sentence.' },
-        choice: { type: 'string', enum: shown.map((o) => o.name), description: 'The exact name of one option.' },
-        ...(CHOOSE_BACKUP && shown.length > 1 ? { backup: { type: 'string', enum: shown.map((o) => o.name), description: 'Optional: the exact name of a second option, taken if another member has taken your first by then.' } } : {}),
+        // (#172: the open palette's names are not repeated as an enum: ~100 names twice would double the prompt)
+        choice: { type: 'string', ...(menu.open ? {} : { enum: shown.map((o) => o.name) }), description: 'The exact name of one option.' },
+        ...(CHOOSE_BACKUP && shown.length > 1 ? { backup: { type: 'string', ...(menu.open ? {} : { enum: shown.map((o) => o.name) }), description: 'Optional: the exact name of a second option, taken if another member has taken your first by then.' } } : {}),
         // (G1: what the model keeps, read from the same call)
         ...(mem ? {
           remember: { type: 'string', maxLength: 160, description: 'Optional: one thing worth remembering on later days (a lesson, a plan, something about the village or a member), in your own words; leave out what this prompt already shows.' },
@@ -343,6 +350,37 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
     },
   }];
   return { system: (ctx.persona?.trim() ? SYSTEM + SYSTEM_PERSONA : SYSTEM) + (rc ? SYSTEM_MEMORY : ''), user: lines.join('\n'), tools };
+}
+
+/** #172: an open option's facts are cut to this in the prompt (the menu shows them whole, <= 240). */
+export const OPEN_FACTS_MAX = 110;
+
+/**
+ * #172 (MC_CHOOSE=open): the palette grouped by skill, the groups in the order their first entry comes in the shuffled list
+ * (so neither the groups nor the entries follow code's ranks), each entry one line: its name, its facts cut to
+ * OPEN_FACTS_MAX, its expected effect and tags (an entry's `brief` in place of both: makes and gathers).
+ */
+export function openLines(shown: ChoiceOption[]): string[] {
+  const groups = new Map<string, ChoiceOption[]>();
+  for (const o of shown) {
+    const s = skillOf(o).skill;
+    groups.set(s, [...(groups.get(s) ?? []), o]);
+  }
+  const lines = [`Everything you can do now (${shown.length} options, grouped by kind of work, in no particular order):`];
+  for (const [s, os] of groups) {
+    lines.push(`${SKILL_WORDS[s] ?? s}:`);
+    for (const o of os) {
+      if (o.brief) {
+        lines.push(`- ${o.name}: ${o.brief}${o.need ? ` [${o.need}]` : ''}${tag(o)}`);
+        continue;
+      }
+      const f = o.facts?.trim() ?? '';
+      const facts = f.length > OPEN_FACTS_MAX ? `${f.slice(0, OPEN_FACTS_MAX - 3).replace(/[;,]?\s+\S*$/, '')}...` : f;
+      const effect = o.effect?.trim();
+      lines.push(`- ${o.name}${facts ? `: ${facts}` : ''}${effect ? ` (expected: ${effect})` : ''}${o.need ? ` [${o.need}]` : ''}${tag(o)}`);
+    }
+  }
+  return lines;
 }
 
 // ---------------------------------------------------------------------------------------------

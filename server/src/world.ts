@@ -254,6 +254,9 @@ export interface ChoiceOption {
   facts: string;
   /** Expected effect in a few words ("+1 cake in storage"). */
   effect: string;
+  /** #172 (MC_CHOOSE=open): the option's short line in the open prompt, in place of its facts and effect (makes and gathers,
+   *  the palette's many entries); set only on an open menu. */
+  brief?: string;
   /** Fixed-order position: lower runs first. */
   rank: number;
   at?: { x: number; y?: number; z: number };
@@ -338,6 +341,8 @@ export interface ChoiceContext {
   outcomes: string[];
   /** N.1 (MC_NEEDS=on): the village's needs at LOW or above, most acute first (<= 3, "31 unlit spots in 6 buildings"). */
   needs?: string[];
+  /** #172 (MC_CHOOSE=open): what the village needs, one block (materials short, goods under their keep, the laws' refusals). */
+  villageNeeds?: string;
   /** #69 (MC_OWN): the member's own open wants, one line ("Your wants: food (none of your own); your house (3 ...)"). */
   wants?: string;
   /** #79 (MC_GOALS=on): "Your life goal: beauty (3 works of yours stand, ...)." */
@@ -363,6 +368,8 @@ export interface ChoiceMenu {
   /** Why each kind with no feasible option has none (for [choice-none]), e.g. { iron: 'tools made', explore: 'no free slot' }. */
   reasons: Partial<Record<ChoiceKind, string>>;
   ctx: ChoiceContext;
+  /** #172 (MC_CHOOSE=open): the options are the whole palette, not the menu's view (no trim; the prompt groups them by skill). */
+  open?: boolean;
 }
 
 export type ChoiceSource = 'model' | 'fixed' | 'only' | 'repeat' | 'fallback' | 'scripted';

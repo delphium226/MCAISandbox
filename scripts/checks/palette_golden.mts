@@ -11,7 +11,7 @@
  * the open palette's invariants: the open menu holds the model menu's feasible options, no option a law refuses, none
  * reserved by another member, every pick on the fresh palette, and the prompt within PROMPT_MAX characters.
  * Usage: node node_modules/tsx/dist/cli.mjs scripts/checks/palette_golden.mts dump|check|open GOLDEN.json
- *   [--checkpoint DIR] [--replay CALLS.jsonl] [--sweeps N] [--law]
+ *   [--checkpoint DIR] [--replay CALLS.jsonl] [--sweeps N] [--law] [--env K=V,...] [--save FILE]
  * (default checkpoint mc/testcheckpoints/t7_c_greens_full, replay runs/model-calls/2026-10-28-32228.jsonl: R1's)
  */
 import crypto from 'node:crypto';
@@ -34,6 +34,9 @@ const opt = (name: string) => {
 const CHECKPOINT = opt('--checkpoint') ?? 'mc/testcheckpoints/t7_c_greens_full';
 const REPLAY = opt('--replay') ?? 'runs/model-calls/2026-10-28-32228.jsonl';
 const SWEEPS = Number(opt('--sweeps') ?? 6);
+/** --env K=V,...: settings over R1's (e.g. MC_APPETITE= for members not held to food work); --save FILE: the open dump. */
+const ENV = Object.fromEntries((opt('--env') ?? '').split(',').filter(Boolean).map((kv) => [kv.split('=')[0], kv.split('=').slice(1).join('=')]));
+const SAVE = opt('--save');
 /** --law: a floor on logs and a quota of no torches enacted first, so the law's verdict runs on most menus. */
 const LAW = argv.includes('--law') ? (argv.splice(argv.indexOf('--law'), 1), true) : false;
 const [mode, golden] = argv;
@@ -64,7 +67,8 @@ const R1: Record<string, string> = {
 };
 Object.assign(process.env, R1, {
   MC_CHOOSE: mode === 'open' ? 'open' : 'model', MC_MODEL_REPLAY: REPLAY, MC_MODEL_RECORD: '0', MC_VOTE: 'off', MC_PROJECTS: 'off', MC_GROW: '0', MC_TIME_SCALE: '1',
-});
+}, ENV);
+for (const [k, val] of Object.entries(ENV)) if (val === '') delete process.env[k];
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), 'palette-golden-'));
 process.env.MCAI_CHOICE_LOG = path.join(SCRATCH, 'choices.jsonl');
 process.env.MCAI_ACTS_LOG = path.join(SCRATCH, 'acts.jsonl');
@@ -185,6 +189,8 @@ function menusNow(): Any {
     out[a.name] = {
       options: m.menu.options.map(norm), guarded: m.menu.guarded, reasons: m.menu.reasons, feasible: m.feasible.map((o: Any) => o.id),
       fixed: f.menu.options.map((o: Any) => `${o.id}@${o.rank}`), prompt: p.user, promptSha: sha(p.system + p.user + JSON.stringify(p.tools)),
+      // (openbench.mts sends these as recorded; not compared: the golden before #172 has neither)
+      ...(SAVE ? { system: p.system, tools: p.tools } : {}),
       ...(mode === 'open' ? { open: !!m.menu.open, takes: m.menu.options.filter((o: Any) => o.takes).length } : {}),
     };
   }
@@ -236,6 +242,7 @@ for (const e of [...new Set(errors.map((e) => e.split('\n')[0]))].slice(0, 5)) s
 
 if (mode === 'dump') {
   fs.writeFileSync(golden, JSON.stringify(dumpOut));
+  if (SAVE) fs.writeFileSync(SAVE, JSON.stringify(dumpOut));
   say(`wrote ${golden}`);
   process.exit(errors.length ? 1 : 0);
 }
@@ -273,6 +280,7 @@ if (mode === 'check') {
 }
 
 // open: the palette's invariants
+if (SAVE) fs.writeFileSync(SAVE, JSON.stringify(dumpOut));
 const fails: string[] = [];
 let sizes: number[] = [], opts: number[] = [];
 for (const [i, s] of dumpOut.sweeps.entries())
@@ -287,11 +295,27 @@ for (const [i, s] of dumpOut.sweeps.entries())
     if (m.guarded.some((g: Any) => g.why === 'trimmed')) fails.push(`S${i + 1} ${name}: an option trimmed`);
     if (new Set(m.options.map((o: Any) => o.name)).size !== m.options.length) fails.push(`S${i + 1} ${name}: two options share a name`);
   }
-for (const [i, s] of dumpOut.sweeps.entries()) for (const p of s.picks) if (p.source === 'model' && !p.ok) fails.push(`S${i + 1} ${p.agent}: a model pick ${p.id} refused (${p.key})`);
+// (an open decision holds nothing, so a pick another member took meanwhile is re-asked or backed up: counted, not failed;
+// any other refusal of a model pick fails)
+let taken = 0, modelPicks = 0;
+for (const [i, s] of dumpOut.sweeps.entries())
+  for (const p of s.picks) {
+    if (p.source !== 'model') continue;
+    modelPicks++;
+    if (p.ok) continue;
+    if (p.key === 'reask') taken++;
+    else fails.push(`S${i + 1} ${p.agent}: a model pick ${p.id} refused (${p.key})`);
+  }
+// (the menu's own prompts beside, from the model mode's run of the same sweeps when a golden is given)
+let menuMedian = 0;
+if (golden && fs.existsSync(golden)) {
+  const ms = (JSON.parse(fs.readFileSync(golden, 'utf8')).sweeps as Any[]).flatMap((s) => Object.values(s.menus).filter(Boolean).map((m: Any) => m.prompt.length)).sort((a: number, b: number) => a - b);
+  menuMedian = ms[Math.floor(ms.length / 2)] ?? 0;
+}
 sizes = sizes.sort((a, b) => a - b);
 opts = opts.sort((a, b) => a - b);
 const q = (xs: number[], f: number) => xs[Math.min(xs.length - 1, Math.floor(f * xs.length))] ?? 0;
-say(`open menus: options median ${q(opts, 0.5)} (max ${q(opts, 1)}); prompt chars median ${q(sizes, 0.5)}, p90 ${q(sizes, 0.9)}, max ${q(sizes, 1)} (~${Math.round(q(sizes, 0.5) / 4)} tokens median)`);
+say(`open menus: options median ${q(opts, 0.5)} (max ${q(opts, 1)}); prompt chars median ${q(sizes, 0.5)}, p90 ${q(sizes, 0.9)}, max ${q(sizes, 1)} (~${Math.round(q(sizes, 0.5) / 4)} tokens median)${menuMedian ? `; the menu's median ${menuMedian}` : ''}; model picks taken meanwhile and re-asked: ${taken} of ${modelPicks}`);
 for (const f of fails.slice(0, 15)) say(`  FAIL ${f}`);
 say(fails.length || errors.length ? `FAIL palette_golden open: ${fails.length} invariant failures, ${errors.length} errors` : `PASS palette_golden open: ${nMenus} open menus, ${nPicks} picks`);
 process.exit(fails.length || errors.length ? 1 : 0);
