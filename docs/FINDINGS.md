@@ -2324,3 +2324,21 @@ CLAUDE.md when a phase ends.
   the step. Busy 0-10 min 72% / 76%, failed ends 12% / 8% (both mostly own farms' "no free 9x9 site"), initiatives 8 / 4,
   [lag] 0; no night, so no laws. Cost $0.11 / $0.24 (O's choose call 1.5x M's). Report:
   runs/2026-10-28/train9/report.md.
+- F337 (10-28, train9b, G2, #172, #170) **Test train 9b (the menu M against the open palette O, with #172 round 2,
+  the tool want and MC_PRIMER on in both) broke on #170 in both arms**: once the first claim law passed (M day 2, +37
+  min; O day 3, +57 min) every menu threw `b.offers is not iterable` (the sign board's cells saved as `v.board`, barter's
+  field) and no chore was chosen for the rest of the 150 min, so only 37 minutes compare. Code 5972dfa, t7_c_greens_full,
+  25 members, 1x, R1's #164 rule flags, greens on, customs off; worlds 4 (M) and 5 (O). To +37 min (M / O): **O's invalid
+  replies 2.8% of its choices over 57 min (train 9 15%), inside the 3% target**, through the re-ask: 227 first replies
+  were invalid (220 an act in `choice`), 196 came back valid; the 31 left are mostly plural or reworded makes ("Make
+  wooden axes"); M 1.5% with no re-ask. Taken-meanwhile re-asks 12.6% / 19.1%. Makes past the keep 0 / 18.5% of picks
+  (stone pickaxe 17, ladder 12, slabs, signs), gathers nothing wants 8 / 58 (cobblestone; 22 of O's deposits refused at
+  the cap; O ended with 670 cobblestone, 143 stone bricks, 90 torches). O's model picks outside the menu view 27%,
+  palette median 18. The own tools work: own-tool picks 54 / 37, 48 / 35 ended ok, collisions 7 / 15 drops and 6 / 2 failed
+  takes, members still wanting a tool after 30 min 1 / 11, and a make-for-oneself (Sam, M) put a stone pickaxe in the
+  member's chest (RCON); O still made 20 stone pickaxes past the keep. The "Not on your list now" line (taken by whom,
+  why a kind is absent) was in 1,410 O prompts; the needs block still names bread and fish the palette cannot make.
+  Predictions: law refusals 387 / 0 (all one floor law hiding the mine's torches; held), distinct ids 1.05x (not met),
+  past-keep + unwanted 25% (met), JS 0.240 / 0.218 (met), works 18 / 26 initiatives and 899 / 1,304 monument blocks (not
+  met), failures 10.0 / 8.9% (met), cost a call 1.54x (met). Busy 73-93% before the break in both, [lag] 0, [stuck] 19 /
+  43; $0.45 / $1.17. A rerun needs #170 fixed. Report: runs/2026-10-28/train9b/report.md.
