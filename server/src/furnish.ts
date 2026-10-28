@@ -127,9 +127,23 @@ export function bannerStandIn(item: string): { block: string; as: string } | nul
 /** Chores for a furnishing kind failed (its makings not to be had: no iron for lanterns, chains or shears) before the
  *  furnishing leaves that kind out (the bell is never left out: it is bought, and without it the job would go). */
 export const FURNISH_FAILS = 4;
+/** The furnishing kinds that can be left out (never the bell). */
+export type FurnishKind = 'lanterns' | 'banners' | 'candles';
 /** The furnishing kind an item belongs to, for leaving it out. */
-export function furnishKindOf(item: string): 'lanterns' | 'banners' | 'candles' | null {
+export function furnishKindOf(item: string): FurnishKind | null {
   return /^(lantern|iron_chain)$/.test(item) ? 'lanterns' : /_banner$/.test(item) ? 'banners' : /candle$/.test(item) ? 'candles' : null;
+}
+
+/** Whether a kind left out can come back (the user's 10-28): what its pieces take (furnishPlan) is in storage, but for
+ *  what members make anyway (planks, sticks, coal, torches); banners need their wool sheared: shears in storage, or the
+ *  2 ingots for a pair. */
+export function refurnishReady(kind: FurnishKind, stock: Record<string, number>, items: Record<string, number>): boolean {
+  if (!Object.keys(items).length) return false;
+  if (kind === 'banners' && !(stock.shears ?? 0) && (stock.iron_ingot ?? 0) < 2) return false;
+  const need: Record<string, number> = {};
+  for (const [item, n] of Object.entries(items))
+    for (const [k, q] of Object.entries(furnishPlan(item, n, stock).takes)) need[k] = (need[k] ?? 0) + q;
+  return Object.entries(need).every(([k, q]) => /^(planks|stick|coal|torch|white_wool)$/.test(k) || (stock[k] ?? 0) >= q);
 }
 
 /** The emeralds the bell costs (merchant.ts' offer). */

@@ -38,7 +38,7 @@ import { villageHome, type Area, type Monument, type Village } from './village';
 import { KILN, kilnHolds } from './kiln';
 import { CUTTER, needsCutting, type CutStep, type CutterRecord } from './cutter';
 import type { DyeBed } from './dyeBed';
-import { FURNISH_STAGE, furnishKinds, furnishOn, furnishTrade } from './furnish';
+import { FURNISH_STAGE, furnishKindOf, furnishKinds, furnishOn, furnishTrade, type FurnishKind } from './furnish';
 
 export { KILN };
 export const MONUMENT = {
@@ -147,6 +147,39 @@ export function dyeStandIn(m: Monument, dye: string): number {
   Object.assign(r.standInFrom ??= {}, { [pane]: from, [block]: from });
   return from;
 }
+/** A furnishing kind left out (its chores failed FURNISH_FAILS times: no iron for ingots or shears): not drawn, and
+ *  recorded for the re-furnish. */
+export function furnishLeaveOut(m: Monument, kind: FurnishKind): void {
+  const r = m3(m);
+  if (!r.furnish?.[kind]) return;
+  r.furnish[kind] = false;
+  if (!(r.leftOut ??= []).includes(kind)) r.leftOut.push(kind);
+}
+/** What a left-out kind's pieces are, by item (the furnishing as drawn with it). */
+export function leftOutItems(m: Monument, kind: FurnishKind): Record<string, number> {
+  const r = m3(m);
+  if (!r.furnish) return {};
+  const c = monumentPlan({ ...m, furnish: { ...r.furnish, [kind]: true }, refurnish: [] } as Monument), fs = c.stageNames.indexOf(FURNISH_STAGE) + 1;
+  const out: Record<string, number> = {};
+  for (const j of c.jobs) if (j.stage === fs && j.reroof === undefined && j.refurnish === undefined)
+    for (const [k, q] of Object.entries(j.bill)) if (furnishKindOf(k) === kind) out[k] = (out[k] ?? 0) + q;
+  return out;
+}
+/** The user's 10-28: a kind left out comes back once its makings are in: drawn again, and when the furnishing's job
+ *  already stands its cells of that kind come as a job of their own (the re-furnish; a finished cathedral's furnishing
+ *  goes on). Returns that job's cells (0 when the kind just comes back into the furnishing's own job). */
+export function refurnishOn(m: Monument, kind: FurnishKind): number {
+  const r = m3(m);
+  if (!r.furnish || r.furnish[kind] || !r.leftOut?.includes(kind)) return 0;
+  const fs = furnishStage(m), before = monumentPlan(m);
+  const stood = before.jobs.some((j, i) => j.stage === fs && j.reroof === undefined && j.refurnish === undefined && m.done.includes(i));
+  r.furnish[kind] = true;
+  r.leftOut = r.leftOut.filter((k) => k !== kind);
+  if (!stood) return 0;
+  (r.refurnish ??= []).push(kind);
+  return monumentPlan(m).jobs.find((j) => j.refurnish === kind)?.cells?.length ?? 0;
+}
+
 /** Whether a dye's colour stands in already. */
 export const dyeStood = (m: Monument, dye: string) => !!m3(m).standIns?.[`${dye.replace(/_dye$/, '')}_stained_glass_pane`];
 
@@ -260,7 +293,7 @@ export function todayBlock(block: string, wood: string): string {
  *  it re-roofs and its cells ("x,y,z" in the grid); `copperCells`: each job's copper cells. */
 export type MonumentPlan = Omit<Cathedral, 'jobs'> & {
   stageNames: readonly string[];
-  jobs: Array<GothicJob & { palette?: Record<string, string>; reroof?: number; cells?: string[] }>;
+  jobs: Array<GothicJob & { palette?: Record<string, string>; reroof?: number; refurnish?: FurnishKind; cells?: string[] }>;
   copperCells: Map<number, string[]>;
 };
 const plans = new Map<string, MonumentPlan>();
@@ -273,7 +306,8 @@ export function monumentPlan(m: Monument): MonumentPlan {
   // (#162 tier 3, chain B: the copper roof once the rung is reached; the jobs built before it keep their roof's old blocks)
   const copper = detail && type === 'cathedral' && !!m3(m).copper, reroof = copper ? m3(m).reroof ?? [] : [];
   const accents = detail && type === 'cathedral' && !!m3(m).accents;
-  const key = `${type}|${m.preset}|${m.scale}|${m.palette}|${m.wood}|${JSON.stringify(m.colours ?? {})}|${detail}|${JSON.stringify(standIns)}|${JSON.stringify(from)}|${JSON.stringify(fk ?? null)}|${deep}|${copper}|${reroof.join(',')}|${accents}`;
+  const refurnish = fk ? m3(m).refurnish ?? [] : [];
+  const key = `${type}|${m.preset}|${m.scale}|${m.palette}|${m.wood}|${JSON.stringify(m.colours ?? {})}|${detail}|${JSON.stringify(standIns)}|${JSON.stringify(from)}|${JSON.stringify(fk ?? null)}|${deep}|${copper}|${reroof.join(',')}|${accents}|${refurnish.join(',')}`;
   let c = plans.get(key);
   if (c) return c;
   const gen: Cathedral = type === 'castle' ? generateCastle(CASTLE_PRESETS[m.preset] ?? CASTLE_PRESETS.conwy, m.scale)
@@ -343,6 +377,28 @@ export function monumentPlan(m: Monument): MonumentPlan {
       for (const [x, y, z] of pts) n.set(pal[gen.design.layers[y][z][x]], (n.get(pal[gen.design.layers[y][z][x]]) ?? 0) + 1);
       jobs.push({
         stage: c.jobs[r].stage, index: jobs.length, blocks: cells.length, bill: swap([...n]), reroof: r, cells,
+        x0: Math.min(...pts.map((p) => p[0])), x1: Math.max(...pts.map((p) => p[0])), y0: Math.min(...pts.map((p) => p[1])),
+        y1: Math.max(...pts.map((p) => p[1])), z0: Math.min(...pts.map((p) => p[2])), z1: Math.max(...pts.map((p) => p[2])),
+      });
+    }
+    // (the re-furnish: a kind brought back after the furnishing's job stood, its cells in the built furnishing jobs as a
+    // job of the furnishing stage after the plan's own)
+    const fsNo = c.stageNames.indexOf(FURNISH_STAGE) + 1;
+    for (const kind of refurnish) {
+      const cells: string[] = [];
+      gen.design.layers.forEach((layer, y) => layer.forEach((row, z) => {
+        for (let x = 0; x < row.length; x++) {
+          const ch = row[x], i = gen.cellJob.get(`${x},${y},${z}`) ?? -1;
+          if (ch === '.' || gen.jobs[i]?.stage !== fsNo || !m.done.includes(i)) continue;
+          if (furnishKindOf(gothicItem(pal[ch])) === kind) cells.push(`${x},${y},${z}`);
+        }
+      }));
+      if (!cells.length) continue;
+      const pts = cells.map((k) => k.split(',').map(Number));
+      const n = new Map<string, number>();
+      for (const [x, y, z] of pts) n.set(pal[gen.design.layers[y][z][x]], (n.get(pal[gen.design.layers[y][z][x]]) ?? 0) + 1);
+      jobs.push({
+        stage: fsNo, index: jobs.length, blocks: cells.length, bill: swap([...n]), refurnish: kind, cells,
         x0: Math.min(...pts.map((p) => p[0])), x1: Math.max(...pts.map((p) => p[0])), y0: Math.min(...pts.map((p) => p[1])),
         y1: Math.max(...pts.map((p) => p[1])), z0: Math.min(...pts.map((p) => p[2])), z1: Math.max(...pts.map((p) => p[2])),
       });
@@ -548,7 +604,7 @@ export function capShare<T extends { rank: number }>(out: T[], isMon: (o: T) => 
 export function monumentLine(m: Monument): string {
   const c = monumentPlan(m), st = currentStage(m);
   const yard = Object.entries(m.yard).map(([n, q]) => `${q} ${n}`).join(', ') || 'empty';
-  return `${m.preset} 1:${m.scale} ${m.state}${st ? `, stage ${st}` : ''}: ${m.done.length} of ${c.jobs.length} jobs, ${c.jobs.filter((j, i) => m.done.includes(i) && j.reroof === undefined).reduce((t, j) => t + j.blocks, 0)} of ${c.design.blocks} blocks; yard ${yard}`;
+  return `${m.preset} 1:${m.scale} ${m.state}${st ? `, stage ${st}` : ''}: ${m.done.length} of ${c.jobs.length} jobs, ${c.jobs.filter((j, i) => m.done.includes(i) && j.reroof === undefined && j.refurnish === undefined).reduce((t, j) => t + j.blocks, 0)} of ${c.design.blocks} blocks; yard ${yard}`;
 }
 
 /** The site search's hub (the meeting point's pad, else the storage hut, else the village's home) and home level. */
@@ -688,6 +744,10 @@ export type MonumentM3 = Monument & {
    *  jobs built before then, re-roofed in copper by the plan's re-roof jobs. */
   copper?: boolean;
   reroof?: number[];
+  /** The furnishing kinds left out for want of their makings (FURNISH_FAILS chores failed), and those brought back after
+   *  the furnishing's job stood (each a job of its cells after the plan's, as the re-roof; the user's 10-28). */
+  leftOut?: FurnishKind[];
+  refurnish?: FurnishKind[];
   /** #162 tier 3, chain C (MC_GEODE): drawn with the geode's accents (calcite, amethyst). */
   accents?: boolean;
   /** #162: its stonecutter (mcCutter.ts) and dye bed (mcDyeBed.ts). */
@@ -780,7 +840,7 @@ export function stageParts(m: Monument): { stage: number; built: number; of: num
  *  with its latest news for a village day and, under MC_MONUMENT_ROLES, the member's trade. */
 export function progressLine(m: Monument, now: number, dayMs: number, member?: string): string {
   const c = monumentPlan(m), n = m3(m);
-  const blocks = c.jobs.filter((j, i) => m.done.includes(i) && j.reroof === undefined).reduce((t, j) => t + j.blocks, 0);
+  const blocks = c.jobs.filter((j, i) => m.done.includes(i) && j.reroof === undefined && j.refurnish === undefined).reduce((t, j) => t + j.blocks, 0);
   const head = `The village's monument: ${cathedralName(m)} (${presetWords(m.preset)} at 1:${m.scale})`;
   let what: string;
   if (m.state === 'built') {

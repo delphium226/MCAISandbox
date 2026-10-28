@@ -90,7 +90,7 @@ import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodA
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
 import { quarryFeeds } from './mcQuarry';
-import { FURNISH_FAILS, bannerStandIn, furnishKindOf, furnishBatch, furnishItem, furnishTrade, furnishWants } from '../furnish';
+import { FURNISH_FAILS, bannerStandIn, furnishKindOf, refurnishReady, furnishBatch, furnishItem, furnishTrade, furnishWants } from '../furnish';
 import { FLOWER_DYE, KILN, MONUMENT, capShare, currentStage, furnishStage, standInFrom, dyeFlowers, glassColours, ironReached, jobBuilt, jobBuiltPlanned, jobReady, monumentLine, monumentPlan, newMonument, openJobs, stageWants, stageWantsPlanned, yardCovers, M3, TRADE_WEIGHT, noteTrade, tradeOfStep, tradeOf, progressLine as monumentProgress, partLine, cathedralName, presetWords, stageNames as monumentStages, monumentNoun, m3, architectOptions, dyesOnOffer, ARCHITECT_SYSTEM, ARCHITECT_TOOL, architectPrompt, checkArchitect, newMonumentPicked, type ArchitectFacts, type ArchitectPick, type Trade } from '../monument';
 import { kilnOn, laneWork, planOf } from './mcKiln';
 import { BULK_LANES, LODGE, TRIP_MIN, bulkTrip } from '../lodge';
@@ -98,7 +98,7 @@ import { cutWork, cutterOn } from './mcCutter';
 import { bedBuilding, dyeBedOn } from './mcDyeBed';
 import { DYE_BED, DYE_FLOWERS, DYE_REACH, TALL_FLOWERS, dyeRecipes, makeableColours, windowColours } from '../dyeBed';
 import { DETAIL_COLOURS } from '../gothicGen';
-import { stoneStandIn, DEEP_BLOCKS, deepStandIn, GEM_STAND, DYE_FAILS, DYE_WAIT_MIN, dyeStandIn, dyeStood, COPPER_ROOF, COPPER_BLOCKS, copperFrom, copperOn, copperReached, copperStandIn, reroofReturns } from '../monument';
+import { stoneStandIn, DEEP_BLOCKS, deepStandIn, GEM_STAND, DYE_FAILS, DYE_WAIT_MIN, dyeStandIn, dyeStood, furnishLeaveOut, leftOutItems, refurnishOn, COPPER_ROOF, COPPER_BLOCKS, copperFrom, copperOn, copperReached, copperStandIn, reroofReturns } from '../monument';
 import { DEEP_KEEP, deepenForStone, setKeepCopper } from './mcMine';
 /** #162: minutes (game time) a stage waits for a quarried stone before the rest stands in as another. */
 const STONE_WAIT_MIN = 6;
@@ -6778,6 +6778,17 @@ export class MineflayerWorld implements WorldAdapter {
         console.log(`[monument] ${v.name}: the copper rung reached: the ${N}'s high roof in cut copper${cells ? `; ${cells} cells built before it to re-roof in ${m3(v.monument).reroof!.length} jobs` : ''}`);
       }
     }
+    // (the user's 10-28: a furnishing kind left out for want of iron comes back once its makings are in storage, as a job
+    // of its own cells when the furnishing already stands)
+    if (MONUMENT.on && v.monument && m3(v.monument).leftOut?.length) {
+      for (const kind of [...m3(v.monument).leftOut!]) {
+        if (!refurnishReady(kind, storageContents(v), leftOutItems(v.monument, kind))) continue;
+        const cells = refurnishOn(v.monument, kind);
+        this.dyeFails.delete(`${v.name}:furnish:${kind}`);
+        this.villages.save();
+        console.log(`[monument] ${v.name}: the ${monumentNoun(v.monument)}'s ${kind} come back (their makings in storage)${cells ? `: ${cells} cells in a job of their own` : ''}`);
+      }
+    }
     // M1 (#144, MC_MONUMENT): the cathedral's site, a gathering trip for its stage's yard, a job the yard covers
     if (MONUMENT.on && v.monument && v.monument.state !== 'built' && v.storageHut) {
       const m = v.monument;
@@ -8132,7 +8143,7 @@ export class MineflayerWorld implements WorldAdapter {
               const k = `${v.name}:furnish:${kind}`, n = (this.dyeFails.get(k) ?? 0) + 1;
               this.dyeFails.set(k, n);
               if (n >= FURNISH_FAILS) {
-                fk[kind] = false;
+                furnishLeaveOut(m, kind);
                 this.villages.save();
                 console.log(`[monument] ${v.name}: the ${N}'s ${kind} are left out (${n} chores for them failed: ${(make.message ?? why).slice(0, 100)})`);
               }

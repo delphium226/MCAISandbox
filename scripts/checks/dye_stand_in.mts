@@ -87,6 +87,33 @@ if (!existsSync(file)) {
     const c = mon.monumentPlan(m4);
     ok(c.jobs.length === a.jobs.length && Object.keys(c.jobs[fj].bill).every((k) => !/banner/.test(k)) && c.jobs[fj].bill.bell === 1, `banners out too: the furnishing's job keeps only the bell (${JSON.stringify(c.jobs[fj].bill)})`);
   }
+  // (the re-furnish, the user's 10-28: lanterns and banners left out, the furnishing's job built, then iron in storage)
+  if (m.furnish && (m as any).site) {
+    const { refurnishReady } = await import('../../server/src/furnish');
+    const m5 = JSON.parse(JSON.stringify({ ...m, standIns: { ...(m as any).standIns, blue_wall_banner: 'white_wall_banner' } })) as Monument;
+    mon.furnishLeaveOut(m5, 'lanterns');
+    mon.furnishLeaveOut(m5, 'banners');
+    const p0 = mon.monumentPlan(m5);
+    m5.done = p0.jobs.map((_, i) => i);
+    ok(JSON.stringify((m5 as any).leftOut) === '["lanterns","banners"]' && !(m5 as any).furnish.lanterns, 'left out and recorded');
+    const items = mon.leftOutItems(m5, 'lanterns');
+    ok(items.lantern > 0 && items.iron_chain > 0 && Object.keys(items).length === 2, `the lanterns' pieces (${JSON.stringify(items)})`);
+    ok(!refurnishReady('lanterns', { torch: 64 }, items), 'not back with no iron');
+    ok(refurnishReady('lanterns', { iron_ingot: 64 }, items), 'back with 64 ingots in storage');
+    ok(!refurnishReady('banners', { white_wool: 99 }, mon.leftOutItems(m5, 'banners')) && refurnishReady('banners', { shears: 1 }, mon.leftOutItems(m5, 'banners')), 'banners back with shears');
+    const n = mon.refurnishOn(m5, 'lanterns');
+    const p1 = mon.monumentPlan(m5), rj = p1.jobs[p1.jobs.length - 1];
+    ok(n === items.lantern + items.iron_chain && rj.refurnish === 'lanterns' && rj.cells?.length === n, `the lanterns back as a job of their ${n} cells`);
+    ok(JSON.stringify(rj.bill) === JSON.stringify({ lantern: items.lantern, iron_chain: items.iron_chain }), `its bill only lanterns and chains (${JSON.stringify(rj.bill)})`);
+    ok(p1.jobs.length === p0.jobs.length + 1 && !m5.done.includes(rj.index) && mon.currentStage(m5) === mon.furnishStage(m5), 'the furnishing stage open again on that job');
+    const t = mon.jobTargets(m5, rj.index, (b) => b);
+    ok(t.length === n && t.every((q) => /^(lantern|iron_chain)/.test(q.block)), 'its targets are the lanterns and chains only (no bell)');
+    ok(mon.refurnishOn(m5, 'lanterns') === 0 && JSON.stringify((m5 as any).leftOut) === '["banners"]', 'once only; banners still out');
+    // (back before the furnishing's job stood: just drawn again)
+    const m6 = JSON.parse(JSON.stringify(m)) as Monument;
+    mon.furnishLeaveOut(m6, 'lanterns');
+    ok(mon.refurnishOn(m6, 'lanterns') === 0 && (m6 as any).furnish.lanterns && !(m6 as any).refurnish, 'back before the job stood: drawn again in its own job');
+  }
   {
     const { furnishKindOf } = await import('../../server/src/furnish');
     ok(furnishKindOf('lantern') === 'lanterns' && furnishKindOf('iron_chain') === 'lanterns' && furnishKindOf('white_banner') === 'banners'
