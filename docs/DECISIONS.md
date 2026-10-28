@@ -926,3 +926,6 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   back:** lanterns, chains and banners left out after failed chores are added by a later job once iron is in stock again
   (as the copper re-roof). **New mines open as needed:** when the iron level (or another mine) is worked out, the village
   opens a new one rather than running dry.
+- 10-28 (the user's, on D1's greens: 146 small works, 77 of them one lamp design) **The greens get a better mix:** fewer
+  lamps, more of the larger works, gardens on the greens; a finished green carries geometric flower patterns (beds laid
+  out as shapes, kept for flowers) and trees where there are none.
