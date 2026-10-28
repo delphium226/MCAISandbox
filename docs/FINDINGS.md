@@ -2260,3 +2260,13 @@ CLAUDE.md when a phase ends.
   389 (C), 93 initiatives built in 85 min (39 plot-sized), busy 24-41% in every 10 minutes against A's 13-22% in its last
   30; the simulator from t7_c_greens_full gave 88 -> 177 initiatives in 2 h. [lag] 0, [stuck] 36, all fed. Open: the
   iron level runs out by the furnishing at 1x, so lanterns and banners go; runs/2026-10-27/dyes_greens/resume.md.
+- F332 (10-28, dyes_greens, #162/G8; the user's 10-28 decision) **Furnishing left out for want of iron comes back once
+  iron is in.** 32d28c4 records a kind left out and, when storage holds its makings (ingots; shears or 2 ingots for
+  banners), brings it back as a job of its own cells after the plan's, as the copper re-roof does. Live from dg_d3_end
+  (D3's finished cathedral, lanterns and banners left out) with 96 ingots, 2 shears, 16 torches and 84 wool stocked: D4
+  brought the banners back but showed three faults, fixed before D5: the readiness counted storage's one nugget for
+  both lanterns and chains (69e0056), make_furnishing had no planks for sticks with 395 logs stored (bb3a3a9), and a kind
+  left out again came straight back, doubling its job (1fb1ef7: a 20-minute wait, its unbuilt job dropped, listed once).
+  D5: lanterns (49 cells) and banners (14) back at once, made (10 lanterns, 39 chains, 14 banners) and built, 18 of 18
+  jobs, 3,587 of 3,587 blocks; every re-furnish cell confirmed in the world (63 of 63). Fixed chooser (the Ollama app
+  was down: D3-D5 made no model calls), [lag] 0.
