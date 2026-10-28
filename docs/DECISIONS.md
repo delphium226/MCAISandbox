@@ -936,3 +936,7 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   it, so a law or custom is wired once and both modes see it. First the refactor, golden-checked with no change in
   behaviour; then `MC_CHOOSE=open` (the palette plus a short "what the village needs" block) behind its flag; tested as
   whole-village arms against the menu. #170 and #171 are fixed before the next #164 rerun either way.
+- 10-28 (the user's) **#172's open questions take the spec's defaults** (runs/2026-10-28/palette/spec.md section 5):
+  open lifts only make-past-target and gathers nothing wants; refused takes shown as counts per law; the open palette's
+  own fixed pick as the fallback; ~1.5-2x the menu's cost accepted; whole-village arms; makes capped at twice the keep;
+  no holds while an open decision is pending (re-asks measured); #122's storage cap lifted for open gathers; the tags kept.
