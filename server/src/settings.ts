@@ -121,6 +121,8 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'Option kinds offered as several instances on one menu.' },
   { name: 'MC_CHOOSE', type: 'string', default: 'fixed', group: 'choices', live: true, values: ['fixed', 'model', 'scripted', 'open'], read: 'choose.ts',
     describe: 'Who picks after-completion chores: fixed (code), model, scripted (staged runs), or open (#172: the model, from the whole palette and a block of what the village needs, not the menu\'s eight).' },
+  { name: 'MC_PRIMER', type: 'flag', default: 'off', group: 'choices', live: false, read: 'choose.ts',
+    describe: 'MC_PRIMER=on: a short primer of how the world works (peace, the day, chores, acts beside a choice, storage, laws, emeralds, the ages, a good life) in the chooser\'s system prompt, both modes (#172).' },
   { name: 'MC_CHOOSE_BACKUP', type: 'flag', default: 'off', group: 'choices', live: false, read: 'choose.ts',
     describe: 'MC_CHOOSE_BACKUP=on: the model names a second option, run when its first is taken by the time the pick runs, before a re-ask (All1, F304: 299 fixed picks for a taken pick and 475 re-asks with every member on the model).' },
   { name: 'MC_CHOOSE_FALLBACK_MS', type: 'number', default: '20000', group: 'choices', live: false, read: 'choose.ts',

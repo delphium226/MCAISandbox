@@ -343,6 +343,8 @@ export interface ChoiceContext {
   needs?: string[];
   /** #172 (MC_CHOOSE=open): what the village needs, one block (materials short, goods under their keep, the laws' refusals). */
   villageNeeds?: string;
+  /** #172 (MC_CHOOSE=open): what is not on the member's list now and why (taken by whom, the kinds' reasons), one line. */
+  absent?: string;
   /** #69 (MC_OWN): the member's own open wants, one line ("Your wants: food (none of your own); your house (3 ...)"). */
   wants?: string;
   /** #79 (MC_GOALS=on): "Your life goal: beauty (3 works of yours stand, ...)." */

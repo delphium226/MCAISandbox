@@ -238,6 +238,18 @@ const SYSTEM = 'You are a member of a Minecraft village. The village is built; n
 const SYSTEM_PERSONA = ' Choose as the person described would.';
 /** G1: added when a memory section is shown. */
 const SYSTEM_MEMORY = ' Use what you remember where it bears on the choice.';
+/** #172 (MC_PRIMER=on): how the member's world works, in its own terms (both modes; ~250 tokens). */
+export const PRIMER_ON = /^(on|1|true|yes)$/i.test(rawSetting('MC_PRIMER') ?? '');
+export const PRIMER = ' How your world works: you live in a peaceful Minecraft world, with no monsters and no harm; nobody dies. '
+  + 'A village day lasts about twenty minutes, from dawn to night, and you grow hungry as you work and eat from the shared food. '
+  + 'Each option is a whole chore you carry out yourself; once you choose it, the walking, gathering, crafting and placing follow. '
+  + 'Only the options listed are possible now: a kind of work that is missing is taken by another member, not possible here '
+  + '(nothing ripe, the makings short) or forbidden by a law. A request, an offer, an acceptance, a payment, news or a question '
+  + 'goes beside your choice in its own fields, never in its place. The village keeps its goods in shared storage, with a stock '
+  + 'kept of each; what you make goes there. At dusk the council votes on the laws members propose, and the laws in force bind '
+  + 'everyone. Emeralds are the money: members pay them for work they ask for, and the merchant trades for them. The village '
+  + 'climbs the ages (iron, letters, diamond and on) by its own votes and raises a monument together. A good life here is '
+  + 'working toward your life goal, standing well with the others, and helping the village toward its ambition.';
 
 /** G1 (MC_MEMORY=on): the memory section (with whether this is the member's dawn decision) and the last chores from the
  *  stored log, used when the statistics are empty (a restart). */
@@ -291,6 +303,8 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
   if (ctx.answers?.length) lines.push(`Answers to your questions:\n${ctx.answers.map((l) => `- ${l}`).join('\n')}`);
   if (ctx.acts?.trim()) lines.push(ctx.acts.trim());
   if (rc?.dawn) lines.push(`This is your first choice of village day ${rc.day}: set your intention for today in \`intention\`, and in \`focus\` the kind of work you mean to do most: one of ${FOCUS.join(', ')}.`);
+  // (#172: what is not on the list and why, so the model stops looking for it)
+  if (menu.open && ctx.absent?.trim()) lines.push(ctx.absent.trim());
   if (menu.open) lines.push(...openLines(shown));
   else {
     lines.push('Options (in no particular order):');
@@ -349,7 +363,7 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
       required: rc?.dawn ? ['reason', 'choice', 'intention', 'focus'] : ['reason', 'choice'],
     },
   }];
-  return { system: (ctx.persona?.trim() ? SYSTEM + SYSTEM_PERSONA : SYSTEM) + (rc ? SYSTEM_MEMORY : ''), user: lines.join('\n'), tools };
+  return { system: (ctx.persona?.trim() ? SYSTEM + SYSTEM_PERSONA : SYSTEM) + (rc ? SYSTEM_MEMORY : '') + (PRIMER_ON ? PRIMER : ''), user: lines.join('\n'), tools };
 }
 
 /** #172: an open option's facts are cut to this in the prompt (the menu shows them whole, <= 240). */
@@ -426,28 +440,51 @@ function fromText(text: string): { choice: string; reason: string } | null {
   return t && t.length <= 120 ? { choice: t, reason: '' } : null;
 }
 
+/** How a reply's choice was read (#172: counted by the benches and the decision log). */
+export type MatchPath = 'exact' | 'tags' | 'folded' | 'line' | 'prefix' | 'plural' | 'id';
+/** Words folded, each without a plural ending ("Make stone pickaxe" and "make stone pickaxes" fold alike). */
+const foldPlural = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map((w) => (w.length > 3 ? w.replace(/([^s])s$/, '$1') : w)).join('');
+
 /** Exact name, else case/space/punctuation-folded exact, else a unique prefix of >= 12 chars (folded). */
 function match(choice: string, shown: ChoiceOption[]): ChoiceOption | { invalid: string } {
+  const m = matchPath(choice, shown);
+  return 'invalid' in m ? m : m.o;
+}
+
+/** match(), with the path it took; #172: then a unique match folded without plural endings, then a unique option id
+ *  written in the choice ("flower garden (Ben, help:i74)", "Accept request i74": the project's own help option). */
+function matchPath(choice: string, shown: ChoiceOption[]): { o: ChoiceOption; path: MatchPath } | { invalid: string } {
+  const first = matchFirst(choice, shown);
+  if (!('invalid' in first)) return first;
+  const fp = foldPlural(choice);
+  const plural = fp ? shown.filter((o) => foldPlural(o.name) === fp) : [];
+  if (plural.length === 1) return { o: plural[0], path: 'plural' };
+  const ids = shown.filter((o) => o.id.includes(':') && (choice.includes(o.id) || (/^help:i\d+$/.test(o.id) && new RegExp(`\\b${o.id.slice(5)}\\b`).test(choice))));
+  if (ids.length === 1) return { o: ids[0], path: 'id' };
+  return first;
+}
+
+function matchFirst(choice: string, shown: ChoiceOption[]): { o: ChoiceOption; path: MatchPath } | { invalid: string } {
   const exact = shown.find((o) => o.name === choice);
-  if (exact) return exact;
+  if (exact) return { o: exact, path: 'exact' };
   // (a name copied with the line's trailing tags, "[Ada asked you]": the tags cut off; the spec check's L1)
   if (/\]\s*$/.test(choice)) {
     const bare = choice.replace(/(\s*\[[^\]]*\])+\s*$/, '');
     const hit = shown.find((o) => o.name === bare);
-    if (hit) return hit;
+    if (hit) return { o: hit, path: 'tags' };
   }
   const f = fold(choice);
   if (!f) return { invalid: 'an empty choice' };
   const folded = shown.filter((o) => fold(o.name) === f);
-  if (folded.length === 1) return folded[0];
+  if (folded.length === 1) return { o: folded[0], path: 'folded' };
   if (folded.length > 1) return { invalid: `"${choice}" matches ${folded.length} options` };
   // (the whole option line copied, "name: facts (expected: effect)": 8 of 330 choicebench replies, s28; the longest name
   // that the line begins with, followed by its colon)
   const line = shown.filter((o) => choice.startsWith(`${o.name}:`)).sort((a, b) => b.name.length - a.name.length);
-  if (line.length) return line[0];
+  if (line.length) return { o: line[0], path: 'line' };
   if (f.length >= 12) {
     const pre = shown.filter((o) => fold(o.name).startsWith(f));
-    if (pre.length === 1) return pre[0];
+    if (pre.length === 1) return { o: pre[0], path: 'prefix' };
     if (pre.length > 1) return { invalid: `"${choice}" begins ${pre.length} options` };
   }
   return { invalid: `"${choice.slice(0, 80)}" is not an option` };
@@ -458,14 +495,29 @@ function match(choice: string, shown: ChoiceOption[]): ChoiceOption | { invalid:
  * modelCall's callsFromText already (choose() goes through callModel, which applies it). The choose call is read first,
  * then any call carrying a choice, then the text. The reason is cut to 200 characters.
  */
-export function parseChoice(reply: Reply, shown: ChoiceOption[]): { id: string; reason: string } | { invalid: string } {
+export function parseChoice(reply: Reply, shown: ChoiceOption[]): { id: string; reason: string; path: MatchPath } | { invalid: string; act?: boolean; choice?: string } {
   const calls = reply?.calls ?? [];
   const call = calls.find((c) => c.name === 'choose' && fromInput(c.input)) ?? calls.find((c) => fromInput(c.input));
   const got = (call ? fromInput(call.input) : null) ?? (calls.length ? null : fromText(reply?.text ?? ''));
-  if (!got) return { invalid: calls.length ? `no choice in the ${calls.map((c) => c.name).join(', ')} call` : 'no choose call' };
-  const m = match(got.choice, shown);
-  if ('invalid' in m) return m;
-  return { id: m.id, reason: got.reason.trim().replace(/\s+/g, ' ').slice(0, 200) };
+  // (#172: an act filled in and no choice, or an act's word in `choice`, "request" or "accept r7": the act put in the
+  // choice's place, which open mode asks again)
+  const input = (calls.find((c) => c.name === 'choose') ?? calls[0])?.input as Record<string, unknown> | undefined;
+  const acted = !!input && typeof input === 'object' && ['act', 'act_item', 'act_ref', 'act_project'].some((k) => typeof input[k] === 'string' && !/^(none|)$/i.test(String(input[k]).trim()));
+  if (!got) return { invalid: calls.length ? `no choice in the ${calls.map((c) => c.name).join(', ')} call` : 'no choose call', ...(acted ? { act: true } : {}) };
+  const m = matchPath(got.choice, shown);
+  if ('invalid' in m) return { ...m, choice: got.choice.slice(0, 80), ...(ACT_WORD.test(got.choice.trim()) ? { act: true } : {}) };
+  return { id: m.o.id, reason: got.reason.trim().replace(/\s+/g, ' ').slice(0, 200), path: m.path };
+}
+
+/** An act's word at the start of a choice ("request", "accept r7", "offer"). */
+const ACT_WORD = /^(request|offer|accept|decline|release|report|pay|news|question|ask)\b/i;
+
+/** The choose call's input (or the first call's), or a text reply's JSON. */
+function callInput(reply: Reply): unknown {
+  const call = reply?.calls?.find((x) => x.name === 'choose') ?? reply?.calls?.[0];
+  if (call) return call.input;
+  const t = reply?.text ?? '';
+  try { return JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1)); } catch { return null; }
 }
 
 /** G1: the memory fields of the reply's choose call (or of a choice written as text). */
@@ -526,6 +578,9 @@ export interface ChooseResult {
   share?: 'none' | 'levy' | 'all';
   /** MC_CHOOSE_BACKUP: the second option's id, from a valid reply, when it names one other than the first. */
   backup?: string;
+  /** #172: how the choice was read (exact, folded, plural, id...), and what was asked again first (open mode). */
+  path?: MatchPath;
+  reasked?: 'act' | 'name';
 }
 
 /** The fallback reason of a failed call (spec 5.1 step 8). */
@@ -604,7 +659,36 @@ export async function choose(req: ChooseRequest): Promise<ChooseResult> {
     out.waitMs = r.waitMs;
     out.promptTokens = r.reply.promptTokens ?? 0;
     out.outputTokens = r.reply.outputTokens ?? 0;
-    const c = parseChoice(r.reply, shown);
+    let c = parseChoice(r.reply, shown);
+    // (#172, open mode: an act in the choice's place, or a name not on the palette, is asked once more with what went
+    // wrong, not dropped to the fixed pick (train 9: 15% of the open calls); the first reply's act kept when the second
+    // has none)
+    const first = r.reply;
+    if ('invalid' in c && req.menu.open && (c.act || c.choice) && !req.signal?.aborted) {
+      const why = c.act
+        ? `Your answer put an act (${c.choice ? `"${c.choice}"` : 'with no choice'}) where the chore goes. An act (request, offer, accept...) goes in \`act\` beside a choice, never in its place; your act is kept. Now name in \`choice\` the one chore you do next, exactly as the list writes it.`
+        : `Your answer named "${c.choice}", which is not one of the chores you can do now (a missing kind is taken by another member, not possible here, or forbidden by a law). Name in \`choice\` one chore from the list, exactly as written.`;
+      out.reasked = c.act ? 'act' : 'name';
+      try {
+        const r2 = await (req.call ?? callModel)({
+          spec: req.spec, system: p.system, user: `${p.user}\n\n${why}`, tools: p.tools, level: req.level,
+          agent: req.agent, kind: 'choose', priority: 'decision',
+          maxWaitMs: CHOOSE.waitMs, fallbackMs: CHOOSE.fallbackMs, signal: req.signal,
+        });
+        out.latencyMs += r2.ms;
+        out.promptTokens += r2.reply.promptTokens ?? 0;
+        out.outputTokens += r2.reply.outputTokens ?? 0;
+        const c2 = parseChoice(r2.reply, shown);
+        if (!('invalid' in c2)) {
+          const keepAct = !actFields(callInput(r2.reply))?.act && actFields(callInput(first))?.act;
+          r = { ...r2, reply: keepAct ? { ...r2.reply, calls: r2.reply.calls.map((x) => (x.name === 'choose' ? { ...x, input: { ...(callInput(first) as object), ...(x.input as object) } } : x)) } : r2.reply };
+        }
+        c = c2;
+      } catch (err) {
+        console.log(`[choose] ${req.agent}: the re-ask failed: ${String((err as Error)?.message ?? err).slice(0, 160)}`);
+      }
+      console.log(`[choose] ${req.agent}: re-asked (${out.reasked}): ${'invalid' in c ? `still invalid (${c.invalid})` : `chose ${c.id}`}`);
+    }
     // (G1: what the model kept, from a valid reply only, applied here whether its pick then runs, is taken, re-asked or
     // dropped; the decision into the ledger)
     if (mem) {
@@ -658,7 +742,7 @@ export async function choose(req: ChooseRequest): Promise<ChooseResult> {
       const b = typeof raw === 'string' && raw.trim() ? match(raw, shown) : null;
       if (b && !('invalid' in b) && b.id !== c.id) out.backup = b.id;
     }
-    return { ...out, id: c.id, reason: c.reason };
+    return { ...out, id: c.id, reason: c.reason, path: c.path };
   } catch (err) {
     // (anything unforeseen: the decision falls back, nothing escapes into the caller's continuation, D9)
     console.log(`[choose] ${req.agent}: ${String((err as Error)?.stack ?? err).slice(0, 300)}`);

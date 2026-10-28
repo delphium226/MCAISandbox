@@ -5467,7 +5467,11 @@ export class MineflayerWorld implements WorldAdapter {
     const open = guards && this.openMode(a);
     const r = this.choiceOptions(v, a, busy, guards, facts, first, open);
     const ctx = this.choiceContext(v, a, facts, r.options.map((o) => o.kind));
-    if (open) ctx.villageNeeds = this.villageNeedsBlock(v, facts, r.dropped);
+    if (open) {
+      ctx.villageNeeds = this.villageNeedsBlock(v, facts, r.dropped);
+      const ab = this.absentLine(v, a, r.options, r.reasons);
+      if (ab) ctx.absent = ab;
+    }
     // (#117: when nothing on the menu feeds the ambition's stage, why not)
     if (PROMPT_SELF && ctx.ladder && !r.options.some((o) => o.vw)) {
       const gap = this.ambitionWhyNot(v, r.guarded, r.reasons);
@@ -5496,6 +5500,28 @@ export class MineflayerWorld implements WorldAdapter {
       if (an.length) ctx.answers = an;
     }
     return { menu: { agent: a.name, village: v.name, t: facts.t, options: r.options, guarded: r.guarded, reasons: r.reasons, ctx, ...(open ? { open: true } : {}) }, feasible: r.feasible, skips: r.effects.skips, dropped: r.dropped };
+  }
+
+  /**
+   * #172 (MC_CHOOSE=open): what is not on the member's list now and why, one line (<= 500 chars): the chores other members
+   * are on that are not on it (one maker a good, the mine's faces and furnaces), the reasons of the kinds with none, and
+   * where a tool of one's own comes from (train 9: members asked for a stone pickaxe in the choice's place).
+   */
+  private absentLine(v: Village, a: BotAgent, options: ChoiceOption[], reasons: Partial<Record<ChoiceKind, string>>): string {
+    const on = new Set(options.map((o) => o.id));
+    const taken = new Map<string, string[]>();
+    for (const c of this.chores.values()) {
+      if (c.village !== v.name || c.agent === a.name || c.choice.ended || !c.choice.option || on.has(c.choice.option)) continue;
+      if (!/^(make|gather|iron|farm|slot|penwork|cake|light|furnish|activity|innovate):/.test(c.choice.option) && c.choice.option !== 'cake') continue;
+      const name = (c.choice.name ?? c.what).replace(/\s*\(.*$/, '');
+      taken.set(name, [...(taken.get(name) ?? []), c.agent]);
+    }
+    const parts: string[] = [];
+    if (taken.size) parts.push(`taken by others now: ${[...taken.entries()].slice(0, 6).map(([n, who]) => `${n.charAt(0).toLowerCase()}${n.slice(1)} (${who.slice(0, 2).join(', ')}${who.length > 2 ? ` and ${who.length - 2} more` : ''})`).join('; ')}`);
+    const why = (Object.entries(reasons) as Array<[ChoiceKind, string]>).filter(([k]) => !/^(annex|works|grow)$/.test(k)).map(([k, w]) => `${KIND_WORDS[k] ?? k}: ${w}`).filter((x, i, xs) => xs.indexOf(x) === i).slice(0, 8);
+    if (why.length) parts.push(`not possible here now: ${why.join('; ')}`);
+    if (OWN.on && this.wantsOf(v, a.name)?.tools.length) parts.push('a tool of your own comes from an iron tool made for you, the stock in your own chest or the merchant: making goods puts them in the village storage');
+    return parts.length ? `Not on your list now: ${parts.join('. ')}.`.slice(0, 500) : '';
   }
 
   /**

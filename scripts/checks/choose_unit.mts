@@ -153,11 +153,17 @@ const menu = (options: ChoiceOption[], persona = ''): ChoiceMenu => ({
 {
   const shown = OPTIONS;
   const call = (input: Record<string, unknown>, name = 'choose'): Reply => ({ calls: [{ name, input }], text: '' });
-  eq(parseChoice(call({ reason: 'the eggs are due', choice: 'Collect eggs in the chicken pen' }), shown), { id: 'penwork:0:eggs', reason: 'the eggs are due' }, 'an exact name');
-  eq(parseChoice(call({ reason: 'x', choice: 'bake a CAKE!' }), shown), { id: 'cake', reason: 'x' }, 'case and punctuation folded');
-  eq(parseChoice(call({ reason: 'x', choice: 'Explore to the north east' }), shown), { id: 'explore:7', reason: 'x' }, 'a space for a hyphen');
-  eq(parseChoice(call({ reason: 'x', choice: 'Explore to the north' }), shown), { id: 'explore:6', reason: 'x' }, 'an exact name wins over the prefix of others');
-  eq(parseChoice(call({ reason: 'x', choice: 'Collect eggs in the' }), shown), { id: 'penwork:0:eggs', reason: 'x' }, 'a unique prefix of 12+ characters');
+  // (#172: the path a choice was read by is checked below, apart)
+  const P = (r: Reply, s: typeof shown) => {
+    const x = parseChoice(r, s) as Record<string, unknown>;
+    if (!('invalid' in x)) delete x.path;
+    return x;
+  };
+  eq(P(call({ reason: 'the eggs are due', choice: 'Collect eggs in the chicken pen' }), shown), { id: 'penwork:0:eggs', reason: 'the eggs are due' }, 'an exact name');
+  eq(P(call({ reason: 'x', choice: 'bake a CAKE!' }), shown), { id: 'cake', reason: 'x' }, 'case and punctuation folded');
+  eq(P(call({ reason: 'x', choice: 'Explore to the north east' }), shown), { id: 'explore:7', reason: 'x' }, 'a space for a hyphen');
+  eq(P(call({ reason: 'x', choice: 'Explore to the north' }), shown), { id: 'explore:6', reason: 'x' }, 'an exact name wins over the prefix of others');
+  eq(P(call({ reason: 'x', choice: 'Collect eggs in the' }), shown), { id: 'penwork:0:eggs', reason: 'x' }, 'a unique prefix of 12+ characters');
   ok('invalid' in parseChoice(call({ reason: 'x', choice: 'Milk the co' }), shown), 'a prefix under 12 characters is refused');
   const ex = [opt('explore:7', 'explore', 'Explore to the north-east', 801), opt('explore:5', 'explore', 'Explore to the north-west', 802)];
   ok('invalid' in parseChoice(call({ reason: 'x', choice: 'Explore to the north' }), ex), 'a prefix of two names is refused');
@@ -168,19 +174,50 @@ const menu = (options: ChoiceOption[], persona = ''): ChoiceMenu => ({
   ok('invalid' in parseChoice(call({ reason: 'x', choice: 'cake' }), shown), 'an id is not a name');
   ok('invalid' in parseChoice(call({ reason: 'x' }), shown), 'a call without a choice is refused');
   ok('invalid' in parseChoice({ calls: [], text: '' }, shown), 'an empty reply is refused');
-  eq(parseChoice(call({ reason: 'x', choice: 'Bake a cake' }, 'choice'), shown), { id: 'cake', reason: 'x' }, 'a call misnamed but carrying a choice');
-  eq(parseChoice(call({ arguments: JSON.stringify({ reason: 'x', choice: 'Bake a cake' }) }, 'choose'), shown), { id: 'cake', reason: 'x' }, 'arguments as a JSON string');
-  eq(parseChoice(call({ reason: 'r'.repeat(300), choice: 'Bake a cake' }), shown), { id: 'cake', reason: 'r'.repeat(200) }, 'the reason cut to 200');
-  eq(parseChoice(call({ choice: 'Bake a cake' }), shown), { id: 'cake', reason: '' }, 'a missing reason is empty');
+  eq(P(call({ reason: 'x', choice: 'Bake a cake' }, 'choice'), shown), { id: 'cake', reason: 'x' }, 'a call misnamed but carrying a choice');
+  eq(P(call({ arguments: JSON.stringify({ reason: 'x', choice: 'Bake a cake' }) }, 'choose'), shown), { id: 'cake', reason: 'x' }, 'arguments as a JSON string');
+  eq(P(call({ reason: 'r'.repeat(300), choice: 'Bake a cake' }), shown), { id: 'cake', reason: 'r'.repeat(200) }, 'the reason cut to 200');
+  eq(P(call({ choice: 'Bake a cake' }), shown), { id: 'cake', reason: '' }, 'a missing reason is empty');
   // Text replies (callModel turns {"name":..., "arguments":...} text into calls; these come through as text)
-  eq(parseChoice({ calls: [], text: '{"reason": "cakes sell", "choice": "Bake a cake"}' }, shown), { id: 'cake', reason: 'cakes sell' }, 'a JSON object as text');
-  eq(parseChoice({ calls: [], text: 'Sure:\n```json\n{"name": "choose", "arguments": {"reason": "r", "choice": "Milk the cows"}}\n```' }, shown), { id: 'penwork:1:milk', reason: 'r' }, 'a fenced call as text');
-  eq(parseChoice({ calls: [], text: '  Bake a cake.\n' }, shown), { id: 'cake', reason: '' }, 'a bare name as text');
+  eq(P({ calls: [], text: '{"reason": "cakes sell", "choice": "Bake a cake"}' }, shown), { id: 'cake', reason: 'cakes sell' }, 'a JSON object as text');
+  eq(P({ calls: [], text: 'Sure:\n```json\n{"name": "choose", "arguments": {"reason": "r", "choice": "Milk the cows"}}\n```' }, shown), { id: 'penwork:1:milk', reason: 'r' }, 'a fenced call as text');
+  eq(P({ calls: [], text: '  Bake a cake.\n' }, shown), { id: 'cake', reason: '' }, 'a bare name as text');
   ok('invalid' in parseChoice({ calls: [], text: 'I think the village needs more food, so harvesting seems wise, but the cake is also nice and the cows need milking soon.' }, shown), 'prose is refused');
+  // #172: the path, plurals, an option id written in the choice, and an act's word in the choice's place
+  const pp = (choice: string, s: typeof shown = shown) => parseChoice(call({ reason: 'x', choice }), s) as Record<string, unknown>;
+  eq(pp('Bake a cake').path, 'exact', 'the exact path');
+  eq(pp('bake a CAKE!').path, 'folded', 'the folded path');
+  const tools = [opt('make:stone_pickaxe', 'make', 'Make stone pickaxes', 900), opt('make:stone_hoe', 'make', 'Make stone hoes', 901), opt('help:i74', 'help', 'Help Ben build a flower garden: gather 12 flowers', 1050)];
+  eq(pp('Make stones pickaxe', tools).id, 'make:stone_pickaxe', 'plural endings folded away');
+  eq(pp('Make stones pickaxe', tools).path, 'plural', 'the plural path');
+  eq(pp('flower garden (Ben, help:i74)', tools).id, 'help:i74', 'an option id in the choice');
+  eq(pp('Accept request i74', tools).id, 'help:i74', "a project's id in the choice names its help option");
+  ok(pp('request', tools).act === true && 'invalid' in pp('request', tools), 'an act word is invalid and marked an act');
+  ok(pp('accept r7', tools).act === true, 'an act word with a ref is marked an act');
+  ok((parseChoice(call({ reason: 'x', act: 'request', act_item: 'stone pickaxe' }), tools) as Record<string, unknown>).act === true, 'an act with no choice is marked an act');
+  ok(!('act' in pp('Make wooden hoes', tools)) && pp('Make wooden hoes', tools).choice === 'Make wooden hoes', 'a name not on the list keeps its text, no act');
 }
 
 // --- choose() with a fake call
 const SPEC = { provider: 'ollama' as const, model: 'gpt-oss:120b-cloud' };
+// #172: open mode asks again once when an act stands in the choice's place, and keeps the act
+{
+  const seen: CallRequest[] = [];
+  const m = { ...menu(OPTIONS.slice(0, 4)), open: true };
+  const r = await choose({
+    agent: 'Worker1', spec: SPEC, level: 'low', menu: m, seed: 'dec-open',
+    call: async (req) => {
+      seen.push(req);
+      const input = seen.length === 1 ? { reason: 'I need a pickaxe', choice: 'request', act: 'request', act_item: 'stone pickaxe', act_to: 'anyone' } : { reason: 'the field is ripe', choice: 'Harvest the wheat field' };
+      return { reply: { calls: [{ name: 'choose', input }], text: '', promptTokens: 900, outputTokens: 70 }, ms: 1000, waitMs: 0 };
+    },
+  });
+  eq({ id: r.id, reasked: r.reasked, calls: seen.length, promptTokens: r.promptTokens }, { id: 'farm:0', reasked: 'act', calls: 2, promptTokens: 1800 }, 'open: an act in the choice is asked again');
+  ok(/goes in `act` beside a choice/.test(seen[1]?.user ?? ''), "open: the re-ask says where an act goes");
+  const r2 = await choose({ agent: 'Worker1', spec: SPEC, level: 'low', menu: menu(OPTIONS.slice(0, 4)), seed: 'dec-menu',
+    call: async () => ({ reply: { calls: [{ name: 'choose', input: { reason: 'x', choice: 'request' } }], text: '' }, ms: 10, waitMs: 0 }) });
+  eq({ id: r2.id, why: r2.why, reasked: r2.reasked }, { id: null, why: 'invalid', reasked: undefined }, 'the menu: no re-ask, the fixed pick as before');
+}
 const reply = (r: Reply, ms = 1200, waitMs = 30) => async () => ({ reply: r, ms, waitMs });
 {
   const seen: CallRequest[] = [];
@@ -502,10 +539,10 @@ const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
   eq([t.filter((o) => o.kind === 'make').length, t.filter((o) => o.kind === 'gather').length], [2, 2], 'the trim keeps two makes and two gatherings');
   eq(t.map((o) => o.id), ['farm:0', 'works:prepare', 'make:stone_pickaxe', 'make:stone_bricks', 'gather:sand', 'gather:logs'], 'the lowest ranks of each, in rank order');
   const call = (choice: string): Reply => ({ calls: [{ name: 'choose', input: { reason: 'x', choice } }], text: '' });
-  eq(parseChoice(call('Make stone pickaxes'), s9), { id: 'make:stone_pickaxe', reason: 'x' }, 'an exact make name (pickaxes)');
-  eq(parseChoice(call('Make stone bricks'), s9), { id: 'make:stone_bricks', reason: 'x' }, 'an exact make name (bricks)');
+  eq(parseChoice(call('Make stone pickaxes'), s9), { id: 'make:stone_pickaxe', reason: 'x', path: 'exact' }, 'an exact make name (pickaxes)');
+  eq(parseChoice(call('Make stone bricks'), s9), { id: 'make:stone_bricks', reason: 'x', path: 'exact' }, 'an exact make name (bricks)');
   ok('invalid' in parseChoice(call('Make stone'), s9), 'a prefix of both stone goods is refused');
-  eq(parseChoice(call('Mine cobblestone for the workshop'), s9), { id: 'gather:cobblestone', reason: 'x' }, 'an exact gathering name');
+  eq(parseChoice(call('Mine cobblestone for the workshop'), s9), { id: 'gather:cobblestone', reason: 'x', path: 'exact' }, 'an exact gathering name');
 }
 
 await tick(10);

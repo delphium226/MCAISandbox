@@ -46,6 +46,10 @@ const DRY = (process.env.DRY ?? '').toLowerCase();
 const PEEK = !!process.env.PEEK;
 const ONLY = process.env.ONLY ? new RegExp(process.env.ONLY, 'i') : null;
 const TRIM = process.env.TRIM !== '0';
+/** #172: OPEN=1 replays the records as open menus (the whole palette, untrimmed, grouped by skill); CASES=N keeps N of
+ *  the log's cases, spread evenly over it. */
+const OPEN = process.env.OPEN === '1';
+const CASES = Number(process.env.CASES) || 0;
 const AGENT = 'choicebench';
 const ALPHA = 0.01;
 
@@ -70,7 +74,7 @@ function option(o: any, i: number): ChoiceOption {
     effect: String(o.effect ?? ''), rank: Number.isFinite(o.rank) ? o.rank : i, ...(o.lp !== undefined ? { lp: o.lp } : {}),
     // (#117: the weights and tags the prompt renders, as the run showed them: "[you enjoy this]", "[toward your goal]", a
     // request's, a rule's, the ladder's and a basic need's)
-    ...Object.fromEntries(['tw', 'gw', 'nw', 'vw', 'need', 'social', 'mark', 'ruleTag', 'ladderTag', 'basic', 'basicNeed'].filter((k) => o[k] !== undefined).map((k) => [k, o[k]])),
+    ...Object.fromEntries(['tw', 'gw', 'nw', 'vw', 'need', 'social', 'mark', 'ruleTag', 'ladderTag', 'tradeTag', 'brief', 'basic', 'basicNeed'].filter((k) => o[k] !== undefined).map((k) => [k, o[k]])),
   };
 }
 const ctxOf = (c: any): ChoiceContext => ({ ...EMPTY_CTX, ...(c ?? {}), outcomes: Array.isArray(c?.outcomes) ? c.outcomes : [] });
@@ -107,14 +111,14 @@ function fromLog(file: string, skipped: Record<string, number>): Case[] {
     }
     seen.add(key);
     let options = opts.map(option);
-    if (TRIM) options = trimMenu(options);
+    if (TRIM && !OPEN) options = trimMenu(options);
     if (options.length < 2) continue;
     out.push({
       name: `${r.village}/${r.agent}/${r.id}`, source: 'log',
-      menu: { agent: r.agent ?? AGENT, village: r.village ?? '', t: r.t ?? 0, options, guarded: [], reasons: {}, ctx },
+      menu: { agent: r.agent ?? AGENT, village: r.village ?? '', t: r.t ?? 0, options, guarded: [], reasons: {}, ctx, ...(OPEN ? { open: true } : {}) },
     });
   }
-  return out;
+  return CASES && out.length > CASES ? Array.from({ length: CASES }, (_, i) => out[Math.floor((i * out.length) / CASES)]) : out;
 }
 
 function fromCases(file: string): Case[] {
@@ -186,6 +190,9 @@ interface Sample {
   promptTokens: number;
   outputTokens: number;
   raw?: string;
+  /** #172: how the choice was read, and what was asked again first. */
+  path?: string;
+  reasked?: string;
 }
 
 async function sample(c: Case, i: number): Promise<Sample> {
@@ -202,6 +209,7 @@ async function sample(c: Case, i: number): Promise<Sample> {
   return {
     case: c.name, i, seed, n: c.menu.options.length, id: r.id, position: pos >= 0 ? pos + 1 : null, why: r.why, reason: r.reason,
     shown: r.shown, latencyMs: r.latencyMs, waitMs: r.waitMs, promptTokens: r.promptTokens, outputTokens: r.outputTokens, raw,
+    ...(r.path ? { path: r.path } : {}), ...(r.reasked ? { reasked: r.reasked } : {}),
   };
 }
 
@@ -386,6 +394,12 @@ for (const c of perCase)
   console.log(`  ${c.source.padEnd(8)} ${c.name.slice(0, 60).padEnd(60)} ${c.size} opts  valid ${c.valid}/${c.samples}  modal ${c.modal ? `${c.modal.id} ${pct(c.modal.share, 1)}` : '-'}${c.sensible !== undefined ? `  sensible ${c.sensible}/${c.samples}` : ''}  ${Object.entries(c.counts).map(([k, n]) => `${k}:${n}`).join(' ')}`);
 console.log('');
 console.log(`valid: ${valid.length}/${all.length} (${pct(valid.length, all.length)})${Object.keys(why).length ? `; failures: ${Object.entries(why).map(([k, n]) => `${n} ${k}`).join(', ')}` : ''}`);
+{
+  // (#172: the paths choices were read by, the re-asks and how they ended, the kinds picked)
+  const tally = (xs: Array<string | undefined>) => Object.entries(xs.reduce((m, x) => (x ? { ...m, [x]: (m[x] ?? 0) + 1 } : m), {} as Record<string, number>)).map(([k, n]) => `${k} ${n}`).join(', ') || 'none';
+  const kindOf = (s: Sample) => run.find((c) => c.name === s.case)?.menu.options.find((o) => o.id === s.id)?.kind;
+  console.log(`paths: ${tally(valid.map((s) => s.path))}; re-asked: ${tally(all.map((s) => s.reasked))} (of them valid ${all.filter((s) => s.reasked && s.id).length}); kinds picked: ${tally(valid.map(kindOf))}`);
+}
 printBias('position bias, all cases', biasAll);
 printBias('position bias, equal-option cases', biasEqual);
 console.log(`sensible (labelled, ${labelled.length} cases): ${sensible}/${labelledSamples.length} (${pct(sensible, labelledSamples.length)} of all samples; ${pct(sensible, labelledSamples.filter((s) => s.id).length)} of valid)`);
@@ -398,7 +412,7 @@ const outDir = path.join(ROOT, 'runs/2026-10-12/bench');
 fs.mkdirSync(outDir, { recursive: true });
 const outFile = path.join(outDir, `choicebench-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
 fs.writeFileSync(outFile, JSON.stringify({
-  at: new Date().toISOString(), model: label(spec), level: LEVEL, dry: DRY || null, n: N, conc: CONC, files, trim: TRIM, skipped,
+  at: new Date().toISOString(), model: label(spec), level: LEVEL, dry: DRY || null, n: N, conc: CONC, files, trim: TRIM, open: OPEN, primer: process.env.MC_PRIMER ?? null, skipped,
   metrics: {
     decisions: all.length, valid: valid.length, validPct: all.length ? valid.length / all.length : 0, failures: why,
     positionBias: { all: biasAll, equal: biasEqual },

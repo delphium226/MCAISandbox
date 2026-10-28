@@ -401,7 +401,9 @@ run minutes from the agent server's start, paused time left out.
   Check `scripts/checks/palette_golden.mts dump|check|open` (train 8's t7_c_greens_full with R1's flags and R1's model
   calls replayed, network stubbed; `--law` enacts a test floor and quota; `--env MC_APPETITE=` feeds the members; in
   check:offline against 5bcfed1's dump); bench `scripts/bench/openbench.mts MENU.json OPEN.json` (the dumps' prompts,
-  saved with `--save`, sent to the model side by side).
+  saved with `--save`, sent to the model side by side); `choicebench.mts` with `OPEN=1` (a run's open choice records as
+  open menus) and `CASES=N`. Round 2: open mode re-asks once an act or an unlisted name put in `choice`, and says what is
+  not on the list and why; `MC_PRIMER=on` (off) adds a world primer to the chooser's system prompt in both modes.
 - **Talk (#107; `acts.ts`, `council.ts`; all off):** `MC_NEWS=on` (a `news` field: delivered within 16 blocks whether or
   not the pick ran, in a "News you heard" section, passed on once, attributed, tagged checked/refuted/unchecked for the
   measures only), `MC_QUESTIONS=on` (`question` and `question_to`: starts the addressee's answer call, one code-picked
