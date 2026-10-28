@@ -747,6 +747,21 @@ export function contributeTag(village: string, agent: string, optionId: string, 
   return null;
 }
 
+/** #172: a contribution rule the member has not met today whose class takes the item (not "any goods"), in words; else
+ *  null (the open chooser's reason for a make or a gather past the keep). */
+export function contributeOwed(village: string, agent: string, item: string, now: number): string | null {
+  if (!RULES.on) return null;
+  const st = state(village);
+  const day = dayOf(village, now);
+  for (const r of rulesInForce(village).filter((x) => (x.type as RuleType) === 'contribute')) {
+    const cls = String(r.params.class), n = Number(r.params.n);
+    if (!cls.split('+').some((c) => c !== 'goods' && inClass(item, c))) continue;
+    const put = putToday(st, agent, day, cls);
+    if (put < n) return `a law asks you to put ${n} ${cls.split('+').join(' or ')} a day, ${put} put today`;
+  }
+  return null;
+}
+
 /**
  * Each finished village day's compliance with the rules a member's own day can show (duty: the kind done; contribute: the
  * class put; norm: a kind its words name, when they name one), one `compliance` record a member and rule (rules_use.py's

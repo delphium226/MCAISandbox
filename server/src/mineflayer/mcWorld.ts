@@ -81,7 +81,7 @@ import { topWanted, wantedList } from '../wanted';
 import { SELLS } from '../merchant';
 import { clockOf, noteAnswer, scrub, setProjectLines, toldAnswer, villageMemory } from '../memory';
 import { codeNews, tellMember } from '../acts';
-import { RULES, boardSigns, breaks, inClass, rulesInForce, claimHeld, claimRule, contributeTag, duties, levyRate, noteBlocked, noteClaimWait, noteCompliance, notePuts, noteReportUsed, noteTakes, pendReport, pendingReport, postClaim, postReport, reportFor, reportRule, rulesLine, setZoneVillages, skipReport, zoneBoxes, type ClaimWork, type Report } from '../rules';
+import { RULES, boardSigns, breaks, contributeOwed, inClass, rulesInForce, claimHeld, claimRule, contributeTag, duties, levyRate, noteBlocked, noteClaimWait, noteCompliance, notePuts, noteReportUsed, noteTakes, pendReport, pendingReport, postClaim, postReport, reportFor, reportRule, rulesLine, setZoneVillages, skipReport, zoneBoxes, type ClaimWork, type Report } from '../rules';
 import { CUSTOMS, CUSTOM_IDS, TEMPLATES, customFacts, didOn, noteDid, noteExposed, offered as customOffered, seedLine, type CustomId } from '../customs';
 import { lapsePending, levyLeft, pendShare, pendingOf, settlePending } from '../own';
 import { councilLine, needBoost, noteNeedOffer, noteNeedStatus, setCouncilStore, withInfluence } from '../council';
@@ -5531,14 +5531,16 @@ export class MineflayerWorld implements WorldAdapter {
   }
 
   /** #172 (open): what asks for more of a good than the village keeps, in words: a law in force (a floor above its stock,
-   *  a contribution of its class, not "any goods") or members wanting a tool of their own beyond what storage can spare
+   *  a contribution of its class this member owes today, not "any goods") or members wanting a tool of their own beyond what storage can spare
    *  (a take leaves one); null when nothing does. A member's request is in the keep already (makeTarget). */
-  private askedFor(v: Village, item: string, stock: number, facts: Facts): string | null {
+  private askedFor(v: Village, item: string, stock: number, facts: Facts, agent: string): string | null {
     if (RULES.on) for (const r of rulesInForce(v.name)) {
       const q = r.params;
       if (r.type === 'floor' && (q.item === item || (q.class !== undefined && inClass(item, String(q.class)))) && stock < Number(q.n)) return `a law keeps ${q.n} ${q.item ? words(String(q.item)) : q.class}`;
-      if ((r.type as string) === 'contribute' && String(q.class).split('+').some((c) => c !== 'goods' && inClass(item, c))) return `a law asks each member to put ${q.n} ${q.class} a day`;
     }
+    // (a contribution only while this member has not met it today: train 9b's bench had 15 of 75 picks on one wooden axe)
+    const owed = contributeOwed(v.name, agent, item, facts.t);
+    if (owed) return owed;
     for (const [t, re] of Object.entries(TOOL_WANTS)) {
       if (!re.test(item)) continue;
       const n = facts.toolWants()[t] ?? 0, spare = Math.max(0, stock - 1);
@@ -6510,7 +6512,7 @@ export class MineflayerWorld implements WorldAdapter {
         // (train 9b: O's makes past the keep were 18.5% of its picks, stone pickaxes 20, ladders, slabs: only when a want or a
         // law asks for the good now; a request is in the keep already)
         const pastOk = open && !!p && 'why' in p && p.why === 'at stock' && target > 0 && (store[g.item] ?? 0) < 2 * Math.max(target, g.batch);
-        const ask = pastOk ? this.askedFor(v, g.item, store[g.item] ?? 0, facts) : null;
+        const ask = pastOk ? this.askedFor(v, g.item, store[g.item] ?? 0, facts, a.name) : null;
         if (pastOk && !ask) enoughMake.push(g.words);
         const past = pastOk && !!ask;
         if (past) {
@@ -6582,7 +6584,7 @@ export class MineflayerWorld implements WorldAdapter {
         // (#142: never sand: the lake-edge sand collect takes for dry sent train 3's gatherers into the water, 544 [stuck])
         // (#172, open: under the same limit, or past it when a law asks for the material; train 9b's O gathered cobblestone
         // nothing wanted 58 times, to 670 stored and 22 deposits refused; never sand)
-        const gAsk = open && anyway && m !== 'sand' && stored >= GATHER_ANYWAY_MAX ? this.askedFor(v, m === 'logs' ? `${v.wood ?? 'oak'}_log` : m, stored, facts) : null;
+        const gAsk = open && anyway && m !== 'sand' && stored >= GATHER_ANYWAY_MAX ? this.askedFor(v, m === 'logs' ? `${v.wood ?? 'oak'}_log` : m, stored, facts, a.name) : null;
         if (anyway && !((((POLICY_OPTIONS || open) && stored < GATHER_ANYWAY_MAX) || gAsk) && m !== 'sand')) {
           if (open && anyway && m !== 'sand' && stored >= GATHER_ANYWAY_MAX) enoughGather.push(`${m} (${stored} stored)`);
           continue;

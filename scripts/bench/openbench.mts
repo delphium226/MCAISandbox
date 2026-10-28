@@ -26,7 +26,7 @@ if (!menuFile || !openFile) {
   process.exit(2);
 }
 process.env.MC_MODEL_RECORD ??= '0';
-const { parseChoice } = await import('../../server/src/choose');
+const { parseChoice, reaskText } = await import('../../server/src/choose');
 const { callModel, parseSpec } = await import('../../server/src/modelCall');
 const { REASONING } = await import('../../server/src/modelUsage');
 
@@ -44,7 +44,7 @@ if (!names.length) {
   process.exit(2);
 }
 
-interface Sample { arm: 'menu' | 'open'; agent: string; ok: boolean; id?: string; kind?: string; why?: string; ms: number; pt: number; ot: number; outside?: boolean; openOnly?: boolean; pickaxeAsk?: boolean; pastPickaxe?: boolean; toolTake?: boolean }
+interface Sample { arm: 'menu' | 'open'; agent: string; ok: boolean; firstOk?: boolean; id?: string; kind?: string; why?: string; ms: number; pt: number; ot: number; outside?: boolean; openOnly?: boolean; pickaxeAsk?: boolean; pastPickaxe?: boolean; toolTake?: boolean }
 const samples: Sample[] = [];
 const jobs: Array<() => Promise<void>> = [];
 for (const agent of names)
@@ -55,9 +55,19 @@ for (const agent of names)
         const options = m.options as ChoiceOption[];
         const t0 = Date.now();
         try {
-          const r = await callModel({ spec, system: m.system, user: m.prompt, tools: m.tools, level, agent: `bench-${agent}`, kind: 'choose', priority: 'decision' } as Any);
-          const c = parseChoice(r.reply, options);
-          const s: Sample = { arm, agent, ok: !('invalid' in c), ms: r.ms, pt: r.reply.promptTokens ?? 0, ot: r.reply.outputTokens ?? 0 };
+          let r = await callModel({ spec, system: m.system, user: m.prompt, tools: m.tools, level, agent: `bench-${agent}`, kind: 'choose', priority: 'decision' } as Any);
+          let c = parseChoice(r.reply, options);
+          const firstOk = !('invalid' in c);
+          // (open: the run's re-ask, once, with choose()'s own words, an act in the choice's place or a name not listed)
+          if ('invalid' in c && arm === 'open' && (c.act || c.choice)) {
+            if (PEEK) console.log(`[${arm}] ${agent}: first INVALID ${c.invalid} | ${JSON.stringify(r.reply.calls ?? r.reply.text).slice(0, 300)}`);
+            const r2 = await callModel({ spec, system: m.system, user: `${m.prompt}
+
+${reaskText(c)}`, tools: m.tools, level, agent: `bench-${agent}`, kind: 'choose', priority: 'decision' } as Any);
+            r = { ...r2, ms: r.ms + r2.ms, reply: { ...r2.reply, promptTokens: (r.reply.promptTokens ?? 0) + (r2.reply.promptTokens ?? 0), outputTokens: (r.reply.outputTokens ?? 0) + (r2.reply.outputTokens ?? 0) } };
+            c = parseChoice(r.reply, options);
+          }
+          const s: Sample = { arm, agent, ok: !('invalid' in c), firstOk, ms: r.ms, pt: r.reply.promptTokens ?? 0, ot: r.reply.outputTokens ?? 0 };
           // (#172's tool want: a request for a pickaxe in the reply, a pickaxe made past the keep, a tool taken for oneself)
           const inp = ((r.reply.calls ?? []).find((x: Any) => x.name === 'choose') ?? r.reply.calls?.[0])?.input ?? {};
           s.pickaxeAsk = /pickaxe/i.test(String(inp.act_item ?? '')) || /^request.*pickaxe/i.test(String(inp.choice ?? ''));
@@ -66,11 +76,11 @@ for (const agent of names)
             const o = options.find((x) => x.id === c.id)!;
             s.id = c.id;
             s.kind = o.kind;
-            s.pastPickaxe = /pickaxe$/.test(c.id) && /\(past the keep\)/.test(o.facts ?? '');
+            s.pastPickaxe = /pickaxe$/.test(c.id) && /\(past the keep[:)]/.test(o.facts ?? '');
             s.toolTake = /^own:tool:/.test(c.id);
             if (arm === 'open') {
               s.outside = !menus[agent].options.some((x: Any) => x.id === c.id);
-              s.openOnly = /\(past the keep\)/.test(o.facts ?? '') || (o.kind === 'gather' && /nothing wants it/.test(o.name));
+              s.openOnly = /\(past the keep[:)]/.test(o.facts ?? '') || (o.kind === 'gather' && /nothing wants it/.test(o.name));
             }
           }
           if (PEEK) console.log(`[${arm}] ${agent}: ${s.ok ? `${s.id} | ${c && !('invalid' in c) ? c.reason : ''}` : `INVALID ${s.why}`} | ${JSON.stringify(r.reply.calls ?? r.reply.text).slice(0, 300)}`);
@@ -91,7 +101,7 @@ for (const arm of ['menu', 'open'] as const) {
   for (const s of ok) kinds.set(s.kind!, (kinds.get(s.kind!) ?? 0) + 1);
   const opts = names.map((n) => (arm === 'open' ? opens[n] : menus[n]).options.length);
   const a = {
-    samples: xs.length, valid: ok.length, validPct: Math.round((100 * ok.length) / Math.max(1, xs.length)), distinct: new Set(ok.map((s) => s.id)).size,
+    samples: xs.length, valid: ok.length, firstValid: xs.filter((s) => s.firstOk).length, validPct: Math.round((100 * ok.length) / Math.max(1, xs.length)), distinct: new Set(ok.map((s) => s.id)).size,
     optionsMedian: percentile(opts, 0.5), promptTokensMedian: percentile(xs.map((s) => s.pt).filter(Boolean), 0.5), outputTokensMedian: percentile(xs.map((s) => s.ot).filter(Boolean), 0.5),
     msMedian: percentile(xs.map((s) => s.ms), 0.5), msP90: percentile(xs.map((s) => s.ms), 0.9),
     kinds: Object.fromEntries([...kinds.entries()].sort((p, q) => q[1] - p[1])),
@@ -100,7 +110,7 @@ for (const arm of ['menu', 'open'] as const) {
     invalid: xs.filter((s) => !s.ok).map((s) => s.why),
   };
   summary.arms[arm] = a;
-  console.log(`${arm.padEnd(4)}: ${a.valid}/${a.samples} valid (${a.validPct}%), ${a.distinct} distinct picks; options median ${a.optionsMedian}; prompt tokens median ${a.promptTokensMedian}, output ${a.outputTokensMedian}; ${a.msMedian} ms median, p90 ${a.msP90}${arm === 'open' ? `; outside the menu's view ${a.outsideMenu}, open-only (past the keep / nothing wants it) ${a.openOnly}` : ''}`);
+  console.log(`${arm.padEnd(4)}: ${a.valid}/${a.samples} valid (${a.validPct}%; first replies ${a.firstValid}), ${a.distinct} distinct picks; options median ${a.optionsMedian}; prompt tokens median ${a.promptTokensMedian}, output ${a.outputTokensMedian}; ${a.msMedian} ms median, p90 ${a.msP90}${arm === 'open' ? `; outside the menu's view ${a.outsideMenu}, open-only (past the keep / nothing wants it) ${a.openOnly}` : ''}`);
   console.log(`      tool want: pickaxe requests ${a.pickaxeAsks}, pickaxes made past the keep ${a.pastPickaxe}, tools taken for oneself ${a.toolTakes}`);
   console.log(`      kinds: ${Object.entries(a.kinds).map(([k, n]) => `${k} ${n}`).join(', ')}${a.invalid.length ? `; invalid: ${[...new Set(a.invalid)].slice(0, 3).join(' | ')}` : ''}`);
 }

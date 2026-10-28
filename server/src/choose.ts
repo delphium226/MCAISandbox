@@ -509,6 +509,13 @@ export function parseChoice(reply: Reply, shown: ChoiceOption[]): { id: string; 
   return { id: m.o.id, reason: got.reason.trim().replace(/\s+/g, ' ').slice(0, 200), path: m.path };
 }
 
+/** #172: what open mode's second ask says went wrong with the first reply (openbench sends the same). */
+export function reaskText(c: { act?: boolean; choice?: string }): string {
+  return c.act
+    ? `Your answer put an act (${c.choice ? `"${c.choice}"` : 'with no choice'}) where the chore goes. An act (request, offer, accept...) goes in \`act\` beside a choice, never in its place; your act is kept. Now name in \`choice\` the one chore you do next, exactly as the list writes it.`
+    : `Your answer named "${c.choice}", which is not one of the chores you can do now (a missing kind is taken by another member, not possible here, or forbidden by a law). Name in \`choice\` one chore from the list, exactly as written.`;
+}
+
 /** An act's word at the start of a choice ("request", "accept r7", "offer"). */
 const ACT_WORD = /^(request|offer|accept|decline|release|report|pay|news|question|ask)\b/i;
 
@@ -665,9 +672,7 @@ export async function choose(req: ChooseRequest): Promise<ChooseResult> {
     // has none)
     const first = r.reply;
     if ('invalid' in c && req.menu.open && (c.act || c.choice) && !req.signal?.aborted) {
-      const why = c.act
-        ? `Your answer put an act (${c.choice ? `"${c.choice}"` : 'with no choice'}) where the chore goes. An act (request, offer, accept...) goes in \`act\` beside a choice, never in its place; your act is kept. Now name in \`choice\` the one chore you do next, exactly as the list writes it.`
-        : `Your answer named "${c.choice}", which is not one of the chores you can do now (a missing kind is taken by another member, not possible here, or forbidden by a law). Name in \`choice\` one chore from the list, exactly as written.`;
+      const why = reaskText(c);
       out.reasked = c.act ? 'act' : 'name';
       try {
         const r2 = await (req.call ?? callModel)({
