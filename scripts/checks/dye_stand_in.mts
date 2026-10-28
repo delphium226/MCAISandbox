@@ -96,13 +96,15 @@ if (!existsSync(file)) {
     const p0 = mon.monumentPlan(m5);
     m5.done = p0.jobs.map((_, i) => i);
     ok(JSON.stringify((m5 as any).leftOut) === '["lanterns","banners"]' && !(m5 as any).furnish.lanterns, 'left out and recorded');
-    const items = mon.leftOutItems(m5, 'lanterns');
+    const later = Date.now() + (mon.REFURNISH_WAIT_MIN + 1) * 60000;
+    ok(!Object.keys(mon.leftOutItems(m5, 'lanterns')).length, 'nothing to bring back within the wait after leaving out');
+    const items = mon.leftOutItems(m5, 'lanterns', later);
     ok(items.lantern > 0 && items.iron_chain > 0 && Object.keys(items).length === 2, `the lanterns' pieces (${JSON.stringify(items)})`);
     ok(!refurnishReady('lanterns', { torch: 64 }, items), 'not back with no iron');
     ok(refurnishReady('lanterns', { iron_ingot: 64 }, items), 'back with 64 ingots in storage');
     ok(refurnishReady('lanterns', { iron_ingot: 98, iron_nugget: 1, torch: 58 }, items), 'back with D4\'s storage (one nugget, counted once)');
     ok(!refurnishReady('lanterns', { iron_ingot: 20 }, items), 'not back with too few ingots');
-    ok(!refurnishReady('banners', { white_wool: 99 }, mon.leftOutItems(m5, 'banners')) && refurnishReady('banners', { shears: 1 }, mon.leftOutItems(m5, 'banners')), 'banners back with shears');
+    ok(!refurnishReady('banners', { white_wool: 99 }, mon.leftOutItems(m5, 'banners', later)) && refurnishReady('banners', { shears: 1 }, mon.leftOutItems(m5, 'banners', later)), 'banners back with shears');
     const n = mon.refurnishOn(m5, 'lanterns');
     const p1 = mon.monumentPlan(m5), rj = p1.jobs[p1.jobs.length - 1];
     ok(n === items.lantern + items.iron_chain && rj.refurnish === 'lanterns' && rj.cells?.length === n, `the lanterns back as a job of their ${n} cells`);
@@ -111,6 +113,11 @@ if (!existsSync(file)) {
     const t = mon.jobTargets(m5, rj.index, (b) => b);
     ok(t.length === n && t.every((q) => /^(lantern|iron_chain)/.test(q.block)), 'its targets are the lanterns and chains only (no bell)');
     ok(mon.refurnishOn(m5, 'lanterns') === 0 && JSON.stringify((m5 as any).leftOut) === '["banners"]', 'once only; banners still out');
+    // (left out again before its job is built: the job goes, and it may come back after the wait, listed once)
+    const jobs1 = mon.monumentPlan(m5).jobs.length;
+    mon.furnishLeaveOut(m5, 'lanterns');
+    ok(mon.monumentPlan(m5).jobs.length === jobs1 - 1 && !(m5 as any).refurnish.includes('lanterns'), 'left out again: its unbuilt job goes');
+    ok(mon.refurnishOn(m5, 'lanterns') > 0 && (m5 as any).refurnish.filter((k: string) => k === 'lanterns').length === 1, 'back again, listed once');
     // (back before the furnishing's job stood: just drawn again)
     const m6 = JSON.parse(JSON.stringify(m)) as Monument;
     mon.furnishLeaveOut(m6, 'lanterns');

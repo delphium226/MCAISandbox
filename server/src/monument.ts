@@ -149,16 +149,24 @@ export function dyeStandIn(m: Monument, dye: string): number {
 }
 /** A furnishing kind left out (its chores failed FURNISH_FAILS times: no iron for ingots or shears): not drawn, and
  *  recorded for the re-furnish. */
-export function furnishLeaveOut(m: Monument, kind: FurnishKind): void {
+export function furnishLeaveOut(m: Monument, kind: FurnishKind, now = Date.now()): void {
   const r = m3(m);
   if (!r.furnish?.[kind]) return;
+  // (a re-furnish job of the kind not yet built goes with it; D4's banners came back and failed again on their sticks)
+  if (r.refurnish?.includes(kind)) {
+    const c = monumentPlan(m), i = c.jobs.findIndex((j) => j.refurnish === kind);
+    if (i < 0 || !m.done.includes(i)) r.refurnish = r.refurnish.filter((k) => k !== kind);
+  }
   r.furnish[kind] = false;
   if (!(r.leftOut ??= []).includes(kind)) r.leftOut.push(kind);
+  (r.leftAt ??= {})[kind] = now;
 }
+/** Minutes a kind left out waits before it may come back (no bouncing in and out while its chores still fail). */
+export const REFURNISH_WAIT_MIN = 20;
 /** What a left-out kind's pieces are, by item (the furnishing as drawn with it). */
-export function leftOutItems(m: Monument, kind: FurnishKind): Record<string, number> {
+export function leftOutItems(m: Monument, kind: FurnishKind, now = Date.now()): Record<string, number> {
   const r = m3(m);
-  if (!r.furnish) return {};
+  if (!r.furnish || now - (r.leftAt?.[kind] ?? 0) < REFURNISH_WAIT_MIN * 60000) return {};
   const c = monumentPlan({ ...m, furnish: { ...r.furnish, [kind]: true }, refurnish: [] } as Monument), fs = c.stageNames.indexOf(FURNISH_STAGE) + 1;
   const out: Record<string, number> = {};
   for (const j of c.jobs) if (j.stage === fs && j.reroof === undefined && j.refurnish === undefined)
@@ -176,7 +184,7 @@ export function refurnishOn(m: Monument, kind: FurnishKind): number {
   r.furnish[kind] = true;
   r.leftOut = r.leftOut.filter((k) => k !== kind);
   if (!stood) return 0;
-  (r.refurnish ??= []).push(kind);
+  if (!(r.refurnish ??= []).includes(kind)) r.refurnish.push(kind);
   return monumentPlan(m).jobs.find((j) => j.refurnish === kind)?.cells?.length ?? 0;
 }
 
@@ -748,6 +756,8 @@ export type MonumentM3 = Monument & {
    *  the furnishing's job stood (each a job of its cells after the plan's, as the re-roof; the user's 10-28). */
   leftOut?: FurnishKind[];
   refurnish?: FurnishKind[];
+  /** When each kind was last left out (it may come back REFURNISH_WAIT_MIN after). */
+  leftAt?: Partial<Record<FurnishKind, number>>;
   /** #162 tier 3, chain C (MC_GEODE): drawn with the geode's accents (calcite, amethyst). */
   accents?: boolean;
   /** #162: its stonecutter (mcCutter.ts) and dye bed (mcDyeBed.ts). */
