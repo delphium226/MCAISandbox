@@ -922,3 +922,7 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   MC_DEEP_STONE, MC_GEODE_GUARD and MC_FURNISH_LANTERNS/BANNERS/CANDLES (train 7's set), now that the dyes and the
   furnishing have stand-ins and D3 finished the cathedral from train 7's stall. MC_GREENS_MORE stays off for the next
   test train. Checks written with these flags off pin them off.
+- 10-28 (the user's, on the dyes-greens run's furnishing stall) **Monument furnishing left out for want of iron comes
+  back:** lanterns, chains and banners left out after failed chores are added by a later job once iron is in stock again
+  (as the copper re-roof). **New mines open as needed:** when the iron level (or another mine) is worked out, the village
+  opens a new one rather than running dry.
