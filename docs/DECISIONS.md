@@ -929,3 +929,10 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 10-28 (the user's, on D1's greens: 146 small works, 77 of them one lamp design) **The greens get a better mix:** fewer
   lamps, more of the larger works, gardens on the greens; a finished green carries geometric flower patterns (beds laid
   out as shapes, kept for flowers) and trees where there are none.
+- 10-28 (the user's, after train 8: choices change picks but not output, and laws have little to govern) **An open
+  palette beside the menu:** members may choose from the game's whole skill palette, not only from a menu shaped by the
+  village's progression. Both stay in the code: the palette becomes the base layer (every action a skill with its
+  arguments, one shared check for feasibility, laws and reservations, and its facts) and the menu a ranked view on top of
+  it, so a law or custom is wired once and both modes see it. First the refactor, golden-checked with no change in
+  behaviour; then `MC_CHOOSE=open` (the palette plus a short "what the village needs" block) behind its flag; tested as
+  whole-village arms against the menu. #170 and #171 are fixed before the next #164 rerun either way.
