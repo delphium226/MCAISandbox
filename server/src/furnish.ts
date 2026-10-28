@@ -9,8 +9,8 @@
  */
 import { rawSetting } from './settings';
 
-const flag = (name: string) => /^(on|1|true|yes)$/i.test(rawSetting(name) ?? 'off');
-/** The three chains' flags (all off by default). */
+const flag = (name: string) => /^(on|1|true|yes)$/i.test(rawSetting(name) ?? 'on');
+/** The three chains' flags (all on by default since 10-27, the monument's default). */
 export const FURNISH = {
   lanterns: flag('MC_FURNISH_LANTERNS'),
   banners: flag('MC_FURNISH_BANNERS'),

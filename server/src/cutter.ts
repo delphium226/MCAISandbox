@@ -12,7 +12,7 @@ import { rawSetting } from './settings';
 
 /** MC_MONUMENT_DETAIL=on (#162, off): the cathedral drawn with gothicGen's `detail` and its stone pieces cut here. */
 export const CUTTER = {
-  on: /^(on|1|true|yes)$/i.test(rawSetting('MC_MONUMENT_DETAIL') ?? 'off'),
+  on: /^(on|1|true|yes)$/i.test(rawSetting('MC_MONUMENT_DETAIL') ?? 'on'),
 };
 
 /** The stonecutter's record beside the kiln's (it rides in the monument's JSON, as M3's fields do). */

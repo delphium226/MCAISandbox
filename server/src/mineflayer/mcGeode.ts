@@ -11,7 +11,7 @@
  */
 import { rawSetting } from '../settings';
 
-export const GEODE_GUARD = /^(on|1|true|yes)$/i.test(rawSetting('MC_GEODE_GUARD') ?? 'off');
+export const GEODE_GUARD = /^(on|1|true|yes)$/i.test(rawSetting('MC_GEODE_GUARD') ?? 'on');
 
 /** The shell's blocks: never dug by a path. */
 export const GEODE_SHELL = ['smooth_basalt', 'calcite', 'amethyst_block', 'budding_amethyst'];

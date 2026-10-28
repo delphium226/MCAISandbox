@@ -42,14 +42,14 @@ import { FURNISH_STAGE, furnishKinds, furnishOn, furnishTrade } from './furnish'
 
 export { KILN };
 export const MONUMENT = {
-  on: /^(on|1|true|yes)$/i.test(rawSetting('MC_MONUMENT') ?? 'off'),
+  on: /^(on|1|true|yes)$/i.test(rawSetting('MC_MONUMENT') ?? 'on'),
   preset: rawSetting('MC_MONUMENT_PRESET') || 'notre_dame',
   // (1:3 by default since 10-27, the user's: monuments stay at 1:3 from now on)
   scale: Math.max(0.05, Math.min(1, Number(rawSetting('MC_MONUMENT_SCALE') ?? 1 / 3) || 1 / 3)),
   share: Math.max(0.1, Math.min(1, Number(rawSetting('MC_MONUMENT_SHARE') ?? 0.6) || 0.6)),
-  palette: (/^full$/i.test(rawSetting('MC_MONUMENT_PALETTE') ?? 'today') ? 'full' : 'today') as 'today' | 'full',
+  palette: (/^full$/i.test(rawSetting('MC_MONUMENT_PALETTE') ?? 'full') ? 'full' : 'today') as 'today' | 'full',
   /** M2 (#145, MC_GLAZING): stained panes from the flowers' dyes, and sand smelted into glass in the kiln. */
-  glazing: /^(on|1|true|yes)$/i.test(rawSetting('MC_GLAZING') ?? 'off'),
+  glazing: /^(on|1|true|yes)$/i.test(rawSetting('MC_GLAZING') ?? 'on'),
   /** #153: the monument's type: the cathedral or the castle (castleGen.ts). */
   type: (/^castle$/i.test(rawSetting('MC_MONUMENT_TYPE') ?? 'cathedral') ? 'castle' : 'cathedral') as MonumentType,
 };
@@ -112,7 +112,7 @@ export function fullBlock(block: string, wood: string, colours: Record<string, s
 }
 
 /** MC_DEEP_STONE (#162 tier 3, chain A): kept on a monument begun with it and the detail palette (`deep`). */
-export const DEEP_STONE_ON = /^(on|1|true|yes)$/i.test(rawSetting('MC_DEEP_STONE') ?? 'off');
+export const DEEP_STONE_ON = /^(on|1|true|yes)$/i.test(rawSetting('MC_DEEP_STONE') ?? 'on');
 /** The roof's deepslate blocks (cut from cobbled deepslate) and the plinth's (from tuff). */
 export const DEEP_BLOCKS = ['deepslate_tiles', 'deepslate_tile_stairs', 'deepslate_tile_slab'];
 /** What a deep stone stands in as when the village is short (today's: the village wood, stone bricks). */
@@ -633,10 +633,10 @@ export function siteTaken(v: Village, others: Village[], mineBoxes: Area[], now:
 
 /** M3's flags (each off): the trades (MC_MONUMENT_ROLES), the progress line and news (MC_MONUMENT_NEWS), the architect's
  *  pick at the trigger (MC_MONUMENT_ARCHITECT) and the scales it may pick from (MC_MONUMENT_SCALES; empty: the one set). */
-const flagOn = (name: string) => /^(on|1|true|yes)$/i.test(rawSetting(name) ?? 'off');
+const flagOn = (name: string, def = 'off') => /^(on|1|true|yes)$/i.test(rawSetting(name) ?? def);
 export const M3 = {
-  roles: flagOn('MC_MONUMENT_ROLES'),
-  news: flagOn('MC_MONUMENT_NEWS'),
+  roles: flagOn('MC_MONUMENT_ROLES', 'on'),
+  news: flagOn('MC_MONUMENT_NEWS', 'on'),
   architect: flagOn('MC_MONUMENT_ARCHITECT'),
   /** As N for 1:N, largest N (smallest cathedral) first. */
   scales: (() => {

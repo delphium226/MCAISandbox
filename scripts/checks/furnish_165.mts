@@ -1,6 +1,6 @@
 /**
  * #165 (Cologne's follow-ups) and #162's chains C-E (the furnishing) checked offline, no server:
- * - the flags read off by default, and a new monument then has no furnishing stage;
+ * - the flags read on by default (since 10-28), and a new monument then has its furnishing stage;
  * - furnishPlan: what a lantern, a chain, a banner, a candle, the bell and the altar's chiselled bricks take and craft;
  * - gothicGen's furnishKinds: only the kinds asked for are drawn (lanterns alone: chains and lanterns only), every kind
  *   as before, and no furnishing at all exactly the eight-stage cathedral;
@@ -25,8 +25,8 @@ const ok = (cond: unknown, what: string) => {
 };
 
 // Flags off
-ok(!FURNISH.lanterns && !FURNISH.banners && !FURNISH.candles, 'the furnishing flags read off by default');
-ok(!(newMonument('oak', 0) as { furnish?: unknown }).furnish, 'a new monument has no furnishing with the flags off');
+ok(FURNISH.lanterns && FURNISH.banners && FURNISH.candles, 'the furnishing flags read on by default (since 10-28)');
+ok(!!(newMonument('oak', 0) as { furnish?: unknown }).furnish, 'a new monument has its furnishing with the flags on');
 
 // The recipes
 {

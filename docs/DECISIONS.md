@@ -917,3 +917,8 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   dusk gathering at the green is one template; untyped norms stay votable with a "words only" ballot line, and a kept
   farm plot becomes a claim on an own-farm site; a back counts when the backer's failures that day name the law's
   target; the first test is one pilot train (R1/R0/F1, ~$3), E.10's replicates only after it passes.
+- 10-28 (the user's 10-27 decision, applied after F331) **The monument is on by default:** MC_MONUMENT, the full palette,
+  MC_QUARRY, MC_KILN, MC_GLAZING, MC_MONUMENT_DETAIL, MC_DYE_BED, MC_MONUMENT_ROLES, MC_MONUMENT_NEWS, MC_LODGE,
+  MC_DEEP_STONE, MC_GEODE_GUARD and MC_FURNISH_LANTERNS/BANNERS/CANDLES (train 7's set), now that the dyes and the
+  furnishing have stand-ins and D3 finished the cathedral from train 7's stall. MC_GREENS_MORE stays off for the next
+  test train. Checks written with these flags off pin them off.

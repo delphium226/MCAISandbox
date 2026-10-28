@@ -2248,3 +2248,15 @@ CLAUDE.md when a phase ends.
   reflections and ballots call the model under MC_CHOOSE=fixed. The gap is consequence, not production: 85-92% of
   backs refused by the "day touched it" gate, norms voted yes 94-98% with no stake line, and nothing counts or shows a
   norm's result. Customs (G4) are unbuilt. Spec: runs/2026-10-27/i164/spec.md.
+- F331 (10-28, dyes_greens, #162/G8 and G1) **The monument completes from train 7's stall, and bigger greens keep small
+  works going on a pad village.** Train 7 A's stage-7 stall was 2 purple dye: its dyers raced (two made 4 orange for 2
+  and used the red) and the composter had nothing to take (seeds kept for sowing). With 7c7f668 (the composter takes
+  flowers past 32 and saplings past 8; one dyer a colour; a colour stands in as plain glass after 4 failed chores or 30
+  min) live D1 from t7_a_mon_stage7 (world 5, 1x, model chooser) made the purple at once and built stages 7 and 8: dye
+  failures 0, no colour stood in. The furnishing then stalled on iron (the iron level finished: no ingots for lanterns,
+  chains or the shears banners need); with a furnishing kind left out after 4 failed chores (the bell kept) D3 finished
+  the cathedral, 16 of 16 jobs, 3,524 blocks, lanterns and banners left out. MC_GREENS_MORE (21x21 greens, up to 3x the
+  members' greens on a pad village, off) in D1: 8 new greens, "no room (greens full)" 0 against train 7's 566 (A) and
+  389 (C), 93 initiatives built in 85 min (39 plot-sized), busy 24-41% in every 10 minutes against A's 13-22% in its last
+  30; the simulator from t7_c_greens_full gave 88 -> 177 initiatives in 2 h. [lag] 0, [stuck] 36, all fed. Open: the
+  iron level runs out by the furnishing at 1x, so lanterns and banners go; runs/2026-10-27/dyes_greens/resume.md.

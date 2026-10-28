@@ -20,7 +20,7 @@ import { kilnStrip } from './kiln';
 import { searchQuarry } from './quarry';
 
 export const LODGE = {
-  on: /^(on|1|true|yes)$/i.test(rawSetting('MC_LODGE') ?? 'off'),
+  on: /^(on|1|true|yes)$/i.test(rawSetting('MC_LODGE') ?? 'on'),
   /** Stacks a bulk trip aims for. */
   stacks: Math.max(1, Math.min(8, Math.floor(Number(rawSetting('MC_LODGE_TRIP') ?? 4) || 4))),
 };

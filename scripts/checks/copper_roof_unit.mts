@@ -21,6 +21,9 @@ process.env.MC_MONUMENT_PALETTE = 'full';
 process.env.MC_MONUMENT_DETAIL = 'on';
 process.env.MC_DEEP_STONE = 'on';
 process.env.MC_COPPER_ROOF = 'test';
+// (the monument's flags are on by default since 10-28: these cases are written with them off unless set above)
+for (const k of ['MC_MONUMENT', 'MC_QUARRY', 'MC_KILN', 'MC_GLAZING', 'MC_MONUMENT_DETAIL', 'MC_DYE_BED', 'MC_MONUMENT_ROLES', 'MC_MONUMENT_NEWS', 'MC_LODGE', 'MC_DEEP_STONE', 'MC_GEODE_GUARD', 'MC_FURNISH_LANTERNS', 'MC_FURNISH_BANNERS', 'MC_FURNISH_CANDLES']) process.env[k] ??= 'off';
+process.env.MC_MONUMENT_PALETTE ??= 'today';
 const { Materials } = await import('../../server/src/mineflayer/mcMaterials');
 const gen = await import('../../server/src/gothicGen');
 const mon = await import('../../server/src/monument');

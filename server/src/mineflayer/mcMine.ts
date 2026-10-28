@@ -1876,7 +1876,7 @@ function filler(a: BotAgent): string | undefined {
 // MC_DEEP_STONE (#162 tier 3, chain A; off): the monument's deepslate roof and tuff plinth from the iron age's deep level.
 // Below y 0 every block the level digs is cobbled deepslate or tuff (G1: 1.1M deepslate, 89k tuff at y -16 to -1 within
 // 144); the iron age lays its next level IRON_DROP below the last, so G1's second (y 8 -> -4) is already deep.
-export const DEEP_STONE = /^(on|1|true|yes)$/i.test(rawSetting('MC_DEEP_STONE') ?? 'off');
+export const DEEP_STONE = /^(on|1|true|yes)$/i.test(rawSetting('MC_DEEP_STONE') ?? 'on');
 /** What the deep level keeps for the monument (cut at the stonecutter: deepslate tiles and stairs, tuff bricks). */
 export const DEEP_KEEP = ['cobbled_deepslate', 'tuff'];
 

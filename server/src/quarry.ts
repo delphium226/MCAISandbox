@@ -17,7 +17,7 @@ import { rawSetting } from './settings';
 import type { Area } from './village';
 
 export const QUARRY = {
-  on: /^(on|1|true|yes)$/i.test(rawSetting('MC_QUARRY') ?? 'off'),
+  on: /^(on|1|true|yes)$/i.test(rawSetting('MC_QUARRY') ?? 'on'),
 };
 
 /** The quarry's record (Monument.quarry). */

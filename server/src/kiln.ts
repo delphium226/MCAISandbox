@@ -14,7 +14,7 @@ import { rawSetting } from './settings';
 import type { Area } from './village';
 
 export const KILN = {
-  on: /^(on|1|true|yes)$/i.test(rawSetting('MC_KILN') ?? 'off'),
+  on: /^(on|1|true|yes)$/i.test(rawSetting('MC_KILN') ?? 'on'),
 };
 
 /** What the kiln smelts (input -> output). */

@@ -17,7 +17,7 @@ import type { Area } from './village';
 
 /** MC_DYE_BED=on (#162, off; with MC_MONUMENT_DETAIL): the dye census, the dye bed and the dyer's chores. */
 export const DYE_BED = {
-  on: /^(on|1|true|yes)$/i.test(rawSetting('MC_DYE_BED') ?? 'off'),
+  on: /^(on|1|true|yes)$/i.test(rawSetting('MC_DYE_BED') ?? 'on'),
 };
 
 /** Tall flowers: two blocks high, 2 dyes each, a copy dropped for each bone meal used on one (the classic dye farm). */

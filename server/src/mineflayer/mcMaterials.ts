@@ -160,7 +160,7 @@ export function cutOptions(): Map<string, Option[]> {
 /** Stones the quarry and the mine give as they lie (#162): with `cut`, gathered rather than mixed from diorite. */
 const CUT_GATHER = ['andesite', 'diorite', 'granite', 'tuff', 'calcite',
   // (MC_DEEP_STONE, #162 tier 3: the deep level's stone, cut 1:1 into deepslate tiles, bricks and their stairs)
-  ...(/^(on|1|true|yes)$/i.test(rawSetting('MC_DEEP_STONE') ?? 'off') ? ['cobbled_deepslate'] : []),
+  ...(/^(on|1|true|yes)$/i.test(rawSetting('MC_DEEP_STONE') ?? 'on') ? ['cobbled_deepslate'] : []),
   // (MC_GEODE, #162 tier 3: the geode's amethyst blocks, dug from its lining as they lie rather than crafted from shards)
   ...(/^(on|1|true|yes)$/i.test(rawSetting('MC_GEODE') ?? 'off') ? ['amethyst_block'] : [])];
 
