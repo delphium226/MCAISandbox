@@ -1154,6 +1154,13 @@ const triesMax = () => (IRON_AGE ? IRON_AGE_TRIES : IRON_TRIES);
  */
 export function ironDone(m: Mine | undefined, now = Date.now()): boolean {
   const i = m?.iron as IronRetry | undefined;
+  return !!i?.finished && !(IRON_AGE && i.retryAt !== undefined && i.retryAt <= now) && !shaftDue(m, now);
+}
+
+/** Whether the current level is finished for now, a new shaft due or not (the deep level's question: a shaft opened from
+ *  it is not deep). */
+function levelDone(m: Mine | undefined, now = Date.now()): boolean {
+  const i = m?.iron as IronRetry | undefined;
   return !!i?.finished && !(IRON_AGE && i.retryAt !== undefined && i.retryAt <= now);
 }
 
@@ -1202,7 +1209,7 @@ const HOLD_MS = 5 * 60000;
  * cobblestone mine). With two or three miners the mine turns tunnels off both sides of the bottom step (VanI1), so any
  * dug cell may be the start: a tunnel's or branch's end going on outward. Null when none is clear.
  */
-export function ironStart(m: Mine, fits?: StairsFit): { x: number; z: number; y: number; dir: [number, number]; side?: 1 | 2 } | null {
+export function ironStart(m: Mine, fits?: StairsFit, keepOff: Array<{ x: number; z: number }> = []): { x: number; z: number; y: number; dir: [number, number]; side?: 1 | 2 } | null {
   const last = m.down?.filter((d) => d.level !== undefined).at(-1);
   const b = last ? downColumns(m, last)[last.steps - 1] : stairColumns(m)[m.steps - 1];
   const L = last ? last.level! : m.level!;
@@ -1215,7 +1222,7 @@ export function ironStart(m: Mine, fits?: StairsFit): { x: number; z: number; y:
     // next two stretches of a tunnel still going: the stairs must not take their way on)
     dug.push(...legAhead(l, !l.end));
   }
-  dug.push(...level);
+  dug.push(...level, ...keepOff);
   return pickIronStart(b, L, level, dug, m.iron?.abandoned ?? [], m.dir, true, fits);
 }
 
@@ -1258,7 +1265,7 @@ function pickIronStart(b: { x: number; z: number }, L: number, level: Array<{ x:
  * bottom step first, clear of its stairs and cells as ironStart's are of the mine's. `abandoned`: the new level's stairs
  * given up so far. Null when none is clear.
  */
-export function ironDeeperStart(old: IronLevel, abandoned: NonNullable<IronLevel['abandoned']>, fits?: StairsFit, toward?: { x: number; z: number }): { x: number; z: number; y: number; dir: [number, number] } | null {
+export function ironDeeperStart(old: IronLevel, abandoned: NonNullable<IronLevel['abandoned']>, fits?: StairsFit, toward?: { x: number; z: number }, keepOff: Array<{ x: number; z: number }> = []): { x: number; z: number; y: number; dir: [number, number] } | null {
   const b = ironColumns(old).at(-1);
   if (!b || old.level === undefined) return null;
   const level: Array<{ x: number; z: number }> = [{ x: b.x, z: b.z }];
@@ -1267,7 +1274,7 @@ export function ironDeeperStart(old: IronLevel, abandoned: NonNullable<IronLevel
     level.push({ x: l.x, z: l.z }, ...legCells(l));
     dug.push(...legAhead(l, !l.end));
   }
-  dug.push(...level);
+  dug.push(...level, ...keepOff);
   return pickIronStart(b, old.level, level, dug, abandoned, old.dir, false, fits, toward);
 }
 
@@ -1368,14 +1375,17 @@ async function digLane2(a: BotAgent, v: Village, m: Mine, i: IronLevel, signal: 
 /** Where the current iron level's stairs start again after some were given up: below the last finished level when there
  *  is one (MC_IRON_AGE), else beside the mine's deepest level. */
 function ironRestart(m: Mine, a?: BotAgent): { x: number; z: number; y: number; dir: [number, number]; side?: 1 | 2 } | null {
-  const old = m.ironPast?.at(-1);
+  // (the level its stairs start from: a new shaft's own, openShaft)
+  const old = m.iron ? parentOf(m, m.iron) : m.ironPast?.at(-1) ?? null;
   // (with a bot, MC_IRON_AGE: only starts the world shows fit, down to the level's aim)
   const fits = a && old?.level !== undefined ? stairsFit(a, old.level, old.level - (m.iron?.targetY ?? old.level - IRON_DROP) + 1) : undefined;
-  if (old) return ironDeeperStart(old, m.iron?.abandoned ?? [], fits, ORE_ON ? (m.iron as OreLevel | undefined)?.toward : undefined);
+  if (old) return ironDeeperStart(old, m.iron?.abandoned ?? [], fits, ORE_ON ? (m.iron as OreLevel | undefined)?.toward : undefined, m.iron ? stairsOff(m, old, m.iron) : []);
   // (the first level, MC_IRON_AGE #113: a dug cell of the mine to start from, its first steps solid; All1's starts lay in
   // branches passed undug, which no bot could reach)
   const L = m.down?.filter((d) => d.level !== undefined).at(-1)?.level ?? m.level;
-  return ironStart(m, IRON_AGE && a && L !== undefined ? stairsFit(a, L, 4) : undefined);
+  // (a new shaft off the mine keeps off the other shafts' stairs there)
+  const off = m.iron && (m.iron as Shaft).from === -1 ? stairsOff(m, null, m.iron) : [];
+  return ironStart(m, IRON_AGE && a && L !== undefined ? stairsFit(a, L, 4) : undefined, off);
 }
 
 /**
@@ -1389,24 +1399,176 @@ export function layNextIronLevel(reg: { note: (v: Village, s: string) => void; s
   const past = m.ironPast ?? [];
   // (MC_ORE_MINE: ORE_DROP below or deeper where the iron seen is thicker, toward it; ORE_LEVELS and ORE_MINE_CELLS in all)
   // (`deep`, MC_DEEP_STONE: a level at DEEP_DOWN or lower for the monument's stone, past the levels' count and the ore's aim)
-  const ore = deep ? undefined : ORE_ON ? (i.dug < ORE_MINE_CELLS ? oreNextLevel(i, a ? a.world.atlas.near(i.x, i.z, 80) : []) : null) : undefined;
-  if (ore === null) return '';
+  // (the levels' and cells' counts are the shaft's: a new one, openShaft, starts them again)
+  const ore = deep ? undefined : ORE_ON ? (shaftDug(i) < ORE_MINE_CELLS ? oreNextLevel(i, a ? a.world.atlas.near(i.x, i.z, 80) : []) : null) : undefined;
+  if (ore === null) return openShaft(reg, v, m, a);
   const target = deep ? Math.max(IRON_FLOOR_Y, Math.min(i.level - IRON_DROP, DEEP_DOWN)) : ore ? ore.y : i.level - IRON_DROP;
-  if ((!deep && past.length + 2 > (ore ? ORE_LEVELS : IRON_LEVELS)) || target < IRON_FLOOR_Y) return '';
+  if ((!deep && shaftLevels(m, i) + 1 > (ore ? ORE_LEVELS : IRON_LEVELS)) || target < IRON_FLOOR_Y) return deep ? '' : openShaft(reg, v, m, a);
   // (with a bot, the world's test too: stairsFit)
   const s = ironDeeperStart(i, [], a ? stairsFit(a, i.level, i.level - target + 1) : undefined, ore?.toward);
   if (!s) {
     reg.note(v, `no clear way down from the iron level at y=${i.level} to another below it`);
-    return '';
+    return deep ? '' : openShaft(reg, v, m, a);
   }
   m.ironPast = [...past, i];
   m.iron = { x: s.x, z: s.z, y: s.y, dir: s.dir, steps: 0, legs: [], dug: i.dug, dugAt: i.dug, got: { ...i.got }, targetY: target };
+  // (a shaft's own count goes on with its levels, as the parent a level laid below another has by default)
+  const at = (i as Shaft).shaftAt;
+  if (at !== undefined) (m.iron as Shaft).shaftAt = at;
   // (the iron seen goes on with it: what lies at the new level's height is drifted to there)
   if (ore) Object.assign(m.iron, { aboveY: i.level, seen: [...((i as OreLevel).seen ?? [])], ...(ore.toward ? { toward: ore.toward } : {}) });
   const note = `the next iron level's stairs start at ${s.x},${s.y},${s.z}, going ${compass(s.dir)} down to about y=${target}`;
   reg.note(v, note);
   reg.save();
   return note;
+}
+
+// ---------------------------------------------------------------------------------------------
+// New shafts (the user's, 10-28: a worked-out mine leads to a new one). Train 7 A and B laid their first level at y 22,
+// then the monument's deep level at -4 (MC_DEEP_STONE); when it finished the next aim, -10, lay below IRON_FLOOR_Y and
+// the iron stopped at +65 of 155 minutes, with y 4-16 never dug. When no level can follow the last (the floor, the
+// levels' count, the cells' count, no way down), a new shaft is laid at once: stairs from any level dug before (or the
+// cobblestone mine's deepest) down to a free height, the one nearest the iron's peak first, toward the atlas' iron there.
+// ---------------------------------------------------------------------------------------------
+
+/** A level's record with a new shaft's fields: the level its stairs start from (an index in ironLevels; -1 the
+ *  cobblestone mine's deepest level; none: the level before it) and the mine's cells dug when its shaft opened (the
+ *  levels' and cells' counts run from there). */
+type Shaft = IronLevel & { from?: number; shaftAt?: number };
+/** The mine's record with the time a new shaft was last looked for and none was free (tried again after IRON_RETRY_MS). */
+type ShaftMine = Mine & { shaftTried?: number };
+/** A free height: no level within SHAFT_GAP above or below whose stairs' foot lies within SHAFT_NEAR of the new one's
+ *  start (minevale3's levels' tunnels reach about 30 from their foot); shafts looked at, at most, with the world's test. */
+const SHAFT_GAP = 6, SHAFT_NEAR = 48, SHAFT_TRIES = 12;
+
+/** The level iron level `i`'s stairs start from: null for the cobblestone mine's deepest level. */
+function parentOf(m: Mine, i: IronLevel): IronLevel | null {
+  const all = ironLevels(m), k = all.indexOf(i), f = (i as Shaft).from;
+  if (f !== undefined) return f >= 0 && f < all.length && f !== k ? all[f] : null;
+  return k > 0 ? all[k - 1] : null;
+}
+
+/** The levels walked through to reach `i`'s stairs, top first (its parent's parents...). */
+export function chainAbove(m: Mine, i: IronLevel): IronLevel[] {
+  const out: IronLevel[] = [];
+  for (let p = parentOf(m, i); p && !out.includes(p) && out.length < 64; p = parentOf(m, p)) out.unshift(p);
+  return out;
+}
+
+/** The stairs (and given-up stairs) of every level starting from `parent` (null: the cobblestone mine) but `but`: a new
+ *  shaft's start keeps off them. */
+function stairsOff(m: Mine, parent: IronLevel | null, but?: IronLevel): Array<{ x: number; z: number }> {
+  return ironLevels(m).filter((p) => p !== but && parentOf(m, p) === parent)
+    .flatMap((p) => [{ x: p.x, z: p.z }, ...ironColumns(p), ...laneColumns(p), ...(p.abandoned ?? []).flatMap((d) => ironColumns(d))]);
+}
+
+/** The levels of `i`'s own shaft (its parents with the same shaftAt, and itself). */
+function shaftLevels(m: Mine, i: IronLevel): number {
+  const at = (i as Shaft).shaftAt;
+  return 1 + chainAbove(m, i).filter((p) => (p as Shaft).shaftAt === at).length;
+}
+
+/** The mine's cells dug since `i`'s shaft opened. */
+const shaftDug = (i: IronLevel) => i.dug - ((i as Shaft).shaftAt ?? 0);
+
+/** The cobblestone mine's deepest level and the bottom step of its stairs (ironStart's start). */
+function mineFoot(m: Mine): { L: number; x: number; z: number } | null {
+  const last = m.down?.filter((d) => d.level !== undefined).at(-1);
+  const b = last ? downColumns(m, last)[last.steps - 1] : stairColumns(m)[m.steps - 1];
+  const L = last ? last.level : m.level;
+  return b && L !== undefined ? { L, x: b.x, z: b.z } : null;
+}
+
+/** The middle of the atlas' iron (ores laid open in caves, by chunk) a level at y would take, within 80 of x, z. */
+function atlasToward(a: BotAgent | undefined, x: number, z: number, y: number): { x: number; z: number } | undefined {
+  const pts = (a?.world.atlas.near(x, z, 80) ?? []).filter((c) => c.ores?.iron && c.ores.iron[1] <= y + 2 && c.ores.iron[2] >= y - 1);
+  const n = pts.reduce((s, c) => s + c.ores!.iron[0], 0);
+  return n > 0 ? { x: Math.round(pts.reduce((s, c) => s + (c.cx * 16 + 8) * c.ores!.iron[0], 0) / n), z: Math.round(pts.reduce((s, c) => s + (c.cz * 16 + 8) * c.ores!.iron[0], 0) / n) } : undefined;
+}
+
+/**
+ * The new shafts possible, best first: a parent (-1 the cobblestone mine, else a level's index), its y and stairs' foot,
+ * and an aim at a free height from SHAFT_GAP below it down to IRON_FLOOR_Y (at most IRON_MAX_STEPS steps; IRON_GOOD_Y or
+ * lower), the one nearest IRON_Y first, then the shortest stairs.
+ */
+export function shaftChoices(m: Mine): Array<{ from: number; L: number; foot: { x: number; z: number }; target: number }> {
+  const all = ironLevels(m);
+  const feet = all.flatMap((p) => { const f = ironColumns(p).at(-1) ?? { x: p.x, z: p.z }; const y = p.level ?? p.targetY; return y !== undefined ? [{ y, ...f }] : []; });
+  const parents: Array<{ from: number; L: number; foot: { x: number; z: number } }> = [];
+  const mf = mineFoot(m);
+  if (mf) parents.push({ from: -1, L: mf.L, foot: { x: mf.x, z: mf.z } });
+  all.forEach((p, k) => { const f = ironColumns(p).at(-1); if (f && p.level !== undefined) parents.push({ from: k, L: p.level, foot: f }); });
+  const out: Array<{ from: number; L: number; foot: { x: number; z: number }; target: number; score: number }> = [];
+  for (const p of parents)
+    for (let t = Math.min(p.L - SHAFT_GAP, IRON_GOOD_Y); t >= Math.max(IRON_FLOOR_Y, p.L - IRON_MAX_STEPS + 1); t--) {
+      if (feet.some((q) => Math.abs(q.y - t) < SHAFT_GAP && Math.hypot(q.x - p.foot.x, q.z - p.foot.z) < SHAFT_NEAR)) continue;
+      out.push({ ...p, target: t, score: Math.abs(t - IRON_Y) + (p.L - t) / 8 });
+    }
+  return out.sort((p, q) => p.score - q.score).map(({ score: _s, ...c }) => c);
+}
+
+/**
+ * A new shaft for a mine whose last level is finished and has no level to follow (MC_IRON_AGE): the current level
+ * archived and the best of shaftChoices with a clear start (the world's test with a bot) laid as the current one, its
+ * shaft's counts from now. Returns its note, or '' when none is free (`finished` stays: the dig option goes until
+ * IRON_RETRY_MS has passed, then the next trip looks again).
+ */
+export function openShaft(reg: { note: (v: Village, s: string) => void; save: () => void }, v: Village, m: Mine, a?: BotAgent, now = Date.now()): string {
+  const i = m.iron;
+  if (!IRON_AGE || !i?.finished || i.level === undefined) return '';
+  const all = ironLevels(m);
+  let tried = 0;
+  for (const c of shaftChoices(m)) {
+    if (tried >= SHAFT_TRIES) break;
+    const parent = c.from >= 0 ? all[c.from] : null;
+    const toward = atlasToward(a, c.foot.x, c.foot.z, c.target);
+    const fits = a ? stairsFit(a, c.L, c.L - c.target + 1) : undefined;
+    // (the stairs of every other shaft off the same level kept off, as ironStart keeps off the mine's own)
+    const s = parent ? ironDeeperStart(parent, [], fits, toward, stairsOff(m, parent)) : ironStart(m, fits, stairsOff(m, null));
+    tried++;
+    if (!s) continue;
+    m.ironPast = [...(m.ironPast ?? []), i];
+    m.iron = { x: s.x, z: s.z, y: s.y, dir: s.dir, steps: 0, legs: [], dug: i.dug, dugAt: i.dug, got: { ...i.got }, targetY: c.target };
+    Object.assign(m.iron, { from: c.from, shaftAt: i.dug, ...(ORE_ON ? { aboveY: c.L, seen: [], ...(toward ? { toward } : {}) } : {}) });
+    // (the cobblestone mine never turns where a shaft off it starts beside its bottom step, as ironTrip's first)
+    const side = (s as { side?: 1 | 2 }).side;
+    const first = !parent && side ? m.legs?.find((l) => l.x === s.x && l.z === s.z && l.y === s.y) : undefined;
+    if (first && side) first.turned = (first.turned ?? 0) | side;
+    delete (m as ShaftMine).shaftTried;
+    const note = `the iron mine is worked out at y=${i.level} (${i.finished}): a new shaft's stairs start at ${s.x},${s.y},${s.z} on ${parent ? `the iron level at y=${c.L}` : "the mine's deepest level"}, going ${compass(s.dir)} down to about y=${c.target}`;
+    console.log(`[mine] ${v.name}: ${note}`);
+    reg.note(v, note);
+    reg.save();
+    return note;
+  }
+  (m as ShaftMine).shaftTried = now;
+  console.log(`[mine] ${v.name}: the iron mine is worked out at y=${i.level} and no new shaft is clear (${tried} looked at); looked for again in ${IRON_RETRY_MS / 60000} minutes`);
+  reg.note(v, `the iron mine is worked out and no new shaft is clear; looked for again in ${IRON_RETRY_MS / 60000} minutes`);
+  reg.save();
+  return '';
+}
+
+/** Whether the next trip opens a new shaft (MC_IRON_AGE): the level finished for good (no retry waiting), its y known,
+ *  and no shaft looked for in the last IRON_RETRY_MS. */
+function shaftDue(m: Mine | undefined, now: number): boolean {
+  const i = m?.iron as IronRetry | undefined;
+  if (!IRON_AGE || !m || !i?.finished || i.retryAt !== undefined || i.level === undefined) return false;
+  const t = (m as ShaftMine).shaftTried;
+  return t === undefined || now - t >= IRON_RETRY_MS;
+}
+
+/**
+ * #168: who holds the iron stairs while they are dug and no second lane is free to `name` (mcWorld's menus take the dig
+ * option off then, rather than offer a trip ironGate refuses); null when a trip may go down.
+ */
+export function ironStairsHeld(village: string, name: string, m: Mine | undefined, now = Date.now()): string | null {
+  const i = m?.iron;
+  if (!IRON_AGE || !i || i.finished || i.level !== undefined) return null;
+  const s = ironStairs.get(village);
+  if (!s || s.name === name || s.until <= now) return null;
+  const s2 = ironStairs2.get(village);
+  const lane2 = IRON_STAIRS2 && !(i as Lane2).stopped2 && !(s2 && s2.name !== name && s2.until > now);
+  return lane2 ? null : s.name;
 }
 
 /**
@@ -1910,7 +2072,7 @@ export async function walkToIronLevel(a: BotAgent, v: Village, k: number, signal
     if (e.message === 'cancelled') throw e;
   });
   if (!inMine(a, m)) await go(new Vec3(m.top.x + 0.5, m.level + m.steps - 1, m.top.z + 0.5), 1.5, 90000);
-  for (const p of levels.slice(0, k + 1)) {
+  for (const p of [...chainAbove(m, levels[k]), levels[k]]) {
     const f = feet.find((x) => levels[x.k] === p);
     await go(new Vec3(p.x + 0.5, p.y, p.z + 0.5), 1.5, 120000);
     if (f) await go(new Vec3(f.x + 0.5, f.y, f.z + 0.5), 1.5, 120000);
@@ -1931,7 +2093,7 @@ export function deepenForStone(reg: { note: (v: Village, s: string) => void; sav
   // (a level whose stairs are still going down: its aim, while that is deep; D1 stood the tuff in as soon as the deep
   // level was laid, its level not yet known)
   if (i.level === undefined) return !i.finished && i.targetY !== undefined && i.targetY <= DEEP_Y ? i.targetY : null;
-  if (i.level <= DEEP_Y) return i.finished && !ironDone(m) ? i.level : i.finished ? null : i.level;
+  if (i.level <= DEEP_Y) return i.finished && !levelDone(m) ? i.level : i.finished ? null : i.level;
   if ((m as Mine & { deepTried?: number }).deepTried && Date.now() - (m as Mine & { deepTried?: number }).deepTried! < IRON_RETRY_MS) return null;
   const was = i.finished;
   i.finished = 'the monument wants deepslate from a deeper level';
@@ -1954,7 +2116,7 @@ export function deepenForStone(reg: { note: (v: Village, s: string) => void; sav
 export function deepLevel(m: Mine | undefined): { y: number; open: boolean } | null {
   const i = m?.iron;
   if (!i || i.level === undefined) return null;
-  if (i.level <= DEEP_Y) return { y: i.level, open: !ironDone(m) };
+  if (i.level <= DEEP_Y) return { y: i.level, open: !levelDone(m) };
   const next = i.level - IRON_DROP;
   return next >= IRON_FLOOR_Y && next <= DEEP_Y ? { y: next, open: false } : null;
 }
@@ -2104,8 +2266,11 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
     reg.note(v, s ? `the iron stairs start at ${s.x},${s.y},${s.z} on the mine's deepest level, going ${compass(s.dir)}` : 'no way down to the iron level beside the mine');
     reg.save();
   }
+  ironRetry(v, m, m.iron, reg);
+  // (a worked-out mine: a new shaft, laid by this trip, which digs its stairs)
+  let opened = '';
+  if (shaftDue(m, Date.now())) opened = openShaft(reg, v, m, a);
   const i = m.iron;
-  ironRetry(v, m, i, reg);
   if (i.finished) return `the iron level is finished: ${i.finished}`;
   if (IRON_AGE) {
     // (up to IRON_MINERS at once, each on its own leg; the stairs one at a time)
@@ -2122,9 +2287,10 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
   const carried = () => a.bot.inventory.items().filter((it) => it.name === 'raw_iron').reduce((n, it) => n + it.count, 0);
   const start = carried();
   // (the levels finished above this one, MC_IRON_AGE: walked through, each from its stairs' top to its bottom step)
-  const above = (() => { const all = ironLevels(m), k = all.indexOf(i); return k >= 0 ? all.slice(0, k) : []; })();
+  // (a new shaft's: the levels its stairs start from, chainAbove)
+  const above = chainAbove(m, i);
   // (MC_IRON_AGE's tail on the trip's text: the cells it dug, for the chore's record, and the level it worked)
-  let dugNow = 0, laid = '', endedHere = false;
+  let dugNow = 0, laid = opened, endedHere = false;
   const tail = () => (IRON_AGE ? `; ${dugNow} cells dug this trip${i.level !== undefined ? `; level y=${i.level}` : ''}${laid ? `; ${laid}` : ''}` : '');
   let why = '';
   // (MC_IRON_STAIRS2: both lanes dug to the level, and digging the second; null when the trip goes on)
@@ -2208,7 +2374,7 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
       // (another miner finished this level meanwhile, MC_IRON_AGE: the next one, if any, is for the next trip)
       if (IRON_AGE && (m.iron !== i || i.finished)) { why = `another miner finished this iron level (${i.finished ?? 'done'})`; break; }
       // (MC_ORE_MINE: the mine's iron cells in all bound it; no level follows)
-      if (ORE_ON && i.dug >= ORE_MINE_CELLS) { i.finished = `the mine's ${ORE_MINE_CELLS} iron cells dug`; endedHere = true; break; }
+      if (ORE_ON && shaftDug(i) >= ORE_MINE_CELLS) { i.finished = `the mine's ${ORE_MINE_CELLS} iron cells dug`; endedHere = true; break; }
       if (i.dug - (i.dugAt ?? 0) >= (ORE_ON ? ORE_LEVEL_CELLS : IRON_AGE ? IRON_AGE_CELLS : IRON_CELLS)) { i.finished = `${i.dug - (i.dugAt ?? 0)} tunnel cells dug`; endedHere = true; break; }
       const leg = IRON_AGE ? claimIronLeg(a, v, i, until, ORE_ON ? openCell : undefined) : nextIronLeg(a, v, i);
       if (leg === 'busy') { why = 'every iron tunnel going has its miner and none can turn off yet'; break; }

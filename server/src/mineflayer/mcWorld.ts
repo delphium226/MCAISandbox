@@ -21,7 +21,7 @@ import { collectFilter, collectTargets, exposed, villageStationCell } from './mc
 import { at, nearestBlocks, onVillageGround, stateAt } from './mcUtil';
 import { teleportHome, underHome } from './mcRescue';
 import { annexBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, storeBusy, surfaceAt, wheatKeep } from './mcBuild';
-import { ironDone, mineAreas, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
+import { ironDone, ironStairsHeld, mineAreas, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PEN_KINDS, PEN_ORDER, PEN_VARIETY, SLOT_KINDS, SLOT_ORDER, penCap, penLure, penPlan, penSlotFit, penWords, worksFurnaces } from '../farmSlots';
 import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { hasteLevel, timeScale } from './mcRules';
@@ -1142,7 +1142,10 @@ export class MineflayerWorld implements WorldAdapter {
     // diggers down one shaft for 127 minutes with 230 ingots stored, 512 of its 1,376 [stuck] lines and most of its meals'
     // climbs out of the mine)
     const monumentBusy = MONUMENT.on && !!v.monument && v.monument.state !== 'site' && (v.monument.state !== 'built' || furnishStage(v.monument) > 0 && currentStage(v.monument) === furnishStage(v.monument));
+    // (#168: the stairs one digger at a time; train 7 refused 29, 67 and 23 trips for them, each a member's chore)
+    const stairsBy = ironStairsHeld(v.name, a.name, m, now);
     if (ironDone(m, now)) why.push('iron level finished');
+    else if (stairsBy) why.push(`the iron stairs being dug by ${stairsBy}`);
     else if (monumentBusy && raw + ingots >= IRON_MONUMENT_ENOUGH) why.push(`iron enough while the monument is built (${raw + ingots} stored)`);
     else if (slot === undefined) why.push('every leg busy');
     else if (backing('dig')) why.push('digging backs off');

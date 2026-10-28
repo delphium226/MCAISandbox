@@ -175,10 +175,12 @@ if (!ORE) {
     // Not again from an unfinished level, nor aimed below y -8, nor past four levels
     ok(MM.layNextIronLevel(reg, v, m, n) === '', 'an unfinished level lays nothing');
     Object.assign(n, { steps: 13, level: 2, legs: [leg(22, 13, 2, [0, 1], 50)], finished: 'every tunnel ended' });
-    ok(MM.layNextIronLevel(reg, v, m, n) === '' && m.iron === n, 'no level aimed below y -8 (2 - 12)');
+    // (the user's 10-28: no level below it, so a new shaft at a free height, never below y -8; new_shaft.mts)
+    const below = MM.layNextIronLevel(reg, v, m, n);
+    ok(m.iron === n ? below === '' : /new shaft/.test(below) && m.iron!.targetY! >= -8, `no level aimed below y -8 (2 - 12): ${below || 'none'}`);
     const deep = { ...level({ level: 28, finished: 'x' }) };
     const m3 = { ...m, ironPast: [level(), level(), level()], iron: deep } as Mine;
-    ok(MM.layNextIronLevel(reg, v, m3, deep) === '', 'four levels at most');
+    ok(/new shaft/.test(MM.layNextIronLevel(reg, v, m3, deep)) && (m3.iron as IronLevel & { from?: number }).from !== undefined, 'four levels at most in a shaft: a new shaft');
     const m2 = { ...m, ironPast: undefined, iron: level({ level: 28, finished: 'x' }) } as Mine;
     ok(!!MM.layNextIronLevel(reg, v, m2, m2.iron!) && m2.iron!.targetY === 16, `a level at y 28 is followed by one aimed at 16 (${m2.iron!.targetY})`);
   }
@@ -235,9 +237,11 @@ if (ORE) {
   ok(!!MM.layNextIronLevel(reg, v, m1, old) && m1.iron!.targetY === 12 && (m1.iron as IronLevel & { aboveY?: number; seen?: unknown[] }).aboveY === 18 && (m1.iron as IronLevel & { seen?: unknown[] }).seen?.length === 1,
     `laid 6 below, the level above and the iron seen kept (${JSON.stringify({ t: m1.iron!.targetY })})`);
   const full = level({ finished: 'x', dug: 8000 });
-  ok(MM.layNextIronLevel(reg, v, { ...m, iron: full } as Mine, full) === '', 'the mine\'s 8,000 cells: no next level');
+  // (a shaft's 8,000 cells or ten levels: no next level in it; a new shaft instead, the user's 10-28, new_shaft.mts)
+  const mf = { ...m, iron: full } as Mine;
+  ok(/new shaft/.test(MM.layNextIronLevel(reg, v, mf, full)) && (mf.iron as IronLevel & { shaftAt?: number }).shaftAt === 8000, 'the shaft\'s 8,000 cells: a new shaft, its count from there');
   const m9 = { ...m, ironPast: Array.from({ length: 9 }, () => level()), iron: level({ finished: 'x', level: 28 }) } as Mine;
-  ok(MM.layNextIronLevel(reg, v, m9, m9.iron!) === '', 'ten levels at most');
+  ok(/new shaft/.test(MM.layNextIronLevel(reg, v, m9, m9.iron!)) && (m9.iron as IronLevel & { from?: number }).from !== undefined, 'ten levels at most in a shaft: a new shaft');
 
   // The torches' wait: a drift's next cell is its next main cell
   const dl = MM.oreDrift(lvl([[25, 18, 6]]))!.leg;

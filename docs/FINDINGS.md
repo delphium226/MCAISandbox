@@ -2270,3 +2270,15 @@ CLAUDE.md when a phase ends.
   D5: lanterns (49 cells) and banners (14) back at once, made (10 lanterns, 39 chains, 14 banners) and built, 18 of 18
   jobs, 3,587 of 3,587 blocks; every re-furnish cell confirmed in the world (63 of 63). Fixed chooser (the Ollama app
   was down: D3-D5 made no model calls), [lag] 0.
+- F333 (10-28, mines, G8/#168; the user's 10-28 decision) **The iron ran out because the deep level left no level
+  below it.** Train 7 A and B dug a level at y 22, then the monument's deep level at y -4 (MC_DEEP_STONE, +34 min); when
+  that finished (1,150 cells), the next aim, y -10, lay below IRON_FLOOR_Y, so no level followed and y 4-16 were never
+  dug. Raw iron per 10 min, A: 0, 28, 40, 19, 25, 23, 2, then 0 for 90 minutes (B the same, 0 from +70); C (monument off)
+  laid y 18, 12, 6 and still dug at +150. Refused trips: the stairs lock 29 (A), 67 (B), 23 (C), "three miners already"
+  13 and 20. Fix (mcMine.ts): a mine with no level to follow opens a new shaft at once, from any level dug before (or the
+  cobblestone mine) down to a free height (no level within 6 in y whose foot is within 48), the one nearest y 18 first,
+  aimed toward the atlas' iron; a shaft has its own level and cell counts. #168: the dig option leaves the menu while
+  another member holds the stairs. Staged M1 from dg_d1_end (world 4, 2x, haste 5, 25 min): the shaft opened off y 22
+  on the first trip, its y 16 level was dug out (1,150 cells) and y 10 was laid; raw iron in all 137 -> 300 (90, 50, 21
+  per 10 min), lanterns made again; [lag] 0, [stuck] 6. The #168 line was not in M1's snapshot (4 lock refusals there).
+  Check: scripts/checks/new_shaft.mts (on D1's mine record).
