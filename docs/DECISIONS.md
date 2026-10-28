@@ -940,3 +940,6 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   open lifts only make-past-target and gathers nothing wants; refused takes shown as counts per law; the open palette's
   own fixed pick as the fallback; ~1.5-2x the menu's cost accepted; whole-village arms; makes capped at twice the keep;
   no holds while an open decision is pending (re-asks measured); #122's storage cap lifted for open gathers; the tags kept.
+- 10-28 (the user's, on #172 round 2's finding) **A member who wants a tool gets one of their own:** the want for a
+  pickaxe, axe or fishing rod is met by a make (or a take from storage) into the member's own hands, not a make into
+  village storage; fixed before the full menu vs open rerun, which runs with MC_PRIMER on in both arms.
