@@ -171,6 +171,8 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'Only these goals (comma list) in members\' goal lines.' },
   { name: 'MC_GREENS_PER', type: 'string', default: '', group: 'building', live: false, read: 'mineflayer/mcWorld.ts',
     describe: 'Members a green (the user\'s, s36): a village prepares one green per GREENS_PER members for small works (MC_GREENS_PER for experiments, s43).' },
+  { name: 'MC_GREENS_MIX', type: 'flag', default: 'off', group: 'building', live: false, read: 'smallWorks.ts',
+    describe: 'What fills a green (the user\'s 10-28): each small-work kind capped per green (lamps together), larger works ranked above small ones, a geometric parterre of flower beds reserved at each green\'s centre (its shape and size differing from green to green) and two corner trees, both ranked first until they stand.' },
   { name: 'MC_GREENS_MORE', type: 'flag', default: 'off', group: 'building', live: false, read: 'mineflayer/mcWorld.ts',
     describe: 'More and bigger greens on a pad village (test train 7): 21x21 greens, up to three times the members\' greens, so small works keep finding room.' },
   { name: 'MC_GROW', type: 'flag', default: 'on', group: 'building', live: false, read: 'grow.ts',

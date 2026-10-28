@@ -59,7 +59,7 @@ import { buildingDecor, buildingLights, decorSlots, type DecorSlot, type HomeBas
 import { buildCatalog, type ActivitySpec } from '../activities';
 import { LETTERS_PACE } from '../ladderFlags';
 import { isPaused } from '../runClock';
-import { BED_FLOWERS, FLOWER_MIX, GARDENS, flowerMix, gardenSpots, isFlowerWork, isGarden, menuWorks, mixWords, smallWorkKind, smallWorkSpots, smallWorkWood, type GardenSpot, type SmallWorkKind } from '../smallWorks';
+import { BED_FLOWERS, FLOWER_MIX, GARDENS, GREENS_MIX, cappedGreens, flowerMix, gardenSpots, greenCounts, greenReserves, greensMixOrder, isFlowerWork, isGarden, menuWorks, mixWords, parterreShapeOf, reserveAreas, smallWorkKind, smallWorkKindOf, smallWorkSpots, smallWorkWood, type GardenSpot, type GreenArea, type GreenReserve, type SmallWorkKind } from '../smallWorks';
 import { FLOWER_ITEMS } from './mcMaterials';
 import { TIER_WORDS, parseRefitProject, refitDesign, refitOptions, refitProject } from '../refit';
 import { postRefit } from '../layout';
@@ -216,6 +216,8 @@ const MATERIALS: Material[] = ['sand', 'logs', 'cobblestone'];
 type SmallBlocked = {
   sig: string; blocked: Area[]; plots: Array<Area & { y: number; ground?: (x: number, z: number) => number | null }>; hard: Area[]; own: Area[];
   spots: Map<string, Array<{ x: number; z: number; y: number; prep?: true }>>; gardens?: { at: number; list: GardenSpot[] };
+  /** MC_GREENS_MIX: the greens, their works by cap group and their reserves (smallWorks.ts' greenReserves). */
+  greens?: GreenArea[]; counts?: Map<string, Map<string, number>>; reserves?: GreenReserve[];
 };
 /** #149: how long the gardens' spots are kept on an unchanged village (their soil is read from the world). */
 const GARDEN_SPOTS_MS = 60_000;
@@ -837,7 +839,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (enough of each kind for a trip that finds them: a ring takes up to 8 of its main flower; the dye census, out to 144,
     // so the kinds that grow beyond 80 vary the mixes (F324: every mix was wildflowers and lilies); never a kind the
     // village ran out of within the last hour)
-    return flowerMix(this.dyeCounts(v, a), `${a.name}|${v.initiativeN ?? 0}`, kind === 'flower_ring' ? 12 : 6, this.flowersOut(v));
+    return flowerMix(this.dyeCounts(v, a), `${a.name}|${v.initiativeN ?? 0}`, kind === 'flower_ring' ? 12 : kind === 'parterre' ? 16 : 6, this.flowersOut(v));
   }
 
   /** #140 (F324): the bed flowers a village ran out of (a bed dropped them) within the last FLOWER_OUT_MIN, game time. */
@@ -3592,12 +3594,25 @@ export class MineflayerWorld implements WorldAdapter {
     // (hard: every blocked area but the rings and door fronts, with the structures' own footprints back)
     const hard = [...blocked.filter((q) => !soft.has(q)), ...own];
     const entry: SmallBlocked = { sig, blocked, plots, hard, own, spots: new Map() };
+    // (MC_GREENS_MIX: each green's parterre square and tree corners, kept free of other works, and its works by kind)
+    if (GREENS_MIX) {
+      const works = [...v.structures.flatMap((st) => {
+        const k = smallWorkKindOf(st.kind);
+        return k ? [{ kind: k, x: Math.floor((st.x1 + st.x2) / 2), z: Math.floor((st.z1 + st.z2) / 2) }] : [];
+      }), ...(v.initiatives ?? []).filter((i) => i.state === 'open' && !i.pending).map((i) => ({ kind: i.kind, x: i.x, z: i.z }))];
+      // (a green waiting for its first work too: that work's spot keeps off the green's centre)
+      entry.greens = v.plots.filter((q) => q.green).map((q) => ({ id: q.id, x1: q.x1, z1: q.z1, x2: q.x2, z2: q.z2, y: q.y }));
+      entry.counts = greenCounts(entry.greens, works);
+      // (a green's own preparation holds all of it until its logs are in: not in the way of its reserve, G2)
+      entry.reserves = greenReserves(entry.greens, hard.filter((q) => !/^prepare a green for /.test((q as { purpose?: string }).purpose ?? '')), works, v.name);
+      blocked.push(...reserveAreas(entry.reserves));
+    }
     this.smallBlockedCache.set(v.name, entry);
     return entry;
   }
 
   /** A free spot for a small work (pure): one of the first spots smallWorkSpots finds, chosen by `seed` so members spread. */
-  private smallWorkSpot(v: Village, k: SmallWorkKind, wood: string, seed: string): { x: number; y: number; z: number; prep?: true } | null {
+  private smallWorkSpot(v: Village, k: SmallWorkKind, wood: string, seed: string): { x: number; y: number; z: number; prep?: true; shape?: string } | null {
     const d = k.make(wood);
     const entry = this.smallBlocked(v);
     const { blocked, plots, hard, own } = entry;
@@ -3606,7 +3621,7 @@ export class MineflayerWorld implements WorldAdapter {
       const spots = entry.gardens.list.filter((sp) => sp.kind === k.kind);
       if (!spots.length) return null;
       const sp = spots[fnv1a(`${seed}|${k.kind}`) % spots.length];
-      return { x: sp.x, y: sp.y, z: sp.z };
+      return { x: sp.x, y: sp.y, z: sp.z, ...(sp.shape ? { shape: sp.shape } : {}) };
     }
     if (GARDENS && isGarden(k.kind)) {
       const doors: Array<{ x: number; z: number; ox: number; oz: number; y: number }> = [];
@@ -3627,15 +3642,18 @@ export class MineflayerWorld implements WorldAdapter {
         }
       };
       // (every village's building footprints: a garden's box and its 1-cell margin keep clear of them)
-      entry.gardens = { at: Date.now(), list: gardenSpots({ doors, greens, plots, hard, structures: own, soil }) };
+      entry.gardens = { at: Date.now(), list: gardenSpots({ doors, greens, plots, hard, structures: own, soil, ...(GREENS_MIX ? { reserves: entry.reserves ?? [] } : {}) }) };
       const spots = entry.gardens.list.filter((sp) => sp.kind === k.kind);
       if (!spots.length) return null;
       const sp = spots[fnv1a(`${seed}|${k.kind}`) % spots.length];
-      return { x: sp.x, y: sp.y, z: sp.z };
+      return { x: sp.x, y: sp.y, z: sp.z, ...(sp.shape ? { shape: sp.shape } : {}) };
     }
-    const size = `${d.width}x${d.depth}`;
+    // (MC_GREENS_MIX: not on a green where the kind is at its cap)
+    const capped = GREENS_MIX && entry.greens && entry.counts ? cappedGreens(k.kind, entry.greens, entry.counts) : new Set<string>();
+    const off = entry.greens?.filter((g) => capped.has(g.id)) ?? [];
+    const size = `${d.width}x${d.depth}${off.length ? `|${off.map((g) => g.id).sort().join(',')}` : ''}`;
     let spots = entry.spots.get(size);
-    if (!spots) entry.spots.set(size, (spots = smallWorkSpots({ plots, blocked }, d.width, d.depth, 8)));
+    if (!spots) entry.spots.set(size, (spots = smallWorkSpots({ plots: off.length ? plots.filter((q) => !off.some((g) => g.x1 === q.x1 && g.z1 === q.z1 && g.x2 === q.x2 && g.z2 === q.z2)) : plots, blocked }, d.width, d.depth, 8)));
     if (!spots.length) return null;
     return { ...spots[fnv1a(`${seed}|${k.kind}`) % spots.length] };
   }
@@ -3917,12 +3935,13 @@ export class MineflayerWorld implements WorldAdapter {
    * False when the bed has no mix holding that flower.
    */
   private dropBedFlower(v: Village, it: Initiative, flower: string): boolean {
-    const k = smallWorkKind(it.kind), at = it.design.indexOf('~');
+    // (the mix after the last "~"; a parterre's shape before it, MC_GREENS_MIX)
+    const k = smallWorkKind(it.kind), at = it.design.lastIndexOf('~');
     if (!k || at < 0) return false;
     const mix = it.design.slice(at + 1).split('-');
     if (!mix.includes(flower)) return false;
     const rest = mix.filter((f) => f !== flower);
-    const d = k.make(smallWorkWood(it.design) ?? v.wood ?? 'oak', rest.length ? rest : ['wildflowers']);
+    const d = k.make(smallWorkWood(it.design) ?? v.wood ?? 'oak', rest.length ? rest : ['wildflowers'], parterreShapeOf(it.design));
     v.designs[d.name] = d;
     const was = it.design;
     it.design = d.name;
@@ -6699,7 +6718,9 @@ export class MineflayerWorld implements WorldAdapter {
         const wood = this.catalogWoodOf(v);
         // (two kinds a member, seeded by its name and how many initiatives the village has had: members differ, and a
         // member's offer changes once one is started)
-        const order = shuffled(menuWorks(v.vanillaBiome), `${a.name}|${v.initiativeN ?? 0}`);
+        let order = shuffled(menuWorks(v.vanillaBiome), `${a.name}|${v.initiativeN ?? 0}`);
+        // (MC_GREENS_MIX: the parterre and, while a green wants them, trees first; the larger works before the small)
+        if (GREENS_MIX) order = greensMixOrder(order, !!this.smallBlocked(v).reserves?.some((q) => q.trees.length), wood);
         let r = 0;
         const roomless: SmallWorkKind[] = [];
         // (#45: front gardens read alike: one of them a menu)
@@ -6719,7 +6740,7 @@ export class MineflayerWorld implements WorldAdapter {
           const kw = (WOOD_VARIANTS && hoodWoodAt(v, spot.x, spot.z)) || wood;
           // (#140, MC_FLOWER_MIX: a flower work of the flowers growing near the village, the member's own mix)
           const mix = this.flowerMixFor(v, a, k.kind);
-          const d = k.make(kw, mix);
+          const d = k.make(kw, mix, spot.shape);
           // (only a work whose first step can be taken now: otherwise it would open, sit and lapse; s36)
           if (!this.initiativeStep(v, { id: '_new', design: d.name }, facts.spare(), busy, d)) {
             why.push('nothing to gather for it now');
@@ -8032,7 +8053,7 @@ export class MineflayerWorld implements WorldAdapter {
           return;
         }
         // (#140: the mix the menu offered: the same census and seed)
-        const design = k.make((WOOD_VARIANTS && hoodWoodAt(v, spot.x, spot.z)) || wood, d.mix ?? this.flowerMixFor(v, worker, k.kind));
+        const design = k.make((WOOD_VARIANTS && hoodWoodAt(v, spot.x, spot.z)) || wood, d.mix ?? this.flowerMixFor(v, worker, k.kind), found?.shape);
         // (its first step decided before the record: no initiative opens that nobody can work on, s36)
         const first = this.initiativeStep(v, { id: '_new', design: design.name, pending }, this.makeSpare(v, worker.name), new Set(), design);
         if (!first) {

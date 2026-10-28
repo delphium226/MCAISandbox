@@ -2282,3 +2282,17 @@ CLAUDE.md when a phase ends.
   on the first trip, its y 16 level was dug out (1,150 cells) and y 10 was laid; raw iron in all 137 -> 300 (90, 50, 21
   per 10 min), lanterns made again; [lag] 0, [stuck] 6. The #168 line was not in M1's snapshot (4 lock refusals there).
   Check: scripts/checks/new_shaft.mts (on D1's mine record).
+- F334 (10-28, greens_mix, G1 / the village's look; the user's 10-28 decision) **The cheapest lamp won the greens because
+  it was the one kind left that fitted.** D1 (MC_GREENS_MORE on): 146 small works, 77 of them plains_lamp_1 (1x1); in its
+  choices the lamp was offered 57 times and on 42 menus it was the only initiative offered (works fill a green from the
+  centre out, leaving gaps only a 1x1 fits). MC_GREENS_MIX (off, smallWorks.ts + small mcWorld hunks): each kind capped
+  at 2 a green (the lamps together), larger works ranked above small ones, a parterre (six geometric shapes, 7 across on a
+  21 green, 5 on a 15, shape differing green to green) reserved at each green's centre and 2 corner trees, the parterre
+  ranked first, then the trees while a green wants them. Simulator 2 h from t7_c_greens_full (no garden spots there: the
+  sim has no soil): top share on greens 41% (lamps) -> 27%, lamps 2 a green, busy 35.4 -> 34.1%. Live on world 1 from
+  t7_c_greens_full (2x, fixed chooser, 0 model calls in G1/G2; G3 72 non-chooser calls): G1 30 min top share 21%, 6-7
+  kinds a new green, but 1 parterre of 3 (a dropped flower redrew a knot5 as quarters7; a new green's first work took the
+  centre because the green's own preparation reservation hid the reserve); G3 20 min after both fixes: every new 21
+  green with its parterre (chequer7, knot7) at the centre and 2 trees, 7 kinds a green, top share 17%, [lag] 0, [stuck]
+  31. Check: scripts/checks/greens_mix.mts. Renders: runs/renders/g3_green_a.png (a green read from the world),
+  greens_mix_shapes.png.
