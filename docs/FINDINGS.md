@@ -2311,3 +2311,16 @@ CLAUDE.md when a phase ends.
   MC_GREENS_MORE + MC_GREENS_MIX): 111 works in R1 and R0 (train 7 C 70), top kind 20%, a parterre and 2-3 trees on each
   new 21-green, 6-9 kinds a green, "greens full" 0. The default monument from t7_c reached stage 9, 3,523 of 3,587 blocks,
   in both model arms. [lag] 0 everywhere. Report: runs/2026-10-28/train8/report.md.
+- F336 (10-28, train9, G2, #172) **Test train 9 (the menu M against the open palette O) was stopped at +12 min**, the
+  user's decision: O's invalid replies are to be fixed and a world primer built first, then the comparison reruns. Code
+  10f5640, t7_c_greens_full, 25 members, 1x, R1's #164 rule flags, greens on, customs off; worlds 4 (M) and 5 (O). In 12
+  minutes: **O had 52 invalid replies in 343 choose calls (15%; M 0 in 225)**: an act name in `choice` 39 ("request" 31,
+  "accept ..." 6, "offer" 1; the acts line is in both prompts, so the long grouped palette pulls the model to it), a
+  project label or reworded name 7 ("young tree (Uma, help:i76)"), invented 4, none 2; each fell back to the fixed pick
+  (65 of O's 340 choices). Re-asks 18% of O's asks (M 10%). O's palette: median 31 options (0-66). 21% of O's picks were
+  makes past the keep (stone pickaxe 11, then signs, stairs, doors, ladders; M 0) and 44% of its model picks fell outside
+  the menu view. O's needs block named bread, cooked cod and salmon in ~all calls and charcoal in 206, but the palette had
+  no make for them (charcoal in 28): their inputs (wheat, the fishing catch) are a step away and the block does not name
+  the step. Busy 0-10 min 72% / 76%, failed ends 12% / 8% (both mostly own farms' "no free 9x9 site"), initiatives 8 / 4,
+  [lag] 0; no night, so no laws. Cost $0.11 / $0.24 (O's choose call 1.5x M's). Report:
+  runs/2026-10-28/train9/report.md.
