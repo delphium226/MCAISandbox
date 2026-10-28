@@ -34,6 +34,9 @@ export const DYE_MIN = 6;
 export const COMPOST_CHANCE: Record<string, number> = {
   wheat_seeds: 0.3, beetroot_seeds: 0.3, melon_seeds: 0.3, pumpkin_seeds: 0.3, short_grass: 0.3,
   wheat: 0.65, beetroot: 0.65, carrot: 0.65, potato: 0.65, ...Object.fromEntries(DYE_FLOWERS.map((f) => [f, 0.65])),
+  // (train 7's stall: no seeds to spare, but 188 wildflowers and 28 saplings in storage; the game's table again)
+  ...Object.fromEntries(['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'cherry', 'pale_oak'].map((w) => [`${w}_sapling`, 0.3])),
+  mangrove_propagule: 0.3, lily_pad: 0.65,
 };
 /** Levels a bone meal takes. */
 export const COMPOST_LEVELS = 7;
@@ -196,12 +199,18 @@ export function compost(bed: Pick<DyeBed, 'level'>, items: Record<string, number
   return { boneMeal, used };
 }
 
-/** The seeds and crops storage can spare for compost: seeds past a keep for sowing, wheat past the food's (24, 64). */
+/** What a flower or sapling keeps in storage before the composter takes the rest (a dye's own flowers, replanting). */
+export const COMPOST_KEEP = { flower: 32, sapling: 8 };
+/** What storage can spare for compost: seeds past a keep for sowing, wheat past the food's (24, 64), flowers past
+ *  COMPOST_KEEP's (their dyes come first: the dyer takes what it needs before composting), saplings past theirs; the
+ *  bed's tall flowers never (it copies them). */
 export function compostable(stock: Record<string, number>, keep: Record<string, number> = { wheat_seeds: 24, wheat: 64 }): Record<string, number> {
   const out: Record<string, number> = {};
   for (const n of Object.keys(COMPOST_CHANCE)) {
-    const q = (stock[n] ?? 0) - (keep[n] ?? 0);
-    if (q > 0 && !DYE_FLOWERS.includes(n)) out[n] = q;
+    if (TALL_FLOWERS.includes(n)) continue;
+    const k = keep[n] ?? (DYE_FLOWERS.includes(n) ? COMPOST_KEEP.flower : /_sapling$|_propagule$/.test(n) ? COMPOST_KEEP.sapling : 0);
+    const q = (stock[n] ?? 0) - k;
+    if (q > 0) out[n] = q;
   }
   return out;
 }

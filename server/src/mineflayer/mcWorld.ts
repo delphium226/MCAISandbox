@@ -90,7 +90,7 @@ import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodA
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
 import { quarryFeeds } from './mcQuarry';
-import { bannerStandIn, furnishBatch, furnishItem, furnishTrade, furnishWants } from '../furnish';
+import { FURNISH_FAILS, bannerStandIn, furnishKindOf, furnishBatch, furnishItem, furnishTrade, furnishWants } from '../furnish';
 import { FLOWER_DYE, KILN, MONUMENT, capShare, currentStage, furnishStage, standInFrom, dyeFlowers, glassColours, ironReached, jobBuilt, jobBuiltPlanned, jobReady, monumentLine, monumentPlan, newMonument, openJobs, stageWants, stageWantsPlanned, yardCovers, M3, TRADE_WEIGHT, noteTrade, tradeOfStep, tradeOf, progressLine as monumentProgress, partLine, cathedralName, presetWords, stageNames as monumentStages, monumentNoun, m3, architectOptions, dyesOnOffer, ARCHITECT_SYSTEM, ARCHITECT_TOOL, architectPrompt, checkArchitect, newMonumentPicked, type ArchitectFacts, type ArchitectPick, type Trade } from '../monument';
 import { kilnOn, laneWork, planOf } from './mcKiln';
 import { BULK_LANES, LODGE, TRIP_MIN, bulkTrip } from '../lodge';
@@ -98,7 +98,7 @@ import { cutWork, cutterOn } from './mcCutter';
 import { bedBuilding, dyeBedOn } from './mcDyeBed';
 import { DYE_BED, DYE_FLOWERS, DYE_REACH, TALL_FLOWERS, dyeRecipes, makeableColours, windowColours } from '../dyeBed';
 import { DETAIL_COLOURS } from '../gothicGen';
-import { stoneStandIn, DEEP_BLOCKS, deepStandIn, GEM_STAND, COPPER_ROOF, COPPER_BLOCKS, copperFrom, copperOn, copperReached, copperStandIn, reroofReturns } from '../monument';
+import { stoneStandIn, DEEP_BLOCKS, deepStandIn, GEM_STAND, DYE_FAILS, DYE_WAIT_MIN, dyeStandIn, dyeStood, COPPER_ROOF, COPPER_BLOCKS, copperFrom, copperOn, copperReached, copperStandIn, reroofReturns } from '../monument';
 import { DEEP_KEEP, deepenForStone, setKeepCopper } from './mcMine';
 /** #162: minutes (game time) a stage waits for a quarried stone before the rest stands in as another. */
 const STONE_WAIT_MIN = 6;
@@ -3694,7 +3694,7 @@ export class MineflayerWorld implements WorldAdapter {
     it.steps.push({ agent: worker.name, what: step.what === 'gather' ? `gather ${step.amount} ${step.material}` : step.what, at: Date.now() });
     this.villages.save();
     if (step.what === 'prepare') {
-      const st = worker.enqueue('prepare_green', { initiative: it.id, size: GREEN_SIZE, chore: true });
+      const st = worker.enqueue('prepare_green', { initiative: it.id, size: greenSize(v), chore: true });
       const failed = (why: string) => {
         if (why === 'cancelled' || st.code) return;
         it.fails = (it.fails ?? 0) + 1;
@@ -3755,6 +3755,8 @@ export class MineflayerWorld implements WorldAdapter {
   /** #162: when the stage began waiting for a quarried stone (village:item), for its stand-in after STONE_WAIT_MIN. */
   /** #162 tier 3, chain C: failed geode trips by village (three stand the accents in). */
   private gemFails = new Map<string, number>();
+  /** Dye chores failed, by village and dye (the dyes' stand-in). */
+  private dyeFails = new Map<string, number>();
   private stoneWait = new Map<string, { since: number; last: number }>();
 
   /** M1 (#144, MC_MONUMENT): the cathedral begun once the iron age is complete (no vote: the user's, 10-25), and its
@@ -6672,7 +6674,7 @@ export class MineflayerWorld implements WorldAdapter {
         const id = `help:${it.id}`;
         const key = step.what === 'gather' ? `initiative:${it.id}:${[1, 2].find((n) => !busy.has(`initiative:${it.id}:${n}`)) ?? 1}` : `initiative:${it.id}:${step.what}`;
         const crew = it.crew.filter((n) => n !== a.name);
-        const short = step.what === 'build' ? 'build it' : step.what === 'prepare' ? `prepare a ${GREEN_SIZE}x${GREEN_SIZE} green for it` : `gather ${step.amount} ${step.material}`;
+        const short = step.what === 'build' ? 'build it' : step.what === 'prepare' ? `prepare a ${greenSize(v)}x${greenSize(v)} green for it` : `gather ${step.amount} ${step.material}`;
         const where = it.pending ? 'no spot yet: a green near the village first' : `at ${it.x},${it.z}`;
         add({
           id, kind: 'help', key, excludes: [`${key}=`, ...(step.what === 'gather' ? [`initiative:${it.id}:build=`] : [`initiative:${it.id}:`])],
@@ -6746,14 +6748,14 @@ export class MineflayerWorld implements WorldAdapter {
         // (no room on the plots for a kind: started on a green of its own, one green prepared at a time and at most
         // GREENS_MAX a village, s36)
         const greens = v.plots.filter((p) => p.green).length;
-        const greensMax = Math.max(1, Math.ceil(this.growMembers(v).length / GREENS_PER));
+        const greensMax = Math.max(1, Math.ceil(this.growMembers(v).length / GREENS_PER)) * (moreGreens(v) ? GREENS_MORE_TIMES : 1);
         if (!r && !past && roomless.length && !open.some((i) => i.pending) && greens < greensMax) {
           const k = roomless[0];
           const d = k.make(wood);
           add({
             id: `initiate:${k.kind}`, kind: 'initiate', key: `initiate:${a.name.toLowerCase()}`, excludes: [`initiate:${a.name.toLowerCase()}=`],
             name: `Start building a ${k.words} on a new green (your own project)`, rank: 1100 + r,
-            facts: `no room left on the village's plots: first a ${GREEN_SIZE}x${GREEN_SIZE} green is prepared near the village (room for more small works), then a ${d.width}x${d.depth} ${k.words}; ${open.length} of ${INITIATIVES_MAX} projects open; others may help you`,
+            facts: `no room left on the village's plots: first a ${greenSize(v)}x${greenSize(v)} green is prepared near the village (room for more small works), then a ${d.width}x${d.depth} ${k.words}; ${open.length} of ${INITIATIVES_MAX} projects open; others may help you`,
             effect: `your own ${k.words} on a new green: ${k.forWhat}`,
           }, { kind: 'initiate', work: k.kind, green: true });
           r++;
@@ -6800,8 +6802,24 @@ export class MineflayerWorld implements WorldAdapter {
         for (const [item, q] of Object.entries(wants)) {
           // (#162, MC_DYE_BED: a dye the stage wants, made by the dyer: up to 8 a chore, 2 at once)
           if (/_dye$/.test(item) && dyeBedOn(v)) {
+            // (train 7: a colour the dyers cannot make (DYE_FAILS chores failed, or wanted DYE_WAIT_MIN) stands in as plain
+            // glass, so the windows never hold the cathedral)
+            if (dyeStood(m, item)) continue;
+            const wk = `${v.name}:dye:${item}`;
+            const was = this.stoneWait.get(wk);
+            const since = was && now - was.last < 2 * 60000 ? was.since : now;
+            this.stoneWait.set(wk, { since, last: now });
+            const fails = this.dyeFails.get(wk) ?? 0;
+            if (fails >= DYE_FAILS || now - since > DYE_WAIT_MIN * 60000 / timeScale()) {
+              this.stoneWait.delete(wk);
+              const from = dyeStandIn(m, item);
+              this.villages.save();
+              console.log(`[monument] ${v.name}: the ${N}'s ${item.replace(/_dye$/, '')} glass stands in as plain glass from job ${from} (${fails >= DYE_FAILS ? `${fails} dye chores failed` : `after ${DYE_WAIT_MIN} min`}; short ${q} ${item})`);
+              continue;
+            }
             if (bedBuilding(v)) continue;
-            const n = Array.from({ length: 2 }, (_, i) => i + 1).find((i) => !busy.has(`monument:dye:${item}:${i}`));
+            // (a second dyer only for more than one chore's 8: train 7's two dyers made 4 orange for 2 and used the red)
+            const n = Array.from({ length: q > 8 ? 2 : 1 }, (_, i) => i + 1).find((i) => !busy.has(`monument:dye:${item}:${i}`));
             if (!n || (this.monumentBack.get(`${v.name}:dye:${item}`) ?? 0) > now) continue;
             const key = `monument:dye:${item}:${n}`, amount = Math.min(8, q);
             add({
@@ -8082,7 +8100,9 @@ export class MineflayerWorld implements WorldAdapter {
           const deposit = worker.enqueue('deposit', { item: 'all', chore: true });
           worker.memory.monumentGather = d.item;
           const failed = (why: string) => {
-            if (why !== 'cancelled' && !make.code) this.monumentBack.set(`${v.name}:dye:${d.item}`, Date.now() + 3 * 60000);
+            if (why === 'cancelled' || make.code) return;
+            this.monumentBack.set(`${v.name}:dye:${d.item}`, Date.now() + 3 * 60000);
+            if (make.state === 'failed') this.dyeFails.set(`${v.name}:dye:${d.item}`, (this.dyeFails.get(`${v.name}:dye:${d.item}`) ?? 0) + 1);
           };
           this.setChore(v, worker, opt.key, [make, deposit], `make ${d.amount} ${d.item} for the ${N}`, failed, meta, opt.holds, opt);
           const c = this.chores.get(worker.name.toLowerCase());
@@ -8103,6 +8123,19 @@ export class MineflayerWorld implements WorldAdapter {
               (m3(m).standIns ??= {})[sb.block] = sb.as;
               this.villages.save();
               console.log(`[monument] ${v.name}: the ${N}'s ${sb.block} stands in as ${sb.as} (${(make.message ?? why).slice(0, 120)})`);
+            }
+            // (a furnishing kind whose makings cannot be had is left out after FURNISH_FAILS chores: the dye session's live
+            // runs stalled at the furnishing with the iron level finished, lanterns and chains short of ingots, banners of
+            // shears; only the furnishing's job changes, the bell stays)
+            const fk = m3(m).furnish, kind = furnishKindOf(d.item);
+            if (fk && kind && fk[kind] && make.state === 'failed') {
+              const k = `${v.name}:furnish:${kind}`, n = (this.dyeFails.get(k) ?? 0) + 1;
+              this.dyeFails.set(k, n);
+              if (n >= FURNISH_FAILS) {
+                fk[kind] = false;
+                this.villages.save();
+                console.log(`[monument] ${v.name}: the ${N}'s ${kind} are left out (${n} chores for them failed: ${(make.message ?? why).slice(0, 100)})`);
+              }
             }
           };
           this.setChore(v, worker, opt.key, [make, deposit], `make ${d.amount} ${d.item} for the ${N}'s furnishing`, failed, meta, opt.holds, opt);
@@ -9111,6 +9144,15 @@ const GREEN_SIZE = 15;
 /** Members a green (the user's, s36): a village prepares one green per GREENS_PER members for small works (MC_GREENS_PER
  *  for experiments, s43). */
 const GREENS_PER = Number(rawSetting('MC_GREENS_PER')) || 5;
+/** MC_GREENS_MORE (off; test train 7, F326: a pad village's five greens full by +50 and its menus "no room" from then): on
+ *  a village laid out on pads, greens of GREEN_SIZE_MORE a side (a pen or a stall with its ring and another work beside
+ *  it) and up to GREENS_MORE_TIMES the members' greens, still one prepared at a time and only when no plot has room
+ *  (train 6 without pads built 27-34 plot-sized works in 2 hours, ~2.5 every 10 minutes, steadily). */
+const GREENS_MORE = /^(on|1|true|yes)$/i.test(rawSetting('MC_GREENS_MORE') ?? 'off');
+const GREEN_SIZE_MORE = 21, GREENS_MORE_TIMES = 3;
+/** A village's green side and its greens' cap (MC_GREENS_MORE on a pad village). */
+const moreGreens = (v: Village) => GREENS_MORE && v.plots.some((p) => p.pads);
+const greenSize = (v: Village) => (moreGreens(v) ? GREEN_SIZE_MORE : GREEN_SIZE);
 /** Ring point i's direction (0 east, clockwise: z grows to the south). */
 const DIRECTIONS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'];
 /** A vote under way (spec_vote1): its ballots come in as the calls end. */

@@ -11,7 +11,7 @@
 import { Vec3 } from 'vec3';
 import type { Monument, Village, StationName } from '../village';
 import { VILLAGE_RANGE, areaText } from '../village';
-import { DYE_BED, DYE_MIN, TALL_FLOWERS, bedKinds, dyeSteps, dyeYields, bedLine, bedStrip, compost, compostable, newBed, type DyeBed } from '../dyeBed';
+import { COMPOST_CHANCE, DYE_BED, DYE_MIN, TALL_FLOWERS, bedKinds, dyeSteps, dyeYields, bedLine, bedStrip, compost, compostable, newBed, type DyeBed } from '../dyeBed';
 import { searchQuarry } from '../quarry';
 import { monumentNoun, siteTaken } from '../monument';
 import type { BotAgent } from './botAgent';
@@ -137,9 +137,10 @@ async function makeBoneMeal(a: BotAgent, v: Village, bed: DyeBed, n: number, sig
   // (about 7 / 0.3 seeds a bone meal, a fifth over for the chance)
   const want: Record<string, number> = {};
   let need = n * 7 * 1.2;
-  for (const [item, q] of Object.entries(spare).sort((x, y) => (y[0] === 'wheat_seeds' ? 1 : 0) - (x[0] === 'wheat_seeds' ? 1 : 0))) {
+  // (seeds first, then the rest by the most spare: wildflowers and saplings when the seeds are kept for sowing)
+  for (const [item, q] of Object.entries(spare).sort((x, y) => (y[0] === 'wheat_seeds' ? 1 : 0) - (x[0] === 'wheat_seeds' ? 1 : 0) || y[1] - x[1])) {
     if (need <= 0) break;
-    const chance = item.endsWith('_seeds') ? 0.3 : 0.65;
+    const chance = COMPOST_CHANCE[item] ?? 0.3;
     const t = Math.min(q, 192, Math.ceil(need / chance));
     want[item] = t;
     need -= t * chance;
@@ -240,7 +241,7 @@ async function makeDye(a: BotAgent, args: Record<string, unknown>, signal: Abort
     if (bmNeed > bmHave) {
       await withdrawItems(a, v, { bone_meal: bmNeed - bmHave }, signal);
       const still = bmNeed - (await a.world.rcon.count(a.name, 'bone_meal'));
-      if (still > 0 && !(await makeBoneMeal(a, v, bed, still, signal))) notes.push('no seeds or crops to spare for the composter');
+      if (still > 0 && !(await makeBoneMeal(a, v, bed, still, signal))) notes.push('nothing to spare for the composter (seeds past 24, wheat past 64, flowers past 32, saplings past 8)');
     }
     if (Object.keys(tall).length) {
       const got = await tendBed(a, v, bed, tall, signal);

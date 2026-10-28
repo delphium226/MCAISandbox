@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-227 settings.
+228 settings.
 
 ## Game speed
 
@@ -79,6 +79,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_FLOWER_MIX` | flag | `on` |  |  | #140: with MC_GARDENS, a flower bed or ring is planted from a mix of 2-4 of the one-block flowers counted within 80 of the storage hut (each with enough blocks to gather), drawn per member; the option, the design and the bill name the mix, and its crew picks each kind by name. |
 | `MC_GARDENS` | flag | `on` |  |  | #45: flower beds and front gardens (MC_GARDENS, off). A front garden is two beds of flowers on the grass either side of a house's door walkway (the walkway itself left as it is), one design a walkway's direction; a flower ring circles a green's centre, its four sides open. Planted from flowers... |
 | `MC_GEN_HOMES` | flag | `on` |  |  | Generated homes (buildingGen) beside the catalogue's. |
+| `MC_GREENS_MORE` | flag | `off` |  |  | More and bigger greens on a pad village (test train 7): 21x21 greens, up to three times the members' greens, so small works keep finding room. |
 | `MC_GREENS_PER` | string | (unset) |  |  | Members a green (the user's, s36): a village prepares one green per GREENS_PER members for small works (MC_GREENS_PER for experiments, s43). |
 | `MC_GROW` | flag | `on` |  |  | Growth after completion: neighbourhoods until a house per member; 0 turns it off. |
 | `MC_GROW_BATCH` | string | (unset) |  |  | Houses a growth layout lays out at once. |

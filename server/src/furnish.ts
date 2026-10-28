@@ -124,5 +124,13 @@ export function bannerStandIn(item: string): { block: string; as: string } | nul
   return m && m[1] !== 'white' ? { block: `${m[1]}_wall_banner`, as: 'white_wall_banner' } : null;
 }
 
+/** Chores for a furnishing kind failed (its makings not to be had: no iron for lanterns, chains or shears) before the
+ *  furnishing leaves that kind out (the bell is never left out: it is bought, and without it the job would go). */
+export const FURNISH_FAILS = 4;
+/** The furnishing kind an item belongs to, for leaving it out. */
+export function furnishKindOf(item: string): 'lanterns' | 'banners' | 'candles' | null {
+  return /^(lantern|iron_chain)$/.test(item) ? 'lanterns' : /_banner$/.test(item) ? 'banners' : /candle$/.test(item) ? 'candles' : null;
+}
+
 /** The emeralds the bell costs (merchant.ts' offer). */
 export const BELL_EMERALDS = 12;

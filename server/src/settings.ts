@@ -171,6 +171,8 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'Only these goals (comma list) in members\' goal lines.' },
   { name: 'MC_GREENS_PER', type: 'string', default: '', group: 'building', live: false, read: 'mineflayer/mcWorld.ts',
     describe: 'Members a green (the user\'s, s36): a village prepares one green per GREENS_PER members for small works (MC_GREENS_PER for experiments, s43).' },
+  { name: 'MC_GREENS_MORE', type: 'flag', default: 'off', group: 'building', live: false, read: 'mineflayer/mcWorld.ts',
+    describe: 'More and bigger greens on a pad village (test train 7): 21x21 greens, up to three times the members\' greens, so small works keep finding room.' },
   { name: 'MC_GROW', type: 'flag', default: 'on', group: 'building', live: false, read: 'grow.ts',
     describe: 'Growth after completion: neighbourhoods until a house per member; 0 turns it off.' },
   { name: 'MC_GROW_BATCH', type: 'string', default: '', group: 'building', live: false, read: 'grow.ts',

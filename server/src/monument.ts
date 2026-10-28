@@ -134,6 +134,22 @@ export const GEODE_ON = /^(on|1|true|yes)$/i.test(rawSetting('MC_GEODE') ?? 'off
 /** The accents' blocks and what each stands in as (tier 2's, with chains of their own). */
 export const GEM_STAND: Record<string, string> = { calcite: 'polished_diorite', amethyst_block: 'chiseled_stone_bricks' };
 
+/** The dyes' stand-in (MC_DYE_BED; test train 7 stalled at stage 7 on purple and red): a window colour whose dye chores
+ *  failed DYE_FAILS times, or that was wanted DYE_WAIT_MIN minutes, stands in as plain glass, from the first job the
+ *  yard's panes, stained glass and dye no longer cover (a dye makes 8 stained glass, 6 of those 16 panes). */
+export const DYE_FAILS = 4, DYE_WAIT_MIN = 30;
+export function dyeStandIn(m: Monument, dye: string): number {
+  const c = dye.replace(/_dye$/, ''), pane = `${c}_stained_glass_pane`, block = `${c}_stained_glass`, y = m.yard;
+  const glass = (y[block] ?? 0) + 8 * (y[dye] ?? 0);
+  const from = Math.min(standInFrom(m, pane, (y[pane] ?? 0) + Math.floor(glass * 16 / 6)), standInFrom(m, block, glass));
+  const r = m3(m);
+  Object.assign(r.standIns ??= {}, { [pane]: 'glass_pane', [block]: 'glass' });
+  Object.assign(r.standInFrom ??= {}, { [pane]: from, [block]: from });
+  return from;
+}
+/** Whether a dye's colour stands in already. */
+export const dyeStood = (m: Monument, dye: string) => !!m3(m).standIns?.[`${dye.replace(/_dye$/, '')}_stained_glass_pane`];
+
 /** The copper roof's blocks. */
 export const COPPER_BLOCKS = [COPPER.tile, COPPER.tileStair, COPPER.tileSlab];
 /** A copper roof's block as the generator draws it without copper (deepslate, its states kept). */
