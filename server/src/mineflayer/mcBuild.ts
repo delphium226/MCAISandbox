@@ -5595,6 +5595,29 @@ async function carryHome(a: BotAgent, args: Record<string, unknown>, signal: Abo
   return text ? `carried ${text} home into your own chest` : 'carried nothing home (the commons had none of it after all)';
 }
 
+/** take_own_tool (#172, a chore code queues): one tool from the commons into the member's own chest (its want of a tool
+ *  met; the menu leaves the village one of each kind). */
+async function takeOwnTool(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const h = ownHome(a);
+  if (typeof h === 'string') throw new Error(`take_own_tool: ${h}`);
+  const { v, P } = h;
+  const own = ownOf(v, a.name);
+  const chest = own.chest;
+  if (!chest) throw new Error('take_own_tool: you have no chest at home yet');
+  const item = str(args.item, 'item');
+  await withdrawItems(a, v, { [item]: 1 }, signal);
+  await toOwnDoor(a, P, signal);
+  const have = await serverCount(a, item);
+  const took = have > 0 ? await a.world.rcon.take(a.name, item, 1, have) : 0;
+  if (took <= 0) throw new Error(`take_own_tool: no ${item} came out of storage`);
+  chest.items[item] = (chest.items[item] ?? 0) + took;
+  own.got[item] = (own.got[item] ?? 0) + took;
+  a.world.villages.save();
+  await writeOwnChest(a, chest);
+  console.log(`[own] ${v.name}: ${a.name} took ${item} from storage into its own chest`);
+  return `took 1 ${item} from storage into your own chest`;
+}
+
 /**
  * deliver_own (#108, a chore code queues): the goods earmarked in storage for a priced request, withdrawn (no debt of the
  * deliverer's), carried to the buyer's door and taken into the buyer's own chest by server count; what the server could
@@ -7598,6 +7621,7 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   eat_meal: { run: eatMeal },
   place_own_chest: { run: placeOwnChest },
   carry_home: { run: carryHome },
+  take_own_tool: { check: (x) => (str(x.item, 'item'), undefined), run: takeOwnTool },
   deliver_own: { run: deliverOwn },
   eat_own: { run: eatOwn },
   make_own: { run: makeOwn },

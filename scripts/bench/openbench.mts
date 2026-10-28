@@ -44,7 +44,7 @@ if (!names.length) {
   process.exit(2);
 }
 
-interface Sample { arm: 'menu' | 'open'; agent: string; ok: boolean; id?: string; kind?: string; why?: string; ms: number; pt: number; ot: number; outside?: boolean; openOnly?: boolean }
+interface Sample { arm: 'menu' | 'open'; agent: string; ok: boolean; id?: string; kind?: string; why?: string; ms: number; pt: number; ot: number; outside?: boolean; openOnly?: boolean; pickaxeAsk?: boolean; pastPickaxe?: boolean; toolTake?: boolean }
 const samples: Sample[] = [];
 const jobs: Array<() => Promise<void>> = [];
 for (const agent of names)
@@ -58,11 +58,16 @@ for (const agent of names)
           const r = await callModel({ spec, system: m.system, user: m.prompt, tools: m.tools, level, agent: `bench-${agent}`, kind: 'choose', priority: 'decision' } as Any);
           const c = parseChoice(r.reply, options);
           const s: Sample = { arm, agent, ok: !('invalid' in c), ms: r.ms, pt: r.reply.promptTokens ?? 0, ot: r.reply.outputTokens ?? 0 };
+          // (#172's tool want: a request for a pickaxe in the reply, a pickaxe made past the keep, a tool taken for oneself)
+          const inp = ((r.reply.calls ?? []).find((x: Any) => x.name === 'choose') ?? r.reply.calls?.[0])?.input ?? {};
+          s.pickaxeAsk = /pickaxe/i.test(String(inp.act_item ?? '')) || /^request.*pickaxe/i.test(String(inp.choice ?? ''));
           if ('invalid' in c) s.why = c.invalid;
           else {
             const o = options.find((x) => x.id === c.id)!;
             s.id = c.id;
             s.kind = o.kind;
+            s.pastPickaxe = /pickaxe$/.test(c.id) && /\(past the keep\)/.test(o.facts ?? '');
+            s.toolTake = /^own:tool:/.test(c.id);
             if (arm === 'open') {
               s.outside = !menus[agent].options.some((x: Any) => x.id === c.id);
               s.openOnly = /\(past the keep\)/.test(o.facts ?? '') || (o.kind === 'gather' && /nothing wants it/.test(o.name));
@@ -91,10 +96,12 @@ for (const arm of ['menu', 'open'] as const) {
     msMedian: percentile(xs.map((s) => s.ms), 0.5), msP90: percentile(xs.map((s) => s.ms), 0.9),
     kinds: Object.fromEntries([...kinds.entries()].sort((p, q) => q[1] - p[1])),
     ...(arm === 'open' ? { outsideMenu: ok.filter((s) => s.outside).length, openOnly: ok.filter((s) => s.openOnly).length } : {}),
+    pickaxeAsks: xs.filter((s) => s.pickaxeAsk).length, pastPickaxe: ok.filter((s) => s.pastPickaxe).length, toolTakes: ok.filter((s) => s.toolTake).length,
     invalid: xs.filter((s) => !s.ok).map((s) => s.why),
   };
   summary.arms[arm] = a;
   console.log(`${arm.padEnd(4)}: ${a.valid}/${a.samples} valid (${a.validPct}%), ${a.distinct} distinct picks; options median ${a.optionsMedian}; prompt tokens median ${a.promptTokensMedian}, output ${a.outputTokensMedian}; ${a.msMedian} ms median, p90 ${a.msP90}${arm === 'open' ? `; outside the menu's view ${a.outsideMenu}, open-only (past the keep / nothing wants it) ${a.openOnly}` : ''}`);
+  console.log(`      tool want: pickaxe requests ${a.pickaxeAsks}, pickaxes made past the keep ${a.pastPickaxe}, tools taken for oneself ${a.toolTakes}`);
   console.log(`      kinds: ${Object.entries(a.kinds).map(([k, n]) => `${k} ${n}`).join(', ')}${a.invalid.length ? `; invalid: ${[...new Set(a.invalid)].slice(0, 3).join(' | ')}` : ''}`);
 }
 const out = path.join(path.dirname(openFile), `openbench-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);

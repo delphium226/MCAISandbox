@@ -197,6 +197,7 @@ function menusNow(): Any {
   return out;
 }
 
+const toolWants: string[] = [];
 const dumpOut: Any = { checkpoint: CHECKPOINT, replay: REPLAY, sweeps: [] as Any[] };
 for (let k = 1; k <= SWEEPS; k++) {
   mute();
@@ -221,7 +222,17 @@ for (let k = 1; k <= SWEEPS; k++) {
   }
   unmute();
   dumpOut.sweeps.push({ menus, picks: picks.slice(p0), actions: statuses.slice(s0).map((s) => `${s.agent} ${s.type} ${JSON.stringify(s.args)}`) });
+  // (#172's tool want: a take into the member's own chest moved in the record, as the skill moves it)
+  for (const s of statuses) if ((s.state === 'queued' || s.state === 'running') && s.type === 'take_own_tool') {
+    const item = String(s.args?.item), from = (v.storage?.chests ?? []).find((c: Any) => (c.items?.[item] ?? 0) > 0), mine = v.homes?.[s.agent]?.chest;
+    if (from && mine) {
+      from.items[item]--;
+      mine.items[item] = (mine.items[item] ?? 0) + 1;
+    }
+  }
   for (const s of statuses) if (s.state === 'queued' || s.state === 'running') Object.assign(s, { state: 'done', message: `${s.type} done` });
+  // (members still short of a tool of their own after the sweep, printed, not compared)
+  toolWants.push(['a pickaxe', 'an axe', 'a fishing rod'].map((t) => `${t.replace(/^an? /, '')} ${agents.filter((a) => (w.wantsOf?.(v, a.name)?.tools ?? []).includes(t)).length}`).join(' '));
   mute();
   try {
     w.endChoices();
@@ -238,6 +249,7 @@ const nMenus = dumpOut.sweeps.reduce((t: number, s: Any) => t + Object.values(s.
 const nPicks = dumpOut.sweeps.reduce((t: number, s: Any) => t + s.picks.length, 0);
 const bySource = (src: string) => dumpOut.sweeps.reduce((t: number, s: Any) => t + s.picks.filter((p: Any) => p.source === src).length, 0);
 say(`palette_golden ${mode}: ${CHECKPOINT}, village ${v.name}, ${SWEEPS} sweeps; ${nMenus} menus, ${nPicks} picks (model ${bySource('model')}, fallback ${bySource('fallback')}, fixed ${bySource('fixed')}); palette verdicts ${verdicts}; unreplayed calls ${unreplayed}; console.error ${errors.length}`);
+say(`members short of each tool after each sweep: ${toolWants.join(' | ')}; tool takes queued: ${dumpOut.sweeps.reduce((t: number, x: Any) => t + x.actions.filter((l: string) => / take_own_tool /.test(l)).length, 0)}`);
 for (const e of [...new Set(errors.map((e) => e.split('\n')[0]))].slice(0, 5)) say(`  ERROR ${e.slice(0, 300)}`);
 
 if (mode === 'dump') {

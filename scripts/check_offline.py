@@ -17,9 +17,10 @@ INPUTS = ["runs/2026-10-12/golden_inputs/villages_main.json", "runs/2026-10-12/g
 GOLDENS = {
     "choice_golden": (["check", "runs/2026-10-14/golden_head.json"], ["runs/2026-10-14/golden_head.json"] + INPUTS),
     "board_golden": (["check", "runs/2026-10-14/board_ebec76d.json"] + INPUTS, ["runs/2026-10-14/board_ebec76d.json"] + INPUTS),
-    # (#172: train 8 R1's model menus and replayed picks on its checkpoint, with a law in force, from 5bcfed1)
-    "palette_golden": (["check", "runs/2026-10-28/palette/golden_law_5bcfed1.json", "--law"],
-                       ["runs/2026-10-28/palette/golden_law_5bcfed1.json", "mc/testcheckpoints/t7_c_greens_full/villages.json", "runs/model-calls/2026-10-28-32228.jsonl"]),
+    # (#172: train 8 R1's model menus and replayed picks on its checkpoint, with a law in force, from 5bcfed1; since the
+    # tool-want fix, its own:tool options in 10 of 105 menus)
+    "palette_golden": (["check", "runs/2026-10-28/palette/golden_law_tool.json", "--law"],
+                       ["runs/2026-10-28/palette/golden_law_tool.json", "mc/testcheckpoints/t7_c_greens_full/villages.json", "runs/model-calls/2026-10-28-32228.jsonl"]),
 }
 # The scripts/checks/*.mts that run with no arguments and no server (each under ~35 s)
 UNITS = ["board_version", "call_gate", "chat_route", "choose_unit", "model_usage", "save_debounce", "street_plan",

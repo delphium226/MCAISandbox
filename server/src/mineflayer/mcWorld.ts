@@ -5520,7 +5520,7 @@ export class MineflayerWorld implements WorldAdapter {
     if (taken.size) parts.push(`taken by others now: ${[...taken.entries()].slice(0, 6).map(([n, who]) => `${n.charAt(0).toLowerCase()}${n.slice(1)} (${who.slice(0, 2).join(', ')}${who.length > 2 ? ` and ${who.length - 2} more` : ''})`).join('; ')}`);
     const why = (Object.entries(reasons) as Array<[ChoiceKind, string]>).filter(([k]) => !/^(annex|works|grow)$/.test(k)).map(([k, w]) => `${KIND_WORDS[k] ?? k}: ${w}`).filter((x, i, xs) => xs.indexOf(x) === i).slice(0, 8);
     if (why.length) parts.push(`not possible here now: ${why.join('; ')}`);
-    if (OWN.on && this.wantsOf(v, a.name)?.tools.length) parts.push('a tool of your own comes from an iron tool made for you, the stock in your own chest or the merchant: making goods puts them in the village storage');
+    if (OWN.on && this.wantsOf(v, a.name)?.tools.length) parts.push('a tool of your own comes from storage (take one for yourself, while it keeps two or more), an iron tool made for you, the stock in your own chest or the merchant: making goods puts them in the village storage');
     return parts.length ? `Not on your list now: ${parts.join('. ')}.`.slice(0, 500) : '';
   }
 
@@ -5805,6 +5805,37 @@ export class MineflayerWorld implements WorldAdapter {
         }, { kind: 'own', what: 'chest' });
         else reasons.own ??= HOME_BASICS.on ? 'your chest comes with your house\'s basics' : 'no cell for a chest';
       } else {
+        // (#172's tool want, the user's 10-28: a member short of a pickaxe, an axe or a fishing rod takes one from storage
+        // into its own chest, the best kept there, leaving the village one of each kind; the want weighs on this, not on a
+        // make into storage, which never met it: train 9's members asked for stone pickaxes while storage held 4)
+        const wants = this.wantsOf(v, a.name);
+        for (const [i, t] of (wants?.tools ?? []).entries()) {
+          const re = TOOL_WANTS[t];
+          if (!re) continue;
+          const kept = Object.entries(store).filter(([n, q]) => q > 0 && re.test(n));
+          const all = kept.reduce((s, [, q]) => s + q, 0);
+          const best = kept.sort(([p], [q]) => toolRank(q) - toolRank(p))[0]?.[0];
+          if (!best || all < 2) {
+            // (none to spare: one made from the spare storage and taken, the make ending in the member's own hands)
+            const g = this.goodsFor(v).find((x) => x.item === TOOL_GOODS[t]);
+            if (!g || excluded([`make:${g.item}=`], busy) || this.goingS9(v).make.filter((q) => !q.smelts).length >= MAKE_PARALLEL) continue;
+            const p = this.makePlan(v, g, '', store, undefined, true);
+            if ('why' in p || p.smelts) continue;
+            add({
+              id: `own:toolmake:${g.item}`, kind: 'own', key: me, holds: [`make:${g.item}`], excludes: [`${me}=`, `make:${g.item}=`], name: `Make ${words(g.item).replace(/s$/, '')} for yourself`, rank: 875 + i,
+              at: { x: own.chest.x, z: own.chest.z },
+              facts: `you have no ${t.replace(/^an? /, '')} of your own and storage cannot spare one (${all} kept); ${p.count} made at the hut from ${countsText(p.inputs)} (all spare), one into your own chest; ${dist(own.chest.x, own.chest.z)}`,
+              effect: `${t} of your own${p.count > 1 ? `, ${p.count - 1} more for the village` : ''}`,
+            }, { kind: 'own', what: 'toolmake', item: g.item, count: p.count, inputs: p.inputs });
+            continue;
+          }
+          add({
+            id: `own:tool:${best}`, kind: 'own', key: me, excludes: [`${me}=`], name: `Take ${words(best).replace(/s$/, '')} from storage for yourself`, rank: 870 + i,
+            at: { x: own.chest.x, z: own.chest.z },
+            facts: `you have no ${t.replace(/^an? /, '')} of your own; storage keeps ${all} (${kept.map(([n, q]) => `${q} ${words(n)}`).join(', ')}); one into your own chest, ${all - 1} left for the village; ${dist(own.chest.x, own.chest.z)}`,
+            effect: `${t} of your own`,
+          }, { kind: 'own', what: 'tool', item: best });
+        }
         const owed = own.owed;
         const total = Object.values(owed).reduce((t, q) => t + q, 0);
         const lowFood = foodPoints(own.chest.items) < 16 && Object.keys(owed).some((n) => FOOD_POINTS[n] !== undefined);
@@ -7345,7 +7376,8 @@ export class MineflayerWorld implements WorldAdapter {
           let n = 0;
           if (food && o.kind !== 'eat' && (isFoodKind(o.kind, o) || o.kind === 'activity' || o.kind === 'own')) n++;
           if (house && (o.kind === 'furnish' || o.kind === 'light') && /your own house/.test(o.facts ?? '')) n++;
-          if (tools.size && o.kind === 'make' && ((tools.has('a pickaxe') && /pickaxe$/.test(o.id)) || (tools.has('an axe') && /_axe$/.test(o.id)) || (tools.has('a fishing rod') && /fishing_rod$/.test(o.id)))) n++;
+          // (#172: a tool want weighs on taking one for oneself; a make into storage never met it)
+          if (tools.size && o.kind === 'own' && /^own:tool(make)?:/.test(o.id)) n++;
           if (mine && o.kind === 'help') { const d = OPTION_RUN.get(o); if (d?.kind === 'help' && d.id === mine.id) n++; }
           if (n) o.ww = 1 + 0.3 * n;
         }
@@ -7651,6 +7683,8 @@ export class MineflayerWorld implements WorldAdapter {
     if (d.kind === 'light') return { torch: d.n };
     if (d.kind === 'furnish') return { ...d.items };
     if (d.kind === 'activity') return { ...d.needs };
+    if (d.kind === 'own' && d.what === 'tool') return { [d.item]: 1 };
+    if (d.kind === 'own' && d.what === 'toolmake') return { ...d.inputs };
     return {};
   }
 
@@ -8157,6 +8191,21 @@ export class MineflayerWorld implements WorldAdapter {
           ];
           this.setChore(v, worker, opt.key, ids, 'shear wool for your bed', undefined, meta, opt.holds, opt);
           console.log(`[home] ${v.name}: ${worker.name} goes to shear wool for its bed${d.make ? ' (shears made first)' : ''}`);
+          return;
+        }
+        if (d.what === 'toolmake') {
+          const make = worker.enqueue('make', { item: d.item, count: d.count, past: true, chore: true });
+          const take = worker.enqueue('take_own_tool', { item: d.item, chore: true });
+          this.setChore(v, worker, opt.key, [make, take], `make ${d.count} ${d.item}, one for yourself`, undefined, meta, opt.holds, opt);
+          const c = this.chores.get(worker.name.toLowerCase());
+          if (c) c.choice.make = { item: d.item, count: d.count, smelts: false };
+          holdsSet(holdKey(v.name, worker.name), d.inputs);
+          console.log(`[own] ${v.name}: ${worker.name} makes ${d.count} ${d.item}, one for its own chest (inputs ${countsList(d.inputs)})`);
+          return;
+        }
+        if (d.what === 'tool') {
+          this.setChore(v, worker, opt.key, [worker.enqueue('take_own_tool', { item: d.item, chore: true })], `take ${words(d.item)} home for yourself`, undefined, meta, opt.holds, opt);
+          console.log(`[own] ${v.name}: ${worker.name} goes to take ${d.item} from storage into its own chest`);
           return;
         }
         if (d.what === 'chest') this.setChore(v, worker, opt.key, [worker.enqueue('place_own_chest', { chore: true })], 'put a chest in your own house', undefined, meta, opt.holds, opt);
@@ -9480,6 +9529,8 @@ type OptionRun =
   | { kind: 'decor'; item: string; amount: number }
   | { kind: 'own'; what: 'shear'; make: boolean }
   | { kind: 'own'; what: 'carry'; want: Counts }
+  | { kind: 'own'; what: 'tool'; item: string }
+  | { kind: 'own'; what: 'toolmake'; item: string; count: number; inputs: Counts }
   | { kind: 'own'; what: 'deliver'; contract: string }
   | { kind: 'own'; what: 'make'; item: string; n: number; fuel: Counts }
   | { kind: 'own'; what: 'trade'; offer: string }
@@ -9637,6 +9688,12 @@ function choreName(key: string, what: string): string {
 
 /** G8: the iron tools a smith forges, their ingots, and whose work needs each (miners first; spec B3). */
 const FORGE_TOOLS = ['iron_pickaxe', 'iron_hoe', 'shears', 'bucket'];
+/** #172: the tools a member wants one of its own of (wantsOf's), by the items that meet the want. */
+const TOOL_WANTS: Record<string, RegExp> = { 'a pickaxe': /^(stone|iron|diamond)_pickaxe$/, 'an axe': /_axe$/, 'a fishing rod': /^fishing_rod$/ };
+/** #172: the better tool first (diamond, iron, stone, then the rest). */
+/** #172: the good made for a tool want when storage cannot spare one. */
+const TOOL_GOODS: Record<string, string> = { 'a pickaxe': 'stone_pickaxe', 'an axe': 'stone_axe', 'a fishing rod': 'fishing_rod' };
+const toolRank = (n: string) => (/^diamond_/.test(n) ? 4 : /^iron_/.test(n) ? 3 : /^stone_/.test(n) ? 2 : /^fishing_rod$/.test(n) ? 2 : 1);
 /** G8: the iron level's answers that mean another miner is in the way (mcMine's gate, stairs and leg claims). */
 const IRON_WAIT = /another worker is digging|miners are on the iron level|has its miner|another miner finished|no raw iron in storage|no raw_iron in inventory/;
 const FORGE_COST: Record<string, number> = { iron_pickaxe: 3, iron_hoe: 2, shears: 2, bucket: 3 };
