@@ -5618,6 +5618,46 @@ async function takeOwnTool(a: BotAgent, args: Record<string, unknown>, signal: A
   return `took 1 ${item} from storage into your own chest`;
 }
 
+/** own_tool_out (MC_OWN_ROD, a chore code queues): one of the member's own tools out of its own chest into its hands, at
+ *  its door, for an activity the commons has no tool to spare for; own_tool_back puts it back after. */
+async function ownToolOut(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const h = ownHome(a);
+  if (typeof h === 'string') throw new Error(`own_tool_out: ${h}`);
+  const { v, P } = h;
+  const chest = ownOf(v, a.name).chest;
+  const item = str(args.item, 'item');
+  if (!chest || !((chest.items[item] ?? 0) > 0)) throw new Error(`own_tool_out: your own chest holds no ${item}`);
+  await toOwnDoor(a, P, signal);
+  const r = await a.world.rcon.command(`give ${a.name} minecraft:${item} 1`).catch(() => '');
+  if (!/gave|given/i.test(String(r))) throw new Error(`own_tool_out: the ${item} did not come out of your chest (${String(r).slice(0, 80) || 'no reply'})`);
+  chest.items[item] -= 1;
+  if (!chest.items[item]) delete chest.items[item];
+  a.world.villages.save();
+  await writeOwnChest(a, chest);
+  console.log(`[own] ${v.name}: ${a.name} took its own ${item} out of its chest`);
+  return `took your own ${item} out of your chest`;
+}
+
+/** own_tool_back (MC_OWN_ROD): the member's own tool from its hands back into its own chest (none when it broke). */
+async function ownToolBack(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const h = ownHome(a);
+  if (typeof h === 'string') throw new Error(`own_tool_back: ${h}`);
+  const { v, P } = h;
+  const chest = ownOf(v, a.name).chest;
+  const item = str(args.item, 'item');
+  if (!chest) throw new Error('own_tool_back: you have no chest at home');
+  const have = await serverCount(a, item);
+  if (have <= 0) return `no ${item} to put back (it wore out)`;
+  await toOwnDoor(a, P, signal);
+  const took = await a.world.rcon.take(a.name, item, 1, have);
+  if (took <= 0) return `no ${item} to put back`;
+  chest.items[item] = (chest.items[item] ?? 0) + took;
+  a.world.villages.save();
+  await writeOwnChest(a, chest);
+  console.log(`[own] ${v.name}: ${a.name} put its own ${item} back in its chest`);
+  return `put your own ${item} back in your chest`;
+}
+
 /**
  * deliver_own (#108, a chore code queues): the goods earmarked in storage for a priced request, withdrawn (no debt of the
  * deliverer's), carried to the buyer's door and taken into the buyer's own chest by server count; what the server could
@@ -7627,6 +7667,8 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   place_own_chest: { run: placeOwnChest },
   carry_home: { run: carryHome },
   take_own_tool: { check: (x) => (str(x.item, 'item'), undefined), run: takeOwnTool },
+  own_tool_out: { check: (x) => (str(x.item, 'item'), undefined), run: ownToolOut },
+  own_tool_back: { check: (x) => (str(x.item, 'item'), undefined), run: ownToolBack },
   deliver_own: { run: deliverOwn },
   eat_own: { run: eatOwn },
   make_own: { run: makeOwn },

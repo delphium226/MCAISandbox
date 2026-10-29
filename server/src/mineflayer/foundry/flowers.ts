@@ -20,10 +20,11 @@ export const FLOWERS: Record<string, string> = {
 
 /** How far from the hut the adapter looks, and how long a village's flower count is kept. */
 const REACH = 96, COUNT_MS = 10 * 60000;
-const counted = new Map<string, { at: number; hx: number; hz: number; best: string | null; n: number }>();
+const counted = new Map<string, { at: number; hx: number; hz: number; best: string | null; n: number; by: Record<string, number> }>();
 
-/** The flower with the most blocks within REACH of the hut (one nearestBlocks search a kind, at most every 10 minutes). */
-function bestFlower(ctx: FoundryPlaceCtx): { best: string | null; n: number } {
+/** The flower with the most blocks within REACH of the hut (one nearestBlocks search a kind, at most every 10 minutes),
+ *  and each kind's count. */
+function bestFlower(ctx: FoundryPlaceCtx): { best: string | null; n: number; by: Record<string, number> } {
   const hut = ctx.hut!;
   const key = ctx.village?.name ?? '';
   const hit = counted.get(key);
@@ -31,18 +32,20 @@ function bestFlower(ctx: FoundryPlaceCtx): { best: string | null; n: number } {
   const a = ctx.agent;
   const reg = a?.bot?.registry;
   let best: string | null = null, n = 0;
+  const by: Record<string, number> = {};
   if (reg && a.bot.entity?.position) {
     for (const name of Object.keys(FLOWERS)) {
       const id = reg.blocksByName?.[name]?.id;
       if (id === undefined) continue;
       const found = nearestBlocks(a, [id], REACH, 32, (p) => Math.hypot(p.x - hut.x, p.z - hut.z) <= REACH).length;
+      if (found) by[name] = found;
       if (found > n) {
         best = name;
         n = found;
       }
     }
   }
-  const out = { at: Date.now(), hx: hut.x, hz: hut.z, best, n };
+  const out = { at: Date.now(), hx: hut.x, hz: hut.z, best, n, by };
   if (key) counted.set(key, out);
   return out;
 }
@@ -78,7 +81,12 @@ export const FOUNDRY: FoundrySkill = {
     place(ctx) {
       try {
         if (!ctx?.hut) return { why: 'no storage hut' };
-        const { best, n } = bestFlower(ctx);
+        const { best, n, by } = bestFlower(ctx);
+        // (MC_FLOWER_WANTS: the first wanted flower that grows near, else none: the commonest would not be what is short)
+        if (ctx.want?.length) {
+          const w = ctx.want.find((f) => (by[f] ?? 0) > 0);
+          return w ? { flower: w } : { why: `no ${ctx.want.map((f) => f.replace(/_/g, ' ')).join(' or ')} within ${REACH} blocks of the storage hut` };
+        }
         return best ? { flower: best } : { why: `no flowers within ${REACH} blocks of the storage hut (n ${n})` };
       } catch {
         return { why: 'no flowers found' };

@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-232 settings.
+235 settings.
 
 ## Game speed
 
@@ -256,6 +256,8 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_APPETITE` | string | (unset) | yes |  | Appetite: off, or the food points drained a busy game-hour (18 typical). |
 | `MC_APPETITE_IDLE` | number | `0.25` |  |  | The share of the appetite drain while idle. |
 | `MC_APPETITE_START` | number | `20` |  |  | Food points a member starts with (0-20). |
+| `MC_FIELD_RIPE` | number | `0.75` |  |  | The share of a wheat field's grown plants that must be ripe (and 4 at least) before it is offered for harvest; 0.5 gives about 1.5x the harvest options and a tenth more wheat (train 9c's supply gaps). |
+| `MC_FLOWER_WANTS` | flag | `off` |  |  | The flower picking activity is offered for a flower whose dye a good under its keep takes (lilac for magenta dye), counted by that flower's own stock, and picks it. |
 | `MC_HOME_BASICS` | flag | `on` |  |  | MC_HOME_BASICS: on by default since 10-24 (the user's, after test train 1); off turns it off. |
 | `MC_NEED_COOLDOWN_MIN` | number | `90` |  |  | Game minutes after a farmstead is laid out before another is offered (a crop cycle and its first harvest). |
 | `MC_NEED_FARMSTEAD` | flag | `off` |  |  | MC_NEED_FARMSTEAD=on: the farmstead (s39) beside the field (s40); off by default: where no 9x9 field pad is left, no 19x19 farmstead pad is either (Night40, the field spec's check 5). |
@@ -263,6 +265,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_NEED_HOLD_MIN` | number | `30` |  |  | Game minutes the flow must stay short before the farmstead is offered (MC_NEED_HOLD_MIN shortens it for tests). |
 | `MC_NEED_WORKS` | flag | `on` |  |  | MC_NEED_WORKS: on (the default since s40, 10-19) or off (0, false). |
 | `MC_NEEDS` | string | (unset) | yes |  | N.1's needs (spec_needs_v2): off; show (measured, logged, on the API and panel); on (also on the menus). |
+| `MC_OWN_ROD` | flag | `off` |  | `MC_OWN` | A member whose own chest holds a fishing rod may go fishing with it while storage has none to spare (out of its chest at its door, back after). |
 
 ## Server and run
 

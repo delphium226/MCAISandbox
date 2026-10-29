@@ -13,6 +13,8 @@ import { BotAgent } from './botAgent';
 import { MC_SKILLS } from './mcSkills';
 import { cellKey, libraryCells, libraryLeft, libraryOf, type LibraryCell } from './mcLibrary';
 import { FOUNDRY_SKILLS } from './foundry/list';
+
+import { FLOWERS } from './foundry/flowers';
 import { TOOL } from './mcBlocks';
 import { LIBRARY_KEEP, loadLibrary, type LibrarySpec } from '../library';
 import { MERCHANT_ON, MERCHANT_RESTOCK_MIN, MERCHANT_TAG, OFFERS, ORDERS_ON, ORDER_EXPIRE_RESTOCKS, ORDER_RAW_CAP, ORDER_SIZE, levelOf, offersCommands, orderPay, ordersOpen, stablePick, stallCell, summonCommand, villageTag, type MerchantOffer, type MerchantOrder } from '../merchant';
@@ -84,6 +86,7 @@ import { codeNews, tellMember } from '../acts';
 import { RULES, boardSigns, breaks, contributeOwed, inClass, rulesInForce, claimHeld, claimRule, contributeTag, duties, levyRate, noteBlocked, noteClaimWait, noteCompliance, notePuts, noteReportUsed, noteTakes, pendReport, pendingReport, postClaim, postReport, reportFor, reportRule, rulesLine, setZoneVillages, skipReport, zoneBoxes, type ClaimWork, type Report } from '../rules';
 import { CUSTOMS, CUSTOM_IDS, TEMPLATES, customFacts, didOn, noteDid, noteExposed, offered as customOffered, seedLine, type CustomId } from '../customs';
 import { lapsePending, levyLeft, pendShare, pendingOf, settlePending } from '../own';
+import { FIELD_RIPE, FLOWER_KEEP, FLOWER_WANTS, OWN_ROD } from '../supply';
 import { councilLine, needBoost, noteNeedOffer, noteNeedStatus, setCouncilStore, withInfluence } from '../council';
 import { CHARACTER, characterAny, characterFactor, characterRunBegin, goalFromValues, helpWeight, hexacoOf, hexacoWeights, identityLine, initCharacter, moodLine, moodWeight, needsLine, noteDecision, noteLines, noteRest, noteWork, requestWeight, restWeight, sample as characterSample, temperamentWords, think, valuesLine } from '../character';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, VANILLA_ALL, WOOD_VARIANTS, baseName, houseBudget, isLandmark, isVanillaPieceName, validateDesign } from '../designs';
@@ -1417,6 +1420,17 @@ export class MineflayerWorld implements WorldAdapter {
 
   /** s41: a library activity's keep (its gives together): the spec's own, else two a member for food while the village
    *  keeps an appetite, else LIBRARY_KEEP (F258: no surplus nobody uses, lesson 149). */
+  /** MC_FLOWER_WANTS: the flowers whose dye a good under its keep takes (its make's allow list) and that storage holds
+   *  fewer than FLOWER_KEEP of, the good furthest under its keep first. */
+  flowersWanted(v: Village, store: Counts): string[] {
+    const out: string[] = [];
+    const under = this.goodsFor(v).map((g) => ({ g, t: this.makeTarget(v, g) })).filter(({ g, t }) => t > 0 && (store[g.item] ?? 0) < t)
+      .sort((p, q) => (store[p.g.item] ?? 0) / p.t - (store[q.g.item] ?? 0) / q.t);
+    for (const { g } of under)
+      for (const f of g.allow ?? []) if (FLOWERS[f] === g.item && (store[f] ?? 0) < FLOWER_KEEP && !out.includes(f)) out.push(f);
+    return out;
+  }
+
   libraryKeep(v: Village, sp: LibrarySpec): number {
     if (sp.keep) return sp.keep;
     if (sp.gives.some((g) => g.consumer === 'food') && appetiteOn(v)) return Math.max(LIBRARY_KEEP, 2 * this.growMembers(v).length);
@@ -2230,7 +2244,7 @@ export class MineflayerWorld implements WorldAdapter {
           if (s - wheat.minStateId >= 7) ripe++;
         }
         // (with neighbourhood farms a field of 1-3 plants is harvested once they are ripe, so harvest_farm sows its bare cells)
-        if (unloaded || ripe < (GROW_FARMS ? Math.min(4, Math.max(1, grown)) : 4) || ripe < 0.75 * grown) continue;
+        if (unloaded || ripe < (GROW_FARMS ? Math.min(4, Math.max(1, grown)) : 4) || ripe < FIELD_RIPE * grown) continue;
         // Never ahead of the board's work: a worker between tasks would take the next one only after the harvest (F163's
         // pattern, the diff review)
         if (!v.complete && this.villages.claimable(v).length) continue;
@@ -5388,7 +5402,7 @@ export class MineflayerWorld implements WorldAdapter {
           grown++;
           if (s - wheat.minStateId >= 7) ripe++;
         }
-        return ripe < (GROW_FARMS ? Math.min(4, Math.max(1, grown)) : 4) || ripe < 0.75 * grown ? null : { ripe, grown, plot };
+        return ripe < (GROW_FARMS ? Math.min(4, Math.max(1, grown)) : 4) || ripe < FIELD_RIPE * grown ? null : { ripe, grown, plot };
       }),
       // A planted slot as slotChores' ripe loop reads it ("k:j")
       slot: memo((kj) => {
@@ -5597,9 +5611,13 @@ export class MineflayerWorld implements WorldAdapter {
     const crop = /^(wheat|carrot|potato|beetroot|sugar_cane|pumpkin|melon_slice|melon)$/.test(r);
     const step = /_log$/.test(r) ? 'gather logs' : /^(cobblestone|stone)$/.test(r) ? 'mine cobblestone' : /^(cod|salmon)$/.test(r) ? 'go fishing'
       : crop ? `harvest ${word}` : r === 'egg' ? 'collect eggs at the pens' : BED_FLOWERS.includes(r) ? 'pick flowers' : `get ${word}`;
-    const o = options.find((x) => (/_log$/.test(r) ? x.id === 'gather:logs' : /^(cod|salmon)$/.test(r) ? /fish/.test(x.id) : r === 'egg' ? /^penwork:.*egg/.test(x.id) : x.id.includes(r.replace(/_slice$/, '')) || x.name.toLowerCase().includes(word.replace(/_/g, ' '))) && !/^make:/.test(x.id));
+    // (and an activity that brings it by its pick: the merchant's "buys 4 leather", the flowers' "picks lilac"; train 9c's
+    // block said leather was not on the list while the buy of it was)
+    const brings = new RegExp(`\\b(buys \\d+|picks) (${r}|${words(r)})\\b`);
+    const o = options.find((x) => ((/_log$/.test(r) ? x.id === 'gather:logs' : /^(cod|salmon)$/.test(r) ? /fish/.test(x.id) : r === 'egg' ? /^penwork:.*egg/.test(x.id) : x.id.includes(r.replace(/_slice$/, '')) || x.name.toLowerCase().includes(word.replace(/_/g, ' ')))
+      || (x.kind === 'activity' && brings.test(x.facts))) && !/^make:/.test(x.id));
     // (not on the list: the kind's own reason, as the absent line gives it)
-    const kind: ChoiceKind | undefined = /_log$|^(cobblestone|stone|sand)$/.test(r) ? 'gather' : crop ? 'slot' : r === 'egg' ? 'penwork' : /^(cod|salmon)$/.test(r) ? 'activity' : undefined;
+    const kind: ChoiceKind | undefined = /_log$|^(cobblestone|stone|sand)$/.test(r) ? 'gather' : crop ? 'slot' : r === 'egg' ? 'penwork' : /^(cod|salmon|leather)$/.test(r) || FLOWERS[r] ? 'activity' : undefined;
     const why = /^(cod|salmon)$/.test(r) && !(facts.store.fishing_rod > 0) ? 'no fishing rod in storage' : kind ? reasons[kind] ?? (crop ? reasons.farm : undefined) : undefined;
     return `first ${step} (${words(r)} short)${o ? `: "${o.name}" is on your list` : `, not on your list now${why ? ` (${why})` : ''}`}`;
   }
@@ -5872,7 +5890,8 @@ export class MineflayerWorld implements WorldAdapter {
           const best = kept.sort(([p], [q]) => toolRank(q) - toolRank(p))[0]?.[0];
           if (!best || all < 2) {
             // (none to spare: one made from the spare storage and taken, the make ending in the member's own hands)
-            const g = this.goodsFor(v).find((x) => x.item === TOOL_GOODS[t]);
+            const goods = this.goodsFor(v);
+            const g = (TOOL_GOODS[t] ?? []).map((n) => goods.find((x) => x.item === n)).find(Boolean);
             if (!g || excluded([`make:${g.item}=`], busy) || this.goingS9(v).make.filter((q) => !q.smelts).length >= MAKE_PARALLEL) continue;
             const p = this.makePlan(v, g, '', store, undefined, true);
             if ('why' in p || p.smelts) continue;
@@ -6780,9 +6799,20 @@ export class MineflayerWorld implements WorldAdapter {
           continue;
         }
         // (a spec that picks in code, the merchant's: its needs and gives from the pick, no keep of its own; spec_shop_v2)
-        const keep = this.libraryKeep(v, sp);
-        const stock = sp.gives.reduce((s, g) => s + (store[g.item] ?? 0), 0);
+        let keep = this.libraryKeep(v, sp);
+        let stock = sp.gives.reduce((s, g) => s + (store[g.item] ?? 0), 0);
         let needs: Counts = sp.needs ?? {}, gives = sp.gives.map((g) => g.item), pickArgs: Record<string, unknown> = {}, pickFacts = '';
+        // (MC_FLOWER_WANTS: the flowers a dye under its keep takes, each by its own stock; train 9c's wildflowers held the
+        // summed stock at the keep while lilac was 0)
+        const want = FLOWER_WANTS && sp.skill === 'pick_flowers' ? this.flowersWanted(v, store) : [];
+        if (want.length) {
+          keep = FLOWER_KEEP;
+          stock = store[want[0]] ?? 0;
+          gives = want;
+          pickFacts = `picks ${words(want[0])} for ${words(FLOWERS[want[0]])}, which the village is short of; ${stock} ${words(want[0])} in storage`;
+        }
+        // (MC_OWN_ROD: a rod from the member's own chest when storage has none to spare)
+        let ownRod = false;
         if (f.activity.pick) {
           let p: ReturnType<NonNullable<typeof f.activity.pick>>;
           try {
@@ -6802,13 +6832,18 @@ export class MineflayerWorld implements WorldAdapter {
           why.push('at keep');
           continue;
         }
+        if (OWN_ROD && OWN.on && (needs.fishing_rod ?? 0) === 1 && (spare.fishing_rod ?? 0) < 1 && (v.homes?.[a.name]?.chest?.items.fishing_rod ?? 0) > 0) {
+          const { fishing_rod: _rod, ...rest } = needs;
+          needs = rest;
+          ownRod = true;
+        }
         if (Object.entries(needs).some(([n, q]) => (spare[n] ?? 0) < q)) {
           why.push('needs short');
           continue;
         }
         let place: Record<string, unknown>;
         try {
-          place = f.activity.place({ village: v, agent: a, hut });
+          place = f.activity.place({ village: v, agent: a, hut, ...(want.length ? { want } : {}) });
         } catch {
           place = { why: 'no place' };
         }
@@ -6832,9 +6867,9 @@ export class MineflayerWorld implements WorldAdapter {
         add({
           id: key, kind: 'activity', key, holds, excludes: [`${key}=`, ...holds.map((h) => `${h}=`)], name: sp.name, rank: 870 + Math.min(r, 9),
           ...(typeof place.x === 'number' && typeof place.z === 'number' ? { at: { x: place.x, y: typeof place.y === 'number' ? place.y : hut?.y ?? 64, z: place.z } } : {}),
-          facts: `${pickFacts ? `${pickFacts}; ` : `gives ${giveWords}; ${stock} of the ${keep} kept are in storage`}${Object.keys(needs).length ? `; takes ${countsText(needs)} from storage${Object.keys(needs).some((n) => TOOL.has(n)) ? ' and puts the tools back' : ''}` : ''}; ${record('activity')}${others('activity', key)}${lastOf('activity', key)}`,
+          facts: `${pickFacts || `gives ${giveWords}; ${stock} of the ${keep} kept are in storage`}${Object.keys(needs).length ? `; takes ${countsText(needs)} from storage${Object.keys(needs).some((n) => TOOL.has(n)) ? ' and puts the tools back' : ''}` : ''}${ownRod ? '; with the fishing rod from your own chest (back there after)' : ''}; ${record('activity')}${others('activity', key)}${lastOf('activity', key)}`,
           effect: `${count ? `up to ${count} ` : ''}${gives.map((g) => g.replace(/_/g, ' ')).join(' or ')}: ${sp.effect}`,
-        }, { kind: 'activity', spec: sp, args, count, stock, keep, needs, gives });
+        }, { kind: 'activity', spec: sp, args, count, stock, keep, needs, gives, ...(ownRod ? { own: ['fishing_rod'] } : {}) });
       }
       if (!out.some((o) => o.kind === 'activity')) reasons.activity = ['needs short', 'no place', 'busy', 'at keep'].find((w) => why.includes(w)) ?? why[0] ?? 'none loaded';
     }
@@ -8208,9 +8243,10 @@ export class MineflayerWorld implements WorldAdapter {
         }
         if (d.what === 'farm') {
           this.setChore(v, worker, opt.key, [worker.enqueue('lay_out_field', { own: true, crop: d.crop, chore: true })], `start a ${d.crop} farm of your own`, (why) => {
-            // (a member whose house has no room for a field is not offered one again for 30 minutes)
+            // (a member whose house has no room for a field is not offered one again for 30 minutes; 2 hours when no site was
+            // free: the land round a house rarely frees up, and train 9c's members tried again 77 times, half its failures)
             this.ownFarmBack.add(`${v.name}|${worker.name}`);
-            setTimeout(() => this.ownFarmBack.delete(`${v.name}|${worker.name}`), 30 * 60000).unref?.();
+            setTimeout(() => this.ownFarmBack.delete(`${v.name}|${worker.name}`), (/no free \d+x\d+ site/.test(why) ? 120 : 30) * 60000).unref?.();
             console.log(`[own] ${v.name}: ${worker.name} could not start a farm of its own: ${why.slice(0, 160)}`);
           }, meta, opt.holds, opt);
           console.log(`[own] ${v.name}: ${worker.name} goes to start a farm of its own`);
@@ -8720,6 +8756,8 @@ export class MineflayerWorld implements WorldAdapter {
         const st: ActionStatus[] = [];
         const needs = Object.entries(d.needs);
         for (const [n, q] of needs) st.push(worker.enqueue('withdraw', { item: n, count: q, chore: true }));
+        // (MC_OWN_ROD: the member's own tool out of its own chest first, and back there after the deposits)
+        for (const n of d.own ?? []) st.push(worker.enqueue('own_tool_out', { item: n, chore: true }));
         st.push(worker.enqueue(sp.skill, { ...d.args, chore: true }));
         const items = d.gives;
         const also = [...items.slice(1), ...(sp.also ?? [])];
@@ -8729,6 +8767,7 @@ export class MineflayerWorld implements WorldAdapter {
         // (and what the skill did not use of the other needs: a trade cut short leaves goods in hand, the shop check's F2)
         const back = needs.map(([n]) => n).filter((n) => !TOOL.has(n) && !items.includes(n));
         if (back.length) st.push(worker.enqueue('deposit', { item: back[0], ...(back.length > 1 ? { also: back.slice(1).join(',') } : {}), ifAny: true, chore: true }));
+        for (const n of d.own ?? []) st.push(worker.enqueue('own_tool_back', { item: n, chore: true }));
         this.setChore(v, worker, opt.key, st, sp.name.toLowerCase(), undefined, meta, opt.holds, opt);
         const c = this.chores.get(worker.name.toLowerCase());
         if (c) c.choice.activity = { id: sp.id, items, depAt };
@@ -9611,7 +9650,7 @@ type OptionRun =
   | { kind: 'own'; what: 'pledge'; entry: string; item: string; n: number }
   | { kind: 'innovate'; entry: string; chance: number; boost: number }
   | { kind: 'rest'; x: number; y: number; z: number }
-  | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number; needs: Counts; gives: string[] }
+  | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number; needs: Counts; gives: string[]; own?: string[] }
   // (#164: posting one's find on the board; a village custom, its spot and the flower it takes, the tools it returns)
   | { kind: 'board'; what: 'report'; text: string }
   | { kind: 'custom'; custom: CustomId; x: number; y: number; z: number; item?: string; tools: string[]; avoid?: { x1: number; z1: number; x2: number; z2: number } };
@@ -9763,7 +9802,8 @@ const FORGE_TOOLS = ['iron_pickaxe', 'iron_hoe', 'shears', 'bucket'];
 const TOOL_WANTS: Record<string, RegExp> = { 'a pickaxe': /^(stone|iron|diamond)_pickaxe$/, 'an axe': /_axe$/, 'a fishing rod': /^fishing_rod$/ };
 /** #172: the better tool first (diamond, iron, stone, then the rest). */
 /** #172: the good made for a tool want when storage cannot spare one. */
-const TOOL_GOODS: Record<string, string> = { 'a pickaxe': 'stone_pickaxe', 'an axe': 'stone_axe', 'a fishing rod': 'fishing_rod' };
+// (each want's goods, the best first: the workshop makes wooden axes here and no stone ones, train 9c)
+const TOOL_GOODS: Record<string, string[]> = { 'a pickaxe': ['stone_pickaxe'], 'an axe': ['stone_axe', 'wooden_axe'], 'a fishing rod': ['fishing_rod'] };
 const toolRank = (n: string) => (/^diamond_/.test(n) ? 4 : /^iron_/.test(n) ? 3 : /^stone_/.test(n) ? 2 : /^fishing_rod$/.test(n) ? 2 : 1);
 /** G8: the iron level's answers that mean another miner is in the way (mcMine's gate, stairs and leg claims). */
 const IRON_WAIT = /another worker is digging|miners are on the iron level|has its miner|another miner finished|no raw iron in storage|no raw_iron in inventory/;

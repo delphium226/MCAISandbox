@@ -14,6 +14,8 @@ export interface FoundryPlaceCtx {
   agent: BotAgent;
   /** The village's storage hut centre (x, y, z), or null when it has none. */
   hut: { x: number; y: number; z: number } | null;
+  /** The items the village wants of this activity's gives, most wanted first (MC_FLOWER_WANTS: the flowers short dyes take). */
+  want?: string[];
 }
 
 /** A run chosen in code (pick): the skill's arguments, what to withdraw from storage first, and what it gives. */
