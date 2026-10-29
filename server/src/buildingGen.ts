@@ -52,6 +52,9 @@ export interface BuildingStyle {
   /** Not drawn: whose house it is and its neighbourhood's family (houseStyle.ts; what the world keys on, lesson 89). */
   owner?: string;
   family?: string;
+  /** Not drawn: a member's own design (#174, MC_HOME_DESIGN=model) and its one-line reason. */
+  chosen?: 'model';
+  reason?: string;
 }
 
 /** Whether a style uses any v2 field (generateV2 draws it). */

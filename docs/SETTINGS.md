@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-235 settings.
+239 settings.
 
 ## Game speed
 
@@ -88,6 +88,10 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_GROW_FARMS` | flag | `off` |  |  | Neighbourhood fields and farm slots. |
 | `MC_GROW_OUTWARD` | flag | `on` |  |  | MC_GROW_OUTWARD=on (#138; off by default): on a village laid out on pads (MC_PAD_PER_BUILDING), growth places each new house at the nearest good spot on the edge of the village, on its own pad joined to the paths, instead of a neighbourhood on a flat plot found further off. |
 | `MC_GROW_RANGE` | string | (unset) |  |  | How far from the village growth may lay out. |
+| `MC_HOME_DESIGN` | string | `character` |  |  | #174: a member's own house: model (each member chooses its design in one model call, from the generator's options code found buildable, cut in its own ranking when over budget) or character (today's draw from its character). |
+| `MC_HOME_DESIGN_HOLDOUT` | number | `0` |  |  | With MC_HOME_DESIGN=model: the share of members (by a hash of the name) kept on the character draw (0.5 for the test train's split). |
+| `MC_HOME_DESIGN_PARALLEL` | number | `2` |  |  | With MC_HOME_DESIGN=model: a street's design calls at once (each member sees the choices completed when its call is built). |
+| `MC_HOME_DESIGN_WAIT_MS` | number | `240000` |  |  | With MC_HOME_DESIGN=model: a street waits this long at most for its members' design calls, then draws the rest by character. |
 | `MC_HOUSE_DECOR` | flag | `off` |  |  | #141: house decorations: free slots in each home (carpet, painting, flower pot, lantern...), made by the trades into storage and placed by the house's owner from its own menu, and exterior details (door lantern, window boxes, a flower bed) on generated homes. |
 | `MC_HOUSING` | flag | `on` |  |  | N.2 housing (s37; on by default since s38, MC_HOUSING=off turns it off): each member owns a house, a street of houses is a member's own project (the chore menu's `grow:street`) or a voted work, and growth's code trigger is retired (growth lays out only on a request). Growth's machinery stays:... |
 | `MC_INITIATIVE_STORE` | flag | `on` |  |  | MC_INITIATIVE_STORE=off: initiatives gather all their own (s36's rule); on by default since s40 (the user's, 10-20). |

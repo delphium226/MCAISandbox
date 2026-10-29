@@ -89,8 +89,11 @@ import { lapsePending, levyLeft, pendShare, pendingOf, settlePending } from '../
 import { FIELD_RIPE, FLOWER_KEEP, FLOWER_WANTS, OWN_ROD } from '../supply';
 import { councilLine, needBoost, noteNeedOffer, noteNeedStatus, setCouncilStore, withInfluence } from '../council';
 import { CHARACTER, characterAny, characterFactor, characterRunBegin, goalFromValues, helpWeight, hexacoOf, hexacoWeights, identityLine, initCharacter, moodLine, moodWeight, needsLine, noteDecision, noteLines, noteRest, noteWork, requestWeight, restWeight, sample as characterSample, temperamentWords, think, valuesLine } from '../character';
-import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, VANILLA_ALL, WOOD_VARIANTS, baseName, houseBudget, isLandmark, isVanillaPieceName, validateDesign } from '../designs';
-import { GEN_HOMES, familyKey, homeOwner, isHomeName } from '../houseStyle';
+import { HOUSE_UNITS, HOUSE_UNITS_LARGE, LANDMARK_UNITS, MAX_SMELTS, VANILLA_ALL, WOOD_VARIANTS, baseName, houseBudget, isLandmark, isVanillaPieceName, validateDesign } from '../designs';
+import { GEN_HOMES, PLAIN_CHOICE, characterChoice, describeStyle, familyKey, fitChoice, homeOptions, homeOwner, isHomeName, styleFromChoice, type HomeChoice, type HomeOptions, type OwnChoice } from '../houseStyle';
+import { HOME_DESIGN, castDesign, designNote, inHoldout, type DesignContext, type DesignResult } from '../homeDesign';
+import { generateDesign } from '../buildingGen';
+import { applyWrites } from '../memory';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
@@ -2548,6 +2551,8 @@ export class MineflayerWorld implements WorldAdapter {
     // The next neighbourhood's style (spec_vote1): a vote under way holds the growth
     const style = this.styleFor(v, now);
     if (style === undefined) return;
+    // (#174: and its members' own designs, as a vote holds it)
+    if (!this.homeDesignsReady(v, style, now)) return;
     const members = this.growMembers(v);
     // (never a hungry member: it takes food work only, s30's D12)
     const fed = (a: BotAgent) => this.hungerOf(v, a) !== 'hungry';
@@ -2575,7 +2580,11 @@ export class MineflayerWorld implements WorldAdapter {
     const owners = GEN_HOMES && HOUSING ? this.homeless(v).map((a) => a.name) : [];
     const asker = v.growth?.request?.by;
     if (asker && owners.includes(asker)) owners.splice(owners.indexOf(asker), 1), owners.unshift(asker);
-    const own = owners.length ? { owners, family: familyKey(style ? parseStyle(style).biome : this.currentStyle(v) ?? v.vanillaBiome ?? 'plains') } : undefined;
+    const family = this.ownFamily(v, style);
+    // (#174, MC_HOME_DESIGN=model: the members' own designs, the bill's smelts checked too)
+    const designs = HOME_DESIGN.mode === 'model' ? { choices: this.streetChoices(v, owners.slice(0, n), family), smelts: this.homeBill().smelts } : {};
+    const own = owners.length ? { owners, family, ...designs } : undefined;
+    if (HOME_DESIGN.mode === 'model') this.homeDesigns.delete(v.name);
     const pick = pickHouses(v, n, lib, (d) => this.materialTasks(d, d.name).units ?? 0, only, WOOD_VARIANTS ? (style ? parseStyle(style).wood : undefined) ?? this.nextHoodWood(v, n) : undefined, own);
     const styled = style ? { style } : {};
     // With neighbourhood farms (s30's D2): the pad ladder, fields where the biome allows one (the village's library biome,
@@ -2671,6 +2680,172 @@ export class MineflayerWorld implements WorldAdapter {
     };
   }
 
+  // -------------------------------------------------------------------------------------------
+  // #174 (MC_HOME_DESIGN=model; spec runs/2026-10-29/homedesign/spec.md): members design their own houses. When a street's
+  // style is settled (styleFor), each owner-to-be of its batch makes one call (homeDesign.ts); the street waits for them as
+  // for a vote (homeDesignsReady), at most HOME_DESIGN.waitMs, then draws the rest by character. A choice is kept until
+  // homeTick gives the house to its owner (the note written then), so a member cut from a batch keeps it for the next.
+  // -------------------------------------------------------------------------------------------
+
+  /** A street's design calls under way (by village). */
+  private homeDesigns = new Map<string, { family: string; key: string; style: string | null; started: number; pending: Set<string>; gaveUp: Set<string> }>();
+  /** Members' choices not yet bound to a house (by "village|member"). */
+  private homeChoices = new Map<string, { family: string; own: OwnChoice; needsLarger: boolean; units: number; at: number }>();
+  /** homeOptions by family, a tall storey and the budget shown (the bill is the world's: the same for every member). */
+  private homeOptionCache = new Map<string, HomeOptions>();
+
+  /** The family a street's own houses are drawn in (as layOutNext: the voted style's biome, else the current style). */
+  private ownFamily(v: Village, style: string | null): string {
+    return familyKey(style ? parseStyle(style).biome : this.currentStyle(v) ?? v.vanillaBiome ?? 'plains');
+  }
+
+  /** The next street's owners-to-be as layOutNext forms them: the homeless, the asker first, a batch's worth. */
+  private nextOwners(v: Village): string[] {
+    const owners = this.homeless(v).map((a) => a.name);
+    const asker = v.growth?.request?.by;
+    if (asker && owners.includes(asker)) owners.splice(owners.indexOf(asker), 1), owners.unshift(asker);
+    return owners.slice(0, Math.min(GROW.batch, owners.length));
+  }
+
+  private homeBill() {
+    return { units: (d: Design) => this.materialTasks(d, d.name).units ?? 0, smelts: (d: Design) => this.materialTasks(d, d.name).smelts ?? 0 };
+  }
+
+  /** The first owner of a street, in its order, whose stored choice asked for the larger house and needs it. */
+  private largerClaimer(v: Village, owners: string[], family: string): string | undefined {
+    return owners.find((m) => {
+      const c = this.homeChoices.get(`${v.name}|${m}`);
+      return c && c.family === family && c.own.choice.larger && c.needsLarger;
+    });
+  }
+
+  /** Members' choices for a street (layOutNext): the larger house resolved for the first who asked and needs it. */
+  private streetChoices(v: Village, owners: string[], family: string): Map<string, OwnChoice> {
+    const claimer = this.largerClaimer(v, owners, family);
+    const out = new Map<string, OwnChoice>();
+    for (const m of owners) {
+      const c = this.homeChoices.get(`${v.name}|${m}`);
+      if (c && c.family === family) out.set(m, { reason: c.own.reason, choice: { ...c.own.choice, larger: m === claimer } });
+    }
+    return out;
+  }
+
+  /** Whether the next street's owners have their designs (true at once unless MC_HOME_DESIGN=model): starts the calls
+   *  still needed, `HOME_DESIGN.parallel` at a time in the owners' order; past the wait, the rest draw by character. */
+  private homeDesignsReady(v: Village, style: string | null, now: number): boolean {
+    if (HOME_DESIGN.mode !== 'model' || !GEN_HOMES || !HOUSING) return true;
+    const family = this.ownFamily(v, style);
+    const owners = this.nextOwners(v);
+    let run = this.homeDesigns.get(v.name);
+    // (kept until the street is laid out, so a member that drew by character is not asked again; a new batch, its calls
+    // done, starts afresh)
+    if (!run || run.family !== family || (run.key !== owners.join() && !run.pending.size)) {
+      run = { family, key: owners.join(), style, started: now, pending: new Set(), gaveUp: new Set() };
+      this.homeDesigns.set(v.name, run);
+    }
+    const r = run;
+    const need = owners.filter((m) => !inHoldout(m) && !r.gaveUp.has(m) && this.homeChoices.get(`${v.name}|${m}`)?.family !== family);
+    if (!need.length) return true;
+    if (now - r.started >= HOME_DESIGN.waitMs) {
+      for (const m of need) r.gaveUp.add(m);
+      console.log(`[home] ${v.name}: ${need.join(', ')}: character (no design after ${Math.round((now - r.started) / 1000)} s)`);
+      return true;
+    }
+    for (const m of need) {
+      if (r.pending.size >= HOME_DESIGN.parallel) break;
+      if (r.pending.has(m)) continue;
+      const a = this.growMembers(v).find((x) => x.name === m);
+      const spec = a && parseSpec(typeof a.memory.chooseModel === 'string' ? a.memory.chooseModel : typeof a.memory.execModel === 'string' ? a.memory.execModel : CHOOSE.model);
+      if (!a || !spec) {
+        r.gaveUp.add(m);
+        continue;
+      }
+      r.pending.add(m);
+      const ctx = this.designContext(v, a, family, owners);
+      castDesign({ agent: m, spec, level: REASONING.home, ctx, fallback: characterChoice(m, family), seed: `${v.name}|${m}|${family}`, maxWaitMs: Math.max(1000, r.started + HOME_DESIGN.waitMs - now) })
+        .then((res) => this.designDone(v, r, family, res), (e) => this.designDone(v, r, family, { agent: m, choice: null, reason: String((e as Error)?.message ?? e), partial: [], why: 'error', prompt: '' }));
+    }
+    return false;
+  }
+
+  /** A design call's result: stored (its fitted units, whether it needs the larger budget), or the character draw. */
+  private designDone(v: Village, run: { style: string | null; pending: Set<string>; gaveUp: Set<string> }, family: string, res: DesignResult) {
+    run.pending.delete(res.agent);
+    // (the street's next call starts now, not at the next growth tick)
+    const next = () => { if (this.homeDesigns.get(v.name) === run && run.pending.size < HOME_DESIGN.parallel) this.homeDesignsReady(v, run.style, Date.now()); };
+    if (!res.choice) {
+      run.gaveUp.add(res.agent);
+      console.log(`[home] ${v.name}: ${res.agent}: character (${res.why ?? 'no choice'}${res.reason ? `: ${res.reason.slice(0, 80)}` : ''})`);
+      return next();
+    }
+    try {
+      const bill = this.homeBill();
+      const plain = fitChoice(res.agent, family, { ...res.choice, larger: false }, HOUSE_UNITS, bill);
+      const needsLarger = res.choice.larger && !!plain?.cuts.length;
+      const fit = needsLarger ? fitChoice(res.agent, family, res.choice, HOUSE_UNITS_LARGE, bill) : plain;
+      const units = fit ? bill.units(fit.design) : 0;
+      this.homeChoices.set(`${v.name}|${res.agent}`, { family, own: { choice: res.choice, reason: res.reason }, needsLarger, units, at: Date.now() });
+      console.log(`[home] ${v.name}: ${res.agent}: model: ${fit ? describeStyle(fit.design.style!) : 'no house fits'}, ${units} units${fit?.cuts.length ? ` (cut: ${[...new Set(fit.cuts)].join(', ')})` : ''}${res.choice.larger ? `, asks for the larger house${needsLarger ? '' : ' (fits without it)'}` : ''}${res.partial.length ? `; partial: ${res.partial.join(', ')}` : ''}; priority ${res.choice.priority.join('>') || 'none'}; "${res.reason}"`);
+    } catch (e) {
+      run.gaveUp.add(res.agent);
+      console.log(`[home] ${v.name}: ${res.agent}: character (its choice failed: ${(e as Error).message})`);
+    }
+    next();
+  }
+
+  /** What a member's design prompt shows (homeDesign.ts DesignContext). */
+  private designContext(v: Village, a: BotAgent, family: string, owners: string[]): DesignContext {
+    const vc = this.voterContext(v, a);
+    const bill = this.homeBill();
+    const claimer = this.largerClaimer(v, owners, family);
+    const tall = hexacoOf(a.name).X >= 0.5 ? 1 : 0;
+    const budgetMax = claimer ? HOUSE_UNITS : HOUSE_UNITS_LARGE;
+    const key = `${family}|${tall}|${budgetMax}`;
+    let options = this.homeOptionCache.get(key);
+    if (!options) this.homeOptionCache.set(key, (options = homeOptions(a.name, family, budgetMax, bill)));
+    // (the street so far: the choices made, in the owners' order)
+    const street: string[] = [];
+    const me = owners.indexOf(a.name);
+    let ahead = 0;
+    owners.forEach((m, i) => {
+      const c = this.homeChoices.get(`${v.name}|${m}`);
+      if (m === a.name) return;
+      if (c && c.family === family) {
+        const s = styleFromChoice(m, family, c.own.choice);
+        street.push(`${m}: ${describeStyle(s).replace(/^an? /, '')}, ${c.units} units${c.own.reason ? `; ${m}: "${c.own.reason.slice(0, 110)}"` : ''}`);
+      }
+      if (i < me) ahead += c && c.family === family ? c.units : options!.base;
+    });
+    const after = owners.slice(me + 1);
+    const stake = [`The houses before yours in this street come to about ${ahead} units; yours is built after them, so every unit you add delays your moving in${after.length ? ` (and ${after.join(', ')}, built after you)` : ''}.`];
+    // (its neighbour: a large house that leaves the street's pad one house short)
+    try {
+      const plainOf = (m: string, c: HomeChoice) => generateDesign(styleFromChoice(m, family, c));
+      const others = owners.filter((m) => m !== a.name).map((m) => plainOf(m, this.homeChoices.get(`${v.name}|${m}`)?.own.choice ?? PLAIN_CHOICE));
+      const small = padFor([plainOf(a.name, PLAIN_CHOICE), ...others]);
+      const large = padFor([plainOf(a.name, { ...PLAIN_CHOICE, size: 'large', porch: true }), ...others]);
+      if (small && large && large.n < small.n && owners.length > large.n) stake.push(`A large house would leave the street's land one house short: ${owners[owners.length - 1]} would wait for the next street.`);
+    } catch { /* no pad fact */ }
+    const homes = v.structures.map((s) => v.designs[s.kind]?.style).filter((s) => s && s.owner);
+    const village = homes.length
+      ? `${homes.length} members' houses: ${homes.filter((s) => s!.storeys === 2).length} with two storeys, ${homes.filter((s) => s!.porch).length} with porches, ${homes.filter((s) => s!.footprint && s!.footprint !== 'rect').length} L- or T-shaped.`
+      : '';
+    return { persona: vc.persona, self: vc.self, family, wood: undefined, street, village, options, budget: HOUSE_UNITS, larger: { budget: HOUSE_UNITS_LARGE, ...(claimer ? { by: claimer } : {}) }, stake };
+  }
+
+  /** homeTick gave a house to its owner: the member's choice, if this is its own design, becomes a note. */
+  private designBound(v: Village, owner: string, design: Design | undefined) {
+    const c = this.homeChoices.get(`${v.name}|${owner}`);
+    this.homeChoices.delete(`${v.name}|${owner}`);
+    const s = design?.style;
+    if (!c || !s || s.chosen !== 'model' || s.owner !== owner) return;
+    const cuts = /\(cut to fit: ([^)]*)\)/.exec(design!.description ?? '')?.[1]?.split(', ') ?? [];
+    const words = describeStyle({ ...s, wood: undefined }).replace(/^an? /, 'a ').replace(/ house with /, ' house with ');
+    const note = designNote(words.length > 80 ? words.replace(/ with .*$/, '') : words, c.own.reason, cuts);
+    const done = applyWrites(v.name, owner, { remember: note }, 'world', Date.now(), `home:${design!.name}`);
+    console.log(`[home] ${v.name}: ${owner}'s own design ${design!.name} given (${done.join(', ') || 'memory off'}): ${note}`);
+  }
+
   /** The members without a home (H1), in homeOrder. */
   private homeless(v: Village): BotAgent[] {
     return this.homeOrder(v).filter((a) => !this.homeOf(v, a.name));
@@ -2714,7 +2889,7 @@ export class MineflayerWorld implements WorldAdapter {
   private homeLayout(v: Village, agent: BotAgent, now: number, meta?: ChoiceMeta, opt?: ChoiceOption): boolean {
     if (!this.growDue(v, now, false)) return false;
     const style = this.styleFor(v, now);
-    if (style === undefined) return false;
+    if (style === undefined || !this.homeDesignsReady(v, style, now)) return false;
     this.layOutNext(v, agent, style, now, meta, opt);
     return this.growQueued(v, now);
   }
@@ -2774,6 +2949,7 @@ export class MineflayerWorld implements WorldAdapter {
           const who = bound.get(t.id) ?? queue.shift();
           if (!who) break;
           t.owner = who;
+          if (GEN_HOMES && HOME_DESIGN.mode === 'model') this.designBound(v, who, v.designs[/build_design "([^"]+)"/.exec(t.detail)?.[1] ?? '']);
           given.push(`${who} (${t.id})`);
           const c = MineflayerWorld.taskXZ(t);
           const design = /build_design "([^"]+)"/.exec(t.detail)?.[1];

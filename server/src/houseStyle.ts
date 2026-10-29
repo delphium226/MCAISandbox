@@ -220,3 +220,218 @@ export function ownHomes(owners: string[], style: string | undefined, bill: Home
   });
   return out;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Members' own designs (#174, MC_HOME_DESIGN=model; spec runs/2026-10-29/homedesign/spec.md): a member's picks from the
+// generator's options (homeDesign.ts asks the model), turned into a style here, cut in the member's own ranking.
+// ---------------------------------------------------------------------------------------------
+
+/** A rect house's sizes before #141's growth (growWalls): small 5x5, deep 5x7, wide 7x5, large 7x7. */
+export const HOME_SIZES = { small: [5, 5], deep: [5, 7], wide: [7, 5], large: [7, 7] } as const;
+export type HomeSize = keyof typeof HOME_SIZES;
+/** The features a member ranks (the cuts go in reverse): each one it picked beyond the plainest house. */
+export const HOME_FEATURES = ['storeys', 'shape', 'size', 'porch', 'chimney', 'shutters', 'look'] as const;
+export type HomeFeature = (typeof HOME_FEATURES)[number];
+
+/** A member's picks (the tool's fields, normalised). The look is relative to the street's family. */
+export interface HomeChoice {
+  size: HomeSize;
+  shape: 'rect' | 'L' | 'T';
+  wing_side: 'east' | 'west';
+  storeys: 1 | 2;
+  roof: 'street' | 'other';
+  walls: 'street' | 'contrast';
+  base: 'street' | 'cobblestone';
+  frame: 'street' | 'timber' | 'none';
+  windows: 'rhythm' | 'wide' | 'single';
+  door: 'centre' | 'left' | 'right';
+  porch: boolean;
+  chimney: boolean;
+  shutters: boolean;
+  /** Asks for the street's one larger house (the world resolves the claim: true in ownHomes means it holds it). */
+  larger: boolean;
+  /** Most wanted first; features left out are cut before those listed. */
+  priority: HomeFeature[];
+}
+
+/** The plainest house: the base every option's cost is measured against. */
+export const PLAIN_CHOICE: HomeChoice = {
+  size: 'small', shape: 'rect', wing_side: 'east', storeys: 1, roof: 'street', walls: 'street', base: 'street', frame: 'street',
+  windows: 'rhythm', door: 'centre', porch: false, chimney: false, shutters: false, larger: false, priority: [],
+};
+
+const contrastOf = (f: Family): BuildingStyle['walls'] => (f.walls === 'planks' ? 'cobblestone' : 'planks');
+const otherRoofOf = (f: Family): BuildingStyle['roof'] => (f.roof === 'gable' ? 'hip' : f.roof === 'flat' ? 'hip' : 'gable');
+
+/**
+ * A member's picks as a style, with memberStyle's derived rules (the porch/overhang rule, upper walls, the roof material,
+ * a tall storey for X >= 0.5). An L or T is 7 wide with a 3-wide wing, or 9 with a 5-wide wing when its size is wide or
+ * large and it has no overhang (a porch before the wing: only then does the box take 9).
+ */
+export function styleFromChoice(member: string, familyName: string, c: HomeChoice, wood?: string, reason?: string): BuildingStyle {
+  const family = FAMILY[familyName] ?? FAMILY.plains;
+  const h = hexacoOf(member);
+  const walls = c.walls === 'contrast' ? contrastOf(family) : family.walls;
+  const base = c.base === 'cobblestone' ? 'cobblestone' : family.base;
+  const roof = c.roof === 'other' ? otherRoofOf(family) : family.roof;
+  const flat = roof === 'flat';
+  const footprint = c.shape;
+  let overhang = flat || (footprint !== 'rect' && c.porch) ? 0 : 1;
+  let [width, depth]: number[] = [...HOME_SIZES[c.size]];
+  let wing: BuildingStyle['wing'];
+  if (footprint !== 'rect') {
+    const big = !overhang && (c.size === 'wide' || c.size === 'large');
+    width = big ? 9 : 7;
+    depth = 5;
+    wing = { side: footprint === 'T' ? 'east' : c.wing_side, width: big ? 5 : 3, depth: overhang ? 2 : c.porch ? 2 : 3 };
+  } else if (c.porch && overhang) depth = 5;
+  [width, depth] = growWalls(width, depth);
+  const frame = c.frame === 'timber' && family.frame === 'logs' && Math.min(width, depth) >= 7 ? 'timber' : c.frame === 'none' ? 'none' : family.frame;
+  const door_offset = footprint === 'rect' ? (c.door === 'left' ? -1 : c.door === 'right' ? 1 : 0) : 0;
+  const upper_walls: BuildingStyle['walls'] = walls === 'planks' || walls === 'logs' ? walls : 'planks';
+  if (flat) overhang = 0;
+  return {
+    name: homeName(member, familyName), description: '', width, depth, wall_height: c.storeys === 1 && h.X >= 0.5 ? 4 : 3, floor: 'none', base, frame, walls,
+    roof, roof_material: family.roof_material === 'sandstone' && roof !== 'flat' ? 'sandstone' : family.roof_material, overhang,
+    windows: family.windows === 'open' && walls !== 'sandstone' ? 'panes' : family.windows, door_side: 'south',
+    footprint, ...(wing ? { wing } : {}), storeys: c.storeys, ...(c.storeys === 2 ? { upper_walls } : {}), ...(wood ? { wood } : {}),
+    windows_pattern: c.windows, door_offset, porch: c.porch, chimney: c.chimney, shutters: c.shutters, owner: member, family: familyName,
+    chosen: 'model', ...(reason ? { reason } : {}),
+  };
+}
+
+/** Today's character draw (memberStyle) read back as picks: the fallback for a field the model left out, and the bench's
+ *  reference. */
+export function characterChoice(member: string, familyName: string): HomeChoice {
+  const family = FAMILY[familyName] ?? FAMILY.plains;
+  const s = memberStyle(member, familyName);
+  const fp = s.footprint ?? 'rect';
+  const sizeOf = (): HomeSize => {
+    if (fp !== 'rect') return s.wing && s.wing.width >= 5 ? 'large' : 'small';
+    for (const k of Object.keys(HOME_SIZES) as HomeSize[]) {
+      const [w, d] = HOME_SIZES[k];
+      const [gw, gd] = growWalls(w, s.porch && s.overhang ? 5 : d);
+      if (gw === s.width && gd === s.depth) return k;
+    }
+    return 'small';
+  };
+  return {
+    size: sizeOf(), shape: fp, wing_side: s.wing?.side === 'west' ? 'west' : 'east', storeys: s.storeys === 2 ? 2 : 1,
+    roof: s.roof === family.roof ? 'street' : 'other', walls: s.walls === family.walls ? 'street' : 'contrast',
+    base: s.base === family.base ? 'street' : 'cobblestone', frame: s.frame === family.frame ? 'street' : s.frame === 'timber' ? 'timber' : 'none',
+    windows: s.windows_pattern ?? 'rhythm', door: (s.door_offset ?? 0) < 0 ? 'left' : (s.door_offset ?? 0) > 0 ? 'right' : 'centre',
+    porch: !!s.porch, chimney: !!s.chimney, shutters: !!s.shutters, larger: false, priority: [],
+  };
+}
+
+/** The features a choice has beyond the plainest house. */
+export function choiceFeatures(c: HomeChoice): HomeFeature[] {
+  return HOME_FEATURES.filter((f) => (f === 'storeys' ? c.storeys === 2 : f === 'shape' ? c.shape !== 'rect' : f === 'size' ? c.size !== 'small'
+    : f === 'look' ? c.roof !== 'street' || c.walls !== 'street' || c.base !== 'street' || c.frame !== 'street' : c[f]));
+}
+
+/** One cut of a feature (null when nothing is left to cut), in fitHome's words. */
+function cutFeature(c: HomeChoice, f: HomeFeature): [string, HomeChoice] | null {
+  switch (f) {
+    case 'storeys': return c.storeys === 2 ? ['one storey', { ...c, storeys: 1 }] : null;
+    case 'shape': return c.shape !== 'rect' ? ['no wing', { ...c, shape: 'rect' }] : null;
+    case 'size': return c.size === 'large' ? ['smaller', { ...c, size: 'deep' }] : c.size !== 'small' ? ['smaller', { ...c, size: 'small' }] : null;
+    case 'look': return c.walls !== 'street' ? ['street walls', { ...c, walls: 'street' }] : c.base !== 'street' ? ['street base', { ...c, base: 'street' }]
+      : c.frame !== 'street' ? ['street frame', { ...c, frame: 'street' }] : c.roof !== 'street' ? ['street roof', { ...c, roof: 'street' }] : null;
+    default: return c[f] ? [`no ${f}`, { ...c, [f]: false }] : null;
+  }
+}
+
+/**
+ * A member's picks fitted to `budget` (spec R4): over it, code cuts the member's features in reverse of its ranking
+ * (features it did not rank go first), one step at a time, then fitHome's own steps on what is left. The cuts in words;
+ * null when even the plainest house is over (the caller builds a vanilla house).
+ */
+export function fitChoice(member: string, familyName: string, choice: HomeChoice, budget: number, bill: HomeBill = {}, wood?: string, reason?: string): { design: Design; cuts: string[]; choice: HomeChoice } | null {
+  const fits = (d: Design) => d.width <= V2_LIMITS.maxBox && d.depth <= V2_LIMITS.maxBox && d.height <= V2_LIMITS.maxLayers
+    && (!bill.units || bill.units(d) <= budget) && (!bill.smelts || bill.smelts(d) <= MAX_SMELTS);
+  const draw = (c: HomeChoice) => generateDesign(styleFromChoice(member, familyName, c, wood, reason));
+  let c = choice;
+  let d = draw(c);
+  const cuts: string[] = [];
+  const ranked = choice.priority.filter((f, i) => HOME_FEATURES.includes(f) && choice.priority.indexOf(f) === i);
+  const order = [...HOME_FEATURES.filter((f) => !ranked.includes(f)), ...[...ranked].reverse()];
+  for (const f of order) {
+    if (fits(d)) break;
+    for (let step = cutFeature(c, f); step && !fits(d); step = cutFeature(c, f)) {
+      c = step[1];
+      cuts.push(step[0]);
+      d = draw(c);
+    }
+  }
+  if (fits(d)) return { design: d, cuts, choice: c };
+  const rest = fitHome(d.style!, budget, bill);
+  return rest ? { design: rest.design, cuts: [...cuts, ...rest.cuts], choice: c } : null;
+}
+
+/** A field's offered values, each with its units over the plainest house (homeOptions). */
+export interface HomeOptions {
+  /** The plainest house's units. */
+  base: number;
+  fields: Record<string, Array<{ value: string | number | boolean; units: number }>>;
+}
+/** The values each field may take: each value alone on the plainest house, offered when it fits `budget` (the most the
+ *  member could have: the larger budget while it is free), the box and the smelts. */
+export function homeOptions(member: string, familyName: string, budget: number, bill: HomeBill = {}): HomeOptions {
+  const units = (c: HomeChoice) => {
+    const d = generateDesign(styleFromChoice(member, familyName, c));
+    if (d.width > V2_LIMITS.maxBox || d.depth > V2_LIMITS.maxBox || d.height > V2_LIMITS.maxLayers) return Infinity;
+    if (bill.smelts && bill.smelts(d) > MAX_SMELTS) return Infinity;
+    return bill.units ? bill.units(d) : d.width * d.depth;
+  };
+  const base = units(PLAIN_CHOICE);
+  const large = units({ ...PLAIN_CHOICE, size: 'large' });
+  const family = FAMILY[familyName] ?? FAMILY.plains;
+  const values: Record<string, Array<string | number | boolean>> = {
+    size: ['small', 'deep', 'wide', 'large'], shape: ['rect', 'L', 'T'], storeys: [1, 2], roof: ['street', 'other'], walls: ['street', 'contrast'],
+    base: family.base === 'cobblestone' ? ['street'] : ['street', 'cobblestone'], frame: family.frame === 'logs' ? ['street', 'timber', 'none'] : ['street'],
+    windows: ['rhythm', 'wide', 'single'], door: ['centre', 'left', 'right'], porch: [false, true], chimney: [false, true], shutters: [false, true],
+  };
+  const fields: HomeOptions['fields'] = {};
+  for (const [k, vs] of Object.entries(values)) {
+    fields[k] = [];
+    for (const value of vs) {
+      // (timber needs walls of 7: costed beyond the large house it needs)
+      const timber = k === 'frame' && value === 'timber';
+      const c = { ...PLAIN_CHOICE, [k]: value, ...(timber ? { size: 'large' } : {}) } as HomeChoice;
+      const u = units(c);
+      if (u <= budget) fields[k].push({ value, units: Math.max(0, u - (timber ? large : base)) });
+    }
+  }
+  return { base, fields };
+}
+
+/** A member's design request for ownHomes (#174): its picks and reason; `larger` true only for the street's claimer. */
+export interface OwnChoice { choice: HomeChoice; reason: string }
+
+/**
+ * ownHomes with members' own picks (MC_HOME_DESIGN=model): an owner with a choice gets fitChoice (the larger budget only
+ * when its choice holds the street's claim), the others memberStyle as today; today's larger-house rule applies among
+ * those others only while no choice holds the claim. Same order, names and descriptions as ownHomes.
+ */
+export function chosenHomes(owners: string[], style: string | undefined, choices: Map<string, OwnChoice>, bill: HomeBill = {}, wood?: string): Design[] {
+  const family = familyKey(style);
+  const claimed = owners.some((m) => choices.get(m)?.choice.larger);
+  const styles = owners.map((m) => (choices.has(m) ? null : memberStyle(m, family, wood)));
+  const two = claimed ? [] : owners.map((m, i) => ({ m, i, e: valuesOf(m).enhancement })).filter((x) => styles[x.i]?.storeys === 2).sort((a, b) => b.e - a.e || a.m.localeCompare(b.m));
+  const large = two[0]?.i;
+  const out: Design[] = [];
+  owners.forEach((m, i) => {
+    const own = choices.get(m);
+    const fit = own ? fitChoice(m, family, own.choice, own.choice.larger ? HOUSE_UNITS_LARGE : HOUSE_UNITS, bill, wood, own.reason)
+      : fitHome(styles[i]!, i === large ? HOUSE_UNITS_LARGE : HOUSE_UNITS, bill);
+    if (!fit) return;
+    const s = fit.design.style!;
+    const who = m.charAt(0).toUpperCase() + m.slice(1);
+    const cut = fit.cuts.length ? ` (cut to fit: ${[...new Set(fit.cuts)].join(', ')})` : '';
+    fit.design.description = `${who}'s house: ${describeStyle(s)}${cut}${own?.reason ? `; ${who} chose it: ${own.reason}` : ''}`;
+    s.description = fit.design.description;
+    out.push(fit.design);
+  });
+  return out;
+}

@@ -78,7 +78,7 @@ export interface Note {
   text: string;
   /** Times shown in a prompt. */
   shown: number;
-  by: 'decision' | 'night';
+  by: 'decision' | 'night' | 'world';
   /** The note that replaced it (never shown again). */
   replaced?: string;
   /** #86: near-duplicates merged into it (its text and time are the latest's). */
@@ -540,7 +540,7 @@ export function checkNote(village: string, agent: string, text: string): string 
  * What the model chose to keep (a decision's or the night's): a note (replacing `replaces` when it names a live note; when
  * the notes are full and it names none, the oldest of the least shown goes), and an intention. Returns what was done.
  */
-export function applyWrites(village: string, agent: string, w: { remember?: unknown; replaces?: unknown; intention?: unknown; focus?: unknown }, by: 'decision' | 'night', now = Date.now(), ref?: string): string[] {
+export function applyWrites(village: string, agent: string, w: { remember?: unknown; replaces?: unknown; intention?: unknown; focus?: unknown }, by: 'decision' | 'night' | 'world', now = Date.now(), ref?: string): string[] {
   if (!MEMORY.on) return [];
   const a = ensureAgent(village, agent);
   const day = dayNow(village, now);
@@ -583,7 +583,8 @@ export function applyWrites(village: string, agent: string, w: { remember?: unkn
       }
       if (out) out.replaced = id;
       a.notes.push({ id, t: now, day, text, shown: 0, by });
-      a.added.n++;
+      // (#174: a note the world writes, a member's house chosen, is not counted toward the day's cap)
+      if (by !== 'world') a.added.n++;
       logAct({ type: 'memory', op: rep ? 'replace' : 'add', village, agent, id, text, ...(rep ? { replaces: rep.id } : {}), by, ref });
       done.push(rep ? `replace ${rep.id}` : 'add');
       // (replaced notes kept, but not for ever: the 40 newest replaced)
