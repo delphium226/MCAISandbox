@@ -6,23 +6,32 @@
  * draw.
  *
  * Settings (read once, when the module loads):
- *   MC_HOME_DESIGN           model (each member's own house from its own call) or character (today's draw; the default)
+ *   MC_HOME_DESIGN           model (each member's own house from its own call), program (#175: each member's house written
+ *                            as a short program against houseProgram.ts's library by MC_HOME_PROGRAM_MODEL, run in a worker,
+ *                            compiled and fitted by code; a failed program falls back to the model pick, then the draw) or
+ *                            character (today's draw; the default)
+ *   MC_HOME_PROGRAM_MODEL    the program's model (default ollama:qwen3.8:27b, the pinned local planner server: free, 1.5 s)
  *   MC_HOME_DESIGN_WAIT_MS   a street waits this long at most for its members' calls (default 240000), then draws by
  *                            character for the rest
  *   MC_HOME_DESIGN_PARALLEL  a street's calls at once (default 2)
- *   MC_HOME_DESIGN_HOLDOUT   the share of members (by name) kept on the character draw while the flag is model (default 0;
+ *   MC_HOME_DESIGN_HOLDOUT   the share of members (by name) kept on the character draw while the flag is not character (default 0;
  *                            0.5 for the test train's split)
  */
 import { fnv1a, shuffled } from './choose';
-import { CallWithdrawn, callModel, type ModelSpec, type Reply } from './modelCall';
+import { CallWithdrawn, callModel, parseSpec, type ModelSpec, type Reply } from './modelCall';
 import { usage, isCloudModel, type ReasoningLevel } from './modelUsage';
-import { FAMILY, HOME_FEATURES, HOME_SIZES, growWalls, type HomeChoice, type HomeFeature, type HomeOptions } from './houseStyle';
+import { FAMILY, HOME_FEATURES, HOME_SIZES, growWalls, homeName, type HomeChoice, type HomeFeature, type HomeOptions } from './houseStyle';
+import { LIBRARY_DOC, extractProgram, houseFromProgramIsolated, programNote, type HouseSpec, type ProgramBill } from './houseProgram';
+import type { BuildingStyle } from './buildingGen';
+import type { Design } from './village';
 import type { ToolDef } from './world';
 import { goalFromValues, temperamentWords, valuesLine } from './character';
 import { rawSetting } from './settings';
 
+const MODE = (rawSetting('MC_HOME_DESIGN') ?? 'character').trim().toLowerCase();
 export const HOME_DESIGN = {
-  mode: (/^model$/i.test((rawSetting('MC_HOME_DESIGN') ?? 'character').trim()) ? 'model' : 'character') as 'model' | 'character',
+  mode: (MODE === 'model' || MODE === 'program' ? MODE : 'character') as 'model' | 'program' | 'character',
+  programModel: parseSpec(rawSetting('MC_HOME_PROGRAM_MODEL') ?? 'ollama:qwen3.8:27b'),
   waitMs: Number(rawSetting('MC_HOME_DESIGN_WAIT_MS') ?? 240000),
   parallel: Math.max(1, Number(rawSetting('MC_HOME_DESIGN_PARALLEL') ?? 2)),
   holdout: Number(rawSetting('MC_HOME_DESIGN_HOLDOUT') ?? 0),
@@ -277,4 +286,122 @@ export function designNote(words: string, reason: string, cuts: string[]): strin
   const lower = /^I\b/.test(why) ? why : `${why.charAt(0).toLowerCase()}${why.slice(1)}`;
   const full = why ? `${base}, ${/^(because|to|so|for)\b/i.test(why) ? '' : 'because '}${lower}` : base;
   return full.length <= 138 ? full : base.length <= 138 ? base : base.slice(0, 137);
+}
+
+// ---------------------------------------------------------------------------------------------
+// House programs (#175, MC_HOME_DESIGN=program; runs/2026-10-29/houseprog/report.md): the member's house written as a
+// short program against houseProgram.ts's library by a local model, from the member's character and memory; code runs
+// it in a worker, reads its calls onto the street's look, compiles and fits it. Never throws: any failure is `why`, and
+// the world falls back to the model pick (castDesign), then the character draw.
+// ---------------------------------------------------------------------------------------------
+
+/** What a program prompt shows a member (DesignContext without the generator's options). */
+export type ProgramContext = Pick<DesignContext, 'persona' | 'character' | 'self' | 'family' | 'wood' | 'street' | 'village'> & { stake?: string[] };
+
+const PROGRAM_SYSTEM = 'You are a member of a Minecraft village designing your own house, which the village will build for you in your street. '
+  + 'Reply with only a short JavaScript program in one ```js block that calls the library below, then nothing else.\n\n' + LIBRARY_DOC;
+
+/** The program prompt for one member (progbench's, in the member's own voice: its character and memory say what it wants). */
+export function buildProgramPrompt(ctx: ProgramContext, budget: number): { system: string; user: string } {
+  const lines: string[] = [];
+  if (ctx.persona.trim()) lines.push(ctx.persona.trim());
+  if (ctx.character.trim()) lines.push(ctx.character.trim());
+  if (ctx.self.trim()) lines.push(ctx.self.trim());
+  lines.push(`You live on a ${ctx.family} street (${familyWords(ctx.family, ctx.wood)}).`);
+  // (told their neighbours' houses alone, qwen3.8 copied them: the staged HPp's street, the character bench's STREET arm)
+  if (ctx.street.length) lines.push('Houses in your street so far:', ...ctx.street.map((s) => `- ${s}`), 'Your house is your own: it need not match your neighbours\'.');
+  if (ctx.village.trim()) lines.push(`The village: ${ctx.village.trim()}`);
+  lines.push(`Budget: ${budget} units of materials. A plain 5x5 house is about 90 units, a 7x7 one-storey about 120 and two-storey about 215; a wing adds about 45, a tower about 60.`);
+  // (#174's stake: every unit delays the member's own moving in; it cut gpt-oss's max-outs by a third)
+  for (const s of ctx.stake ?? []) lines.push(s);
+  lines.push('Write the house you want to live in, as the person described would want it, with note() saying why.');
+  return { system: PROGRAM_SYSTEM, user: lines.join('\n') };
+}
+
+export interface ProgramRequest {
+  agent: string;
+  spec: ModelSpec;
+  ctx: ProgramContext;
+  budget: number;
+  bill: ProgramBill;
+  signal?: AbortSignal;
+  maxWaitMs?: number;
+  /** Injected in checks; callModel by default. */
+  call?: typeof callModel;
+}
+export interface ProgramResult {
+  agent: string;
+  /** The house fitted, named and owned (programDesign), or null with `why`. */
+  design: Design | null;
+  built?: HouseSpec;
+  cuts: string[];
+  notes: string[];
+  /** Library names the program called that do not exist (stubbed). */
+  unknown: string[];
+  code: string;
+  /** The program's own note() (logged; the memory note is code's, programNote). */
+  said: string;
+  /** The memory note at binding (programNote). */
+  note: string;
+  /** Why no house: budget, model (no code), error (the program's), fit (none fits), timeout, withdrawn, late. */
+  why?: string;
+  error?: string;
+  prompt: string;
+  ms?: number;
+}
+
+/**
+ * A fitted program house as the world keys it (lesson 57): the member's home name, a `style` whose `owner` homeOwner reads,
+ * the family layoutStyle reads, the overhang mcBuild's claim reads, the storeys, porch and footprint the village line reads,
+ * and `chosen: 'program'`. The style is a record of what was built, never drawn again.
+ */
+export function programDesign(member: string, family: string, d: Design, built: HouseSpec, cuts: string[], said: string): Design {
+  const who = member.charAt(0).toUpperCase() + member.slice(1);
+  const cut = cuts.length ? ` (cut to fit: ${[...new Set(cuts)].join(', ')})` : '';
+  const description = `${who}'s house: ${d.description}${cut}`;
+  const style: BuildingStyle = {
+    name: homeName(member, family), description, width: built.body.width, depth: built.body.depth, wall_height: 3, floor: 'none',
+    base: built.base, frame: built.frame, walls: built.walls, roof: built.roof, roof_material: built.roof_material, overhang: built.overhang,
+    windows: built.glass, door_side: 'south', footprint: built.wings.length ? (built.wings.some((w) => w.at === 'middle') ? 'T' : 'L') : 'rect',
+    storeys: built.body.storeys, ...(built.upper_walls ? { upper_walls: built.upper_walls } : {}), wood: built.wood,
+    porch: built.porch, chimney: !!built.chimney, shutters: built.shutters, owner: member, family, chosen: 'program', ...(said ? { reason: said.slice(0, 200) } : {}),
+  };
+  return { ...d, name: style.name, description, style, by: 'program' };
+}
+
+/** One member's house by program; never throws (no design with `why` on any failure: the caller falls back). */
+export async function castProgram(req: ProgramRequest): Promise<ProgramResult> {
+  const out: ProgramResult = { agent: req.agent, design: null, cuts: [], notes: [], unknown: [], code: '', said: '', note: '', prompt: '' };
+  const t0 = Date.now();
+  try {
+    const p = buildProgramPrompt(req.ctx, req.budget);
+    out.prompt = p.user;
+    if ((isCloudModel(req.spec.model) && !usage.allows('decisions')) || usage.blocked(req.spec.model, req.agent)) return { ...out, why: 'budget' };
+    const r = await (req.call ?? callModel)({
+      spec: req.spec, system: p.system, user: p.user, tools: [], level: 'low', agent: req.agent, kind: 'home', priority: 'ballot',
+      fallbackMs: DESIGN_FALLBACK_MS, signal: req.signal, ...(req.maxWaitMs !== undefined ? { maxWaitMs: Math.max(1000, req.maxWaitMs) } : {}),
+    });
+    out.ms = r.ms;
+    out.code = extractProgram(r.reply.text ?? '');
+    if (!/\w+\s*\(/.test(out.code)) return { ...out, why: 'model', error: (r.reply.text ?? '').slice(0, 120) };
+    const family = req.ctx.family;
+    const h = await houseFromProgramIsolated(out.code, family, req.budget, req.bill, homeName(req.agent, family), req.ctx.wood);
+    out.unknown = h.run.unknown;
+    out.notes = h.notes;
+    out.said = h.spec.note.trim().replace(/\s+/g, ' ');
+    // (a program that failed part way keeps the calls before the failure, as the bench scored it; one with none has no house)
+    if (h.run.error) out.error = h.run.error;
+    if (!h.fit) return { ...out, why: h.run.calls.length ? 'fit' : 'error' };
+    out.built = h.fit.spec;
+    out.cuts = h.fit.cuts;
+    out.note = programNote(h.fit.spec, h.fit.cuts, h.run.unknown, h.notes);
+    out.design = programDesign(req.agent, family, h.fit.design, h.fit.spec, h.fit.cuts, out.said);
+    return out;
+  } catch (err) {
+    const msg = String((err as Error)?.message ?? err);
+    out.ms = Date.now() - t0;
+    const why = req.signal?.aborted ? 'late' : err instanceof CallWithdrawn ? 'withdrawn' : /budget/i.test(msg) ? 'budget'
+      : /fallback|timed? ?out/i.test(`${(err as Error)?.name ?? ''} ${msg}`) ? 'timeout' : 'error';
+    return { ...out, why, error: msg.slice(0, 120) };
+  }
 }

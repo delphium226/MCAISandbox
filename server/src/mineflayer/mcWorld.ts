@@ -91,7 +91,7 @@ import { councilLine, needBoost, noteNeedOffer, noteNeedStatus, setCouncilStore,
 import { CHARACTER, characterAny, characterFactor, characterRunBegin, goalFromValues, helpWeight, hexacoOf, hexacoWeights, identityLine, initCharacter, moodLine, moodWeight, needsLine, noteDecision, noteLines, noteRest, noteWork, requestWeight, restWeight, sample as characterSample, temperamentWords, think, valuesLine } from '../character';
 import { HOUSE_UNITS, HOUSE_UNITS_LARGE, LANDMARK_UNITS, MAX_SMELTS, VANILLA_ALL, WOOD_VARIANTS, baseName, houseBudget, isLandmark, isVanillaPieceName, validateDesign } from '../designs';
 import { GEN_HOMES, PLAIN_CHOICE, characterChoice, describeStyle, familyKey, fitChoice, homeOptions, homeOwner, isHomeName, styleFromChoice, type HomeChoice, type HomeOptions, type OwnChoice } from '../houseStyle';
-import { HOME_DESIGN, castDesign, characterOf, designNote, inHoldout, type DesignContext, type DesignResult } from '../homeDesign';
+import { HOME_DESIGN, castDesign, castProgram, characterOf, designNote, inHoldout, type DesignContext, type DesignResult, type ProgramResult } from '../homeDesign';
 import { generateDesign } from '../buildingGen';
 import { applyWrites } from '../memory';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
@@ -2581,10 +2581,11 @@ export class MineflayerWorld implements WorldAdapter {
     const asker = v.growth?.request?.by;
     if (asker && owners.includes(asker)) owners.splice(owners.indexOf(asker), 1), owners.unshift(asker);
     const family = this.ownFamily(v, style);
-    // (#174, MC_HOME_DESIGN=model: the members' own designs, the bill's smelts checked too)
-    const designs = HOME_DESIGN.mode === 'model' ? { choices: this.streetChoices(v, owners.slice(0, n), family), smelts: this.homeBill().smelts } : {};
+    // (#174, MC_HOME_DESIGN=model: the members' own designs, the bill's smelts checked too; #175, program: their program
+    // houses, and the model picks of those whose program failed)
+    const designs = HOME_DESIGN.mode !== 'character' ? { choices: this.streetChoices(v, owners.slice(0, n), family), programs: this.streetPrograms(v, owners.slice(0, n), family), smelts: this.homeBill().smelts } : {};
     const own = owners.length ? { owners, family, ...designs } : undefined;
-    if (HOME_DESIGN.mode === 'model') this.homeDesigns.delete(v.name);
+    if (HOME_DESIGN.mode !== 'character') this.homeDesigns.delete(v.name);
     const pick = pickHouses(v, n, lib, (d) => this.materialTasks(d, d.name).units ?? 0, only, WOOD_VARIANTS ? (style ? parseStyle(style).wood : undefined) ?? this.nextHoodWood(v, n) : undefined, own);
     const styled = style ? { style } : {};
     // With neighbourhood farms (s30's D2): the pad ladder, fields where the biome allows one (the village's library biome,
@@ -2688,9 +2689,12 @@ export class MineflayerWorld implements WorldAdapter {
   // -------------------------------------------------------------------------------------------
 
   /** A street's design calls under way (by village). */
-  private homeDesigns = new Map<string, { family: string; key: string; style: string | null; started: number; pending: Set<string>; gaveUp: Set<string> }>();
+  private homeDesigns = new Map<string, { family: string; key: string; style: string | null; started: number; pending: Set<string>; gaveUp: Set<string>; fellBack: Set<string> }>();
   /** Members' choices not yet bound to a house (by "village|member"). */
   private homeChoices = new Map<string, { family: string; own: OwnChoice; needsLarger: boolean; units: number; at: number }>();
+  /** #175 (MC_HOME_DESIGN=program): members' program houses not yet bound (by "village|member"): fitted and named, with
+   *  the memory note code wrote from what was built. */
+  private homePrograms = new Map<string, { family: string; design: Design; note: string; units: number; at: number }>();
   /** homeOptions by family, a tall storey and the budget shown (the bill is the world's: the same for every member). */
   private homeOptionCache = new Map<string, HomeOptions>();
 
@@ -2719,6 +2723,16 @@ export class MineflayerWorld implements WorldAdapter {
     });
   }
 
+  /** Members' program houses for a street (layOutNext). */
+  private streetPrograms(v: Village, owners: string[], family: string): Map<string, Design> {
+    const out = new Map<string, Design>();
+    for (const m of owners) {
+      const p = this.homePrograms.get(`${v.name}|${m}`);
+      if (p && p.family === family) out.set(m, p.design);
+    }
+    return out;
+  }
+
   /** Members' choices for a street (layOutNext): the larger house resolved for the first who asked and needs it. */
   private streetChoices(v: Village, owners: string[], family: string): Map<string, OwnChoice> {
     const claimer = this.largerClaimer(v, owners, family);
@@ -2730,21 +2744,22 @@ export class MineflayerWorld implements WorldAdapter {
     return out;
   }
 
-  /** Whether the next street's owners have their designs (true at once unless MC_HOME_DESIGN=model): starts the calls
-   *  still needed, `HOME_DESIGN.parallel` at a time in the owners' order; past the wait, the rest draw by character. */
+  /** Whether the next street's owners have their designs (true at once with MC_HOME_DESIGN=character): starts the calls
+   *  still needed, `HOME_DESIGN.parallel` at a time in the owners' order; past the wait, the rest draw by character. With
+   *  program, a member's call is its program; one whose program failed makes the model pick's call instead (`fellBack`). */
   private homeDesignsReady(v: Village, style: string | null, now: number): boolean {
-    if (HOME_DESIGN.mode !== 'model' || !GEN_HOMES || !HOUSING) return true;
+    if (HOME_DESIGN.mode === 'character' || !GEN_HOMES || !HOUSING) return true;
     const family = this.ownFamily(v, style);
     const owners = this.nextOwners(v);
     let run = this.homeDesigns.get(v.name);
     // (kept until the street is laid out, so a member that drew by character is not asked again; a new batch, its calls
     // done, starts afresh)
     if (!run || run.family !== family || (run.key !== owners.join() && !run.pending.size)) {
-      run = { family, key: owners.join(), style, started: now, pending: new Set(), gaveUp: new Set() };
+      run = { family, key: owners.join(), style, started: now, pending: new Set(), gaveUp: new Set(), fellBack: new Set() };
       this.homeDesigns.set(v.name, run);
     }
     const r = run;
-    const need = owners.filter((m) => !inHoldout(m) && !r.gaveUp.has(m) && this.homeChoices.get(`${v.name}|${m}`)?.family !== family);
+    const need = owners.filter((m) => !inHoldout(m) && !r.gaveUp.has(m) && this.homeChoices.get(`${v.name}|${m}`)?.family !== family && this.homePrograms.get(`${v.name}|${m}`)?.family !== family);
     if (!need.length) return true;
     if (now - r.started >= HOME_DESIGN.waitMs) {
       for (const m of need) r.gaveUp.add(m);
@@ -2755,6 +2770,16 @@ export class MineflayerWorld implements WorldAdapter {
       if (r.pending.size >= HOME_DESIGN.parallel) break;
       if (r.pending.has(m)) continue;
       const a = this.growMembers(v).find((x) => x.name === m);
+      if (a && HOME_DESIGN.mode === 'program' && HOME_DESIGN.programModel && !r.fellBack.has(m)) {
+        r.pending.add(m);
+        const d = this.designContext(v, a, family, owners);
+        // (its memory too: what the member has lived and noted is what its house is for)
+        const rc = MEMORY.on ? recall(v.name, a.name, now, { cap: 700, earlierToday: false, mark: false }) : null;
+        const ctx = { persona: d.persona, character: d.character, self: [d.self, rc?.text ?? ''].filter(Boolean).join('\n'), family, wood: d.wood, street: d.street, village: d.village, stake: d.stake };
+        castProgram({ agent: m, spec: HOME_DESIGN.programModel, ctx, budget: HOUSE_UNITS, bill: this.homeBill(), maxWaitMs: Math.max(1000, r.started + HOME_DESIGN.waitMs - now) })
+          .then((res) => this.programDone(v, r, family, res), (e) => this.programDone(v, r, family, { agent: m, design: null, cuts: [], notes: [], unknown: [], code: '', said: '', note: '', prompt: '', why: 'error', error: String((e as Error)?.message ?? e) }));
+        continue;
+      }
       const spec = a && parseSpec(typeof a.memory.chooseModel === 'string' ? a.memory.chooseModel : typeof a.memory.execModel === 'string' ? a.memory.execModel : CHOOSE.model);
       if (!a || !spec) {
         r.gaveUp.add(m);
@@ -2793,6 +2818,22 @@ export class MineflayerWorld implements WorldAdapter {
     next();
   }
 
+  /** A program's result (#175): its house stored, or the member falls back to the model pick (its next call). */
+  private programDone(v: Village, run: { style: string | null; pending: Set<string>; gaveUp: Set<string>; fellBack: Set<string> }, family: string, res: ProgramResult) {
+    run.pending.delete(res.agent);
+    const secs = res.ms !== undefined ? ` (${(res.ms / 1000).toFixed(1)} s)` : '';
+    if (res.design && res.built) {
+      const units = this.homeBill().units(res.design);
+      this.homePrograms.set(`${v.name}|${res.agent}`, { family, design: res.design, note: res.note, units, at: Date.now() });
+      const notes = res.notes.filter((n) => !/is not in the library/.test(n));
+      console.log(`[home] ${v.name}: ${res.agent}: program: ${res.design.description.replace(/^[^:]*: /, '')}, ${units} units${res.unknown.length ? `; not in the library: ${res.unknown.join(', ')}` : ''}${notes.length ? `; notes: ${notes.slice(0, 4).join('; ')}` : ''}${res.error ? `; stopped: ${res.error.slice(0, 60)}` : ''}; "${res.said.slice(0, 120)}"${secs}`);
+    } else {
+      run.fellBack.add(res.agent);
+      console.log(`[home] ${v.name}: ${res.agent}: program failed (${res.why ?? 'no house'}${res.error ? `: ${res.error.slice(0, 80)}` : ''})${secs}: the model pick instead`);
+    }
+    if (this.homeDesigns.get(v.name) === run) this.homeDesignsReady(v, run.style, Date.now());
+  }
+
   /** What a member's design prompt shows (homeDesign.ts DesignContext). */
   private designContext(v: Village, a: BotAgent, family: string, owners: string[]): DesignContext {
     const vc = this.voterContext(v, a);
@@ -2809,19 +2850,24 @@ export class MineflayerWorld implements WorldAdapter {
     let ahead = 0;
     owners.forEach((m, i) => {
       const c = this.homeChoices.get(`${v.name}|${m}`);
+      const pg = this.homePrograms.get(`${v.name}|${m}`);
       if (m === a.name) return;
-      if (c && c.family === family) {
+      if (pg && pg.family === family) street.push(`${m}: ${pg.design.description.replace(/^[^:]*: an? /, '')}, ${pg.units} units`);
+      else if (c && c.family === family) {
         const s = styleFromChoice(m, family, c.own.choice);
         street.push(`${m}: ${describeStyle(s).replace(/^an? /, '')}, ${c.units} units${c.own.reason ? `; ${m}: "${c.own.reason.slice(0, 110)}"` : ''}`);
       }
-      if (i < me) ahead += c && c.family === family ? c.units : options!.base;
+      if (i < me) ahead += pg && pg.family === family ? pg.units : c && c.family === family ? c.units : options!.base;
     });
     const after = owners.slice(me + 1);
     const stake = [`The houses before yours in this street come to about ${ahead} units; yours is built after them, so every unit you add delays your moving in${after.length ? ` (and ${after.join(', ')}, built after you)` : ''}.`];
     // (its neighbour: a large house that leaves the street's pad one house short)
     try {
       const plainOf = (m: string, c: HomeChoice) => generateDesign(styleFromChoice(m, family, c));
-      const others = owners.filter((m) => m !== a.name).map((m) => plainOf(m, this.homeChoices.get(`${v.name}|${m}`)?.own.choice ?? PLAIN_CHOICE));
+      const others = owners.filter((m) => m !== a.name).map((m) => {
+        const pg = this.homePrograms.get(`${v.name}|${m}`);
+        return pg && pg.family === family ? pg.design : plainOf(m, this.homeChoices.get(`${v.name}|${m}`)?.own.choice ?? PLAIN_CHOICE);
+      });
       const small = padFor([plainOf(a.name, PLAIN_CHOICE), ...others]);
       const large = padFor([plainOf(a.name, { ...PLAIN_CHOICE, size: 'large', porch: true }), ...others]);
       if (small && large && large.n < small.n && owners.length > large.n) stake.push(`A large house would leave the street's land one house short: ${owners[owners.length - 1]} would wait for the next street.`);
@@ -2836,8 +2882,16 @@ export class MineflayerWorld implements WorldAdapter {
   /** homeTick gave a house to its owner: the member's choice, if this is its own design, becomes a note. */
   private designBound(v: Village, owner: string, design: Design | undefined) {
     const c = this.homeChoices.get(`${v.name}|${owner}`);
+    const pg = this.homePrograms.get(`${v.name}|${owner}`);
     this.homeChoices.delete(`${v.name}|${owner}`);
+    this.homePrograms.delete(`${v.name}|${owner}`);
     const s = design?.style;
+    // (#175: a program house's note is code's, from what was built)
+    if (pg && s && s.chosen === 'program' && s.owner === owner) {
+      const done = applyWrites(v.name, owner, { remember: pg.note }, 'world', Date.now(), `home:${design!.name}`);
+      console.log(`[home] ${v.name}: ${owner}'s program house ${design!.name} given (${done.join(', ') || 'memory off'}): ${pg.note}`);
+      return;
+    }
     if (!c || !s || s.chosen !== 'model' || s.owner !== owner) return;
     const cuts = /\(cut to fit: ([^)]*)\)/.exec(design!.description ?? '')?.[1]?.split(', ') ?? [];
     // (its form only: the reason is what the member will want to recall, and the note keeps under 140 characters)
@@ -2949,7 +3003,7 @@ export class MineflayerWorld implements WorldAdapter {
           const who = bound.get(t.id) ?? queue.shift();
           if (!who) break;
           t.owner = who;
-          if (GEN_HOMES && HOME_DESIGN.mode === 'model') this.designBound(v, who, v.designs[/build_design "([^"]+)"/.exec(t.detail)?.[1] ?? '']);
+          if (GEN_HOMES && HOME_DESIGN.mode !== 'character') this.designBound(v, who, v.designs[/build_design "([^"]+)"/.exec(t.detail)?.[1] ?? '']);
           given.push(`${who} (${t.id})`);
           const c = MineflayerWorld.taskXZ(t);
           const design = /build_design "([^"]+)"/.exec(t.detail)?.[1];

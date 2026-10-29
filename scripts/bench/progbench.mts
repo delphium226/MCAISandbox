@@ -159,7 +159,7 @@ interface Row {
   id: string; s: number; member: string; family: string; reply: string; code: string; ms: number; pt?: number; ot?: number;
   ran: boolean; clean: boolean; error?: string; unknown: string[]; calls: number; notes: string[];
   asked?: HouseSpec; built?: HouseSpec; cuts?: string[]; units?: number; problems?: string[]; pass: boolean;
-  wantAsked: number; wantBuilt: number; want: string[]; missing: string[]; charUnits?: number; desc?: string;
+  wantAsked: number; wantBuilt: number; want: string[]; missing: string[]; charUnits?: number; desc?: string; note?: string;
 }
 
 const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-');
@@ -167,6 +167,59 @@ const outDir = path.join(ROOT, 'runs', new Date().toISOString().slice(0, 10), 'b
 fs.mkdirSync(outDir, { recursive: true });
 const base = path.join(outDir, `progbench-${stamp}`);
 let rows: Row[] = [];
+
+// CHAR=1: the world's prompt (homeDesign.ts buildProgramPrompt) in the members' own characters, no description, 24
+// members across the five families, N samples; STAKE=1 adds #174's stake line. Counts the spread the world will see:
+// two-storey share, units, distinct forms, failures.
+if (process.env.CHAR === '1') {
+  const HD = await import('../../server/src/homeDesign');
+  const MODEL = process.env.MODEL ?? 'qwen3.8:27b';
+  const OLLAMA = process.env.OLLAMA ?? 'http://127.0.0.1:11436';
+  const N = Number(process.env.N ?? 1), TEMP = Number(process.env.TEMP ?? 0.7);
+  const fams = Object.keys(H.FAMILY);
+  const out = fs.createWriteStream(`${base}-char.jsonl`);
+  const got: Array<{ member: string; family: string; form: string; units?: number; storeys?: number; ok: boolean; note?: string; said?: string; ms: number }> = [];
+  for (const [i, member] of NAME_POOL.slice(0, 24).entries()) {
+    const family = fams[i % fams.length];
+    const stake = process.env.STAKE === '1' ? [`The houses before yours in this street come to about ${90 * (i % 5)} units; yours is built after them, so every unit you add delays your moving in.`] : [];
+    // (STREET=1: three neighbours' houses alike, as a street in the world shows them: the staged HPp copied them)
+    const street = process.env.STREET === '1' ? ['Ada', 'Ben', 'Clara'].map((m) => `${m}: 7x7 two-storey planks house with a gable planks roof, a porch, 197 units`) : [];
+    const ctx = { persona: '', character: HD.characterOf(member), self: 'You built 1 of the village\'s 12 buildings.', family, street, village: '', stake };
+    for (let s = 0; s < N; s++) {
+      const t0 = Date.now();
+      const r = await HD.castProgram({
+        agent: member, spec: { provider: 'ollama', model: MODEL }, ctx, budget: HOUSE_UNITS, bill,
+        call: (async (req: { system: string; user: string }) => {
+          const res = await fetch(`${OLLAMA}/api/chat`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: MODEL, stream: false, think: false, keep_alive: -1, options: { num_ctx: 8192, temperature: TEMP, seed: 1000 * i + s }, messages: [{ role: 'system', content: req.system }, { role: 'user', content: req.user }] }),
+          });
+          const j = (await res.json()) as { message?: { content?: string } };
+          return { reply: { calls: [], text: j.message?.content ?? '' }, ms: Date.now() - t0, waitMs: 0 };
+        }) as never,
+      });
+      const b = r.built;
+      const form = b ? `${b.body.width}x${b.body.depth}x${b.body.storeys}${b.wings.length ? `+${b.wings.length}w` : ''}${b.towers.length ? '+t' : ''}${b.bays.length ? '+b' : ''}${b.porch ? '+p' : ''}${b.chimney ? '+c' : ''}` : `none:${r.why}`;
+      const row = { member, family, form, units: r.design ? bill.units(r.design) : undefined, storeys: b?.body.storeys, ok: !!r.design, note: r.note, said: r.said, ms: Date.now() - t0 };
+      got.push(row);
+      out.write(`${JSON.stringify({ ...row, code: r.code })}\n`);
+      console.log(`${member} ${family} ${form} ${row.units ?? '-'} units ${(row.ms / 1000).toFixed(1)}s | ${r.note}`);
+    }
+  }
+  out.end();
+  const ok = got.filter((g) => g.ok);
+  const pct = (n: number, of: number) => (of ? Math.round((100 * n) / of) : 0);
+  const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+  const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? 0;
+  const summary = {
+    rows: got.length, ok: ok.length, twoStorey: pct(ok.filter((g) => g.storeys === 2).length, ok.length), unitsMean: Math.round(mean(ok.map((g) => g.units ?? 0))),
+    over200: pct(ok.filter((g) => (g.units ?? 0) > 200).length, ok.length), distinctForms: new Set(ok.map((g) => g.form)).size,
+    withWing: pct(ok.filter((g) => /w/.test(g.form)).length, ok.length), withTower: pct(ok.filter((g) => /\+t/.test(g.form)).length, ok.length), medianS: +(median(got.map((g) => g.ms)) / 1000).toFixed(1),
+  };
+  fs.writeFileSync(`${base}-char.json`, JSON.stringify(summary, null, 2));
+  console.log(JSON.stringify(summary), `\nrows ${base}-char.jsonl`);
+  process.exit(0);
+}
 
 if (process.env.REPORT) {
   rows = fs.readFileSync(process.env.REPORT, 'utf-8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
@@ -211,6 +264,7 @@ if (process.env.REPORT) {
         units: fit ? bill.units(fit.design) : undefined, problems: fit ? problems(fit.design) : undefined, pass: false,
         want: d.want, wantAsked: has(asked).length / d.want.length, wantBuilt: has(fit?.spec).length / d.want.length,
         missing: d.want.filter((f) => !has(fit?.spec).includes(f)), charUnits, desc: fit?.design.description,
+        note: fit ? P.programNote(fit.spec, fit.cuts, h.run.unknown, h.notes) : undefined,
       };
       row.pass = !!fit && !row.problems!.length;
       out.write(`${JSON.stringify(row)}\n`);

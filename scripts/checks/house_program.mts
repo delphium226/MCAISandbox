@@ -79,6 +79,9 @@ const PROGRAMS: Record<string, string> = {
   stone: 'body(9, 9, 2); walls("stone_bricks"); roof("hip", "stone_bricks"); windows("rhythm", "glass"); tower("front-left", 2); wing("right", 5, 4)',
   chained: 'body(7, 5).roof("hip").wing({ side: "back", width: 3, depth: 2 }).porch().note("chained")',
   object_args: 'house({ width: 7, depth: 7, storeys: 2, walls: "logs", roof: "gable" }); bay({ side: "back" })',
+  tower_two: 'body(7, 7, 2); tower("back-left")',
+  tower_two_hip: 'body(7, 5, 2); roof("hip"); tower("front-right", 2); porch()',
+  u_narrow: 'body(5, 5); wing("front", 3, 2, "start"); wing("front", 3, 2, "end")',
   everything: 'body(9, 9, 2); wing("front", 5, 5); wing("back", 5, 5); tower("front-left", 2); tower("back-right", 2); bay("left"); bay("right"); porch(); chimney(); shutters(); frame("timber")',
 };
 
@@ -136,6 +139,55 @@ P.runProgram('for (;;) {}');
 if (Date.now() - t0 > 1000) fail(`sandbox loop took ${Date.now() - t0} ms`);
 if (typeof (globalThis as Record<string, unknown>).body !== 'undefined') fail('sandbox leaked body into the server');
 console.log(`sandbox: ${Object.keys(refuse).length} refused, unknown names stubbed`);
+
+// The same through the world's path (a worker thread with its own capped heap), and what only the worker stops: a
+// program that allocates past its heap within the vm's time cap
+const iso = { ...refuse, heap: 'const a = []; for (;;) a.push(new Array(1e6).fill(1.5))' };
+const w0 = Date.now();
+const isoRuns = await Promise.all(Object.entries(iso).map(async ([name, code]) => [name, await P.runProgramIsolated(code)] as const));
+for (const [name, r] of isoRuns) if (!r.error) fail(`worker ${name}: no error (${JSON.stringify(r.calls)})`);
+const heapRun = isoRuns.find(([n]) => n === 'heap')![1];
+if (!/memory|worker/.test(heapRun.error ?? '')) fail(`worker heap: ${heapRun.error}`);
+const wreq = await P.runProgramIsolated('require("fs").readFileSync("x")');
+if (!wreq.error || !wreq.unknown.includes('require')) fail(`worker require: ${JSON.stringify(wreq)}`);
+const wstub = await P.runProgramIsolated('body(7,5); balcony("front"); garden(); roof("hip")');
+if (wstub.error || wstub.unknown.join() !== 'balcony,garden' || wstub.calls.length !== 4) fail(`worker stub: ${JSON.stringify(wstub)}`);
+const wfit = await P.houseFromProgramIsolated(PROGRAMS.everything, 'plains', HOUSE_UNITS, bill, 'home_iso');
+if (!wfit.fit || JSON.stringify(wfit.fit.design) !== JSON.stringify(P.houseFromProgram(PROGRAMS.everything, 'plains', HOUSE_UNITS, bill, 'home_iso').fit?.design)) fail('worker: a house differs from the in-thread run');
+const wlate = await P.runProgramIsolated('body(5,5)', { ...P.WORKER_LIMITS, timeoutMs: 1 });
+if (!/did not finish/.test(wlate.error ?? '')) fail(`worker timeout: ${JSON.stringify(wlate)}`);
+console.log(`worker: ${Object.keys(iso).length} refused (heap: ${heapRun.error}), stubs and houses as in-thread, ${Date.now() - w0} ms`);
+
+// The world's path (#175 wiring): castProgram with a reply injected, the house named and owned as the world keys it
+// (lesson 57), chosenHomes giving it as it is, the note code's and under 140 characters, failures as `why`
+const HD = await import('../../server/src/homeDesign');
+const HS = await import('../../server/src/houseStyle');
+const reply = (text: string) => (async () => ({ reply: { calls: [], text }, ms: 5, waitMs: 0 })) as unknown as typeof import('../../server/src/modelCall').callModel;
+const ctx = { persona: '', character: 'You are calm.', self: '', family: 'taiga', street: [], village: '' };
+const spec = { provider: 'ollama' as const, model: 'qwen3.8:27b' };
+const good = await HD.castProgram({ agent: 'Ada', spec, ctx, budget: HOUSE_UNITS, bill, call: reply('```js\nbody(7, 5, 2); tower("back-left"); balcony(); note("A tall spire for my prayers.")\n```') });
+if (!good.design) fail(`world: no design (${good.why} ${good.error})`);
+else {
+  if (HS.homeOwner(good.design) !== 'Ada' || !HS.isHomeName(good.design.name) || good.design.style?.chosen !== 'program' || good.design.style?.family !== 'taiga') fail(`world: not keyed (${good.design.name}, ${JSON.stringify(good.design.style)})`);
+  if (good.note.length > 138 || !/^I chose my house: /.test(good.note) || /spire/.test(good.note) || !/no balcony/.test(good.note)) fail(`world: note "${good.note}"`);
+  const p = problems(good.design);
+  if (p.length) fail(`world: ${p.join('; ')}`);
+  const homes = HS.chosenHomes(['Ada', 'Ben'], 'taiga', new Map(), bill, undefined, new Map([['Ada', good.design]]));
+  if (homes.length !== 2 || homes[0].name !== good.design.name || HS.homeOwner(homes[1]) !== 'Ben') fail(`world: chosenHomes ${homes.map((h) => h.name).join(',')}`);
+  console.log(`world: ${good.design.description}; note "${good.note}"`);
+}
+const none = await HD.castProgram({ agent: 'Ben', spec, ctx, budget: HOUSE_UNITS, bill, call: reply('I would like a nice house.') });
+const loop = await HD.castProgram({ agent: 'Ben', spec, ctx, budget: HOUSE_UNITS, bill, call: reply('```js\nwhile (true) {}\n```') });
+// (an apostrophe inside a single-quoted note: the character bench's 2 failures of 48, repaired by requoteNotes)
+const quote = await HD.castProgram({ agent: 'Nora', spec, ctx, budget: HOUSE_UNITS, bill, call: reply("```js\nbody(5, 5, 1);\nroof('hip', 'planks');\nnote('A plain house keeps the street's tradition.');\n```") });
+if (!quote.design || quote.said !== "A plain house keeps the street's tradition.") fail(`world: quote repair ${quote.why} ${quote.error} "${quote.said}"`);
+if (none.design || none.why !== 'model' || loop.design || loop.why !== 'error') fail(`world: failures ${none.why} ${loop.why}`);
+for (const fam of Object.keys(FAMILY))
+  for (const code of Object.values(PROGRAMS)) {
+    const out = P.houseFromProgram(code, fam, HOUSE_UNITS, bill);
+    const note = out.fit ? P.programNote(out.fit.spec, out.fit.cuts, out.run.unknown) : '';
+    if (out.fit && note.length > 138) fail(`note ${note.length}: ${note}`);
+  }
 
 console.log(failed ? `house_program: ${failed} failures` : 'house_program: ok');
 process.exit(failed ? 1 : 0);

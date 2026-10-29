@@ -413,15 +413,22 @@ export interface OwnChoice { choice: HomeChoice; reason: string }
  * ownHomes with members' own picks (MC_HOME_DESIGN=model): an owner with a choice gets fitChoice (the larger budget only
  * when its choice holds the street's claim), the others memberStyle as today; today's larger-house rule applies among
  * those others only while no choice holds the claim. Same order, names and descriptions as ownHomes.
+ * With #175 (MC_HOME_DESIGN=program) and `programs`, an owner with a program house (already fitted and named,
+ * homeDesign.ts programDesign) gets it as it is.
  */
-export function chosenHomes(owners: string[], style: string | undefined, choices: Map<string, OwnChoice>, bill: HomeBill = {}, wood?: string): Design[] {
+export function chosenHomes(owners: string[], style: string | undefined, choices: Map<string, OwnChoice>, bill: HomeBill = {}, wood?: string, programs?: Map<string, Design>): Design[] {
   const family = familyKey(style);
   const claimed = owners.some((m) => choices.get(m)?.choice.larger);
-  const styles = owners.map((m) => (choices.has(m) ? null : memberStyle(m, family, wood)));
+  const styles = owners.map((m) => (choices.has(m) || programs?.has(m) ? null : memberStyle(m, family, wood)));
   const two = claimed ? [] : owners.map((m, i) => ({ m, i, e: valuesOf(m).enhancement })).filter((x) => styles[x.i]?.storeys === 2).sort((a, b) => b.e - a.e || a.m.localeCompare(b.m));
   const large = two[0]?.i;
   const out: Design[] = [];
   owners.forEach((m, i) => {
+    const prog = programs?.get(m);
+    if (prog) {
+      out.push({ ...prog, layers: prog.layers.map((l) => [...l]), palette: { ...prog.palette }, style: { ...prog.style! } });
+      return;
+    }
     const own = choices.get(m);
     const fit = own ? fitChoice(m, family, own.choice, own.choice.larger ? HOUSE_UNITS_LARGE : HOUSE_UNITS, bill, wood, own.reason)
       : fitHome(styles[i]!, i === large ? HOUSE_UNITS_LARGE : HOUSE_UNITS, bill);

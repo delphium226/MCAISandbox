@@ -7,17 +7,17 @@
  * the door stands in the front (south) wall with room before it, and over the box or the bill code cuts one thing at a
  * time and says so. World-free, like buildingGen.ts: the caller passes the bill.
  *
- * The program runs in node:vm in a context with a null-prototype global (no `this.constructor` path to the server's
- * Function), no code generation from strings, a time cap and caps on its length and calls. The library inside the
- * context only records calls as JSON; the server reads them back as a string and applies them here, so nothing the
- * program builds ever reaches the server's scope. (A world flag would run it in a worker with resourceLimits as well:
- * vm shares the heap, so a program allocating a huge string could still exhaust memory within its time cap.)
+ * The program runs in houseSandbox.ts (node:vm, capped; in the world inside a worker thread with its own small heap): the
+ * library there only records calls as JSON, which are read back and applied here, so nothing the program builds ever
+ * reaches the server's scope.
  */
-import vm from 'node:vm';
 import type { Design } from './village';
 import { V2_LIMITS, encode } from './buildingGen';
 import { MAX_SMELTS } from './designs';
 import { FAMILY } from './houseStyle';
+import { runProgram, runProgramIsolated, type ProgramRun } from './houseSandbox';
+
+export { PROGRAM_LIMITS, WORKER_LIMITS, runProgram, runProgramIsolated, type ProgramRun } from './houseSandbox';
 
 type Dir = 'north' | 'east' | 'south' | 'west';
 const STEP: Record<Dir, [number, number]> = { north: [0, -1], east: [1, 0], south: [0, 1], west: [-1, 0] };
@@ -59,10 +59,12 @@ export interface HouseSpec {
 export const LIBRARY_DOC = `Write JavaScript that calls these functions (nothing else exists: no DOM, no require). Front is the side with the door.
 body(width, depth, storeys)    the main block's walls: width (left-right) and depth (front-back) 5 to 9, odd; storeys 1 or 2
 wing(side, width, depth, at)   a one-storey wing on a side of the body: side "front"|"back"|"left"|"right"; width 3 to 7 along
-                               that wall, odd; depth 2 to 5 out from it; at "start"|"middle"|"end" of the wall (two wings on
-                               one side, at start and end, make a U round a courtyard)
+                               that wall, odd, and narrower than the wall; depth 2 to 5 out from it; at "start"|"middle"|"end"
+                               of the wall. Two wings at most. Two on one side, at start and end, make a U round a courtyard
+                               3 wide (the body is made 9 along that side for it)
 tower(corner, storeys)         a 3x3 tower at a corner of the body, rising above the roof: corner "front-left"|"front-right"|
-                               "back-left"|"back-right"; storeys 1 or 2 above the roof
+                               "back-left"|"back-right"; storeys 1 or 2 above the roof. Its corner must be free of wings. On a
+                               two-storey house the body gets a low roof (one step, a flat top) so the tower stands above it
 bay(side)                      a glass bay window standing out from the body's wall on that side
 porch()                        a covered porch on two posts before the door
 chimney(side)                  a cobblestone chimney up the "left" or "right" wall
@@ -73,10 +75,10 @@ frame(kind)                    "logs" (log corner posts and beams), "timber" (po
 windows(pattern, glass)        pattern "rhythm" (every other cell)|"wide" (three together)|"single"|"none"; glass "glass"|"panes"|"open"
 shutters()                     trapdoor shutters beside the windows
 door(offset)                   the door's place along the front wall: -1 (left), 0 (middle), 1 (right)
-note(text)                     one sentence: why this house suits you
+note(text)                     one sentence: why this house suits you (anything not in this list is not built)
 Anything not called keeps the street's look. Code draws the walls, roof, stairs and door; the whole house must fit 11x11
-blocks and 12 high, and over the budget code cuts the dearest parts first (towers, second storeys, wings), so ask for what
-matters most to you.`;
+blocks and 12 high, and over the budget code cuts the dearest parts first (towers, then second storeys, then wings), so
+ask for what matters most to you.`;
 
 const WALLS: WallM[] = ['planks', 'logs', 'cobblestone', 'stone_bricks', 'sandstone'];
 const ROOFM: RoofM[] = ['planks', 'cobblestone', 'stone_bricks', 'sandstone', 'stone'];
@@ -258,93 +260,16 @@ export function applyCalls(calls: Array<[string, ...unknown[]]>, spec: HouseSpec
       default: notes.push(`${fn}() is not in the library: ignored`);
     }
   }
+  // (two wings on one side make a U: the body's wall between them widened to 9, so the court between is 3 wide)
+  for (const sd of ['front', 'back', 'left', 'right'] as Side[]) {
+    if (s.wings.filter((x) => x.side === sd).length !== 2) continue;
+    const key = sd === 'front' || sd === 'back' ? 'width' : 'depth';
+    if (s.body[key] < 9) {
+      notes.push(`the body made 9 ${key === 'width' ? 'wide' : 'deep'} for the courtyard between the ${sd} wings (was ${s.body[key]})`);
+      s.body = { ...s.body, [key]: 9 };
+    }
+  }
   return s;
-}
-
-// ---------------------------------------------------------------------------------------------
-// The sandbox
-// ---------------------------------------------------------------------------------------------
-
-export const PROGRAM_LIMITS = { chars: 4000, calls: 120, ms: 200, unknownRetries: 6 };
-const LIBRARY_NAMES = ['house', 'body', 'wing', 'tower', 'bay', 'porch', 'chimney', 'roof', 'walls', 'base', 'frame', 'windows', 'shutters', 'door', 'note'];
-
-/** The library inside the context: each function records its call (as JSON, inside the time cap) and returns the API, so
- *  chained calls work too. Natives are captured before the program runs. */
-function libraryScript(extra: string[]): string {
-  const names = [...LIBRARY_NAMES, ...extra];
-  return `(() => {
-  const stringify = JSON.stringify, S = String, calls = [], cap = ${PROGRAM_LIMITS.calls};
-  let n = 0, failure = null;
-  const api = {};
-  const record = (name) => function (...args) {
-    if (++n > cap) throw new Error('more than ' + cap + ' calls');
-    calls[calls.length] = stringify([name, ...args]);
-    return api;
-  };
-  for (const name of ${JSON.stringify(names)}) { api[name] = record(name); globalThis[name] = api[name]; }
-  globalThis.__fail = (e) => { failure = S(e && e.message !== undefined ? e.message : e).slice(0, 300); };
-  globalThis.__finish = () => stringify({ calls, failure });
-})();`;
-}
-
-export interface ProgramRun {
-  /** The calls the program made, in order (JSON-parsed). */
-  calls: Array<[string, ...unknown[]]>;
-  /** A syntax or runtime error, or a cap hit; the calls before it are kept. */
-  error?: string;
-  /** Names the program called that the library lacks (each run again with a stub that ignores it). */
-  unknown: string[];
-}
-
-/** The model's reply as code: the first fenced block if there is one, else the whole reply. */
-export function extractProgram(reply: string): string {
-  const m = /```(?:[a-zA-Z]*)\s*\n([\s\S]*?)```/.exec(reply);
-  return (m ? m[1] : reply).trim();
-}
-
-/** Run a program in the sandbox. Unknown names are stubbed and the program run again (up to unknownRetries). */
-export function runProgram(code: string): ProgramRun {
-  if (code.length > PROGRAM_LIMITS.chars) return { calls: [], error: `the program is ${code.length} characters (at most ${PROGRAM_LIMITS.chars})`, unknown: [] };
-  try {
-    new vm.Script(code, { filename: 'house.js' });
-  } catch (e) {
-    return { calls: [], error: `syntax: ${(e as Error).message}`, unknown: [] };
-  }
-  const unknown: string[] = [];
-  for (let attempt = 0; ; attempt++) {
-    // (microtasks run inside the time cap: a promise loop would otherwise run on the server's own queue)
-    const ctx = vm.createContext(Object.create(null), { codeGeneration: { strings: false, wasm: false }, microtaskMode: 'afterEvaluate' });
-    let out: unknown;
-    try {
-      vm.runInContext(libraryScript(unknown), ctx, { timeout: PROGRAM_LIMITS.ms });
-      vm.runInContext(`try {\n${code}\n} catch (e) { __fail(e) }`, ctx, { timeout: PROGRAM_LIMITS.ms, filename: 'house.js' });
-      out = vm.runInContext('__finish()', ctx, { timeout: PROGRAM_LIMITS.ms });
-    } catch {
-      // (a host-side error: the time cap, or the program's own catch replaced; its value is never read)
-      return { calls: [], error: `the program did not finish within ${PROGRAM_LIMITS.ms} ms`, unknown };
-    }
-    if (typeof out !== 'string') return { calls: [], error: 'the library was replaced', unknown };
-    let parsed: { calls: string[]; failure: string | null };
-    try {
-      parsed = JSON.parse(out);
-      if (!Array.isArray(parsed.calls)) throw new Error('no calls');
-    } catch {
-      return { calls: [], error: 'the library was replaced', unknown };
-    }
-    const calls: ProgramRun['calls'] = [];
-    for (const c of parsed.calls) {
-      try {
-        const v = JSON.parse(String(c));
-        if (Array.isArray(v) && typeof v[0] === 'string') calls.push(v as [string, ...unknown[]]);
-      } catch { /* (a value JSON could not hold) */ }
-    }
-    const missing = /^(\w+) is not defined$/.exec(parsed.failure ?? '')?.[1];
-    if (missing && attempt < PROGRAM_LIMITS.unknownRetries && !unknown.includes(missing)) {
-      unknown.push(missing);
-      continue;
-    }
-    return { calls, unknown, ...(parsed.failure ? { error: parsed.failure } : {}) };
-  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -362,6 +287,8 @@ interface Part extends Rect {
   o: number;
   /** What its roof's height field covers: the walls, the overhang ring, and a wing's run into the body. */
   roof: Rect;
+  /** The most its roof rises (a low roof: one step and a flat top), when set. */
+  cap?: number;
 }
 const inRect = (r: Rect, x: number, z: number) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
 const overlaps = (a: Rect, b: Rect) => a.x0 <= b.x1 && b.x0 <= a.x1 && a.z0 <= b.z1 && b.z0 <= a.z1;
@@ -383,6 +310,34 @@ export function describeSpec(s: HouseSpec): string {
   return `a ${b.width}x${b.depth} ${b.storeys === 2 ? 'two-storey' : 'one-storey'} ${s.walls.replace(/_/g, ' ')} house with a ${s.roof} ${s.roof_material.replace(/_/g, ' ')} roof${parts.length ? `, ${parts.join(', ')}` : ''}`;
 }
 
+/**
+ * The member's memory note (#175: code writes it, from the house as built, never the program's own note, which claimed
+ * pieces the library does not have): its form, what the cuts took, and what was asked and is not in the library. Under
+ * 140 characters (NOTE_CHARS).
+ */
+export function programNote(built: HouseSpec, cuts: string[], unknown: string[], notes: string[] = []): string {
+  const b = built.body;
+  const pair = (['front', 'back', 'left', 'right'] as Side[]).find((sd) => built.wings.filter((w) => w.side === sd).length === 2);
+  const parts = [
+    pair ? 'two wings round a courtyard' : built.wings.length ? (built.wings.length === 2 ? 'two wings' : `a ${built.wings[0].side} wing`) : '',
+    built.towers.length ? (built.towers.length === 2 ? 'two towers' : 'a tower') : '',
+    built.bays.length ? (built.bays.length > 1 ? 'bay windows' : 'a bay window') : '',
+    built.porch ? 'a porch' : '', built.chimney ? 'a chimney' : '',
+  ].filter(Boolean);
+  const walls = built.walls === 'planks' ? '' : `${built.walls.replace(/_/g, ' ')} `;
+  const form = `a ${b.width}x${b.depth} ${b.storeys === 2 ? 'two-storey' : 'one-storey'} ${walls}house${parts.length ? ` with ${parts.join(', ').replace(/, ([^,]*)$/, ' and $1')}` : ''}`;
+  const lost = [...new Set(cuts.map((c) => c.replace(/ \(.*\)$/, '')).filter((c) => /^no (tower|wing|bay window|porch|chimney)|^one storey/.test(c)))];
+  // (a part geometry left out: "the back-right tower left out: a wing or tower stands there")
+  for (const n of notes) {
+    const m = /^the .*?(tower|wing|bay window|porch|chimney).* left out/.exec(n);
+    if (m && !lost.includes(`no ${m[1]}`)) lost.push(`no ${m[1]}`);
+  }
+  const missing = unknown.filter((u) => /^[a-z][a-z_]*$/i.test(u)).slice(0, 2).map((u) => `no ${u.replace(/_/g, ' ')}`);
+  const tail = [...lost.map((c) => (c === 'one storey' ? 'one storey to fit' : c)), ...missing];
+  const full = `I chose my house: ${form}${tail.length ? ` (${tail.join(', ')})` : ''}`;
+  return full.length <= 138 ? full : `I chose my house: ${form}`.slice(0, 138);
+}
+
 /** Draw a spec as a Design; notes say what geometry left out or moved, and `drawn` is the spec without it. */
 export function compileHouse(spec: HouseSpec, name = 'home_program', by = 'program'): { design: Design; notes: string[]; drawn: HouseSpec } {
   const notes: string[] = [];
@@ -394,7 +349,10 @@ export function compileHouse(spec: HouseSpec, name = 'home_program', by = 'progr
   const hasFB = spec.wings.some((x) => x.side === 'front' || x.side === 'back');
   const hasLR = spec.wings.some((x) => x.side === 'left' || x.side === 'right');
   const bodyAxis: 'x' | 'z' = hasFB ? 'x' : hasLR ? 'z' : w >= d ? 'x' : 'z';
-  const body: Part = { kind: 'body', x0: 0, x1: w - 1, z0: 0, z1: d - 1, top: bodyTop, axis: bodyAxis, o, roof: { x0: -o, x1: w - 1 + o, z0: -o, z1: d - 1 + o } };
+  // (a tower on a two-storey house: under 12 layers it finds no room above a full pitch, so the body takes a low roof,
+  // one step of stairs at the eaves and a flat top of slabs, and the tower stands two layers above it)
+  const low = storeys === 2 && !flat && spec.towers.length > 0;
+  const body: Part = { kind: 'body', x0: 0, x1: w - 1, z0: 0, z1: d - 1, top: bodyTop, axis: bodyAxis, o, roof: { x0: -o, x1: w - 1 + o, z0: -o, z1: d - 1 + o }, ...(low ? { cap: o } : {}) };
   const parts: Part[] = [body];
 
   // Wings: on a side of the body, one storey, their ridge across the wall they stand on; at the body's height their
@@ -455,6 +413,7 @@ export function compileHouse(spec: HouseSpec, name = 'home_program', by = 'progr
     parts.push({ kind: 'tower', ...r, top, axis: 'x', o: 0, roof: r });
     drawn.towers.push(t);
   }
+  if (low && drawn.towers.length) notes.push('a low roof on the two-storey body, so the tower stands above it');
 
   // The door: the front wall, a wing's front when a wing stands in the middle of it, with two free cells before it
   const union1 = (x: number, z: number) => parts.some((p) => inRect(p, x, z));
@@ -767,10 +726,10 @@ export function compileHouse(spec: HouseSpec, name = 'home_program', by = 'progr
     if (flat || p.kind === 'bay') return 0;
     const r = p.roof;
     const across = p.axis === 'x' ? Math.min(z - r.z0, r.z1 - z) : Math.min(x - r.x0, r.x1 - x);
-    if (spec.roof !== 'hip' && p.kind !== 'tower') return across;
+    if (spec.roof !== 'hip' && p.kind !== 'tower') return Math.min(across, p.cap ?? Infinity);
     const along = p.joined === 'north' ? r.z1 - z : p.joined === 'south' ? z - r.z0 : p.joined === 'east' ? x - r.x0 : p.joined === 'west' ? r.x1 - x
       : p.axis === 'x' ? Math.min(x - r.x0, r.x1 - x) : Math.min(z - r.z0, r.z1 - z);
-    return Math.min(across, along);
+    return Math.min(across, along, p.cap ?? Infinity);
   }
 }
 
@@ -801,9 +760,11 @@ const BOX_CUTS: Cut[] = [
   ['no tower', (s) => (s.towers.length ? { ...s, towers: s.towers.slice(0, -1) } : null)],
   ['no bay window', (s) => (s.bays.length ? { ...s, bays: s.bays.slice(0, -1) } : null)],
 ];
+// (the second storey before the tower: a tower is the rarer wish and the cheaper part, and a two-storey house with one
+// rarely fits the budget, the progbench replay)
 const COST_CUTS: Cut[] = [
-  ['no tower', (s) => (s.towers.length ? { ...s, towers: s.towers.slice(0, -1) } : null)],
   ['one storey', (s) => (s.body.storeys === 2 ? { ...s, body: { ...s.body, storeys: 1 }, upper_walls: undefined } : null)],
+  ['no tower', (s) => (s.towers.length ? { ...s, towers: s.towers.slice(0, -1) } : null)],
   ['no wing', (s) => (s.wings.length ? { ...s, wings: s.wings.slice(0, -1) } : null)],
   ['smaller', (s) => smaller(s, 'any')],
   ['no bay window', (s) => (s.bays.length ? { ...s, bays: s.bays.slice(0, -1) } : null)],
@@ -858,12 +819,44 @@ export function fitHouse(spec: HouseSpec, budget: number, bill: ProgramBill = {}
   return null;
 }
 
-/** A program's whole path: run it, read its calls onto the street's spec, fit it. */
-export function houseFromProgram(code: string, familyName: string, budget: number, bill: ProgramBill = {}, name?: string, wood?: string) {
-  const run = runProgram(code);
+/** The model's reply as code: the first fenced block if there is one, else the whole reply. */
+export function extractProgram(reply: string): string {
+  const m = /```(?:[a-zA-Z]*)\s*\n([\s\S]*?)```/.exec(reply);
+  return (m ? m[1] : reply).trim();
+}
+
+/** A program that does not parse, its note() lines quoted again: qwen3.8 wrote note('... the street's look ...') (2 of
+ *  48 in the character bench), and the whole program failed for an apostrophe. The text from the first quote to the last
+ *  on the line is the note. */
+export function requoteNotes(code: string): string {
+  return code.split('\n').map((line) => {
+    const m = /^(\s*)note\(\s*(['"`])(.*)\2\s*\)\s*;?\s*$/.exec(line);
+    return m ? `${m[1]}note(${JSON.stringify(m[3])});` : line;
+  }).join('\n');
+}
+
+/** A program's calls read onto the street's spec and fitted (houseFromProgram's second half: the world runs the program
+ *  in a worker first). */
+export function houseFromRun(run: ProgramRun, familyName: string, budget: number, bill: ProgramBill = {}, name?: string, wood?: string) {
   const notes: string[] = [];
   const spec = applyCalls(run.calls, defaultSpec(familyName, wood), notes);
   if (!run.calls.some(([fn]) => fn === 'body' || fn === 'house')) notes.push('no body(): a 5x5 house');
   const fit = run.calls.length ? fitHouse(spec, budget, bill, name) : null;
   return { run, spec, notes: [...notes, ...(fit?.notes ?? [])], fit };
+}
+
+/** A program's whole path: run it, read its calls onto the street's spec, fit it. */
+export function houseFromProgram(code: string, familyName: string, budget: number, bill: ProgramBill = {}, name?: string, wood?: string) {
+  let run = runProgram(code);
+  const fixed = /^syntax/.test(run.error ?? '') ? requoteNotes(code) : code;
+  if (fixed !== code) run = runProgram(fixed);
+  return houseFromRun(run, familyName, budget, bill, name, wood);
+}
+
+/** The same in a worker thread (runProgramIsolated): the world's path. */
+export async function houseFromProgramIsolated(code: string, familyName: string, budget: number, bill: ProgramBill = {}, name?: string, wood?: string) {
+  let run = await runProgramIsolated(code);
+  const fixed = /^syntax/.test(run.error ?? '') ? requoteNotes(code) : code;
+  if (fixed !== code) run = await runProgramIsolated(fixed);
+  return houseFromRun(run, familyName, budget, bill, name, wood);
 }

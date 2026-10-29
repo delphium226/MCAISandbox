@@ -70,12 +70,13 @@ export function isGrowTask(v: Village, t: Task): boolean {
  * drawn in the neighbourhood's family (houseStyle.ts ownHomes: at most one over HOUSE_UNITS), copied into the library;
  * an owner whose house cannot fit, or a batch larger than the owners, takes vanilla picks as before (none over
  * HOUSE_UNITS beside a larger own house: plan_layout lays out one building over it a layout).
- * With #174 (MC_HOME_DESIGN=model) and `own.choices`, members' own picks (houseStyle.ts chosenHomes).
+ * With #174 (MC_HOME_DESIGN=model) and `own.choices`, members' own picks (houseStyle.ts chosenHomes); with #175
+ * (MC_HOME_DESIGN=program) and `own.programs`, members' program houses as well.
  */
-export function pickHouses(v: Village, n: number, lib: Design[] | null, units?: (d: Design) => number, only?: Design[], wood?: string, own?: { owners: string[]; family?: string; choices?: Map<string, OwnChoice>; smelts?: (d: Design) => number }): string[] {
+export function pickHouses(v: Village, n: number, lib: Design[] | null, units?: (d: Design) => number, only?: Design[], wood?: string, own?: { owners: string[]; family?: string; choices?: Map<string, OwnChoice>; programs?: Map<string, Design>; smelts?: (d: Design) => number }): string[] {
   if (GEN_HOMES && own?.owners.length && n > 0) {
     // (#174, MC_HOME_DESIGN=model: members' own picks where they made them, smelts checked too)
-    const homes = own.choices ? chosenHomes(own.owners.slice(0, n), own.family, own.choices, { units, smelts: own.smelts }) : ownHomes(own.owners.slice(0, n), own.family, { units });
+    const homes = own.choices ? chosenHomes(own.owners.slice(0, n), own.family, own.choices, { units, smelts: own.smelts }, undefined, own.programs) : ownHomes(own.owners.slice(0, n), own.family, { units });
     // (a home's name is its owner's and family's: drawn again, it replaces the one laid out before, never built)
     for (const d of homes) v.designs[d.name] = d;
     const big = !!units && homes.some((d) => units(d) > HOUSE_UNITS);
