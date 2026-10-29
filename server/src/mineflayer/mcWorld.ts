@@ -91,7 +91,7 @@ import { councilLine, needBoost, noteNeedOffer, noteNeedStatus, setCouncilStore,
 import { CHARACTER, characterAny, characterFactor, characterRunBegin, goalFromValues, helpWeight, hexacoOf, hexacoWeights, identityLine, initCharacter, moodLine, moodWeight, needsLine, noteDecision, noteLines, noteRest, noteWork, requestWeight, restWeight, sample as characterSample, temperamentWords, think, valuesLine } from '../character';
 import { HOUSE_UNITS, HOUSE_UNITS_LARGE, LANDMARK_UNITS, MAX_SMELTS, VANILLA_ALL, WOOD_VARIANTS, baseName, houseBudget, isLandmark, isVanillaPieceName, validateDesign } from '../designs';
 import { GEN_HOMES, PLAIN_CHOICE, characterChoice, describeStyle, familyKey, fitChoice, homeOptions, homeOwner, isHomeName, styleFromChoice, type HomeChoice, type HomeOptions, type OwnChoice } from '../houseStyle';
-import { HOME_DESIGN, castDesign, designNote, inHoldout, type DesignContext, type DesignResult } from '../homeDesign';
+import { HOME_DESIGN, castDesign, characterOf, designNote, inHoldout, type DesignContext, type DesignResult } from '../homeDesign';
 import { generateDesign } from '../buildingGen';
 import { applyWrites } from '../memory';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
@@ -2830,7 +2830,7 @@ export class MineflayerWorld implements WorldAdapter {
     const village = homes.length
       ? `${homes.length} members' houses: ${homes.filter((s) => s!.storeys === 2).length} with two storeys, ${homes.filter((s) => s!.porch).length} with porches, ${homes.filter((s) => s!.footprint && s!.footprint !== 'rect').length} L- or T-shaped.`
       : '';
-    return { persona: vc.persona, self: vc.self, family, wood: undefined, street, village, options, budget: HOUSE_UNITS, larger: { budget: HOUSE_UNITS_LARGE, ...(claimer ? { by: claimer } : {}) }, stake };
+    return { persona: vc.persona, character: characterOf(a.name), self: vc.self, family, wood: undefined, street, village, options, budget: HOUSE_UNITS, larger: { budget: HOUSE_UNITS_LARGE, ...(claimer ? { by: claimer } : {}) }, stake };
   }
 
   /** homeTick gave a house to its owner: the member's choice, if this is its own design, becomes a note. */

@@ -18,6 +18,7 @@ import { CallWithdrawn, callModel, type ModelSpec, type Reply } from './modelCal
 import { usage, isCloudModel, type ReasoningLevel } from './modelUsage';
 import { FAMILY, HOME_FEATURES, HOME_SIZES, growWalls, type HomeChoice, type HomeFeature, type HomeOptions } from './houseStyle';
 import type { ToolDef } from './world';
+import { goalFromValues, temperamentWords, valuesLine } from './character';
 import { rawSetting } from './settings';
 
 export const HOME_DESIGN = {
@@ -32,10 +33,20 @@ const DESIGN_FALLBACK_MS = 60000;
 /** Whether a member is kept on the character draw (the holdout, by a seeded hash of its name). */
 export const inHoldout = (member: string) => HOME_DESIGN.holdout > 0 && fnv1a(`${member.trim().toLowerCase()}|homedesign`) / 4294967296 < HOME_DESIGN.holdout;
 
+const GOAL_WORDS: Record<string, string> = { invention: 'inventing new things', beauty: 'making things beautiful', mastery: 'mastering a craft', home: 'a good home', wealth: 'wealth', standing: 'standing among your neighbours' };
+/** The character line: the traits, values and life goal character.ts gives the name (what memberStyle reads, whatever
+ *  the character flags say). */
+export function characterOf(name: string): string {
+  const goal = goalFromValues(name);
+  return `You are ${temperamentWords(name)}; your life goal is ${GOAL_WORDS[goal] ?? goal}. ${valuesLine(name)}`;
+}
+
 /** What the prompt shows a member (the world fills it). */
 export interface DesignContext {
   /** The persona line ('' when none). */
   persona: string;
+  /** The character the house draw reads (characterOf): traits, values and life goal. */
+  character: string;
   /** The member's own record, one line. */
   self: string;
   /** The street's family key (houseStyle FAMILY) and wood. */
@@ -98,6 +109,7 @@ const SYSTEM = 'You are a member of a Minecraft village choosing the design of y
 export function buildDesignPrompt(ctx: DesignContext, seed: string): { system: string; user: string; tools: ToolDef[] } {
   const lines: string[] = [];
   if (ctx.persona.trim()) lines.push(ctx.persona.trim());
+  if (ctx.character.trim()) lines.push(ctx.character.trim());
   if (ctx.self.trim()) lines.push(ctx.self.trim());
   lines.push(`Your street's style: ${familyWords(ctx.family, ctx.wood)}.`);
   if (ctx.street.length) lines.push('Houses in your street so far:', ...ctx.street.map((s) => `- ${s}`));
@@ -113,7 +125,8 @@ export function buildDesignPrompt(ctx: DesignContext, seed: string): { system: s
     const shown = shuffled(vs, `${seed}|${k}`);
     lines.push(`- ${FIELD_HELP[k] ?? k}: ${shown.map((v) => `${valueWords(k, v.value, ctx.family)} +${v.units}`).join('; ')}`);
   }
-  lines.push(`Rank the features you picked (${HOME_FEATURES.join(', ')}) in priority, most wanted first.`);
+  // (shuffled: told in a fixed order, gpt-oss copied it as its ranking, the pilot bench)
+  lines.push(`In priority, list only the features you picked, most wanted first (from: ${shuffled([...HOME_FEATURES], `${seed}|priority`).join(', ')}).`);
   lines.push('Call design_house with your reason, one value for each field, and your priority.');
   const props: Record<string, unknown> = { reason: { type: 'string', maxLength: 200, description: 'Why this house, in one sentence.' } };
   for (const [k, vs] of fields) {
@@ -157,6 +170,8 @@ function norm(field: string, raw: unknown): unknown {
   if (['porch', 'chimney', 'shutters', 'larger'].includes(field)) return /^(yes|true|y|1)$/.test(s) ? true : /^(no|false|n|0|none)$/.test(s) ? false : undefined;
   if (field === 'shape') return s === 'l' ? 'L' : s === 't' ? 'T' : s === 'rect' || s === 'rectangle' ? 'rect' : undefined;
   if (field === 'door') return s === 'center' ? 'centre' : s;
+  if (field === 'wing_side') return s === 'left' ? 'west' : s === 'right' ? 'east' : s;
+  if (field === 'frame' && /^(logs?|log posts)$/.test(s)) return 'street';
   return s.replace(/\s*\(.*$/, '');
 }
 

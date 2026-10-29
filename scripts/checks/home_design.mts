@@ -144,7 +144,7 @@ console.log(`readDesign: ${cases.length + 1} cases`);
 
 // 4. castDesign with the call injected
 const ctx: import('../../server/src/homeDesign').DesignContext = {
-  persona: 'Ada is warm and sociable; she values helping others and dreams of a home full of guests.', self: 'You built 3 of the village\'s 20 buildings.',
+  persona: 'Ada is warm and sociable; she values helping others and dreams of a home full of guests.', character: D.characterOf('Ada'), self: 'You built 3 of the village\'s 20 buildings.',
   family: 'plains', street: ['Ben: two-storey house with a gable roof and a chimney, 210 units; Ben: "I want room for my tools"'], village: '8 members\' houses: 2 with two storeys, 3 with porches, 1 L- or T-shaped.',
   options: opts, budget: HOUSE_UNITS, larger: { budget: HOUSE_UNITS_LARGE }, stake: ['The houses before yours in this street come to about 210 units; yours is built after them, so every unit you add delays your moving in (and Cai, Dot, built after you).'],
 };
