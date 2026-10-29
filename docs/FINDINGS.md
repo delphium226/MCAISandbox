@@ -2342,3 +2342,17 @@ CLAUDE.md when a phase ends.
   past-keep + unwanted 25% (met), JS 0.240 / 0.218 (met), works 18 / 26 initiatives and 899 / 1,304 monument blocks (not
   met), failures 10.0 / 8.9% (met), cost a call 1.54x (met). Busy 73-93% before the break in both, [lag] 0, [stuck] 19 /
   43; $0.45 / $1.17. A rerun needs #170 fixed. Report: runs/2026-10-28/train9b/report.md.
+- F338 (10-28, train9c, G2, #172, #170) **Test train 9c (the menu M against the open palette O on d663508: #170
+  fixed, open overstock offered only when asked, needs with a first step; MC_PRIMER on) ran to +113 min, stopped by
+  hand** (the user's, for the evening). **#170 holds**: laws passed on days 2-5 in both (claims rl3 / rl4 on day 2), 0
+  `offers is not iterable`, members chose to the end. Over 113 min (M / O): **O's makes past the keep 0 (9b 18.5%)
+  and gathers nothing wants 36 (9b 58 in 37 min)**; O's palette shrank to a median of 4 options (9b 18), 317 drops
+  found nothing to choose, picks outside the menu view 9% (9b 27%). Invalid replies 1.7% / **0.6%** (the re-ask fixed 117
+  of 126; what is left is "Make wooden axes"). Chore busy alike (74-78% / 69-90% in the first hour), failures 7.6 / 7.5%,
+  initiatives built 85 / 93, both monuments finished (3,587 blocks), JS 0.160 / 0.150, distinct ids 478 / 494, cost a
+  choose call 1.11x; refusals by a rule 0 / 0. The needs block named a first step 6,752 times but 93% were not on the
+  member's list (harvest wheat: nothing ripe; go fishing: no rod in storage; get lilac, leather); of the 279 calls with
+  one on the list, the member took it in 65 (23%). Own tools: 40 / 47 takes ok, 7 / 2 failed on an empty spare, members
+  still wanting a tool after +60 3 / 0. Predictions 3-6 met, 1 and 2 not (O no longer diversifies or overmakes: it
+  behaves like the menu at a tenth more cost). [lag] 0, [stuck] 92 / 102; $1.09 / $1.75. Report:
+  runs/2026-10-28/train9c/report.md.
