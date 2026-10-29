@@ -947,3 +947,8 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   the supply gaps:** with #170 fixed the open arm matched the menu (works 93/85, failures 7.5/7.6%, 1.11x cost) but was no
   more varied (median 4 options); 93% of the needs block's first steps were not possible (wheat unripe, no fishing rod or
   string, lilac, leather, axes). The world's supply, not the chooser, limits what members can do.
+- 10-29 (the user's, on the house-design spec 1c0a6cf, #174) **Members design their own houses, v1 as specified:**
+  look fields stay to the street's style or its one alternative; first build only, no remodel; the street's larger house
+  to the first member who asks (wealth deciding it waits for coins to be tested); decorations stay code's; whether
+  `MC_HOME_DESIGN=model` becomes the default is decided after the test train; the train runs with `MC_MEMORY=on`; a
+  design over budget is cut in the member's own ranking.
