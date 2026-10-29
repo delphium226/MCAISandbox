@@ -2373,3 +2373,19 @@ CLAUDE.md when a phase ends.
   "nothing feasible" lines an arm (t3_p1b's mine spent, cobblestone short, no wool for beds; #8); initiatives 83 / 76;
   failed 104 / 109; quota law refusals 95 / 0; [lag] 0, [stuck] 87 / 61; $0.77 / $0.84. Report:
   runs/2026-10-29/train10/report.md.
+- F340 (10-29, train11, G2, #175, #174, supply) **Test train 11 (house programs P against model picks M, the supply flags
+  on in both) ran to the end on t3_p1b.** Code 689f4b5, 25 members, 1x, 120 min after, train 10's settings, holdout 0.5;
+  P's programs on qwen3.8 locally. **Programs work mechanically**: 12 of 12 ran, 0 fallbacks, 0 worker kills, 0 failed
+  builds, 2.5-8.7 s each, and four houses read back from the world match their designs. **But they went small and
+  alike**: all 12 one-storey with a hip roof, 90-141 units, 175 blocks a house (model picks 349, character 279), and 6 of
+  12 the same "7x7 one-storey house with a porch and shutters" on four different streets: the village converges on one
+  cheap house, not street copying. The stake line is the likely cause (the integration's staged run, without it, built
+  mostly two-storey 7x7s); Hugo's note cites it. Model picks: two storeys in 8 of 11, 9 distinct forms of 11. Houses 2 ->
+  25 by +41 (P) / +45 min (M); build minutes about equal (1.1 / 1.2 median). House notes kept to the end 12 of 12 / 11 of
+  11; later mentions are rare (Clara's own note, Nora's "two-storey house entrance"). **The own rod still untested**:
+  storage starts with no rod, but members buy the merchant's 2 rods into storage by +4 min, so own_tool_out ran 1 / 1
+  times; a real test needs the merchant's rods kept out (MC_MERCHANT off or a fixture). Wheat 32 / 30 an hour (train 10's
+  S 60; fewer fields, own farms failing on "no free 9x9 site"); magenta dye 4 / 4. M's fishing spot went dead after +80
+  min (7 of 9 trips "nothing bit", #176). Busy 63 / 59%; P's extra failures are beds without shears (spent mine, #8);
+  cloud 502s and 429s 208 / 166 handed back; [lag] 0, [stuck] 173 / 157; $0.84 / $0.75. Report:
+  runs/2026-10-29/train11/report.md.
