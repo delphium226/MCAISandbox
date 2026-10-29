@@ -506,7 +506,7 @@ function symbolFor(block: string): string {
   return ({ cobblestone: 'C', stone_bricks: 'B', sandstone: 'A', stone: 'O', glass: 'G', glass_pane: 'G' } as Record<string, string>)[base] ?? '?';
 }
 
-function encode(grid: string[][][]): { palette: Record<string, string>; layers: string[][] } {
+export function encode(grid: string[][][]): { palette: Record<string, string>; layers: string[][] } {
   const palette: Record<string, string> = {};
   const symbol = new Map<string, string>();
   const spare = [...'abcdefghijklmnopqrstuvwxyz0123456789'];
