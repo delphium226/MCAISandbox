@@ -2840,8 +2840,8 @@ export class MineflayerWorld implements WorldAdapter {
     const s = design?.style;
     if (!c || !s || s.chosen !== 'model' || s.owner !== owner) return;
     const cuts = /\(cut to fit: ([^)]*)\)/.exec(design!.description ?? '')?.[1]?.split(', ') ?? [];
-    const words = describeStyle({ ...s, wood: undefined }).replace(/^an? /, 'a ').replace(/ house with /, ' house with ');
-    const note = designNote(words.length > 80 ? words.replace(/ with .*$/, '') : words, c.own.reason, cuts);
+    // (its form only: the reason is what the member will want to recall, and the note keeps under 140 characters)
+    const note = designNote(describeStyle({ ...s, wood: undefined }).replace(/ with .*$/, ''), c.own.reason, cuts);
     const done = applyWrites(v.name, owner, { remember: note }, 'world', Date.now(), `home:${design!.name}`);
     console.log(`[home] ${v.name}: ${owner}'s own design ${design!.name} given (${done.join(', ') || 'memory off'}): ${note}`);
   }

@@ -150,7 +150,9 @@ function inputOf(reply: Reply): Record<string, unknown> | null {
   let x: unknown = call?.input;
   if (!x) {
     const t = reply?.text ?? '';
-    try { x = JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1)); } catch { x = null; }
+    const body = t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1);
+    // (gpt-oss annotated its JSON with // costs and left trailing commas, staged HDm)
+    try { x = JSON.parse(body); } catch { try { x = JSON.parse(body.replace(/\s*\/\/[^\n]*/g, '').replace(/,(\s*[}\]])/g, '$1')); } catch { x = null; } }
   }
   if (typeof x === 'string') try { x = JSON.parse(x); } catch { x = null; }
   if (!x || typeof x !== 'object') return null;
@@ -272,6 +274,7 @@ export function designNote(words: string, reason: string, cuts: string[]): strin
   const cut = cuts.length ? ` (built with ${cuts[0]})` : '';
   const base = `I chose my house: ${words}${cut}`;
   const why = reason.replace(/[.\s]+$/, '');
-  const full = why ? `${base}, ${/^(because|to|so|for)\b/i.test(why) ? '' : 'because '}${why.charAt(0).toLowerCase()}${why.slice(1)}` : base;
+  const lower = /^I\b/.test(why) ? why : `${why.charAt(0).toLowerCase()}${why.slice(1)}`;
+  const full = why ? `${base}, ${/^(because|to|so|for)\b/i.test(why) ? '' : 'because '}${lower}` : base;
   return full.length <= 138 ? full : base.length <= 138 ? base : base.slice(0, 137);
 }

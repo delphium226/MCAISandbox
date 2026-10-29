@@ -136,6 +136,7 @@ const cases: Array<[string, ReturnType<typeof call> | { calls: never[]; text: st
   ['text JSON', { calls: [], text: 'Here: {"reason": "y", "size": "wide", "porch": false}' }, (r) => !!r && r.choice.size === 'wide' && !r.choice.porch],
   ['nested house', call({ reason: 'z', house: { size: 'large', chimney: true } }), (r) => !!r && r.choice.size === 'large' && r.choice.chimney && r.reason === 'z'],
   ['no input', { calls: [], text: 'I cannot decide.' }, (r) => r === null],
+  ['commented JSON', { calls: [], text: '**design_house**\n```json\n{\n  "reason": "r",\n  "size": "deep",   // +20\n  "porch": true,   // +2\n}\n```' }, (r) => !!r && r.choice.size === 'deep' && r.choice.porch],
   ['nothing valid', call({ reason: 'x', size: 'huge' }), (r) => r === null],
 ];
 for (const [label, reply, ok] of cases) if (!ok(D.readDesign(reply as never, opts, fb, true))) fail(`readDesign ${label}: ${JSON.stringify(D.readDesign(reply as never, opts, fb, true))}`);
@@ -181,6 +182,8 @@ if (held.length < 7 || held.length > 18) fail(`holdout 0.5 kept ${held.length} o
 if (held.join() !== MEMBERS.filter((m) => D.inHoldout(m)).join()) fail('holdout not stable');
 const long = D.designNote('a T-shaped two-storey house with a hip roof, cobblestone walls, a porch, a chimney and shutters', 'Because I have always wanted a home where the whole street can gather on long evenings and share stories of the day', ['one storey']);
 if (long.length > 140) fail(`note ${long.length} chars`);
+const short = D.designNote('an L-shaped one-storey house', 'I prefer a simple, traditional house.', []);
+if (short !== 'I chose my house: an L-shaped one-storey house, because I prefer a simple, traditional house') fail(`note: ${short}`);
 console.log(`holdout 0.5: ${held.length} of 25 on the character draw (${held.join(', ')}); a long note is ${long.length} chars`);
 
 console.log(failed ? `home_design: ${failed} FAILED` : 'home_design: ok');
