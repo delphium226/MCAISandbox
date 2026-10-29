@@ -2356,3 +2356,20 @@ CLAUDE.md when a phase ends.
   still wanting a tool after +60 3 / 0. Predictions 3-6 met, 1 and 2 not (O no longer diversifies or overmakes: it
   behaves like the menu at a tenth more cost). [lag] 0, [stuck] 92 / 102; $1.09 / $1.75. Report:
   runs/2026-10-28/train9c/report.md.
+- F339 (10-29, train10, G2, #174, supply) **Test train 10 (the supply flags S against C, members' own house designs in
+  both) ran to the end on t3_p1b** (the pad village, the user's call: mv3_base25 is not on pads, so its first launch was
+  set aside). Code 7dd87fb, 25 members, 1x, 120 min after, 9c's settings, `MC_HOME_DESIGN=model` holdout 0.5,
+  `MC_MEMORY=on`; growth placed houses outward on pads, 2 -> 25 in 6 neighbourhoods in both. **MC_FIELD_RIPE=0.5 works**:
+  16 / 6 wheat harvests, wheat 60 / 36 an hour, bread made 33 / 16 (eaten as it came, stock 0-6). **MC_FLOWER_WANTS
+  works small**: 2 lilac trips, magenta dye 4 / 0. **MC_OWN_ROD did almost nothing here**: t3_p1b's storage held 3 rods, so
+  lib:fish took those (27 / 28 picks, own_tool_out 1 / 0, the own-rod form in 0 prompts); it needs a village with no rod
+  in storage. Own farms still fail on "no free 9x9 site" (15 of 26 / 16 of 23). **House design**: the same 12 designers
+  in both arms, 24 of 24 replies valid, 1 cut to fit, 0 failed builds, no layout waited; models chose two storeys 83%
+  (draw 23%), two storeys and all three extras 42% (prediction 2's < 25% not met), 20 of 24 asked for the larger house;
+  blocks +34% (380 / 284; prediction 10 said 10-25%), build minutes +8% median; reasons give roles and values, none
+  names a neighbour (6 not met); the same member's shape agreed across arms in 6 of 12. Memory 5 / 5 of 12 (prediction 11
+  met at the threshold), nearly all in journal notes (Milo: "Consider expanding my house to a two-storey layout"), one
+  talk line, no choice reasons; 7 dropped the note as personal. Busy 60 / 60%, falling to 40-65% after +40 min with ~420
+  "nothing feasible" lines an arm (t3_p1b's mine spent, cobblestone short, no wool for beds; #8); initiatives 83 / 76;
+  failed 104 / 109; quota law refusals 95 / 0; [lag] 0, [stuck] 87 / 61; $0.77 / $0.84. Report:
+  runs/2026-10-29/train10/report.md.
