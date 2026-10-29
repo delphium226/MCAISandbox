@@ -15,7 +15,8 @@
  *   REPORT=FILE.jsonl (the report again from a run's rows, no calls), REPLAY=FILE.jsonl (the run's replies again through
  *   today's library: new rows, no calls), DESIGNS=1 (also write each built design as JSON
  *   beside the rows, for scripts/render_design.py).
- * Local models only: no cloud model is called (train 10 holds the cloud slots, 10-29).
+ *   THINK (the reasoning level for gpt-oss, default medium as the design kind; false for other models).
+ * gpt-oss cloud: MODEL=gpt-oss:120b-cloud OLLAMA=http://127.0.0.1:11434.
  * Writes rows to runs/<date>/bench/progbench-<ts>.jsonl and the summary beside it (.json).
  */
 import fs from 'node:fs';
@@ -172,8 +173,9 @@ if (process.env.REPORT) {
 } else {
   const MODEL = process.env.MODEL ?? 'qwen3.8:27b';
   const OLLAMA = process.env.OLLAMA ?? 'http://127.0.0.1:11436';
-  if (/cloud/.test(MODEL)) throw new Error('local models only (train 10 holds the cloud)');
-  const N = Number(process.env.N ?? 3), TEMP = Number(process.env.TEMP ?? 0.7);
+  // gpt-oss ignores think:false: give it a reasoning level instead (THINK=low|medium|high; the design kind is medium)
+  const THINK = process.env.THINK ?? (/gpt-oss/.test(MODEL) ? 'medium' : false);
+  const N =Number(process.env.N ?? 3), TEMP = Number(process.env.TEMP ?? 0.7);
   const only = process.env.ONLY ? new Set(process.env.ONLY.split(',')) : null;
   const descs = DESCS.filter((d) => !only || only.has(d.id));
   const out = fs.createWriteStream(`${base}.jsonl`);
@@ -189,7 +191,7 @@ if (process.env.REPORT) {
       const res = old ? null : await fetch(`${OLLAMA}/api/chat`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: MODEL, stream: false, think: false, keep_alive: -1,
+          model: MODEL, stream: false, think: THINK, keep_alive: -1,
           options: { num_ctx: 8192, temperature: TEMP, seed: 1000 * i + s },
           messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: userPrompt(member, d) }],
         }),
