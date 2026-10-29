@@ -943,3 +943,7 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 10-28 (the user's, on #172 round 2's finding) **A member who wants a tool gets one of their own:** the want for a
   pickaxe, axe or fishing rod is met by a make (or a take from storage) into the member's own hands, not a make into
   village storage; fixed before the full menu vs open rerun, which runs with MC_PRIMER on in both arms.
+- 10-29 (the user's, on train 9c, F338) **The menu stays the default; the open palette stays a flag (`MC_CHOOSE=open`); next
+  the supply gaps:** with #170 fixed the open arm matched the menu (works 93/85, failures 7.5/7.6%, 1.11x cost) but was no
+  more varied (median 4 options); 93% of the needs block's first steps were not possible (wheat unripe, no fishing rod or
+  string, lilac, leather, axes). The world's supply, not the chooser, limits what members can do.
