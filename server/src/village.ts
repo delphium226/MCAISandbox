@@ -148,6 +148,13 @@ export interface Mine {
   /** Failed iron chores by stage, and the last (a back-off; on the mine, not the iron level: see ironMade). */
   ironTries?: Record<string, number>;
   ironLastTry?: { at: number; stage: string; why: string };
+  /** A mine opened after another gave nothing (#8, MC_MORE_MINES): no hut, its entrance's ground y (dig_mine's floor; `hut`
+   *  is the 3x3 round the entrance), who opened it and when, and the mines before it, oldest first (kept off by every
+   *  keep-off through mineAreas; their stairs, tunnels and iron levels are not dug again). */
+  floor?: number;
+  openedBy?: string;
+  openedAt?: number;
+  before?: Mine[];
 }
 
 /**

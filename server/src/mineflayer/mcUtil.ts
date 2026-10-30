@@ -249,7 +249,9 @@ export async function outFromUnder(a: BotAgent, goal: InstanceType<typeof goals.
   if (f && Date.now() - f.t < 180000 && f.p.distanceTo(p) < 6) return null;
   const tried: string[] = [];
   // (in the mine or beside it, as tunnels dug from it are: train 7's under the hut ran 2-3 blocks below its level)
-  const m = a.village()?.mine;
+  // (#8: the mine whose stairs are nearest, the new one or one before it: their tunnels do not meet)
+  const m0 = a.village()?.mine;
+  const m = m0 && [m0, ...(m0.before ?? [])].filter((x) => x.level !== undefined).sort((x, y) => Math.hypot(x.top.x - p.x, x.top.z - p.z) - Math.hypot(y.top.x - p.x, y.top.z - p.z))[0];
   if (m?.level !== undefined && boxes.some((q) => q.y2 !== undefined && p.x >= q.x1 - 8 && p.x <= q.x2 + 8 && p.z >= q.z1 - 8 && p.z <= q.z2 + 8 && p.y >= q.y - 8 && p.y <= q.y2 + 1)) {
     // Up the mine's stairs to the hut, along the tunnels only
     const up = new goals.GoalNearXZ(m.top.x, m.top.z, 2), top = m.level + m.steps - 2;

@@ -148,6 +148,8 @@ function unsafe(a: BotAgent, v: Village, m: Mine, p: Vec3, ceiling: boolean, mod
     // Another village's mine: its tunnels are not this one's to cross
     if (o !== v && o.mine && mineAreas(o.mine).some((q) => p.x >= q.x1 && p.x <= q.x2 && p.z >= q.z1 && p.z <= q.z2 && p.y >= q.y && p.y <= q.y2)) return `${where} is at ${o.name}'s mine`;
   }
+  // (#8: nor the village's own mines before this one)
+  if ((m.before ?? []).some((b) => ownAreas(b).some((q) => p.x >= q.x1 && p.x <= q.x2 && p.z >= q.z1 && p.z <= q.z2 && p.y >= q.y && p.y <= q.y2))) return `${where} is at the old mine`;
   // A tunnel (a turned one could pass under them) keeps off the stairs but the bottom step, where the first one starts
   if (mode === 'tunnel' && keptStairs(m).some((s) => Math.abs(s.x - p.x) + Math.abs(s.z - p.z) <= 1 && (s.y1 === undefined || (p.y >= s.y1 - 2 && p.y <= s.y2! + 2)))) return `${where} is at the mine stairs`;
   if (wetAt(a, p)) return `${b.name} at ${where}`;
@@ -240,10 +242,20 @@ export function legBox(l: MineLeg): Area & { y: number; y2: number } {
  * The ground the mine takes up, kept from other digging: the hut and the stairs (from the tunnel floor to the hut's
  * floor), the stairs down to deeper levels, and each main tunnel's reach (its branches and a block around, to the end of the stretch being dug; floor to
  * ceiling, so no shaft is dug into it, while the ground above stays free). One box per tunnel: a box around turned
- * tunnels together would cover far more ground than they do.
+ * tunnels together would cover far more ground than they do. And the mines before it (#8, MC_MORE_MINES).
  */
 export function mineAreas(m: Mine): Array<Area & { y: number; y2: number }> {
-  if (m.level === undefined) return [];
+  return [...ownAreas(m), ...(m.before ?? []).flatMap(ownAreas)];
+}
+
+/** One mine's own ground (mineAreas without the mines before it); a stairs stopped short of stone keeps the steps dug. */
+function ownAreas(m: Mine): Array<Area & { y: number; y2: number }> {
+  if (m.level === undefined) {
+    if (m.floor === undefined || !m.steps) return [];
+    const cols = stairColumns(m);
+    return [{ x1: Math.min(m.hut.x1, ...cols.map((c) => c.x - 1)), z1: Math.min(m.hut.z1, ...cols.map((c) => c.z - 1)),
+      x2: Math.max(m.hut.x2, ...cols.map((c) => c.x + 1)), z2: Math.max(m.hut.z2, ...cols.map((c) => c.z + 1)), y: m.floor - m.steps - 1, y2: m.floor + 3 }];
+  }
   const cols = stairColumns(m);
   const out = [{
     x1: Math.min(m.hut.x1, ...cols.map((c) => c.x - 1)), z1: Math.min(m.hut.z1, ...cols.map((c) => c.z - 1)),
@@ -396,6 +408,7 @@ function inMine(a: BotAgent, m: Mine): boolean {
 
 /** The floor level of the mining hut (its structure's y), once built. */
 function hutFloor(v: Village, m: Mine): number | null {
+  if (m.floor !== undefined) return m.floor;
   const s = v.structures.find((st) => st.kind === MINING_HUT && st.x1 === m.hut.x1 && st.z1 === m.hut.z1);
   return s ? s.y : null;
 }
@@ -406,7 +419,7 @@ function hutFloor(v: Village, m: Mine): number | null {
  * headroom. Stops short at water, lava, a cave (no floor) or anything built, and says so; cobblestone is then gathered
  * outside as before.
  */
-async function digMine(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+export async function digMine(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const v = a.village();
   const m = v?.mine;
   if (!v || !m) throw new Error('your village has no mine laid out (plan_layout lays one out with a new village)');
@@ -554,6 +567,21 @@ function stopDown(v: Village, m: Mine, d: { stopped?: string }, why: string): st
   if (why === UNLOADED) return why;
   d.stopped = short(why);
   return why;
+}
+
+/** Whether a mine still gives cobblestone at all (#8: a new mine is opened once it does not): stairs on stone, cells left. */
+export function mineGives(m: Mine | undefined): boolean {
+  return !!m && m.level !== undefined && !m.stopped && (mineCellsLeft(m) ?? 0) > 0;
+}
+
+/** #8: a village's mine replaced: what was held or counted on the old one's tunnels by index is let go (the new one's
+ *  tunnel 0 shares the keys). False while an iron trip is under way there (it keeps the old record). */
+export function forgetMine(village: string): boolean {
+  if (ironBusy.has(village)) return false;
+  for (const k of [...holders.keys()]) if (k.startsWith(`${village}|`)) holders.delete(k);
+  downHolders.delete(village);
+  downFails.delete(village);
+  return true;
 }
 
 /** Whether a village's mine can give this (cobblestone, from stone), once its stairs reached stone and while it goes on. */
@@ -2245,6 +2273,19 @@ function nextIronLeg(a: BotAgent, v: Village, i: IronLevel): MineLeg | null {
   return null;
 }
 
+/** The iron level's start laid on a mine that has none (its first iron trip; #8: a new mine as soon as its stairs reach
+ *  stone, before its tunnels take every side of the bottom step: the staged M_on's 25 miners had, and it had none). */
+export function layIronStart(v: Village, m: Mine, reg: { note: (v: Village, s: string) => void; save: () => void }): IronLevel {
+  const s = ironStart(m);
+  m.iron = s ? { x: s.x, z: s.z, y: s.y, dir: s.dir, steps: 0, legs: [], dug: 0, got: {} } : { x: 0, z: 0, y: 0, dir: m.dir, steps: 0, legs: [], dug: 0, got: {}, finished: 'no clear way down beside the deepest level' };
+  // (the cobblestone mine never turns there: its tunnel would run into the iron stairs)
+  const first = m.legs?.find((l) => s && l.x === s.x && l.z === s.z && l.y === s.y);
+  if (s?.side && first) first.turned = (first.turned ?? 0) | s.side;
+  reg.note(v, s ? `the iron stairs start at ${s.x},${s.y},${s.z} on the mine's deepest level, going ${compass(s.dir)}` : 'no way down to the iron level beside the mine');
+  reg.save();
+  return m.iron;
+}
+
 /**
  * One trip to the iron level (the iron age, 10-08; a chore once the village stands, run by dig_iron in mcBuild.ts): down
  * the mine's stairs and the iron stairs (each walk with its own time, the review's M5), the stairs dug on first, then its
@@ -2257,15 +2298,7 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
   if (!m || m.level === undefined) return 'the village has no mine at a level yet';
   upgradeMine(m);
   const reg = a.world.villages;
-  if (!m.iron) {
-    const s = ironStart(m);
-    m.iron = s ? { x: s.x, z: s.z, y: s.y, dir: s.dir, steps: 0, legs: [], dug: 0, got: {} } : { x: 0, z: 0, y: 0, dir: m.dir, steps: 0, legs: [], dug: 0, got: {}, finished: 'no clear way down beside the deepest level' };
-    // (the cobblestone mine never turns there: its tunnel would run into the iron stairs)
-    const first = m.legs?.find((l) => s && l.x === s.x && l.z === s.z && l.y === s.y);
-    if (s?.side && first) first.turned = (first.turned ?? 0) | s.side;
-    reg.note(v, s ? `the iron stairs start at ${s.x},${s.y},${s.z} on the mine's deepest level, going ${compass(s.dir)}` : 'no way down to the iron level beside the mine');
-    reg.save();
-  }
+  if (!m.iron) m.iron = layIronStart(v, m, reg);
   ironRetry(v, m, m.iron, reg);
   // (a worked-out mine: a new shaft, laid by this trip, which digs its stairs)
   let opened = '';

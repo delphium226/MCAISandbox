@@ -10,6 +10,7 @@ import { BUILD_SKILLS } from './mcBuild';
 import { STORAGE_SKILLS } from './mcStorage';
 import { SURVIVAL_SKILLS } from './mcSurvival';
 import { MINE_SKILLS } from './mcMine';
+import { MORE_MINE_SKILLS } from './mcMoreMines';
 import { ANIMAL_SKILLS } from './mcAnimals';
 import { FOUNDRY_SKILLS } from './foundry/list';
 import { HOME_SKILLS } from './mcHome';
@@ -69,6 +70,7 @@ export const MC_SKILLS: Record<string, McSkill> = {
   ...BUILD_SKILLS,
   ...STORAGE_SKILLS,
   ...MINE_SKILLS,
+  ...MORE_MINE_SKILLS,
   ...ANIMAL_SKILLS,
   ...HOME_SKILLS,
   ...KILN_SKILLS,

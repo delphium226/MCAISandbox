@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-240 settings.
+241 settings.
 
 ## Game speed
 
@@ -264,6 +264,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_FIELD_RIPE` | number | `0.75` |  |  | The share of a wheat field's grown plants that must be ripe (and 4 at least) before it is offered for harvest; 0.5 gives about 1.5x the harvest options and a tenth more wheat (train 9c's supply gaps). |
 | `MC_FLOWER_WANTS` | flag | `off` |  |  | The flower picking activity is offered for a flower whose dye a good under its keep takes (lilac for magenta dye), counted by that flower's own stock, and picks it. |
 | `MC_HOME_BASICS` | flag | `on` |  |  | MC_HOME_BASICS: on by default since 10-24 (the user's, after test train 1); off turns it off. |
+| `MC_MORE_MINES` | flag | `off` |  |  | MC_MORE_MINES=on (#8, off by default): when the village mine gives nothing (stairs short of stone, every level ended or capped) and cobblestone in storage is under 256 or the iron level has no way down, an idle member opens a new mine: code finds an entrance 16-40 from home off every village's work and the member digs its stairs (open_mine); up to 4 mines a village, the old ones kept off. |
 | `MC_NEED_COOLDOWN_MIN` | number | `90` |  |  | Game minutes after a farmstead is laid out before another is offered (a crop cycle and its first harvest). |
 | `MC_NEED_FARMSTEAD` | flag | `off` |  |  | MC_NEED_FARMSTEAD=on: the farmstead (s39) beside the field (s40); off by default: where no 9x9 field pad is left, no 19x19 farmstead pad is either (Night40, the field spec's check 5). |
 | `MC_NEED_FIELD_COOLDOWN_MIN` | number | `45` |  |  | Game minutes after a field work is laid out before another (s40: a crop cycle to its first harvest is ~40). |

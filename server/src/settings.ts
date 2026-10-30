@@ -335,6 +335,8 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'exact: replay only word-for-word prompts (else by sequence).' },
   { name: 'MC_MOOD', type: 'flag', default: 'off', group: 'character', live: false, read: 'character.ts',
     describe: 'The character model\'s mood layer (default: MC_CHARACTER).' },
+  { name: 'MC_MORE_MINES', type: 'flag', default: 'off', group: 'needs', live: false, read: 'mineSite.ts',
+    describe: 'MC_MORE_MINES=on (#8, off by default): when the village mine gives nothing (stairs short of stone, every level ended or capped) and cobblestone in storage is under 256 or the iron level has no way down, an idle member opens a new mine: code finds an entrance 16-40 from home off every village\'s work and the member digs its stairs (open_mine); up to 4 mines a village, the old ones kept off.' },
   { name: 'MC_NEEDS', type: 'string', default: '', group: 'needs', live: true, values: ['off', 'show', 'on'], read: 'mineflayer/mcWorld.ts',
     describe: 'N.1\'s needs (spec_needs_v2): off; show (measured, logged, on the API and panel); on (also on the menus).' },
   { name: 'MC_NEED_COOLDOWN_MIN', type: 'number', default: '90', group: 'needs', live: false, read: 'needWorks.ts',

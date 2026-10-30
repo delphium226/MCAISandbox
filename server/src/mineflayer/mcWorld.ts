@@ -23,7 +23,7 @@ import { collectFilter, collectTargets, exposed, villageStationCell } from './mc
 import { at, nearestBlocks, onVillageGround, stateAt } from './mcUtil';
 import { teleportHome, underHome } from './mcRescue';
 import { annexBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, storeBusy, surfaceAt, wheatKeep, writeBoard } from './mcBuild';
-import { ironDone, ironStairsHeld, mineAreas, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
+import { ironDone, ironStairsHeld, mineAreas, mineGives, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PEN_KINDS, PEN_ORDER, PEN_VARIETY, SLOT_KINDS, SLOT_ORDER, penCap, penLure, penPlan, penSlotFit, penWords, worksFurnaces } from '../farmSlots';
 import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { hasteLevel, timeScale } from './mcRules';
@@ -108,6 +108,7 @@ import { DYE_BED, DYE_FLOWERS, DYE_REACH, TALL_FLOWERS, dyeRecipes, makeableColo
 import { DETAIL_COLOURS } from '../gothicGen';
 import { stoneStandIn, DEEP_BLOCKS, deepStandIn, GEM_STAND, DYE_FAILS, DYE_WAIT_MIN, dyeStandIn, dyeStood, furnishLeaveOut, leftOutItems, refurnishOn, COPPER_ROOF, COPPER_BLOCKS, copperFrom, copperOn, copperReached, copperStandIn, reroofReturns } from '../monument';
 import { DEEP_KEEP, deepenForStone, setKeepCopper } from './mcMine';
+import { MORE_MINES, moreMinesDue } from '../mineSite';
 /** #162: minutes (game time) a stage waits for a quarried stone before the rest stands in as another. */
 const STONE_WAIT_MIN = 6;
 /** MC_DEEP_STONE: the wait for the deep level's stone before the wood and bricks stand in (its trips are 5 min), and its
@@ -2530,6 +2531,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (s40, MC_NEED_WORKS: a field work beside growth and the vote, its own gate; the storage's tidy-up)
     if (NEED_WORKS) this.fieldTick(v, now);
     if (NEED_WORKS) this.tidyTick(v, now);
+    if (MORE_MINES) this.mineTick(v, now);
     if (STORAGE_GROW) this.storeTick(v, now);
     if (BARTER.on && v.complete) this.barterTick(v, now);
     if (v.growth?.active) return this.growEnd(v, now);
@@ -3735,6 +3737,50 @@ export class MineflayerWorld implements WorldAdapter {
   /** s43's claims: harvests of each unclaimed plot by member ("village|key" -> name -> n). */
   private claimWork = new Map<string, Map<string, number>>();
 
+  /**
+   * #8 (MC_MORE_MINES; runs/2026-10-30/mines/spec.md): a new mine opened by an idle fed member (the Mayor first) once the
+   * village's mine gives nothing and stone or iron is short (mineSite.ts moreMinesDue); a new mine's stairs cut off are
+   * dug on. A failure rests it 20 minutes, then 40, then 60.
+   */
+  private mineTick(v: Village, now: number) {
+    const m = v.mine;
+    if (!v.complete || !m) return;
+    const underWay = [...this.chores.values()].some((c) => c.village === v.name && c.key === 'grow:mine');
+    const due = moreMinesDue({
+      gives: mineGives(m), resumable: m.floor !== undefined && m.level === undefined && !m.stopped,
+      cobble: storageContents(v).cobblestone ?? 0, ironStuck: !!m.iron?.finished || m.level === undefined,
+      mines: 1 + (m.before ?? []).length, underWay, backoffUntil: this.mineBackoff.get(v.name) ?? 0, now,
+    });
+    if (!due.due) {
+      if (this.mineLogged.get(v.name) !== due.why && !underWay && !mineGives(m)) console.log(`[needwork] ${v.name}: no new mine (${due.why})`);
+      this.mineLogged.set(v.name, due.why);
+      return;
+    }
+    const fed = (a: BotAgent) => this.hungerOf(v, a) !== 'hungry';
+    const agent = this.growMembers(v).find((a) => a.memory.villageRole === 'mayor' && this.isIdleMember(v, a, now) && fed(a)) ?? this.idleMembers(v, now).find(fed);
+    if (!agent) return;
+    let st: ActionStatus;
+    try {
+      st = agent.enqueue('open_mine', { chore: true });
+    } catch (e) {
+      console.log(`[needwork] ${v.name}: open_mine not queued for ${agent.name}: ${(e as Error).message}`);
+      return;
+    }
+    this.mineLogged.set(v.name, '');
+    this.setChore(v, agent, 'grow:mine', [st], 'open a new mine', (why: string) => {
+      if (why === 'cancelled') return;
+      const n = (this.mineFails.get(v.name) ?? 0) + 1;
+      this.mineFails.set(v.name, n);
+      const min = Math.min(60, 20 * n);
+      this.mineBackoff.set(v.name, Date.now() + min * 60000);
+      console.log(`[needwork] ${v.name}: opening a new mine failed (${why.slice(0, 160)}); rests ${min} min`);
+    });
+    console.log(`[needwork] ${v.name}: ${agent.name} opens a new mine (${due.why})`);
+  }
+
+  private mineBackoff = new Map<string, number>();
+  private mineFails = new Map<string, number>();
+  private mineLogged = new Map<string, string>();
   private fieldBackoff = new Map<string, number>();
   private fieldFails = new Map<string, number>();
   private fieldCount = new Map<string, number>();
