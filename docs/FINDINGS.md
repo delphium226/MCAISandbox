@@ -2389,3 +2389,6 @@ CLAUDE.md when a phase ends.
   min (7 of 9 trips "nothing bit", #176). Busy 63 / 59%; P's extra failures are beds without shears (spent mine, #8);
   cloud 502s and 429s 208 / 166 handed back; [lag] 0, [stuck] 173 / 157; $0.84 / $0.75. Report:
   runs/2026-10-29/train11/report.md.
+- F340 correction (10-30, smallfixes, `runs/2026-10-30/smallfixes/report.md`): train 11's wheat did not halve. Its 30-32 an
+  hour came from supply.py's net storage yield; train 10's 60 from the FOOD line. On the FOOD line train 11 made 127 (P)
+  and 175 (M) against train 10 S's 121. Take wheat from the FOOD line in future reports. #176 fixed in 2d44093.
