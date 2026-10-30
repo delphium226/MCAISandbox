@@ -972,3 +972,8 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   personal versions; typed goals shape members' own goals only, not what the village esteems (v1); the village goal
   stays apart from the Mayor's objective; `MC_GOALS` on by default; goals do not change mid-run in v1; the LAN screen
   (192.168.1.84:8780) behind a token typed once.
+- 10-30 (the user's) **Survival, the research's choices take the planning session's recommendations**
+  (runs/2026-10-30/survival/report.md section 8): survival starts as a side experiment; `keep_inventory` stays on
+  through stage (c); nights skipped by sleep once members have beds; easy difficulty first; mob griefing off until
+  walls and repairs exist; opt-in (`MC_WORLD=peaceful` by default, an exception to the flags-on rule because it changes
+  the base premise); melee only at first. First step: stage (a), damage on, still peaceful.
