@@ -63,6 +63,33 @@ const placeCache = new Map<string, CachedPlace>();
 const guardedBots = new WeakSet<object>();
 
 /**
+ * Water cells where a whole trip caught nothing, per world (#176): for 30 minutes the skill passes over them and their
+ * neighbours, and the place moves off them. In train 11 seven trips in a row went back to one dead cell.
+ */
+const DEAD_MS = 30 * 60_000;
+const deadSpots = new WeakMap<object, Map<string, { x: number; z: number; until: number }>>();
+
+function deadNear(world: object | undefined, x: number, z: number, r: number): boolean {
+  const m = world ? deadSpots.get(world) : undefined;
+  if (!m) return false;
+  const now = Date.now();
+  for (const [k, d] of m) {
+    if (d.until <= now) m.delete(k);
+    else if (Math.abs(d.x - x) <= r && Math.abs(d.z - z) <= r) return true;
+  }
+  return false;
+}
+
+export function markDead(world: object, w: Vec3, dead: boolean): void {
+  let m = deadSpots.get(world);
+  if (!m) deadSpots.set(world, (m = new Map()));
+  const k = `${w.x},${w.z}`;
+  if (dead) m.set(k, { x: w.x, z: w.z, until: Date.now() + DEAD_MS });
+  else if (!m.delete(k)) return;
+  placeCache.clear();
+}
+
+/**
  * Guard Mineflayer's fishing plugin against partial/stub bobber entities in `bot.entities` (lessons 104, 145):
  * `fishing.js` reads `lastBobber.position.distanceTo(...)` inside `world_particles` without null-checking `position`.
  */
@@ -225,8 +252,8 @@ function isValidStandSpot(a: BotAgent, sx: number, sy: number, sz: number, w: Ve
   return true;
 }
 
-/** Find open water blocks and their best dry standable spots within `radius`. */
-function findFishingCandidates(
+/** Find open water blocks and their best dry standable spots within `radius` (exported for scripts/checks/fish_spot.mts). */
+export function findFishingCandidates(
   a: BotAgent,
   radius: number,
   givenX?: number,
@@ -280,9 +307,14 @@ function findFishingCandidates(
     }
   }
 
+  const isWater = (x: number, y: number, z: number) => {
+    const st = stateAt(a, x, y, z);
+    return st >= waterMin && st <= waterMax;
+  };
   const candidates: FishingCandidate[] = [];
   for (const w of waters) {
     if (givenX === undefined && givenZ === undefined && w.distanceTo(botPos) > radius + 0.5) continue;
+    if (deadNear(a.world, w.x, w.z, 1)) continue;
     let waterNeighbors = 0;
     for (let dx = -1; dx <= 1; dx++) {
       for (let dz = -1; dz <= 1; dz++) {
@@ -315,9 +347,13 @@ function findFishingCandidates(
     }
 
     if (!bestStand) continue;
-    // Aim at the top surface of the water cell, nudged slightly away from the bank when the next cell out is also open water
+    // A notch or puddle in the bank is no fishing water (#176): a cast flies about 2 blocks out from the bank, so the two
+    // cells past the target along the cast must be water too, and the cell needs water on at least 3 of its 8 sides
+    if (waterNeighbors < 3) continue;
     const stepX = Math.sign(w.x - bestStand.x);
     const stepZ = Math.sign(w.z - bestStand.z);
+    if (!isWater(w.x + stepX, w.y, w.z + stepZ) || !isWater(w.x + 2 * stepX, w.y, w.z + 2 * stepZ)) continue;
+    // Aim at the top surface of the water cell, nudged slightly away from the bank when the next cell out is also open water
     const furtherOpen = (stepX !== 0 || stepZ !== 0)
       && isOpenWaterAt(a, w.x + stepX, w.y, w.z + stepZ, airStates, waterMin, waterMax);
     const aim = new Vec3(
@@ -518,6 +554,7 @@ export const FOUNDRY: FoundrySkill = {
 
       let casts = 0;
       let caughtFish = 0;
+      const outcomes = { caught: 0, timeout: 0, cancelled_cast: 0 };
       let fishAfter = { ...fishBefore };
       let stopWhy = `reached target of ${want} fish`;
 
@@ -568,6 +605,7 @@ export const FOUNDRY: FoundrySkill = {
         casts++;
 
         const outcome = await castOnce(a, castBudget, signal);
+        outcomes[outcome]++;
 
         if (outcome === 'caught') {
           // Wait for the reeled-in catch to fly to the bot and be picked up on the server
@@ -613,6 +651,11 @@ export const FOUNDRY: FoundrySkill = {
       }
       const otherList = otherParts.length > 0 ? otherParts.join(', ') : 'none';
       const wCoord = `${chosen.water.x},${chosen.water.y},${chosen.water.z}`;
+      // How the casts ended: reeled at a bite, timed out, or the bobber went away early (it landed or hooked something)
+      const how = `${outcomes.caught} reeled at a bite, ${outcomes.timeout} timed out, ${outcomes.cancelled_cast} ended early`;
+      console.log(`[fish] ${a.name} at ${wCoord} from ${at(chosen.stand)}: ${caughtFish} fish, ${otherTotal} other in ${casts} casts (${how}; ${stopWhy})`);
+      if (caughtFish > 0) markDead(a.world, chosen.water, false);
+      else if (stopWhy === '4 minute time limit reached') markDead(a.world, chosen.water, true);
 
       if (caughtFish === 0) {
         if (stopWhy === 'the fishing rod broke') {
@@ -622,7 +665,7 @@ export const FOUNDRY: FoundrySkill = {
           throw new Error(`no open water left at ${wCoord}: explore or try from another place`);
         }
         throw new Error(
-          `nothing bit in 4 minutes at ${wCoord} (${casts} casts${otherTotal > 0 ? `, caught ${otherTotal} other items: ${otherList}` : ''}): try another open water spot or check that the water is open to the sky`,
+          `nothing bit in 4 minutes at ${wCoord} (${casts} casts${otherTotal > 0 ? `, caught ${otherTotal} other items: ${otherList}` : ''}): the village fishes elsewhere for the next 30 minutes`,
         );
       }
 
@@ -702,6 +745,7 @@ export const FOUNDRY: FoundrySkill = {
           if (d > 64) continue;
           if (best && d >= best.d) continue;
           if (onVillageGround(ctx.agent, x, z, y)) continue;
+          if (deadNear(ctx.agent?.world, x, z, 3)) continue;
           const hasDryNeighbour = dirs.some(([dx, dz]) => isDry(cells.get(`${gx + dx},${gz + dz}`)?.ch));
           if (!hasDryNeighbour) continue;
           best = { x, y, z, d };

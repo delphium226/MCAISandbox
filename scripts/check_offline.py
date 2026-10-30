@@ -76,6 +76,8 @@ def commands():
     out["castle_monument"] = ([node, TSX, "scripts/checks/castle_monument.mts"], ["mc/testcheckpoints/im2_mine/villages.json"])
     # (#163: the masons' lodge's parts, bulk trips and site search, and #161's two-row kiln on iron_age_g1's own ground)
     out["lodge_unit"] = ([node, TSX, "scripts/checks/lodge_unit.mts"], ["mc/testcheckpoints/iron_age_g1/villages.json"])
+    # (#176: the fish skill's water on P1's real bank: no notch, dead spots passed over)
+    out["fish_spot"] = ([node, TSX, "scripts/checks/fish_spot.mts"], [])
     out["settings_reads"] = ([node, TSX, "scripts/checks/settings_reads.mts"], [])
     out["settings_doc"] = ([node, TSX, "scripts/settings_doc.mts", "--check"], [])
     out["profiles_check"] = ([node, TSX, "scripts/checks/profiles_check.mts"], [])
