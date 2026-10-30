@@ -2435,3 +2435,33 @@ CLAUDE.md when a phase ends.
   thousand checks), mistral-large-4 9, kimi-k3 9 (25-30x gemma's cost), qwen3.8 6 (3/7, 5 false yeses). No model saw a
   7-wide block silo (it reads as a tower); vanilla shop houses read as "a house" to all (their use is inside), so a critic
   needs code's facts with the picture. Report: runs/2026-10-30/rendbench/report.md.
+- F344 (10-30, train14, survival, G7, G8) **Damage costs little (0.04 deaths per member-hour, work within 10% of
+  peaceful); both deaths were members trapped in a water pit dug for sand. #180 is fixed live, #179 mostly.** Test train
+  14: D (`MC_WORLD_MODE=damage`, world 4) against C (peaceful, world 5), t12_pad_open, 25 members, 1x, 120 min,
+  `MC_LADDER_START=diamond`, wants holdout 0.5, house design at its default, code 3daeb87.
+  **Survival:**
+  - 2 deaths, both drowning: Xavier and Uma, trapped together in one sand pit in the lake shallows NW of the village.
+    The air reflex swam them up every 10-20 s for ~5 min without getting them out, and the stuck rescue, which saved
+    Quinn and Clara from the same shallows, never fired (#181).
+  - 99 `[hazard]` lines, all air; 0 fire or lava; 25 spawnpoints at the storage hut.
+  - The death-loop guard and the walk home were not exercised.
+  - A death reaches no choosing member's prompt (0 mentions), so it added no model calls.
+  - Busy 86 / 88%, houses 25 / 25, initiatives 104 / 92.
+  **Diamond (C):**
+  - iron from +0.2 min; the third iron pickaxe at +40.9 (15 forged);
+  - deep landings at y 20, -14 and -31 by +48;
+  - 30 diamonds, 10 diamond pickaxes; DEEPCHECK OK (deepest -31, 0 failures).
+  - Stage 0 was never marked reached: it wants y -56.
+  **Diamond (D):** the first iron trip found no stairs start (a cobblestone tunnel had just turned on that cell).
+  `layIronStart` closed the level with no retry time, so no iron was dug for 2 hours (#182; a race, not damage).
+  **Talk:**
+  - the house place was carried ("as near here as there is room, NW ~40"); the street was done in 8.5 / 10 min, its
+    houses 30-65 blocks from the place asked;
+  - Ada promised and made torches in D, and refused in C (not on her menu); the nether portal was refused in both.
+  - In D, every house status question got the later torch request's fact (`facts.at(-1)`). In C the Mayor said "right
+    where you asked for it" in front of code's "~30-65 blocks" (#183).
+  **Wants (second pair, 4 runs now):** step lift 3.2 / 3.5x (+34 / +46 points over shuffled); persistence no better;
+  hour-2 chore busy 6-17 points lower for on-members; most pursuits stall.
+  **Food:** 0% hungry, fish 201 / 203, own-rod uses 6 / 17 with storage cleared of rods.
+  **The rest:** [lag] 0 / 0, [stuck] 190 / 105; $1.28 / $1.34.
+  Report: runs/2026-10-30/train14/report.md.
