@@ -41,7 +41,9 @@
   button.danger { color: var(--bad); background: transparent; border-color: color-mix(in srgb, var(--bad) 55%, transparent); }
   button.danger:hover { border-color: var(--bad); color: var(--bad); }
   input[type=text] { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; width: 150px; }
-  main { padding: 16px; max-width: 1800px; margin: 0 auto; }
+  main { padding: 16px 16px 64px; max-width: 1800px; margin: 0 auto; }
+  .talkbar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 16px; background: var(--panel); border-top: 1px solid var(--line); z-index: 20; }
+  .talkbar #talkText { flex: 1; min-width: 200px; }
   h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 10px; font-weight: 600; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 14px; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
@@ -363,6 +365,15 @@
   </div>
   <div id="ovBottom"></div>
 </main>
+<!-- G7 (MC_TALK): say something to the village, as a person in the game; outside main, so a refresh keeps what is typed -->
+<form id="talkBar" class="talkbar" aria-label="Talk to the village">
+  <b>Talk</b>
+  <label class="sub">as <input type="text" id="talkFrom" size="14" value="SausageOfDoom4" aria-label="Speak as (your player name)"></label>
+  <label class="sub">to <select id="talkTo" aria-label="Who you speak to"><option value="">anyone near you</option></select></label>
+  <input type="text" id="talkText" placeholder="Mayor, please build a library by the river" aria-label="What you say">
+  <button type="submit">Send</button>
+  <span class="sub" id="talkOut"></span>
+</form>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -386,7 +397,7 @@ const L1 = [['overview', 'Overview'], ['village', 'Village'], ['members', 'Membe
 const L2 = {
   village: [['buildings', 'Buildings'], ['tasks', 'Tasks'], ['storage', 'Storage'], ['life', 'Life'], ['tech', 'Tech'], ['ladder', 'Ladder'], ['land', 'Land']],
   members: [['now', 'Now'], ['mind', 'Mind'], ['social', 'Social'], ['character', 'Character'], ['chores', 'Chores'], ['model', 'Model'], ['log', 'Log']],
-  society: [['votes', 'Votes'], ['initiatives', 'Initiatives'], ['proposals', 'Proposals'], ['rules', 'Rules'], ['people', 'People'], ['relations', 'Relations'], ['needs', 'Needs'], ['culture', 'Culture']],
+  society: [['votes', 'Votes'], ['initiatives', 'Initiatives'], ['proposals', 'Proposals'], ['talk', 'Talk'], ['rules', 'Rules'], ['people', 'People'], ['relations', 'Relations'], ['needs', 'Needs'], ['culture', 'Culture']],
   economy: [['market', 'Market'], ['wealth', 'Wealth'], ['board', 'Board'], ['research', 'Research'], ['goals', 'Goals']],
   run: [['busy', 'Busy'], ['scorecard', 'Scorecard'], ['choices', 'Choices'], ['cost', 'Models and cost'], ['events', 'Events'], ['foundry', 'Foundry'], ['flags', 'Flags'], ['settings', 'Settings']],
 };
@@ -766,6 +777,42 @@ async function fetchExtra(key, path) {
   catch (err) { extraData.set(key, { at: Date.now(), data: e && e.data, err: String((err && err.message) || err) }); }
   return true;
 }
+// ---- G7 (MC_TALK): the talk bar and the Society > Talk tab ----
+function fillTalkTo() {
+  const sel = $('talkTo');
+  if (!sel || !lastData || document.activeElement === sel) return;
+  const opts = [['', 'anyone near you'], ...(lastData.villages || []).map((v) => [v.name, `${v.name} (its Mayor)`]), ...(lastData.agents || []).filter((a) => a.village).map((a) => [a.name, `${a.name} (${a.village})`])];
+  const sig = opts.map((o) => o[0]).join('|');
+  if (sel.dataset.sig === sig) return;
+  const cur = sel.value;
+  sel.innerHTML = opts.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join('');
+  sel.value = opts.some((o) => o[0] === cur) ? cur : (lastData.villages || [])[0]?.name || '';
+  sel.dataset.sig = sig;
+}
+$('talkBar').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = $('talkText').value.trim();
+  if (!text) return;
+  $('talkOut').textContent = 'sending…';
+  try {
+    const out = await api('/api/say', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ from: $('talkFrom').value.trim(), to: $('talkTo').value, text }) });
+    $('talkOut').textContent = out.to ? `heard by ${out.to}${out.request ? ` (${out.request})` : ''}; the answer shows in the game and under Society > Talk` : 'said';
+    $('talkText').value = '';
+    extraData.delete(`talk:${curVillage(lastData)?.name}`);
+  } catch (err) {
+    $('talkOut').textContent = String(err.message || err).slice(0, 160);
+  }
+});
+const TALK_COLOR = { done: 'var(--done)', kept: 'var(--done)', refused: 'var(--bad)', failed: 'var(--bad)', broken: 'var(--bad)', queued: 'var(--accent)', under_way: 'var(--accent)', promised: 'var(--accent)' };
+function talkBody(v) {
+  const e = extraData.get(`talk:${v.name}`);
+  if (!e || !e.data) return '<div class="empty">loading…</div>';
+  if (!e.data.on) return offBox('Talking with the village is off in this run', '<span class="mono">MC_TALK=off</span>. With it on: what people ask the Mayor and members, the answers, and what came of it.');
+  const rs = e.data.requests || [], ps = e.data.people || [];
+  if (!rs.length) return offBox('Nobody has spoken to the village yet', 'Use the Talk bar at the bottom, or say "Mayor, ..." in the game.');
+  const people = ps.length ? `<div class="sub">${ps.map((p) => `<b>${esc(p.name)}</b>: ${p.lines} lines, ${p.asks} asked, ${p.done} done, ${p.refused} refused, first ${ago(p.first)} ago`).join(' · ')}</div>` : '';
+  return card(`Requests, newest first`, people + `<ul class="list">${rs.map((r) => `<li><b>${esc(r.from)}</b> to ${esc(r.to)}${r.via ? ` <span class="sub">(via ${esc(r.via)})</span>` : ''}: "${esc(r.text)}" <span class="state" style="--c:${TALK_COLOR[r.status] || 'var(--muted)'}">${esc(r.status.replace('_', ' '))}</span> <span class="sub">${esc(r.id)}, ${ago(r.at)} ago${r.eta ? `, ETA ~${r.eta} min` : ''}${r.place && r.place.x !== undefined ? `, at ${r.place.x},${r.place.z}` : ''}</span>${r.answer ? `<div class="sub">${esc(r.to)}: ${esc(r.answer)}</div>` : ''}${r.outcome || r.reason ? `<div class="sub">${esc(r.reason || r.outcome)}</div>` : ''}</li>`).join('')}</ul>`);
+}
 async function refreshExtras() {
   if (paused || !lastData) return;
   const jobs = [];
@@ -782,6 +829,8 @@ async function refreshExtras() {
   // (the village's proposals and rules come with any member's memory view; Run > Flags reads its modes from it too)
   const v = curVillage(lastData), sub = route.sub[route.top];
   if (v && route.top === 'society' && sub === 'votes') jobs.push(votes(v.name));
+  if (v && route.top === 'society' && sub === 'talk') jobs.push(fetchExtra(`talk:${v.name}`, `/api/requests?village=${encodeURIComponent(v.name)}`));
+  fillTalkTo();
   // (G8: the ladder of ages)
   // (#115: every setting, the run's changes and its pause)
   if (route.top === 'run' && sub === 'settings') jobs.push(fetchExtra('settings', '/api/settings'), fetchExtra('runclock', '/api/run'));
@@ -1189,6 +1238,7 @@ function societyTab(v, tab) {
     return parts.data.rules == null ? offBox('Rules and the council are off in this run', '<span class="mono">MC_RULES=off</span>. With them on: the agenda, the dusk ballots and the laws in force.')
       : parts.rulesCard ? card('', parts.rulesCard) : offBox('No rules yet', 'Laws members propose and back show here, with the council\'s line.');
   }
+  if (tab === 'talk') return talkBody(v);
   if (tab === 'people') return peopleBody(v);
   if (tab === 'relations') return relationsBody(v);
   if (tab === 'needs') {

@@ -449,7 +449,8 @@ const formatEvents = (events: AgentEvent[], max: number) =>
  * "[to you]" on a line that woke this agent; '' with none.
  */
 function formatChat(events: AgentEvent[]): string {
-  const chat = events.filter((e) => e.type === 'chat').slice(-5);
+  // (G7, MC_TALK: a person's line to a village is answered by the talk pipeline, not in the executor's turn)
+  const chat = events.filter((e) => e.type === 'chat' && e.data?.talk !== true).slice(-5);
   return chat.length ? `Chat heard (latest 5):\n${chat.map((e) => `- ${e.data?.wake === true ? '[to you] ' : ''}${e.text.slice(0, 160)}`).join('\n')}` : '';
 }
 

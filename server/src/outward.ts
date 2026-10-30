@@ -36,6 +36,8 @@ export interface OutwardInput {
   taken: (x: number, z: number) => boolean;
   /** The meeting point (or the storage hut): doors turn toward it, distance is counted from it. */
   hub: { x: number; z: number };
+  /** G7 (MC_TALK): a place a person asked for; distance is counted from it instead of the hub. */
+  near?: { x: number; z: number };
   /** The home level (the storage hut's pad). */
   home: number;
   /** The pads already standing, with their levels (the levels rule). */
@@ -146,7 +148,7 @@ export function placeOutward(input: OutwardInput): Array<OutwardPlace | { name: 
                 const g = G[z * W + x];
                 if (!Number.isNaN(g)) cost += Math.max(0, Math.abs(g - y) - k);
               }
-          cost += 1.5 * Math.hypot(sx - hub.x, sz - hub.z) + 4 * Math.max(0, Math.abs(y - home) - 2);
+          cost += 1.5 * Math.hypot(sx - (input.near ?? hub).x, sz - (input.near ?? hub).z) + 4 * Math.max(0, Math.abs(y - home) - 2);
           if (!best || cost < best.cost)
             best = { name: it.name, x1, z1, x2, z2, x: x1 + Math.floor(w / 2), z: z1 + Math.floor(d / 2), rotate: rot * 90, door: { x: sx, z: sz }, y, cost: Math.round(cost * 10) / 10 };
         }

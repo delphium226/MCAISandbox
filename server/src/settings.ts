@@ -471,6 +471,8 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'Members held out of talk (a holdout experiment).' },
   { name: 'MC_TECH_MADE', type: 'string', default: '', group: 'economy', live: false, read: 'tech.ts',
     describe: 'Tools counted as made already (innovation experiments).' },
+  { name: 'MC_TALK', type: 'flag', default: 'on', group: 'social', live: false, read: 'playerTalk.ts',
+    describe: 'MC_TALK (G7, #35-#40; on by default, off turns it off): talking with the village. A person\'s line to the Mayor or a member (in the game, or POST /api/say and the panel\'s box) becomes a request in a ledger (talk.json, GET /api/requests), answered in one line by one talk call: the Mayor builds a public work where it was asked (placed and timed by code) or refuses with a reason; a member promises a chore, passes a building on to the Mayor or refuses. Off: the line wakes the tiered brain\'s chat turn as before.' },
   { name: 'MC_TECH_ROYALTY', type: 'number', default: '0.1', group: 'economy', live: false, read: 'tech.ts',
     describe: 'The inventors\' royalty (s44, the user\'s): this share of every batch the workshop makes of an unlocked entry\'s goods.' },
   { name: 'MC_TECH_UNLOCKED', type: 'string', default: '', group: 'economy', live: false, read: 'tech.ts',

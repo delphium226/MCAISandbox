@@ -21,6 +21,7 @@ import { APPETITE } from '../appetite';
 import { TEMPERAMENT_MODE, temperamentTable } from '../temperament';
 import { WANTED_TOP } from '../tech';
 import { allProposals, applyVerdict, guardVerdict, proposal, type Verdict } from '../proposals';
+import { PLAYER_TALK, peopleOf, requestsOf } from '../playerTalk';
 import type { Village } from '../village';
 import { WANTED_ON, recordTop, topWanted, wantedList, type WantedHistory } from '../wanted';
 import { MC_SKILLS } from './mcSkills';
@@ -185,6 +186,17 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
   // G5's proposals (#90; proposals.ts, MC_PROPOSALS): the village's list (?village=), and a triage's verdict applied
   // through code's guard (impossible never accepted, the user's calls deferred, the foundry only for a ticketable
   // capability); the world reports it to the proposer and its backers on its next sweep
+  // G7 (MC_TALK, #35): a person's line, as if said in the game (`to`: a village's Mayor or a member answers it wherever
+  // it is); the request ledger with each person's record
+  if (parts[1] === 'say' && req.method === 'POST') {
+    const b = await readJson(req);
+    const out = await w.playerSay(typeof b.from === 'string' && b.from.trim() ? b.from.trim() : 'SausageOfDoom4', String(b.text ?? ''), typeof b.to === 'string' && b.to.trim() ? b.to.trim() : undefined);
+    return sendJson(res, 'error' in out ? 400 : 200, out);
+  }
+  if (parts[1] === 'requests' && req.method === 'GET') {
+    const v = url.searchParams.get('village') ?? undefined;
+    return sendJson(res, 200, { on: PLAYER_TALK.on, requests: requestsOf(v).slice(-100).reverse(), people: peopleOf(v) });
+  }
   if (parts[1] === 'proposals') {
     if (!parts[2] && req.method === 'GET') return sendJson(res, 200, allProposals(url.searchParams.get('village') ?? undefined));
     if (parts[2] && parts[3] === 'verdict' && req.method === 'POST') {

@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-241 settings.
+242 settings.
 
 ## Game speed
 
@@ -176,6 +176,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_RULE_TYPES` | string | (unset) |  | `MC_RULES` | #164: rule types read from the words of members, a list of claim (work held on the board by the storage hut: digs on the iron level and small works on the greens leave the menus of others while a claim holds, the land by each house is kept for its own farm), report (the find or failure of a trip offered for posting on the board, a fact on the options of others) and stock (contributions and floors of ore, seeds, fuel, a bucket). |
 | `MC_RULE_WORDS` | flag | `off` |  |  | #164: a norm (a rule code cannot read as a type) says on the ballot that code will not enforce or count it (train 7: 94-98% yes on norms with no stake shown), and so does the night's invitation to propose a custom in words. |
 | `MC_RULES` | flag | `off` |  |  | Village rules (laws read by members). |
+| `MC_TALK` | flag | `on` |  |  | MC_TALK (G7, #35-#40; on by default, off turns it off): talking with the village. A person's line to the Mayor or a member (in the game, or POST /api/say and the panel's box) becomes a request in a ledger (talk.json, GET /api/requests), answered in one line by one talk call: the Mayor builds a public work where it was asked (placed and timed by code) or refuses with a reason; a member promises a chore, passes a building on to the Mayor or refuses. Off: the line wakes the tiered brain's chat turn as before. |
 | `MC_TALK_HOLDOUT` | string | (unset) |  |  | Members held out of talk (a holdout experiment). |
 | `MC_VOTE` | string | (unset) |  |  | The neighbourhood style vote: model, predicted or off. |
 | `MC_VOTE_MAX_MS` | number | `240000` |  |  | A vote is tallied once every ballot is in or after this long (abstentions for the rest). |

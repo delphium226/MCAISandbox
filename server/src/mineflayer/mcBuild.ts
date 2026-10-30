@@ -4104,6 +4104,12 @@ async function prepareAnnex(a: BotAgent, _args: Record<string, unknown>, signal:
   }
 }
 
+/** lay_out_houses' `near` ("x,z", G7: where a person asked for the building), or null. */
+function nearArg(v: unknown): { x: number; z: number } | null {
+  const m = /^\s*(-?\d+)\s*,\s*(-?\d+)\s*$/.exec(String(v ?? ''));
+  return m ? { x: Number(m[1]), z: Number(m[2]) } : null;
+}
+
 /** The village laying out a neighbourhood (one at a time; the chore's lock, held inside the skill, lesson 67). */
 export const growBusy = new Set<string>();
 
@@ -4119,7 +4125,7 @@ export const growBusy = new Set<string>();
  * Null with the survey's rejections. The pad ladder (s30's food step, D2): one survey at the largest pad's radius, each
  * option's size tried in order (slope 2, then 4), the first found returned with its option.
  */
-async function growSite(a: BotAgent, v: Village, opts: PadOption[], signal: AbortSignal): Promise<{ x: number; y: number; z: number; opt: PadOption } | { why: string }> {
+async function growSite(a: BotAgent, v: Village, opts: PadOption[], signal: AbortSignal, near?: { x: number; z: number } | null): Promise<{ x: number; y: number; z: number; opt: PadOption } | { why: string }> {
   const home = villageHome(v, a.memory);
   if (!home) return { why: 'the village has no home' };
   const r = Math.max(...opts.map((o) => growReach(o.size) + Math.ceil(o.size / 2) + 1));
@@ -4129,6 +4135,12 @@ async function growSite(a: BotAgent, v: Village, opts: PadOption[], signal: Abor
   const g = await withScanTurn(signal, () => surveyGround(a, home.x, home.z, r, taken, signal, true, 1));
   for (const opt of opts) {
     const S = opt.size, reach = growReach(S);
+    // (G7, MC_TALK: a place a person asked for first, within 32 of it; else the usual search round home)
+    if (near)
+      for (const slope of [2, 4]) {
+        const c = bestSite(g, S, slope, near.x, near.z, 32, home, null, why, reach);
+        if (c) return { x: c.x, y: c.y, z: c.z, opt };
+      }
     for (const slope of [2, 4]) {
       for (const k of Object.keys(why) as Array<keyof Rejections>) why[k] = 0;
       const c = bestSite(g, S, slope, home.x, home.z, reach, home, null, why, reach);
@@ -4357,7 +4369,8 @@ async function layOutOutward(a: BotAgent, v: Village, houses: string[], project:
     return { name: h, width: d.width, depth: d.depth, door, out };
   });
   if (!items.length) throw new Error(`lay_out_houses: no design for ${houses.join(', ')}`);
-  const placed = placeOutward({ area, ground: (x, z) => gm.get(`${x},${z}`) ?? null, taken, hub, home, pads: pads.filter((q) => q.y !== undefined).map((q) => ({ ...q, y: q.y! })), items });
+  const near = nearArg(args.near);
+  const placed = placeOutward({ area, ground: (x, z) => gm.get(`${x},${z}`) ?? null, taken, hub, ...(near ? { near } : {}), home, pads: pads.filter((q) => q.y !== undefined).map((q) => ({ ...q, y: q.y! })), items });
   // (no await from here to the record: D7)
   if (!v.complete || v.growth?.active || (v.growth?.stop && !(project && /house design/.test(v.growth.stop)))) throw new Error('lay_out_houses: the village changed during the survey');
   const before = new Set(v.tasks.map((t) => t.id));
@@ -4464,7 +4477,7 @@ async function layOutHouses(a: BotAgent, args: Record<string, unknown>, signal: 
       });
     // #138 (MC_GROW_OUTWARD): on a village laid out on pads, each house at the nearest good spot on its edge instead
     if (GROW_OUTWARD && v.layouts?.[0]?.pads) return await layOutOutward(a, v, all.slice(0, Math.max(...opts.map((o) => o.n))), project, args, signal);
-    const site = await growSite(a, v, opts, signal);
+    const site = await growSite(a, v, opts, signal, nearArg(args.near));
     if ('why' in site) {
       const S0 = opts[0].size, rest = opts.slice(1).map((o) => `${o.size}x${o.size}`);
       throw new Error(`lay_out_houses: no free ${S0}x${S0} site${rest.length ? ` (nor ${rest.join(', ')})` : ''} within ${growReach(S0)} blocks of the village (${site.why})`);

@@ -22,7 +22,7 @@ import { Vec3 } from 'vec3';
 import { collectFilter, collectTargets, exposed, villageStationCell } from './mcSurvival';
 import { at, nearestBlocks, onVillageGround, stateAt } from './mcUtil';
 import { teleportHome, underHome } from './mcRescue';
-import { annexBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, storeBusy, surfaceAt, wheatKeep, writeBoard } from './mcBuild';
+import { annexBusy, growBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, storeBusy, surfaceAt, wheatKeep, writeBoard } from './mcBuild';
 import { ironDone, ironStairsHeld, mineAreas, mineGives, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PEN_KINDS, PEN_ORDER, PEN_VARIETY, SLOT_KINDS, SLOT_ORDER, penCap, penLure, penPlan, penSlotFit, penWords, worksFurnaces } from '../farmSlots';
 import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
@@ -94,6 +94,7 @@ import { GEN_HOMES, PLAIN_CHOICE, characterChoice, describeStyle, familyKey, fit
 import { HOME_DESIGN, castDesign, castProgram, characterOf, designNote, inHoldout, villageForms, type DesignContext, type DesignResult, type ProgramResult } from '../homeDesign';
 import { generateDesign } from '../buildingGen';
 import { applyWrites } from '../memory';
+import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, etaMinutes, historyLines, initTalk, matchWork, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, talkSystem, talkTool, talkUser, updateRequest, workWords, type PlayerRequest, type Respond, type WorkOffer } from '../playerTalk';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
@@ -308,6 +309,8 @@ export class MineflayerWorld implements WorldAdapter {
         const line = m ? partLine(m, agent) : '';
         return line ? [line] : [];
       });
+    // (G7, MC_TALK: people's requests, talk.json beside villages.json)
+    if (PLAYER_TALK.on) initTalk(dataDir);
     // (G5, #90, MC_PROPOSALS: members' proposals beside villages.json, and code's check of them from what this world can do)
     if (PROPOSALS_ON) {
       initProposals(dataDir);
@@ -1802,13 +1805,27 @@ export class MineflayerWorld implements WorldAdapter {
       wake = listeners.filter((a) => named(a, 'i') >= 0).sort((x, y) => named(x, 'i') - named(y, 'i')).slice(0, 3);
       if (!wake.length) wake = listeners.filter(inRange).sort((x, y) => dist.get(x)! - dist.get(y)!).slice(0, 1);
     } else wake = listeners.filter((a) => inRange(a) && named(a, '') >= 0);
+    // G7 (MC_TALK): a person's line to a village is answered by one member through the talk pipeline, not by the brain's
+    // chat turn: the village it names (or "village"/"mayor" said within a village's range) by its Mayor, else the first
+    // member woken; members of villages take no other wake from it
+    let talker: BotAgent | undefined;
+    // (a world built without its constructor, chat_route.mts, has no village registry: no talk there)
+    const talk = PLAYER_TALK.on && human && !!this.villages;
+    if (talk) {
+      const vt = this.talkVillageNamed(text, pos);
+      talker = (vt && this.mayorOf(vt)) || wake.find((a) => a.village());
+      if (talker && !listeners.includes(talker)) talker = undefined;
+      if (talker) wake = wake.filter((a) => !a.village());
+      if (talker && !this.pairWake(from, talker.name, 20)) talker = undefined;
+    }
     wake = wake.filter((a) => this.pairWake(from, a.name, human ? 20 : 2));
     for (const a of listeners) {
       const woken = wake.includes(a);
-      if (!woken && !inRange(a)) continue;
+      if (!woken && !inRange(a) && a !== talker) continue;
       const d = dist.get(a);
-      a.pushEvent('chat', `<${from}> ${text}`, { from, text, ...(d !== undefined ? { distance: Math.round(d) } : {}), ...(woken ? { wake: true } : {}) });
+      a.pushEvent('chat', `<${from}> ${text}`, { from, text, ...(d !== undefined ? { distance: Math.round(d) } : {}), ...(woken ? { wake: true } : {}), ...(talk && a.village() ? { talk: true } : {}) });
     }
+    if (talker) this.talkHeard(talker, from, text, pos);
   }
 
   agentList() {
@@ -5820,6 +5837,11 @@ export class MineflayerWorld implements WorldAdapter {
       if (nw.length) ctx.news = nw;
       if (an.length) ctx.answers = an;
     }
+    // (G7, MC_TALK: a promise to a person in the inbox)
+    if (PLAYER_TALK.on) {
+      const pl = promiseLines(v.name, a.name, facts.t);
+      if (pl.length) ctx.inbox = [...pl, ...(ctx.inbox ?? [])];
+    }
     return { menu: { agent: a.name, village: v.name, t: facts.t, options: r.options, guarded: r.guarded, reasons: r.reasons, ctx, ...(open ? { open: true } : {}) }, feasible: r.feasible, skips: r.effects.skips, dropped: r.dropped };
   }
 
@@ -6025,6 +6047,401 @@ export class MineflayerWorld implements WorldAdapter {
       const ok = deliverAnswer(v.name, q.id, text, this.checkNews(v, text, items), Date.now(), r.ms);
       if (ok) console.log(`[talk] ${v.name}: ${q.to} answered ${q.from}'s ${q.id} ("${q.text.slice(0, 60)}"): ${text.replace(/\s+/g, ' ').slice(0, 120)}`);
     }, (e) => failAnswer(v.name, q.id, String((e as Error)?.message ?? e).slice(0, 120)));
+  }
+
+  // ---- G7 (MC_TALK, #35-#40): talking with the village (spec runs/2026-10-30/g7/spec.md) ----------------------------
+
+  /** A village's Mayor here, if any. */
+  private mayorOf(v: Village): BotAgent | undefined {
+    return [...this.agents.values()].find((b) => b.memory.villageRole === 'mayor' && b.village()?.name === v.name);
+  }
+
+  /** The village a person's line names, or ("village", "mayor") the nearest one whose range they stand in. */
+  private talkVillageNamed(text: string, pos: Vec3 | null): Village | undefined {
+    const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const all = [...this.villages.villages.values()];
+    const named = all.find((v) => new RegExp(`\\b${esc(v.name)}\\b`, 'i').test(text));
+    if (named) return named;
+    if (!pos || !/\b(village|mayor)\b/i.test(text)) return undefined;
+    return all.map((v) => ({ v, h: villageHome(v) })).filter((x) => x.h && Math.hypot(x.h.x - pos.x, x.h.z - pos.z) <= VILLAGE_RANGE)
+      .sort((p, q) => Math.hypot(p.h!.x - pos.x, p.h!.z - pos.z) - Math.hypot(q.h!.x - pos.x, q.h!.z - pos.z))[0]?.v;
+  }
+
+  /** A line said aloud by a member (tellraw, as the acts speaker: never heard back as chat). */
+  private talkSay(agent: string, text: string) {
+    this.spoken.set(`${agent}\u0000${text}`, Date.now());
+    void this.rcon.command(`tellraw @a ${JSON.stringify({ text: `${agent} says: ${text}`, color: 'gray' })}`).catch(() => {});
+    console.log(`[talk] ${agent} says: ${text}`);
+  }
+
+  /**
+   * #35: a person's line from the API or the panel. Shown in the game as their chat; without `to` routed as an in-game
+   * line, with `to` (a village: its Mayor; or a member) answered by that agent wherever it is.
+   */
+  async playerSay(from: string, text: string, to?: string): Promise<{ ok: true; to?: string; request?: string } | { error: string }> {
+    if (!PLAYER_TALK.on) return { error: 'MC_TALK is off' };
+    if (!/^[A-Za-z0-9_]{1,16}$/.test(from) || this.isAgent(from)) return { error: 'from must be a player name, not an agent\'s' };
+    const line = text.replace(/\s+/g, ' ').trim().slice(0, 256);
+    if (!line) return { error: 'text is empty' };
+    let a: BotAgent | undefined;
+    if (to) {
+      const v = this.villages.get(to);
+      a = v ? this.mayorOf(v) : this.get(to);
+      if (!a?.village()) return { error: `${to} is not a village with a Mayor here, nor a member of one` };
+    }
+    // (the echo a bot hears of the tellraw is dropped by hearChat: the line is routed here once)
+    this.spoken.set(`${from}\u0000${line}`, Date.now());
+    void this.rcon.command(`tellraw @a ${JSON.stringify({ text: `<${from}> ${line}` })}`).catch(() => {});
+    if (!a) {
+      this.chatQueue = this.chatQueue.then(() => this.routeChat(from, line)).catch((e: unknown) => console.error('[chat] routing failed:', e));
+      return { ok: true };
+    }
+    const pos = await this.speakerAt(from);
+    a.pushEvent('chat', `<${from}> ${line}`, { from, text: line, talk: true });
+    const r = this.talkHeard(a, from, line, pos);
+    return { ok: true, to: a.name, ...(r ? { request: r.id } : {}) };
+  }
+
+  /** Lines waiting for an agent's next talk call (request ids), and the agents with a call running. */
+  private talkWaiting = new Map<string, string[]>();
+  private talkBusy = new Set<string>();
+
+  /** A person's line to a village member: into the ledger at once, then the agent's talk call (one at a time). */
+  private talkHeard(a: BotAgent, from: string, text: string, pos: Vec3 | null, via?: string): PlayerRequest | undefined {
+    const v = a.village();
+    if (!v) return undefined;
+    const r = addRequest({ village: v.name, from, to: a.name, text, at: Date.now(), ...(pos ? { pos: { x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z) } } : {}) });
+    if (via) updateRequest(r.id, { via });
+    console.log(`[talk] ${v.name}: ${from} to ${a.name}${via ? ` (via ${via})` : ''}: "${text.slice(0, 120)}" (${r.id})`);
+    const k = a.name.toLowerCase();
+    this.talkWaiting.set(k, [...(this.talkWaiting.get(k) ?? []), r.id]);
+    if (!this.talkBusy.has(k)) void this.talkRun(a);
+    return r;
+  }
+
+  private async talkRun(a: BotAgent) {
+    const k = a.name.toLowerCase();
+    this.talkBusy.add(k);
+    try {
+      for (;;) {
+        const ids = this.talkWaiting.get(k) ?? [];
+        this.talkWaiting.delete(k);
+        if (!ids.length) break;
+        // (one call a person: lines that came during the last call joined, the last one carries the outcome)
+        const by = new Map<string, PlayerRequest[]>();
+        for (const id of ids) {
+          const r = requestById(id);
+          if (r) by.set(r.from.toLowerCase(), [...(by.get(r.from.toLowerCase()) ?? []), r]);
+        }
+        for (const rs of by.values()) await this.talkCall(a, rs).catch((e: unknown) => console.error(`[talk] ${a.name}: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
+      }
+    } finally {
+      this.talkBusy.delete(k);
+    }
+  }
+
+  /** The village's state for the talk prompt, in a few lines. */
+  private talkState(v: Village): string[] {
+    const g = v.growth;
+    const out = [v.complete ? 'the village is complete' : `the village is still being built (${v.structures.length} buildings stand)`,
+      `${[...this.agents.values()].filter((b) => b.village()?.name === v.name).length} members`];
+    if (g?.active) out.push(g.active.project ? `the public work ${workWords(g.active.project)} is being built` : 'a street of houses is being built');
+    if (g?.work?.piece) out.push(`the village voted to build ${workWords(g.work.piece)} next`);
+    const q = requestsOf(v.name).filter((r) => r.status === 'queued' || r.status === 'under_way');
+    if (q.length) out.push(`people's requests accepted: ${q.map((r) => `${r.what ?? r.piece} for ${r.from} (${r.status === 'queued' ? 'waiting' : 'under way'})`).join(', ')}`);
+    return out;
+  }
+
+  /** The works a Mayor may offer: the pool, not refused before, not wider than the room left; words and units. */
+  private talkOffers(v: Village): WorkOffer[] {
+    const g = v.growth;
+    const bad = new Set(g?.projectBad ?? []);
+    const own = v.vanillaBiome ? villageBiome(v.vanillaBiome) : this.currentStyle(v) ?? 'plains';
+    const pool = this.publicWorks().filter((w) => !bad.has(w.design.name) && (g?.workRoom === undefined || w.size <= g.workRoom))
+      .map((w) => ({ id: w.design.name, words: workWords(w.design.name), biome: w.biome, units: w.units, gather: w.gather as Record<string, number> }));
+    return offerWorks(pool, own);
+  }
+
+  private async talkCall(a: BotAgent, rs: PlayerRequest[]) {
+    const v = a.village();
+    const r = rs[rs.length - 1];
+    for (const x of rs.slice(0, -1)) updateRequest(x.id, { status: 'chat', outcome: `joined into ${r.id}` });
+    if (!v) return;
+    const role = a.memory.villageRole === 'mayor' ? 'mayor' : 'member';
+    const spec = parseSpec(typeof a.memory.chooseModel === 'string' ? a.memory.chooseModel : typeof a.memory.execModel === 'string' ? a.memory.execModel : CHOOSE.model);
+    if (!spec || (isCloudModel(spec.model) && !usage.allows('answers')) || usage.blocked(spec.model, a.name)) {
+      updateRequest(r.id, { status: 'unanswered', outcome: !spec ? 'no model' : 'the model budget is spent' });
+      this.talkSay(a.name, `${r.from}, I cannot answer just now; ask me again later.`);
+      return;
+    }
+    const now = Date.now();
+    let persona: string[] = [];
+    try {
+      const ctx = this.choiceContext(v, a, this.sweepFacts(v, now, a));
+      persona = [ctx.persona, ctx.character].filter((x): x is string => typeof x === 'string' && !!x.trim());
+    } catch {
+      /* before completion some facts are missing: no persona then */
+    }
+    const offers = role === 'mayor' ? this.talkOffers(v) : undefined;
+    let options: Array<{ id: string; name: string }> | undefined;
+    if (role === 'member' && v.complete) {
+      try {
+        options = this.menu(v, a, this.heldKeys(v, now, 'async'), false, this.sweepFacts(v, now, a)).feasible.slice(0, 24).map((o) => ({ id: o.id, name: o.name }));
+      } catch {
+        options = [];
+      }
+    }
+    const user = talkUser({ agent: a.name, role, village: v.name, persona, from: r.from, lines: rs.map((x) => x.text), history: historyLines(v.name, r.from, now, 5, r.id).filter((_, i, xs) => i >= xs.length - 5),
+      state: this.talkState(v), ...(offers ? { works: offers } : {}), ...(options ? { options } : {}), ...(r.via ? { via: r.via } : {}) });
+    const res = await callModel({ spec, system: talkSystem(role), user, tools: [talkTool(role)], level: REASONING.talk, agent: a.name, kind: 'talk', priority: 'human' });
+    const p = parseRespond(res.reply as { calls?: Array<{ name: string; input: Record<string, unknown> }>; text?: string }, role);
+    if (!p) {
+      updateRequest(r.id, { status: 'unanswered', outcome: 'an empty reply' });
+      return;
+    }
+    console.log(`[talk] ${v.name}: ${a.name} answers ${r.id}: ${p.kind}${p.work ? ` work=${p.work}` : ''}${p.option ? ` option=${p.option}` : ''}${p.place ? ` place="${p.place}"` : ''}${p.reason ? ` reason="${p.reason}"` : ''} (${res.ms} ms)`);
+    this.talkAct(v, a, r, p, offers ?? [], options ?? []);
+  }
+
+  /** What an answer does: talk, a refusal, a promise, a building passed to the Mayor, or a build checked and queued. */
+  private talkAct(v: Village, a: BotAgent, r: PlayerRequest, p: Respond, offers: WorkOffer[], options: Array<{ id: string; name: string }>) {
+    const now = Date.now();
+    const refuse = (reason: string) => {
+      // (the model's line usually says sorry already; code's reason after it, without a second one)
+      const why = reason.replace(/^sorry[:,]?\s*/i, '').replace(/[.\s]+$/, '');
+      const line = answerLine(p.say, /sorry|afraid|can't|cannot/i.test(p.say) ? why : `sorry: ${why}`);
+      updateRequest(r.id, { kind: p.kind === 'refuse' ? 'refuse' : p.kind, status: 'refused', reason: why, say: p.say, answer: line, closed: now });
+      this.talkSay(a.name, line);
+    };
+    if (p.kind === 'chat') {
+      updateRequest(r.id, { kind: 'chat', status: 'chat', say: p.say, answer: p.say, closed: now });
+      if (p.say) this.talkSay(a.name, p.say);
+      return;
+    }
+    // (a Mayor's refusal names what the village could build instead, when the model's reason does not)
+    if (p.kind === 'refuse') return refuse(`${p.reason || 'that is not something we can do here'}${offers.length && !offers.some((w) => (p.reason ?? '').toLowerCase().includes(w.words)) ? `; we could build ${offers.slice(0, 4).map((w) => w.words).join(', ')}` : ''}`);
+    if (p.kind === 'forward') {
+      const m = this.mayorOf(v);
+      if (!m || m === a) return refuse('there is no Mayor here to ask');
+      const line = /mayor/i.test(p.say) ? p.say : answerLine(p.say, 'I will ask the Mayor');
+      updateRequest(r.id, { kind: 'forward', status: 'chat', say: p.say, answer: line, outcome: `passed to ${m.name}`, closed: now });
+      this.talkSay(a.name, line);
+      this.talkHeard(m, r.from, r.text, r.pos ? new Vec3(r.pos.x, r.pos.y, r.pos.z) : null, a.name);
+      return;
+    }
+    if (p.kind === 'promise') {
+      const o = options.find((x) => x.id === p.option) ?? options.find((x) => x.name.toLowerCase() === (p.option ?? '').toLowerCase());
+      if (!o) return refuse(options.length ? `${p.option ? `"${p.option}" is` : 'that is'} not among the chores I can do now` : 'I have no chores I can take on yet');
+      const due = now + PLAYER_TALK.promiseMs;
+      const facts = `I'll ${o.name.charAt(0).toLowerCase()}${o.name.slice(1)} next (my promise to you, due in ${Math.round(PLAYER_TALK.promiseMs / 60000)} min)`;
+      updateRequest(r.id, { kind: 'promise', status: 'promised', option: o.id, optionName: o.name, due, say: p.say, answer: answerLine(p.say, facts) });
+      this.talkSay(a.name, answerLine(p.say, facts));
+      if (MEMORY.on) applyWrites(v.name, a.name, { remember: `${r.from} (a person) asked me: "${r.text.slice(0, 80)}"; I promised to ${o.name.toLowerCase()}` }, 'world', now);
+      return;
+    }
+    // build (the Mayor)
+    const check = this.talkBuildCheck(v, r, p, offers);
+    if ('why' in check) return refuse(check.why);
+    updateRequest(r.id, { kind: 'build', status: 'queued', say: p.say, answer: answerLine(p.say, check.facts), piece: check.piece, what: check.what, eta: check.eta, units: check.units, ...(check.place ? { place: check.place } : {}) });
+    this.talkSay(a.name, answerLine(p.say, check.facts));
+    if (MEMORY.on) applyWrites(v.name, a.name, { remember: `${r.from} (a person) asked for ${check.what}${check.place ? ` ${check.place.words}` : ''}; I said yes` }, 'world', now);
+  }
+
+  /** #37/#38: the work named checked, placed and timed; or why not. */
+  private talkBuildCheck(v: Village, r: PlayerRequest, p: Respond, offers: WorkOffer[]):
+    { piece: string; what: string; units: number; eta: number; facts: string; place?: NonNullable<PlayerRequest['place']> } | { why: string } {
+    const g = v.growth;
+    const asked = (p.work ?? '').trim();
+    if ((g?.projectFails ?? 0) >= 3) return { why: 'our last public works failed, and building rests for now' };
+    if (g?.stop && !/house design/.test(g.stop)) return { why: `building has stopped here (${g.stop.slice(0, 80)})` };
+    if (v.complete && !this.growClaimers(v).length) return { why: 'nobody here takes building work just now' };
+    const busy = !v.complete ? 'after the village is finished' : g?.active ? `after the ${g.active.project ? workWords(g.active.project) : 'houses'} under way` : g?.work?.piece ? `after the ${workWords(g.work.piece)} the village voted for` : requestsOf(v.name).some((x) => x.status === 'queued' || x.status === 'under_way') ? 'after the requests before it' : '';
+    if (/^(houses?|homes?|a street of houses)$/i.test(asked)) {
+      const homeless = HOUSING ? this.homeless(v).length : 0;
+      if (!HOUSING || !homeless) return { why: 'every member has a house already' };
+      if (g?.request) return { why: 'a street of houses is already asked for' };
+      const what = `a street of houses for the ${homeless} member${homeless > 1 ? 's' : ''} without one`;
+      return { piece: 'houses', what, units: 0, eta: 0, facts: `${what}${busy ? `, ${busy}` : ''}` };
+    }
+    const w = matchWork(offers, asked);
+    if (!w) return { why: `we cannot build ${asked ? `"${asked}"` : 'that'} here; we could build ${offers.slice(0, 5).map((x) => x.words).join(', ')}` };
+    const q = this.talkPiece(w.id);
+    if (!q) return { why: `a ${w.words} does not fit here` };
+    // (as the vote's options: uncommon materials must be found near home)
+    const home = villageHome(v);
+    const want: Counts = {};
+    for (const c of q.pieces) for (const [k, n] of Object.entries(c.gather)) if (!/(_log|^any:logs|^logs|cobblestone|^sand|^dirt)$/.test(k)) want[k] = (want[k] ?? 0) + n;
+    if (Object.keys(want).length && home) {
+      const by = this.growMembers(v).find((b) => b.bot.entity);
+      const found = by ? this.materialsNear(by.name, want, home.x, v.plots[0]?.y ?? 64, home.z, WORK_MATERIAL_RANGE) : null;
+      const short = Object.entries(want).filter(([k, n]) => (found?.[k] ?? 0) < Math.ceil(n)).map(([k]) => k.replace(/^any:/, '').replace(/_/g, ' '));
+      if (short.length) return { why: `a ${w.words} needs ${short.slice(0, 2).join(' and ')}, and there is none near the village` };
+    }
+    const place = this.talkPlace(v, r, p.place);
+    // (the village's own pace from requests it finished, else 2 min a unit for 3 builders)
+    const paces = requestsOf(v.name).filter((x) => x.status === 'done' && x.units && x.started && x.closed).map((x) => (x.closed! - x.started!) / 60000 / x.units!);
+    const pace = paces.length ? paces.reduce((s, x) => s + x, 0) / paces.length : undefined;
+    const eta = etaMinutes(q.units, this.growClaimers(v).length, pace, pace ? 1 : Number(rawSetting('MC_TIME_SCALE') ?? 1) || 1);
+    const gather: Record<string, number> = {};
+    for (const c of q.pieces) for (const [k, n] of Object.entries(c.gather)) gather[k.replace(/^any:/, '')] = Math.round((gather[k.replace(/^any:/, '')] ?? 0) + n);
+    const what = `a ${w.words}${q.pieces.length > 1 ? ` with ${q.pieces.slice(1).map((c) => workWords(c.design.name)).join(', ')}` : ''}`;
+    const where = place ? (place.x !== undefined && home ? ` ${place.words} (${bearing(home, { x: place.x, z: place.z! })})${place.note ? `; ${place.note}` : ''}` : `; ${place.note ?? ''}`) : '';
+    const bill = billWords(gather);
+    return { piece: w.id, what, units: q.units, eta, place: place ?? undefined, facts: `${what}${where}, about ${eta} min of work${busy ? `, ${busy}` : ''}${bill ? `; it needs ~${bill}` : ''}` };
+  }
+
+  /** The piece a person asked for, alone on its pad (a vote's quarter adds companions nobody asked for). */
+  private talkPiece(piece: string): { pieces: Array<NonNullable<MineflayerWorld['works']>[number]>; size: number; units: number } | null {
+    const w = this.publicWorks().find((x) => x.design.name === piece);
+    return w ? { pieces: [w], size: w.size, units: w.units } : null;
+  }
+
+  /** #37: the person's place words (the model's copy, else their line) to a point near home, or a note why not. */
+  private talkPlace(v: Village, r: PlayerRequest, words?: string): NonNullable<PlayerRequest['place']> | null {
+    const pl = (words && placeOf(words)) || placeOf(r.text);
+    if (!pl) return null;
+    const home = villageHome(v);
+    if (!home) return { ...pl, note: 'the village has no centre yet' };
+    let at: { x: number; z: number } | null = null, note: string | undefined;
+    if (pl.kind === 'here') {
+      if (r.pos) at = { x: r.pos.x, z: r.pos.z };
+      else note = 'I cannot see where you are, so it goes where there is room';
+    } else if (pl.kind === 'water' || pl.kind === 'forest') {
+      const cs = this.atlas.near(home.x, home.z, 96).filter((c) => (pl.kind === 'water' ? c.water >= 40 : Object.values(c.logs).reduce((s, n) => s + n, 0) >= 20));
+      const best = cs.sort((p, q) => Math.hypot(p.cx * 16 + 8 - home.x, p.cz * 16 + 8 - home.z) - Math.hypot(q.cx * 16 + 8 - home.x, q.cz * 16 + 8 - home.z))[0];
+      if (best) at = { x: best.cx * 16 + 8, z: best.cz * 16 + 8 };
+      else note = `we know of no ${pl.kind === 'water' ? 'water' : 'woods'} near the village, so it goes where there is room`;
+    } else if (pl.kind === 'building') {
+      const s = v.structures.find((x) => x.kind.toLowerCase().replace(/_/g, ' ').includes(pl.word!.replace(/s$/, '')));
+      if (s) at = { x: Math.round((s.x1 + s.x2) / 2), z: Math.round((s.z1 + s.z2) / 2) };
+      else note = `we have no ${pl.word} yet, so it goes where there is room`;
+    } else if (pl.dir) at = dirPoint(home, pl.dir);
+    if (!at) return { ...pl, note };
+    const c = clampTo(home, at, 64);
+    return { ...pl, x: c.x, z: c.z, ...(c.clamped ? { note: `that is far, so as near it as the village reaches` } : {}) };
+  }
+
+  /** Requests followed: a queued build laid out when the village is free, its layout followed to its end; promises run. */
+  private talkTick(v: Village, now: number) {
+    const g = v.growth;
+    const scale = Math.max(0.1, Number(rawSetting('MC_TIME_SCALE') ?? 1) || 1);
+    let started = false;
+    for (const r of requestsOf(v.name)) {
+      const tell = (line: string) => {
+        const m = this.mayorOf(v);
+        if (m) this.talkSay(m.name, line);
+      };
+      if (r.status === 'queued') {
+        if (now - r.at > (120 * 60000) / scale) {
+          updateRequest(r.id, { status: 'failed', outcome: 'it waited too long for its turn', closed: now });
+          tell(`${r.from}, I am sorry: your ${r.what ?? 'request'} waited too long and is dropped.`);
+        } else if (!started && v.complete) started = this.talkStart(v, r, now);
+      } else if (r.status === 'under_way') {
+        if (r.piece === 'houses') {
+          const past = g?.past.find((x) => !x.project && x.at >= (r.started ?? 0) - 1000);
+          if (past) {
+            updateRequest(r.id, { status: past.why === 'built' ? 'done' : 'failed', outcome: `${past.built} houses built`, closed: now });
+            tell(`${r.from}, ${past.why === 'built' ? 'the new houses you asked for are finished' : `the houses you asked for stopped (${past.built} built)`}.`);
+          } else if (!g?.request && !g?.active && now - (r.started ?? now) > (20 * 60000) / scale) updateRequest(r.id, { status: 'failed', outcome: 'growth did not lay the houses out', closed: now });
+          continue;
+        }
+        if (r.layout === undefined) {
+          const act = g?.active;
+          if (act && act.project === r.piece && act.at >= (r.started ?? 0) - 1000) {
+            updateRequest(r.id, { layout: act.layout });
+            console.log(`[talk] ${v.name}: ${r.id}'s ${r.piece} laid out as layout ${act.layout}`);
+          }
+          continue;
+        }
+        const past = g?.past.find((x) => x.layout === r.layout && x.project === r.piece);
+        if (past) {
+          const ok = past.why === 'built';
+          updateRequest(r.id, { status: ok ? 'done' : 'failed', outcome: ok ? 'built' : `${past.why ?? 'stopped'} (${past.built} of ${past.houses} built)`, closed: now });
+          const yours = `your ${(r.what ?? r.piece ?? 'request').replace(/^an? /, '')}`;
+          tell(`${r.from}, ${ok ? `${yours} is finished` : `${yours} could not be finished (${past.why ?? 'stopped'})`}${r.place?.words && ok ? `, ${r.place.words}` : ''}.`);
+        }
+      } else if (r.status === 'promised') this.talkPromise(v, r, now);
+    }
+  }
+
+  /** A queued request's layout started when the village is free (never over a voted work, a vote or growth); true if so. */
+  private talkStart(v: Village, r: PlayerRequest, now: number): boolean {
+    const g = (v.growth ??= { past: [] });
+    if (g.active || g.work?.piece || this.voting.get(v.name) || growBusy.has(v.name) || this.growQueued(v, now) || (this.growError.get(v.name) ?? 0) > now || (g.projectBackoff ?? 0) > now) return false;
+    if (r.piece === 'houses') {
+      if (g.request) return false;
+      g.request = { by: `request:${r.id}`, at: now };
+      this.villages.save();
+      updateRequest(r.id, { status: 'under_way', started: now });
+      console.log(`[talk] ${v.name}: ${r.from}'s ${r.id} asks growth for a street of houses`);
+      return true;
+    }
+    const fail = (why: string) => {
+      updateRequest(r.id, { status: 'failed', outcome: why.slice(0, 200), closed: Date.now() });
+      const m = this.mayorOf(v);
+      if (m) this.talkSay(m.name, `${r.from}, I am sorry: we could not lay out your ${r.what ?? r.piece} (${why.replace(/^lay_out_houses: /, '').slice(0, 120)}).`);
+    };
+    const q = r.piece ? this.talkPiece(r.piece) : null;
+    if (!q) {
+      fail('it does not fit here any more');
+      return false;
+    }
+    const fed = (a: BotAgent) => this.hungerOf(v, a) !== 'hungry';
+    const agent = this.growMembers(v).find((a) => a.memory.villageRole === 'mayor' && this.isIdleMember(v, a, now) && fed(a)) ?? this.idleMembers(v, now).find(fed);
+    if (!agent) return false;
+    for (const c of q.pieces) if (!v.designs[c.design.name]) v.designs[c.design.name] = structuredClone(c.design);
+    const names = q.pieces.map((c) => c.design.name);
+    let st: ActionStatus;
+    try {
+      st = agent.enqueue('lay_out_houses', { chore: true, houses: names.join(','), size: q.size, project: r.piece, ...(r.place?.x !== undefined ? { near: `${r.place.x},${r.place.z}` } : {}) });
+    } catch (e) {
+      console.log(`[talk] ${v.name}: lay_out_houses not queued for ${agent.name}: ${(e as Error).message}`);
+      return false;
+    }
+    updateRequest(r.id, { status: 'under_way', started: now });
+    this.setChore(v, agent, 'grow', [st], `lay out ${r.from}'s ${r.what ?? r.piece}`, (why) => {
+      if (why === 'cancelled') updateRequest(r.id, { status: 'queued', started: undefined });
+      else fail(why);
+    });
+    console.log(`[talk] ${v.name}: ${agent.name} lays out ${r.from}'s ${r.id}: ${r.piece}${r.place?.x !== undefined ? ` near ${r.place.x},${r.place.z} (${r.place.words})` : ''} (${q.units} units) on ${q.size}x${q.size}`);
+    return true;
+  }
+
+  /** A promise: run its chore when the member is free (whatever the chooser would pick); broken past twice its time. */
+  private talkPromise(v: Village, r: PlayerRequest, now: number) {
+    const a = this.get(r.to);
+    const late = r.due !== undefined && now > r.due + PLAYER_TALK.promiseMs;
+    if (!a || late) {
+      updateRequest(r.id, { status: 'broken', outcome: !a ? `${r.to} left` : 'not done in time', closed: now });
+      if (a) this.talkSay(a.name, `${r.from}, I am sorry: I could not ${r.optionName?.toLowerCase() ?? 'do it'} in time.`);
+      return;
+    }
+    if (r.ran && now - r.ran < 60000) return;
+    const held = this.heldKeys(v, now, 'async');
+    if (!this.isIdleMember(v, a, now, held)) return;
+    let fresh: ReturnType<MineflayerWorld['menu']>;
+    try {
+      fresh = this.menu(v, a, held, false, this.sweepFacts(v, now, a));
+    } catch {
+      return;
+    }
+    const opt = fresh.feasible.find((o) => o.id === r.option);
+    if (!opt) return;
+    updateRequest(r.id, { ran: now });
+    console.log(`[talk] ${v.name}: ${a.name} keeps its promise ${r.id} to ${r.from}: ${opt.id}`);
+    this.runOption(v, a, opt, { source: 'scripted', reason: `a promise to ${r.from}`, menu: fresh.menu });
+  }
+
+  /** A chore's end: a promise of its option kept when it ended well. */
+  private talkChoreEnd(village: string, agent: string, option: string, ok: boolean, productive: boolean, cut: boolean) {
+    for (const r of requestsOf(village)) {
+      if (r.status !== 'promised' || r.to.toLowerCase() !== agent.toLowerCase() || r.option !== option) continue;
+      if (ok && productive) {
+        updateRequest(r.id, { status: 'kept', outcome: `${r.optionName ?? option} done`, closed: Date.now() });
+        this.talkSay(agent, `${r.from}, done: ${r.optionName?.toLowerCase() ?? option}, as I promised.`);
+      } else if (!cut) updateRequest(r.id, { ran: undefined });
+      return;
+    }
   }
 
   /**
@@ -7913,6 +8330,10 @@ export class MineflayerWorld implements WorldAdapter {
       const t = actsTags(v.name, a.name, now);
       if (t.size) for (const o of out) if (t.has(o.id)) o.social = t.get(o.id);
     }
+    if (PLAYER_TALK.on) {
+      const t = promiseTags(v.name, a.name);
+      if (t.size) for (const o of out) if (t.has(o.id)) o.social ??= t.get(o.id);
+    }
     // Character v2: the night's rest at home for a tired member (the user's: at night only), then each option's character
     // factor: mood on own projects, affinity on help for a friend and on a request's tag, needs on the rest
     if (CHARACTER.gauges && v.complete && clockOf(v.name, now)?.phase === 'night' && !busy.has(`rest:${a.name}`)) {
@@ -9212,6 +9633,8 @@ export class MineflayerWorld implements WorldAdapter {
     if (characterAny()) characterSample(v.name, [...this.agents.values()].filter((b) => b.village()?.name === v.name).map((b) => ({ name: b.name })), now);
     // (G8: the ladder started, and after a rung the start-of-day ballot on the next)
     if (LADDER && v.complete) this.rungTick(v, now);
+    // (G7: people's requests laid out, followed and closed; promises run)
+    if (PLAYER_TALK.on) this.talkTick(v, now);
     // (#108: contracts orphaned by a restart refunded, once a village after the load)
     if (PAY.on && !this.payReconciled.has(v.name)) {
       this.payReconciled.add(v.name);
@@ -9742,6 +10165,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (G2, MC_CONTROLLER: a chore over in under 30 s with nothing gained counts as a failure toward the kind's cooldown, E.4)
     const quick = CONTROLLER.on && ok && !productive && !cut && kind !== 'eat' && now - c.choice.t < 30000;
     if (ACTS.on) actsEnd(c.village, c.agent, { option: id, chore: c.choice.id, started: c.choice.t, ok, productive, cut }, now);
+    if (PLAYER_TALK.on) this.talkChoreEnd(c.village, c.agent, id, ok, productive, cut);
     // (MC_WORK_BLOCKS: a failure or a chore that gained nothing ends the member's block)
     if (WORK_BLOCKS && (!ok || (!productive && !cut))) this.blocks.delete(c.agent.toLowerCase());
     // (character v2: a rest restores energy; other work spends it; a failure is a small bad feeling)
