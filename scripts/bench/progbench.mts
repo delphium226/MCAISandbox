@@ -170,21 +170,32 @@ let rows: Row[] = [];
 
 // CHAR=1: the world's prompt (homeDesign.ts buildProgramPrompt) in the members' own characters, no description, 24
 // members across the five families, N samples; STAKE=1 adds #174's stake line. Counts the spread the world will see:
-// two-storey share, units, distinct forms, failures.
+// two-storey share, units, distinct forms, failures. VILLAGE=6: six members already in one house, as in train 11 (a 7x7
+// hip house on four streets, two of them in the member's own). HD=<file> benches a copy of homeDesign.ts in server/src
+// instead (the train 11 prompt, for a before row).
 if (process.env.CHAR === '1') {
-  const HD = await import('../../server/src/homeDesign');
+  const HD = (process.env.HD ? await import(`../../server/src/${process.env.HD}`) : await import('../../server/src/homeDesign')) as typeof import('../../server/src/homeDesign');
   const MODEL = process.env.MODEL ?? 'qwen3.8:27b';
   const OLLAMA = process.env.OLLAMA ?? 'http://127.0.0.1:11436';
   const N = Number(process.env.N ?? 1), TEMP = Number(process.env.TEMP ?? 0.7);
   const fams = Object.keys(H.FAMILY);
   const out = fs.createWriteStream(`${base}-char.jsonl`);
-  const got: Array<{ member: string; family: string; form: string; units?: number; storeys?: number; ok: boolean; note?: string; said?: string; ms: number }> = [];
+  const got: Array<{ member: string; family: string; form: string; units?: number; storeys?: number; ok: boolean; s: number; cut: boolean; note?: string; said?: string; ms: number }> = [];
   for (const [i, member] of NAME_POOL.slice(0, 24).entries()) {
     const family = fams[i % fams.length];
     const stake = process.env.STAKE === '1' ? [`The houses before yours in this street come to about ${90 * (i % 5)} units; yours is built after them, so every unit you add delays your moving in.`] : [];
     // (STREET=1: three neighbours' houses alike, as a street in the world shows them: the staged HPp copied them)
-    const street = process.env.STREET === '1' ? ['Ada', 'Ben', 'Clara'].map((m) => `${m}: 7x7 two-storey planks house with a gable planks roof, a porch, 197 units`) : [];
-    const ctx = { persona: '', character: HD.characterOf(member), self: 'You built 1 of the village\'s 12 buildings.', family, street, village: '', stake };
+    let street = process.env.STREET === '1' ? ['Ada', 'Ben', 'Clara'].map((m) => `${m}: 7x7 two-storey planks house with a gable planks roof, a porch, 197 units`) : [];
+    let village = '';
+    let forms: string[] = [];
+    if (process.env.VILLAGE === '6') {
+      const same = '7x7 one-storey planks house with a hip planks roof, a porch, shutters';
+      const six = ['Clara', 'Iris', 'Grace', 'Quinn', 'Kai', 'Xavier'];
+      street = six.filter((m) => m !== member).slice(0, 2).map((m) => `${m}: ${same}, 136 units`);
+      village = '6 members\' houses: 0 with two storeys, 6 with porches, 0 L- or T-shaped.';
+      forms = HD.villageForms ? HD.villageForms(six.map((m) => `${m}'s house: a ${same}`)) : [];
+    }
+    const ctx = { persona: '', character: HD.characterOf(member), self: 'You built 1 of the village\'s 12 buildings.', family, street, village, stake, forms };
     for (let s = 0; s < N; s++) {
       const t0 = Date.now();
       const r = await HD.castProgram({
@@ -200,10 +211,10 @@ if (process.env.CHAR === '1') {
       });
       const b = r.built;
       const form = b ? `${b.body.width}x${b.body.depth}x${b.body.storeys}${b.wings.length ? `+${b.wings.length}w` : ''}${b.towers.length ? '+t' : ''}${b.bays.length ? '+b' : ''}${b.porch ? '+p' : ''}${b.chimney ? '+c' : ''}` : `none:${r.why}`;
-      const row = { member, family, form, units: r.design ? bill.units(r.design) : undefined, storeys: b?.body.storeys, ok: !!r.design, note: r.note, said: r.said, ms: Date.now() - t0 };
+      const row = { member, family, form, units: r.design ? bill.units(r.design) : undefined, storeys: b?.body.storeys, ok: !!r.design, s, cut: r.cuts.length > 0, note: r.note, said: r.said, ms: Date.now() - t0 };
       got.push(row);
       out.write(`${JSON.stringify({ ...row, code: r.code })}\n`);
-      console.log(`${member} ${family} ${form} ${row.units ?? '-'} units ${(row.ms / 1000).toFixed(1)}s | ${r.note}`);
+      console.log(`${member} ${family} ${form} ${row.units ?? '-'} units ${(row.ms / 1000).toFixed(1)}s | ${r.note}${process.env.PEEK === '1' ? ` | "${r.said}"` : ''}`);
     }
   }
   out.end();
@@ -214,7 +225,9 @@ if (process.env.CHAR === '1') {
   const summary = {
     rows: got.length, ok: ok.length, twoStorey: pct(ok.filter((g) => g.storeys === 2).length, ok.length), unitsMean: Math.round(mean(ok.map((g) => g.units ?? 0))),
     over200: pct(ok.filter((g) => (g.units ?? 0) > 200).length, ok.length), distinctForms: new Set(ok.map((g) => g.form)).size,
-    withWing: pct(ok.filter((g) => /w/.test(g.form)).length, ok.length), withTower: pct(ok.filter((g) => /\+t/.test(g.form)).length, ok.length), medianS: +(median(got.map((g) => g.ms)) / 1000).toFixed(1),
+    withWing: pct(ok.filter((g) => /w/.test(g.form)).length, ok.length), withTower: pct(ok.filter((g) => /\+t/.test(g.form)).length, ok.length), cut: pct(ok.filter((g) => g.cut).length, ok.length),
+    distinctPerSample: [...new Set(ok.map((g) => g.s))].map((k) => new Set(ok.filter((g) => g.s === k).map((g) => g.form)).size),
+    villageForm: ok.filter((g) => g.form === '7x7x1+p').length,medianS: +(median(got.map((g) => g.ms)) / 1000).toFixed(1),
   };
   fs.writeFileSync(`${base}-char.json`, JSON.stringify(summary, null, 2));
   console.log(JSON.stringify(summary), `\nrows ${base}-char.jsonl`);

@@ -91,7 +91,7 @@ import { councilLine, needBoost, noteNeedOffer, noteNeedStatus, setCouncilStore,
 import { CHARACTER, characterAny, characterFactor, characterRunBegin, goalFromValues, helpWeight, hexacoOf, hexacoWeights, identityLine, initCharacter, moodLine, moodWeight, needsLine, noteDecision, noteLines, noteRest, noteWork, requestWeight, restWeight, sample as characterSample, temperamentWords, think, valuesLine } from '../character';
 import { HOUSE_UNITS, HOUSE_UNITS_LARGE, LANDMARK_UNITS, MAX_SMELTS, VANILLA_ALL, WOOD_VARIANTS, baseName, houseBudget, isLandmark, isVanillaPieceName, validateDesign } from '../designs';
 import { GEN_HOMES, PLAIN_CHOICE, characterChoice, describeStyle, familyKey, fitChoice, homeOptions, homeOwner, isHomeName, styleFromChoice, type HomeChoice, type HomeOptions, type OwnChoice } from '../houseStyle';
-import { HOME_DESIGN, castDesign, castProgram, characterOf, designNote, inHoldout, type DesignContext, type DesignResult, type ProgramResult } from '../homeDesign';
+import { HOME_DESIGN, castDesign, castProgram, characterOf, designNote, inHoldout, villageForms, type DesignContext, type DesignResult, type ProgramResult } from '../homeDesign';
 import { generateDesign } from '../buildingGen';
 import { applyWrites } from '../memory';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
@@ -2775,7 +2775,8 @@ export class MineflayerWorld implements WorldAdapter {
         const d = this.designContext(v, a, family, owners);
         // (its memory too: what the member has lived and noted is what its house is for)
         const rc = MEMORY.on ? recall(v.name, a.name, now, { cap: 700, earlierToday: false, mark: false }) : null;
-        const ctx = { persona: d.persona, character: d.character, self: [d.self, rc?.text ?? ''].filter(Boolean).join('\n'), family, wood: d.wood, street: d.street, village: d.village, stake: d.stake };
+        // (no stake line for programs, and the whole village's forms to avoid: train 11, F340)
+        const ctx = { persona: d.persona, character: d.character, self: [d.self, rc?.text ?? ''].filter(Boolean).join('\n'), family, wood: d.wood, street: d.street, village: d.village, forms: this.homeForms(v, m) };
         castProgram({ agent: m, spec: HOME_DESIGN.programModel, ctx, budget: HOUSE_UNITS, bill: this.homeBill(), maxWaitMs: Math.max(1000, r.started + HOME_DESIGN.waitMs - now) })
           .then((res) => this.programDone(v, r, family, res), (e) => this.programDone(v, r, family, { agent: m, design: null, cuts: [], notes: [], unknown: [], code: '', said: '', note: '', prompt: '', why: 'error', error: String((e as Error)?.message ?? e) }));
         continue;
@@ -2832,6 +2833,31 @@ export class MineflayerWorld implements WorldAdapter {
       console.log(`[home] ${v.name}: ${res.agent}: program failed (${res.why ?? 'no house'}${res.error ? `: ${res.error.slice(0, 80)}` : ''})${secs}: the model pick instead`);
     }
     if (this.homeDesigns.get(v.name) === run) this.homeDesignsReady(v, run.style, Date.now());
+  }
+
+  /** The village's members' house forms, standing or chosen in any street, counted (homeDesign.ts villageForms); not `me`'s. */
+  private homeForms(v: Village, me: string): string[] {
+    const descs: string[] = [];
+    const seen = new Set<string>();
+    for (const s of v.structures) {
+      const st = v.designs[s.kind]?.style;
+      if (!st?.owner || st.owner === me || seen.has(st.owner)) continue;
+      seen.add(st.owner);
+      descs.push(st.chosen === 'program' ? v.designs[s.kind].description ?? '' : `${st.width}x${st.depth} ${describeStyle({ ...st, wood: undefined }).replace(/^an? /, '')}`);
+    }
+    const pre = `${v.name}|`;
+    for (const [k, pg] of this.homePrograms) {
+      const m = k.slice(pre.length);
+      if (k.startsWith(pre) && m !== me && !seen.has(m)) { seen.add(m); descs.push(pg.design.description); }
+    }
+    for (const [k, c] of this.homeChoices) {
+      const m = k.slice(pre.length);
+      if (!k.startsWith(pre) || m === me || seen.has(m)) continue;
+      seen.add(m);
+      const s = styleFromChoice(m, c.family, c.own.choice);
+      descs.push(`${s.width}x${s.depth} ${describeStyle({ ...s, wood: undefined }).replace(/^an? /, '')}`);
+    }
+    return villageForms(descs);
   }
 
   /** What a member's design prompt shows (homeDesign.ts DesignContext). */

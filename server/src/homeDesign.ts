@@ -296,24 +296,43 @@ export function designNote(words: string, reason: string, cuts: string[]): strin
 // ---------------------------------------------------------------------------------------------
 
 /** What a program prompt shows a member (DesignContext without the generator's options). */
-export type ProgramContext = Pick<DesignContext, 'persona' | 'character' | 'self' | 'family' | 'wood' | 'street' | 'village'> & { stake?: string[] };
+export type ProgramContext = Pick<DesignContext, 'persona' | 'character' | 'self' | 'family' | 'wood' | 'street' | 'village'> & {
+  /** The house forms already chosen or standing in the whole village, counted (villageForms); shown as ones to avoid. */
+  forms?: string[];
+};
+
+/** The village's house forms, one line each with a count, the commonest first (descriptions as programDesign and
+ *  describeStyle write them; owner prefixes, articles and cut notes dropped). */
+export function villageForms(descriptions: string[], cap = 8): string[] {
+  const n = new Map<string, number>();
+  for (const d of descriptions) {
+    const f = d.replace(/^[^:]*: /, '').replace(/\s*\(cut to fit[^)]*\)/, '').replace(/^an? /, '').trim();
+    if (f) n.set(f, (n.get(f) ?? 0) + 1);
+  }
+  return [...n].sort((a, b) => b[1] - a[1]).slice(0, cap).map(([f, k]) => `${f}${k > 1 ? ` (${k} houses)` : ''}`);
+}
 
 const PROGRAM_SYSTEM = 'You are a member of a Minecraft village designing your own house, which the village will build for you in your street. '
   + 'Reply with only a short JavaScript program in one ```js block that calls the library below, then nothing else.\n\n' + LIBRARY_DOC;
 
 /** The program prompt for one member (progbench's, in the member's own voice: its character and memory say what it wants). */
 export function buildProgramPrompt(ctx: ProgramContext, budget: number): { system: string; user: string } {
+  // (who the member is comes first and the house is asked to show it; no stake line: with #174's "every unit you add
+  // delays your moving in", qwen3.8 built 12 of 12 one-storey houses, 6 of them one form, train 11 F340; runs/2026-10-30/progprompt)
   const lines: string[] = [];
   if (ctx.persona.trim()) lines.push(ctx.persona.trim());
   if (ctx.character.trim()) lines.push(ctx.character.trim());
   if (ctx.self.trim()) lines.push(ctx.self.trim());
+  lines.push('Your house should show who you are: your character, your work and what you have lived here.');
   lines.push(`You live on a ${ctx.family} street (${familyWords(ctx.family, ctx.wood)}).`);
-  // (told their neighbours' houses alone, qwen3.8 copied them: the staged HPp's street, the character bench's STREET arm)
-  if (ctx.street.length) lines.push('Houses in your street so far:', ...ctx.street.map((s) => `- ${s}`), 'Your house is your own: it need not match your neighbours\'.');
-  if (ctx.village.trim()) lines.push(`The village: ${ctx.village.trim()}`);
-  lines.push(`Budget: ${budget} units of materials. A plain 5x5 house is about 90 units, a 7x7 one-storey about 120 and two-storey about 215; a wing adds about 45, a tower about 60.`);
-  // (#174's stake: every unit delays the member's own moving in; it cut gpt-oss's max-outs by a third)
-  for (const s of ctx.stake ?? []) lines.push(s);
+  // (told their neighbours' houses alone, qwen3.8 copied them: the staged HPp's street; the forms are the whole village's,
+  // since train 11's six alike stood on four streets)
+  const forms = ctx.forms ?? [];
+  if (forms.length) lines.push('Houses already in the village (do not repeat these forms):', ...forms.map((s) => `- ${s}`));
+  else if (ctx.street.length) lines.push('Houses in your street so far:', ...ctx.street.map((s) => `- ${s}`));
+  if (forms.length || ctx.street.length) lines.push('Your house is your own: it need not match your neighbours\'.');
+  else if (ctx.village.trim()) lines.push(`The village: ${ctx.village.trim()}`);
+  lines.push(`Budget: ${budget} units of materials. A plain 5x5 house is about 90 units, a 7x7 one-storey about 120 and two-storey about 215; a wing adds about 45, a tower about 60. Code cuts what is over the budget.`);
   lines.push('Write the house you want to live in, as the person described would want it, with note() saying why.');
   return { system: PROGRAM_SYSTEM, user: lines.join('\n') };
 }

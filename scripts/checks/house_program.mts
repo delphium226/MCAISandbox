@@ -182,6 +182,11 @@ const loop = await HD.castProgram({ agent: 'Ben', spec, ctx, budget: HOUSE_UNITS
 const quote = await HD.castProgram({ agent: 'Nora', spec, ctx, budget: HOUSE_UNITS, bill, call: reply("```js\nbody(5, 5, 1);\nroof('hip', 'planks');\nnote('A plain house keeps the street's tradition.');\n```") });
 if (!quote.design || quote.said !== "A plain house keeps the street's tradition.") fail(`world: quote repair ${quote.why} ${quote.error} "${quote.said}"`);
 if (none.design || none.why !== 'model' || loop.design || loop.why !== 'error') fail(`world: failures ${none.why} ${loop.why}`);
+// (the prompt, F340: character first, no stake, the village's forms counted as ones to avoid)
+const forms = HD.villageForms(["Clara's house: a 7x7 one-storey planks house with a porch (cut to fit: no tower)", "Iris's house: a 7x7 one-storey planks house with a porch", 'Ben: a 5x5 one-storey house with a gable roof']);
+if (forms[0] !== '7x7 one-storey planks house with a porch (2 houses)' || forms[1] !== '5x5 one-storey house with a gable roof') fail(`forms ${JSON.stringify(forms)}`);
+const pp = HD.buildProgramPrompt({ ...ctx, forms, street: ['Iris: 7x7'] }, HOUSE_UNITS).user;
+if (!pp.startsWith('You are calm.') || /delays|moving in/.test(pp) || !pp.includes('- 7x7 one-storey planks house with a porch (2 houses)') || pp.includes('Iris: 7x7') || !/your own/.test(pp)) fail(`prompt: ${pp}`);
 for (const fam of Object.keys(FAMILY))
   for (const code of Object.values(PROGRAMS)) {
     const out = P.houseFromProgram(code, fam, HOUSE_UNITS, bill);
