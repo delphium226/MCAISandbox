@@ -2392,3 +2392,18 @@ CLAUDE.md when a phase ends.
 - F340 correction (10-30, smallfixes, `runs/2026-10-30/smallfixes/report.md`): train 11's wheat did not halve. Its 30-32 an
   hour came from supply.py's net storage yield; train 10's 60 from the FOOD line. On the FOOD line train 11 made 127 (P)
   and 175 (M) against train 10 S's 121. Take wheat from the FOOD line in future reports. #176 fixed in 2d44093.
+- F341 (10-30, train12, G2, #175, #177, #178) **Test train 12 (the new house-program prompt P against model picks M, the
+  merchant off, MC_MORE_MINES on) from t12_pad_open: the prompt works live; M's arm and the own rod were lost to two
+  bugs.** t12_pad_open is t3_p1b rebuilt at 2d8d9bd (open-sided hut; mine stairs to y57, mine.py PASS); a first start from
+  t3_p1b was stopped at +5 min. P's programs: two storeys 5 of 12 (train 11: 0), 7 distinct forms of 12 (commonest 3,
+  train 11: 6), mean 242 blocks (175; character 289), build 1.2 min median, 4 cut to fit, 0 fallbacks or failed builds,
+  2.9-6.5 s; all still 7x7 planks (variety in storeys, roof, wing, porch); forms partly track the notes (Clara's
+  "sturdy two-storey" -> two storeys, Iris's "modest workshop-home" -> one); 24 houses by +47 min. **M's growth stalled
+  at 7 houses (#177)**: reset_site.py keeps the world's nextId (world 5: 16013 against the checkpoint's t16234), so layout
+  3's tasks took used ids, layOutOutward's id-set difference dropped them and growth.active.from (16203) hid its pads
+  from members for 110 min; idle members took the monument (338 picks against 111). **No fishing at all (#178)**: with
+  the merchant off there is no rod or string anywhere, lib:fish offered 0 times, so the own rod is untested a third
+  time and food was bread alone (wheat 115 / 155, cod 0; hungry 48 / 33% of member-time, 0% in train 11); P was 23 of 25
+  hungry by +55 and busy by 10 min fell from 60-95% to 11-38% in the second hour, which hides the working mine's effect
+  (41 / 66 trips, 990 / 1,299 cobblestone; MC_MORE_MINES never triggered, as expected). Laws 30 (67% typed) / 27 (26%);
+  [lag] 0, [stuck] 34 / 50; $0.84 / $0.89. Report: runs/2026-10-30/train12/report.md.
