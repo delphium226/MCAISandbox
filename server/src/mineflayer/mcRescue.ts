@@ -19,7 +19,7 @@ const inWater = (a: BotAgent) => !!(a.bot.entity as unknown as { isInWater?: boo
 const solid = (a: BotAgent, p: Vec3) => a.bot.blockAt(p)?.boundingBox === 'block';
 
 /** Swim straight up, then toward the nearest dry ground, for up to 10 seconds. */
-async function swimUp(a: BotAgent, signal: AbortSignal) {
+export async function swimUp(a: BotAgent, signal: AbortSignal) {
   const bot = a.bot;
   bot.pathfinder.stop();
   bot.setControlState('jump', true);

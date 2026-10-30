@@ -24,6 +24,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NAME_POOL } from './agentNames';
 import { rawSetting } from './settings';
+import { modeSpec } from './worldMode';
 
 const on = (v: string | undefined, dflt = false) => (v === undefined || v === '' ? dflt : /^(on|1|true|yes)$/i.test(v));
 
@@ -524,10 +525,12 @@ export function nearDuplicate(live: Note[], text: string): Note | undefined {
   }
   return best;
 }
-/** What the world rules out, in words a note may use (peaceful survival: no hostile mobs, no damage; the world's rules). */
+/** What the world rules out, in words a note may use (by the world's mode, MC_WORLD_MODE: peaceful rules out hostile mobs,
+ *  damage and dying; with damage on, hurt and death are real, and the mobs stay out until monsters spawn). */
 const RULED_OUT: Array<[RegExp, string]> = [
-  [/\b(hostile|mobs?|monsters?|zombies?|creepers?|skeletons?|spiders?|endermen|enderman|witch(es)?|phantoms?)\b/i, 'the world is peaceful: there are no hostile mobs'],
-  [/\b(take|taking|took|takes) damage\b|\b(hurt|injur(y|ed|ies)|wounded|starv(e|ing|ation))\b|\b(die|dies|dying|died)\b/i, 'no one takes damage or dies in this world'],
+  ...(modeSpec().mobs ? [] : [[/\b(hostile|mobs?|monsters?|zombies?|creepers?|skeletons?|spiders?|endermen|enderman|witch(es)?|phantoms?)\b/i,
+    modeSpec().damage ? 'there are no hostile mobs in this world' : 'the world is peaceful: there are no hostile mobs'] as [RegExp, string]]),
+  ...(modeSpec().damage ? [] : [[/\b(take|taking|took|takes) damage\b|\b(hurt|injur(y|ed|ies)|wounded|starv(e|ing|ation))\b|\b(die|dies|dying|died)\b/i, 'no one takes damage or dies in this world'] as [RegExp, string]]),
 ];
 /** Other checks a note must pass (acts.ts adds the promise check); each returns why it is refused, or null. */
 const checkers: Array<(village: string, agent: string, text: string) => string | null> = [];

@@ -15,8 +15,10 @@ import { MC_SKILLS } from './mcSkills';
 import { attack } from './mcSurvival';
 import { ContentionError, at, goals, walk } from './mcUtil';
 import { mineAreas } from './mcMine';
-import { rescue } from './mcRescue';
+import { home, rescue, swimUp, teleportHome } from './mcRescue';
 import { timeScale } from './mcRules';
+import { takesDamage } from '../worldMode';
+import { causeFromState, deathCauseOf, hazardOf, safeCellNear, type DeathCause, type Hazard } from './mcHazard';
 import { isPaused } from '../runClock';
 import { WALK_DIG } from './mcBlocks';
 import { GEODE_GROWTH, GEODE_GUARD, GEODE_LINING, geodeBreakCost, geodeStepCost, stateIds } from './mcGeode';
@@ -112,6 +114,16 @@ export class BotAgent implements WorldAgent {
   /** Where recent moves failed (a rescue starts when they keep failing from one spot). */
   private moveFails: Array<{ p: Vec3; t: number }> = [];
   private lastHurt = 0;
+  /** Survival (a), MC_WORLD_MODE=damage and up: what hurt it last, the fall under way (its highest y) and the last one's
+   *  height, the death message heard, the spawnpoint set, when the last hazard reflex ended. */
+  private hurtBy: { hazard: Hazard | null; fell: number } | null = null;
+  private fallFrom: number | null = null;
+  private lastFall = { h: 0, t: 0 };
+  private deathHeard: { cause: DeathCause; text: string; t: number } | null = null;
+  private spawnSet = '';
+  private spawnCheckedAt = 0;
+  private hazardEnded = 0;
+  private deathTimes: number[] = [];
   /** The current walk's physics tally (mcUtil walkOnce), or null. */
   walkTally: WalkTally | null = null;
   /** #163: blocks walked in x and z since the bot joined (the chores' walk distance), and where it stood last tick. */
@@ -386,8 +398,21 @@ export class BotAgent implements WorldAgent {
       if (e === bot.entity) this.lastHurt = Date.now();
     });
     bot.on('health', () => {
-      if (bot.health < this.lastHealth) this.pushEvent('damage', `took ${Math.round(this.lastHealth - bot.health)} damage (health ${Math.round(bot.health)})`);
+      if (bot.health < this.lastHealth) {
+        // (survival (a): what hurt it, for the death line when no message names the cause)
+        this.hurtBy = { hazard: hazardOf(this, 1), fell: Date.now() - this.lastFall.t < 1500 ? this.lastFall.h : 0 };
+        // Damage informs the brain; it wakes the model only when nothing handles it: low health with no reflex running
+        // (a death wakes it on its own event). Every hit used to wake it (the survival research's 3)
+        const health = Math.round(bot.health);
+        const urgent = bot.health > 0 && bot.health <= 6 && !this.reflex;
+        this.pushEvent('damage', `took ${Math.round(this.lastHealth - bot.health)} damage (health ${health})`, { health, urgent });
+      }
       this.lastHealth = bot.health;
+    });
+    // (the server's death message names the cause: "Ada fell from a high place")
+    bot.on('messagestr', (line: string) => {
+      const cause = deathCauseOf(this.name, line);
+      if (cause) this.deathHeard = { cause, text: line, t: Date.now() };
     });
     bot.on('playerCollect', (collector, collected) => {
       if (collector !== bot.entity) return;
@@ -396,7 +421,10 @@ export class BotAgent implements WorldAgent {
     });
     bot.on('death', () => {
       this.stop();
-      this.pushEvent('death', 'you died and dropped your items');
+      const where = bot.entity?.position?.clone();
+      const t = Date.now();
+      // (the death message may come just after the health packet: wait a second for it)
+      setTimeout(() => this.died(where, t), 1000);
     });
     bot.on('kicked', (reason) => this.pushEvent('system', `kicked from the server: ${typeof reason === 'string' ? reason : JSON.stringify(reason)}`));
     bot.on('end', (reason) => this.pushEvent('system', `disconnected: ${reason}`));
@@ -578,6 +606,7 @@ export class BotAgent implements WorldAgent {
     // (#115: a paused run starts nothing and thinks nothing; an action under way runs on in the frozen world)
     if (isPaused()) return;
     this.brain?.tick?.(this);
+    if (takesDamage()) this.survival();
     this.selfDefence();
     if (this.reflex || this.current || !this.queue.length) return;
     const status = this.queue.shift()!;
@@ -593,6 +622,152 @@ export class BotAgent implements WorldAgent {
         // (another agent's work in the way carries its code and resource into the event, E.0)
         (err: unknown) => this.finish(run, { fail: (err as Error).message, ...(err instanceof ContentionError ? { code: err.code, resource: err.resource } : {}) }),
       );
+  }
+
+  /** Put the interrupted action back at the front of the queue (its run is cancelled and ignored) and stop moving. */
+  private interrupt() {
+    if (this.current) {
+      const st = this.current.status;
+      this.current.abort.abort();
+      this.current = null;
+      st.state = 'queued';
+      this.queue.unshift(st);
+    }
+    this.halt();
+  }
+
+  /**
+   * Survival stage (a), every tick when damage is on: the fall under way (for the death line), the spawnpoint at home
+   * (every 20 s), and the hazard reflexes: swim up when air runs low, step out of fire and lava. Code, like the fighting
+   * reflex: drowning from full takes ~25 s after 15 s of air, a model turn up to 20 (the survival research's 3).
+   */
+  private survival() {
+    const bot = this.bot;
+    if (this.gamemode === 'creative' || (bot.health ?? 20) <= 0) return;
+    const y = bot.entity.position.y;
+    if (!bot.entity.onGround && !(bot.entity as unknown as { isInWater?: boolean }).isInWater) this.fallFrom = Math.max(this.fallFrom ?? y, y);
+    else if (this.fallFrom !== null) {
+      this.lastFall = { h: this.fallFrom - y, t: Date.now() };
+      this.fallFrom = null;
+    }
+    const now = Date.now();
+    // (every 2 s until one is set: a member's village is known only once its spawn has finished, and a fall in between
+    // respawned Gus at the world spawn, 1,600 blocks off; then every 20 s, for a home that moves)
+    if (now - this.spawnCheckedAt > (this.spawnSet ? 20000 : 2000)) {
+      this.spawnCheckedAt = now;
+      void this.keepSpawnpoint();
+    }
+    if (this.reflex || now - this.hazardEnded < 1500) return;
+    const hz = hazardOf(this);
+    if (hz) this.hazardReflex(hz);
+  }
+
+  /** The member's spawnpoint beside home (the storage hut's aisle, else the chest), set over RCON when home moves: a death
+   *  respawned members at the world spawn, 900 blocks off (lesson 37). */
+  private async keepSpawnpoint() {
+    const h = home(this);
+    if (!h || h.y === undefined || h.what === 'the world spawn') return;
+    const key = `${h.x} ${h.y} ${h.z}`;
+    if (key === this.spawnSet) return;
+    this.spawnSet = key;
+    try {
+      const out = await this.world.rcon.command(`spawnpoint ${this.name} ${key}`);
+      console.log(`[spawnpoint] ${this.name} at ${key} (${h.what}): ${out.trim()}`);
+    } catch (e) {
+      this.spawnSet = '';
+      console.log(`[spawnpoint] ${this.name}: not set (${(e as Error).message})`);
+    }
+  }
+
+  /** Out of the water's depth, the fire or the lava, in the reflex's slot; then the interrupted action resumes. */
+  private hazardReflex(hz: Hazard) {
+    this.interrupt();
+    const ac = new AbortController();
+    this.reflex = ac;
+    const from = this.bot.entity.position.clone();
+    const out = async (): Promise<string> => {
+      if (hz === 'air') {
+        await swimUp(this, ac.signal);
+        return 'swam up for air';
+      }
+      const c = safeCellNear(this);
+      if (c) {
+        try {
+          await walk(this, new goals.GoalBlock(c.x, c.y, c.z), `out of the ${hz}`, ac.signal, 5000);
+          return `stepped out to ${at(c)}`;
+        } catch (e) {
+          if ((e as Error).message === 'cancelled') throw e;
+        }
+      }
+      // (no cell found, or the walk failed: jump forward out of it)
+      this.bot.setControlState('jump', true);
+      this.bot.setControlState('forward', true);
+      await new Promise((ok) => setTimeout(ok, 1200));
+      return 'jumped out';
+    };
+    out().then(
+      (msg) => {
+        console.log(`[hazard] ${this.name} ${hz} at ${at(from)}: ${msg} (health ${Math.round(this.bot.health ?? 0)})`);
+        this.pushEvent('system', `Reflex: ${hz === 'air' ? 'you were running out of air under water' : `you were in ${hz}`}; ${msg}. Resuming your action.`);
+      },
+      (e: Error) => e.message !== 'cancelled' && console.log(`[hazard] ${this.name} ${hz} at ${at(from)}: ${e.message}`),
+    ).finally(() => {
+      if (this.reflex === ac) this.reflex = null;
+      this.hazardEnded = Date.now();
+      this.halt();
+    });
+  }
+
+  /**
+   * A death (survival stage (a)): a `[death]` line with its cause, counted in memory (`deaths`), and the brain told. The bot
+   * respawns at its spawnpoint (home, keepSpawnpoint) with its things (keep_inventory); one that woke elsewhere walks home.
+   */
+  private died(where: Vec3 | undefined, t: number) {
+    const heard = this.deathHeard && Math.abs(this.deathHeard.t - t) < 3000 ? this.deathHeard : null;
+    const cause = heard?.cause ?? causeFromState(this.hurtBy);
+    this.deathHeard = null;
+    this.hurtBy = null;
+    const deaths = ((this.memory.deaths ??= {}) as Record<string, number>);
+    deaths[cause] = (deaths[cause] ?? 0) + 1;
+    const place = where ? at(where) : 'somewhere';
+    console.log(`[death] ${this.name} ${cause} at ${place}${heard ? ` ("${heard.text}")` : ' (no death message: guessed)'}`);
+    // (a third death in 3 minutes: home itself kills (lava at the spawnpoint in a probe: 10 deaths in a row), so no walk or
+    // teleport back there)
+    this.deathTimes = [...this.deathTimes.filter((d) => t - d < 180000), t];
+    const again = this.deathTimes.length >= 3;
+    if (again) console.log(`[death] ${this.name} died ${this.deathTimes.length} times in 3 minutes: stays where it wakes`);
+    const h = home(this);
+    this.pushEvent('death', `you died (${heard?.text ?? cause}) at ${place}; you woke at ${h?.what ?? 'the world spawn'} with your things (keep_inventory)`, { cause });
+    // Home again, unless the respawn already put it there (it takes a moment: wait for the spawn)
+    setTimeout(() => {
+      const hh = home(this);
+      const p = this.bot.entity?.position;
+      if (again || !hh || hh.what === 'the world spawn' || !p || Math.hypot(p.x - hh.x, p.z - hh.z) < 16 || this.reflex) return;
+      const ac = new AbortController();
+      this.reflex = ac;
+      const goal = hh.y !== undefined ? new goals.GoalNear(hh.x, hh.y, hh.z, 2) : new goals.GoalNearXZ(hh.x, hh.z, 2);
+      // (a respawn far off means no spawnpoint was set yet: a teleport, as the rescue's last resort; nearer, a walk of at
+      // most 3 minutes in all, its 40-block legs included)
+      const far = Math.hypot(p.x - hh.x, p.z - hh.z) > 200;
+      const walkAc = new AbortController();
+      const cap = setTimeout(() => walkAc.abort(), 180000);
+      ac.signal.addEventListener('abort', () => walkAc.abort());
+      const go = far ? Promise.reject(new Error(`woke ${Math.round(Math.hypot(p.x - hh.x, p.z - hh.z))} blocks from home`))
+        : walk(this, goal, hh.what, walkAc.signal, 60000).then(() => `walked home to ${hh.what}`);
+      go.finally(() => clearTimeout(cap)).catch(async (e: Error) => {
+        if (ac.signal.aborted) throw e;
+        return `could not walk home (${e.message}); ${(await teleportHome(this, ac.signal)) ?? 'no home to go to'}`;
+      }).then(
+        (msg) => {
+          console.log(`[death] ${this.name} after the death: ${msg}`);
+          this.pushEvent('system', `After your death: ${msg}.`);
+        },
+        () => undefined,
+      ).finally(() => {
+        if (this.reflex === ac) this.reflex = null;
+        this.halt();
+      });
+    }, 3000);
   }
 
   /**

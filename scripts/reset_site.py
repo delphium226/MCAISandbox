@@ -418,6 +418,10 @@ def start_agents(logdir, stamp):
         raise SystemExit(f"the test agent server is not ready: {'it exited' if proc.poll() is not None else (status.get('worldRules') or {}).get('summary', 'no answer in 120 s')}; "
                          f"last lines:\n{tail}")
     print(f"test agent server: {status.get('server')}, world settings: {status['worldRules'].get('summary')}")
+    # (the survival stage asked for, MC_WORLD_MODE, peaceful unless set: a server that applied another one is not this run's)
+    want = (os.environ.get("MC_WORLD_MODE") or "peaceful").strip().lower()
+    if status["worldRules"].get("mode", "peaceful") != want:
+        raise SystemExit(f"the test agent server set the world mode {status['worldRules'].get('mode')}, not MC_WORLD_MODE={want}")
 
 
 def warn_locked():

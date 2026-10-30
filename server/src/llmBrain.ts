@@ -42,7 +42,8 @@ export class LLMBrain implements AgentBrain {
 
   onEvent(a: WorldAgent, e: AgentEvent) {
     // (in a world that routes chat, E.0, only the lines it chose this agent to answer)
-    if ((e.type === 'chat' && (!a.world.routesChat || e.data?.wake === true)) || e.type === 'damage' || e.type === 'death') this.urgent = true;
+    // (damage wakes only when the world marks it unhandled, or does not say: the survival research's 3)
+    if ((e.type === 'chat' && (!a.world.routesChat || e.data?.wake === true)) || (e.type === 'damage' && e.data?.urgent !== false) || e.type === 'death') this.urgent = true;
   }
 
   tick(a: WorldAgent) {

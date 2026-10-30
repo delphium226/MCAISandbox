@@ -125,7 +125,12 @@ def start_agents(name, w):
             return proc.poll() is not None
     if not R.wait_until(ready, 120, 1) or proc.poll() is not None:
         raise SystemExit(f"{name}: the agent server is not ready (see {log})")
-    print(f"{name}: agent server up: {(api(w, '/status').get('worldRules') or {}).get('summary')}", flush=True)
+    rules = api(w, '/status').get('worldRules') or {}
+    print(f"{name}: agent server up: {rules.get('summary')}", flush=True)
+    # (the survival stage, MC_WORLD_MODE, peaceful unless set)
+    want = (os.environ.get("MC_WORLD_MODE") or "peaceful").strip().lower()
+    if rules.get("mode", "peaceful") != want:
+        raise SystemExit(f"{name}: the agent server set the world mode {rules.get('mode')}, not MC_WORLD_MODE={want}")
 
 
 def up(names):

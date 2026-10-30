@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-256 settings.
+257 settings.
 
 ## Game speed
 
@@ -306,6 +306,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_VERSION` | string | `26.1` |  |  | The Minecraft version Mineflayer speaks. |
 | `MC_VIEW_DISTANCE` | number | `10` |  |  | The sandbox: the players' view distance in chunks. |
 | `MC_WORLD` | string | `world` |  |  | The sandbox: the world's folder name under server/worlds. |
+| `MC_WORLD_MODE` | string | `peaceful` |  |  | The world's survival stage (worldMode.ts; peaceful by default, the user's 10-30): damage turns on falls, drowning and fire (still peaceful, always day; spawnpoints at the storage, air and fire reflexes, a drop limit of 4); easy and normal are stage (b) and (c) rule sets only. keep_inventory stays on. |
 | `MCAI_ACTS_LOG` | string | (unset) |  |  | Where the acts log goes (default: beside the choice log). |
 | `MCAI_CHOICE_LOG` | string | (unset) |  |  | Where the choice log (choices.jsonl) goes. |
 | `MCAI_ROOT` | string | (unset) |  |  | The repository root the server reads and writes under (a code snapshot sets it to the repo). |

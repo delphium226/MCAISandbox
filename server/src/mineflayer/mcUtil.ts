@@ -10,6 +10,7 @@ import type { BotAgent, WalkTally } from './botAgent';
 import type { Column } from './mcAtlas';
 import { FALLING, WET, waterloggedEmpty } from './mcBlocks';
 import { timeScale } from './mcRules';
+import { takesDamage } from '../worldMode';
 import { overlaps, type ContentionCode } from '../village';
 
 const { goals } = pathfinderPkg;
@@ -143,6 +144,9 @@ async function walkRetrying(a: BotAgent, goal: InstanceType<typeof goals.Goal>, 
       return walkOnce(a, goal, target, signal, timeoutMs);
     }
     if (!/^no path/.test((e as Error).message)) throw e;
+    // (with fall damage on, MC_WORLD_MODE: an 8-block drop costs 5 health, so only from full health; else 4, the
+    // pathfinder's own limit, a fall of 1 damage, and no retry)
+    if (takesDamage() && (a.bot.health ?? 20) < 20) throw e;
     const drop = moves.maxDropDown;
     moves.maxDropDown = 8;
     try {

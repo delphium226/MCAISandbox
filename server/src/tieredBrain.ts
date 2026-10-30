@@ -885,10 +885,12 @@ export class TieredBrain implements AgentBrain {
         if (!byAgent) this.humanWake = true;
       }
     }
-    if (e.type === 'damage') this.urgent = true;
+    // Damage informs (the next turn sees it in the events); it wakes the model only when the world marks it unhandled (low
+    // health and no reflex at work; a world that does not mark it, the sandbox, wakes as before). A death always wakes
+    if (e.type === 'damage' && e.data?.urgent !== false) this.urgent = true;
     if (e.type === 'death') {
       this.urgent = true;
-      this.replanReason = 'the agent died and lost its items';
+      this.replanReason = `the agent died: ${e.text}`;
     }
     // Another agent's work in the way (E.0's contention codes: the mine busy, S.2; ground reserved; what is left of a
     // material being taken by other gatherers, S.1): not a failure of the plan, the call or the task (no replan count, no

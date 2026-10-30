@@ -543,6 +543,9 @@ export const SETTINGS: readonly Setting[] = [
     describe: '#75: public works may repeat a piece once the unbuilt ones run out (off by default, s43).' },
   { name: 'MC_WORK_BLOCKS', type: 'flag', default: 'off', group: 'choices', live: false, read: 'choose.ts, mineflayer/mcWorld.ts',
     describe: 'MC_WORK_BLOCKS: model decisions paced through the hour (modelCallsLastHour), at most PACE_BURST at a time.' },
+  { name: 'MC_WORLD_MODE', type: 'string', default: 'peaceful', group: 'server', live: false, values: ['peaceful', 'damage', 'easy', 'normal'],
+    read: 'worldMode.ts, choose.ts, memory.ts, mineflayer/mcRules.ts, mineflayer/botAgent.ts, mineflayer/mcUtil.ts',
+    describe: 'The world\'s survival stage (worldMode.ts; peaceful by default, the user\'s 10-30): damage turns on falls, drowning and fire (still peaceful, always day; spawnpoints at the storage, air and fire reflexes, a drop limit of 4); easy and normal are stage (b) and (c) rule sets only. keep_inventory stays on.' },
 ];
 
 const BY_NAME = new Map(SETTINGS.map((s) => [s.name, s]));

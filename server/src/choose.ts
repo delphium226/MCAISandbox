@@ -37,6 +37,7 @@ import { TALK, actFields, payingOn, type ActFields } from './acts';
 import { capFloor, characterAny } from './character';
 import { PROMPT_SELF, basicTag } from './promptSelf';
 import { onSetting, rawSetting } from './settings';
+import { harmLine } from './worldMode';
 import { SKILL_WORDS, skillOf } from './palette';
 
 export const MENU_MAX = 8, PER_KIND_MAX = 2;
@@ -245,7 +246,7 @@ const SYSTEM_PERSONA = ' Choose as the person described would.';
 const SYSTEM_MEMORY = ' Use what you remember where it bears on the choice.';
 /** #172 (MC_PRIMER=on): how the member's world works, in its own terms (both modes; ~250 tokens). */
 export const PRIMER_ON = /^(on|1|true|yes)$/i.test(rawSetting('MC_PRIMER') ?? '');
-export const PRIMER = ' How your world works: you live in a peaceful Minecraft world, with no monsters and no harm; nobody dies. '
+export const PRIMER = ` How your world works: ${harmLine()} `
   + 'A village day lasts about twenty minutes, from dawn to night, and you grow hungry as you work and eat from the shared food. '
   + 'Each option is a whole chore you carry out yourself; once you choose it, the walking, gathering, crafting and placing follow. '
   + 'Only the options listed are possible now: a kind of work that is missing is taken by another member, not possible here '
