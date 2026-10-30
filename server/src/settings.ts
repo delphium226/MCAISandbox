@@ -360,7 +360,7 @@ export const SETTINGS: readonly Setting[] = [
   { name: 'MC_OLLAMA_URL', type: 'string', default: 'http://localhost:11434', group: 'models', live: false, read: 'modelCall.ts, panel.ts',
     describe: 'The Ollama app\'s address.' },
   { name: 'MC_OPEN_STORAGE', type: 'flag', default: 'on', group: 'building', live: false, read: 'huts.ts',
-    describe: 'The open-sided storage hut (MC_OPEN_STORAGE=on; off by default; the user\'s, 10-24): the same footprint, floor, roof, chest, barrel and station spots, but no walls: log posts at the four corners and halfway along each long side (the torches\' and the sign\'s support: a wall torch on a post, the...' },
+    describe: 'The open-sided storage hut (on by default since 10-25, the user\'s; =off turns it off; a checkpoint keeps the hut it was saved with): the same footprint, floor, roof, chest, barrel and station spots, but no walls: log posts at the four corners and halfway along each long side (the torches\' and the sign\'s support: a wall torch on a post, the...' },
   { name: 'MC_ORE_MINE', type: 'flag', default: 'off', group: 'ladder', live: false, requires: ['MC_IRON_AGE'], read: 'ladderFlags.ts',
     describe: 'MC_ORE_MINE (with MC_IRON_AGE): the iron levels follow the iron seen (short drifts to ore seen near the tunnels, turns and next levels toward it, levels 6 apart down to y -8) instead of fixed patterns only, up to 8,000 cells in all.' },
   { name: 'MC_ORE_VEIN', type: 'flag', default: 'off', group: 'ladder', live: false, read: 'mineflayer/mcMine.ts',
