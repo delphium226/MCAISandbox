@@ -1,6 +1,8 @@
 // G7 (#40): the talk call on people's lines to the Mayor and to a member, with playerTalk.ts' real system prompt, tool and
 // user prompt, several times each: does the Mayor build what is on its list (with the place words kept), refuse what is
 // not with a reason, just talk to a greeting; does a member promise a chore off its menu, pass a building to the Mayor?
+// #179: a house "here" keeps its place words; a status question is answered from "Their requests now" (nothing under way:
+// no "being built"; mid-build: neither "not started" nor "finished"), with no place the facts do not give.
 // Run: node node_modules/tsx/dist/cli.mjs scripts/bench/requestbench.mts [model] [times] (default gpt-oss:120b-cloud,
 // 6 times; N for the count). ONLY=regex picks cases; PEEK=1 prints the raw tool calls.
 import { offerWorks, parseRespond, talkSystem, talkTool, talkUser, workWords, type TalkCtx, type WorkOffer } from '../../server/src/playerTalk';
@@ -26,6 +28,14 @@ const MENU = [
 ];
 const member = (lines: string[]) => talkUser({ agent: 'Ada', role: 'member', village: 'Minevale3', persona, from: 'SausageOfDoom4', lines, history: [], state, options: MENU });
 
+// (#179: train 13's r1 as the Mayor's facts gave it then, waiting for growth's back-off, and the same street mid-build)
+const R1 = 'mayor, please build a house here', WHAT = 'a street of houses for the 14 members without one';
+const histWait = [`20 min ago to Mayor: "${R1}" -> accepted, not started yet: the street is laid out when growth is free; building rests 6 more min after a failed layout (${WHAT} here)`];
+const statusWait = [`r1, ${WHAT} (asked 20 min ago): accepted, not started yet: the street is laid out when growth is free; building rests 6 more min after a failed layout; asked here (west of the village, ~40 blocks)`];
+const histMid = [`20 min ago to Mayor: "${R1}" -> being built (${WHAT} here)`];
+const statusMid = [`r1, ${WHAT} (asked 20 min ago): being built, 2 of 4 built; west of the village, ~45 blocks, ~10 blocks from the place asked`];
+const CLAIMS = /(being built|under way|underway|rising|going up|right where|under construction|we('re| are) building|builders are|(is|are) being (built|raised|put up))/i;
+
 type R = ReturnType<typeof parseRespond>;
 const CASES: Array<[string, 'mayor' | 'member', string, (r: R) => boolean]> = [
   ['mayor: library by the river', 'mayor', mayor(['Mayor, could you build a library by the river?']), (r) => r?.kind === 'build' && /library/.test(r.work ?? '') && /river/.test(`${r.place ?? ''}`)],
@@ -35,6 +45,11 @@ const CASES: Array<[string, 'mayor' | 'member', string, (r: R) => boolean]> = [
   ['mayor: hello (chat)', 'mayor', mayor(['hello Mayor! how is the village doing?']), (r) => r?.kind === 'chat' && !!r.say],
   ['mayor: more houses', 'mayor', mayor(['Mayor, we need more houses for everyone']), (r) => r?.kind === 'build' && /^houses?$/i.test(r.work ?? '')],
   ['mayor: stable here, busy', 'mayor', mayor(['mayor, put a stable right here'], { state: [...state, 'the public work temple is being built'] }), (r) => r?.kind === 'build' && /stable/.test(r.work ?? '') && /here/.test(r.place ?? '')],
+  ['mayor: a house here (#179)', 'mayor', mayor([R1]), (r) => r?.kind === 'build' && /^(houses?|homes?)$/i.test(r.work ?? '') && /here/i.test(r.place ?? '')],
+  ['mayor: where? nothing under way (#179)', 'mayor', mayor(['what happened to the house I asked for?', 'where?'], { history: histWait, status: statusWait, state: [...state, 'growth rests after a failed street'] }),
+    (r) => r?.kind === 'chat' && !!r.say && !CLAIMS.test(r.say)],
+  ['mayor: how is it going, mid-build (#179)', 'mayor', mayor(["how's my house coming along?"], { history: histMid, status: statusMid, state: [...state, 'a street of houses is being built'] }),
+    (r) => r?.kind === 'chat' && !!r.say && !/(not (yet )?started|hasn't started|haven't started|finished|complete[ds]?\b|all built)/i.test(r.say)],
   ['member: logs (promise)', 'member', member(['Ada, can you get me some logs?']), (r) => r?.kind === 'promise' && r.option === 'gather:logs'],
   ['member: bake bread (promise)', 'member', member(['Ada, we are hungry, could you bake some bread']), (r) => r?.kind === 'promise' && r.option === 'make:bread'],
   ['member: a church (forward)', 'member', member(['Ada, can the village build a church?']), (r) => r?.kind === 'forward'],

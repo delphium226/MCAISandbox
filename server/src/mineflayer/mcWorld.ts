@@ -97,7 +97,7 @@ import { GEN_HOMES, PLAIN_CHOICE, characterChoice, describeStyle, familyKey, fit
 import { HOME_DESIGN, castDesign, castProgram, characterOf, designNote, inHoldout, villageForms, type DesignContext, type DesignResult, type ProgramResult } from '../homeDesign';
 import { generateDesign } from '../buildingGen';
 import { applyWrites } from '../memory';
-import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, etaMinutes, historyLines, initTalk, matchWork, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, talkSystem, talkTool, talkUser, updateRequest, workWords, type PlayerRequest, type Respond, type WorkOffer } from '../playerTalk';
+import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, etaMinutes, historyLines, initTalk, isStatusQuestion, matchWork, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, statusLines, talkSystem, talkTool, talkUser, updateRequest, workWords, type PlayerRequest, type ReqProgress, type Respond, type WorkOffer } from '../playerTalk';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
@@ -112,7 +112,7 @@ import { DYE_BED, DYE_FLOWERS, DYE_REACH, TALL_FLOWERS, dyeRecipes, makeableColo
 import { DETAIL_COLOURS } from '../gothicGen';
 import { stoneStandIn, DEEP_BLOCKS, deepStandIn, GEM_STAND, DYE_FAILS, DYE_WAIT_MIN, dyeStandIn, dyeStood, furnishLeaveOut, leftOutItems, refurnishOn, COPPER_ROOF, COPPER_BLOCKS, copperFrom, copperOn, copperReached, copperStandIn, reroofReturns } from '../monument';
 import { DEEP_KEEP, deepenForStone, setKeepCopper } from './mcMine';
-import { DIAMONDS_ON, PICK_DIAMONDS, deepChain, deepDigBlocked, deepDigWords, deepenForDiamonds, diamondCounts, diamondForgeNeed, hasIronPick } from './mcDiamond';
+import { DIAMONDS_ON, PICK_DIAMONDS, deepChain, deepDigBlocked, deepDigWords, deepenForDiamonds, diamondCounts, diamondForgeNeed, hasIronPick, ironFirstFact } from './mcDiamond';
 import { MORE_MINES, moreMinesDue } from '../mineSite';
 /** #162: minutes (game time) a stage waits for a quarried stone before the rest stands in as another. */
 const STONE_WAIT_MIN = 6;
@@ -1175,7 +1175,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (#22, MC_DIAMOND_AGE: a finished level is laid deeper while the village wants diamonds, so the dig stays offered; no
     // world test from here, the browsing member may be far from the mine: the stairs test the ground as they go)
     if (DIAMONDS_ON && ironDone(m, now)) deepenForDiamonds(this.villages, v, undefined, now);
-    const pickless = deepDigBlocked(v, hasIronPick(a), store), deep = deepDigWords(v, store);
+    const pickless = deepDigBlocked(v, hasIronPick(a), store), deep = deepDigWords(v, store), first = ironFirstFact(v);
     if (ironDone(m, now)) why.push('iron level finished');
     else if (stairsBy) why.push(`the iron stairs being dug by ${stairsBy}`);
     else if (monumentBusy && raw + ingots >= IRON_MONUMENT_ENOUGH && !deep) why.push(`iron enough while the monument is built (${raw + ingots} stored)`);
@@ -1186,7 +1186,7 @@ export class MineflayerWorld implements WorldAdapter {
       added++;
       add({
         id: 'iron:dig', kind: 'iron', key: `irondig:${slot}`, excludes: [`irondig:${slot}=`], name: deep?.name ?? 'Dig for iron in the mine', rank: 700,
-        facts: `${deep ? `${deep.facts}; ` : ''}${raw} raw iron and ${ingots} iron ingots in storage; the iron level ${m.iron ? `${m.iron.level !== undefined ? `at y ${m.iron.level}, ` : ''}${m.iron.dug} cells dug` : 'not started'}${others('iron', 'iron:dig')}; ${record('iron')}${lastOf('iron', 'iron:dig')}`,
+        facts: `${deep ? `${deep.facts}; ` : first ? `${first}; ` : ''}${raw} raw iron and ${ingots} iron ingots in storage; the iron level ${m.iron ? `${m.iron.level !== undefined ? `at y ${m.iron.level}, ` : ''}${m.iron.dug} cells dug` : 'not started'}${others('iron', 'iron:dig')}; ${record('iron')}${lastOf('iron', 'iron:dig')}`,
         effect: deep?.effect ?? `raw iron for the smelters (${raw} in storage)`,
       }, { kind: 'iron', stage: 'dig', tool: '', iron: raw });
     }
@@ -2651,7 +2651,9 @@ export class MineflayerWorld implements WorldAdapter {
     const own = owners.length ? { owners, family, ...designs } : undefined;
     if (HOME_DESIGN.mode !== 'character') this.homeDesigns.delete(v.name);
     const pick = pickHouses(v, n, lib, (d) => this.materialTasks(d, d.name).units ?? 0, only, WOOD_VARIANTS ? (style ? parseStyle(style).wood : undefined) ?? this.nextHoodWood(v, n) : undefined, own);
-    const styled = style ? { style } : {};
+    // (#179: a street a person asked for at a place is laid out near it)
+    const asked = v.growth?.request?.near;
+    const styled = { ...(style ? { style } : {}), ...(asked ? { near: `${asked.x},${asked.z}` } : {}) };
     // With neighbourhood farms (s30's D2): the pad ladder, fields where the biome allows one (the village's library biome,
     // else the biome the agent's view has at home: a staged village has no library biome, lens 2 L5), and not once a
     // neighbourhood's field was refused for the biome (that holds for the village: a field-sized pad for no field took the
@@ -6129,7 +6131,7 @@ export class MineflayerWorld implements WorldAdapter {
    * #35: a person's line from the API or the panel. Shown in the game as their chat; without `to` routed as an in-game
    * line, with `to` (a village: its Mayor; or a member) answered by that agent wherever it is.
    */
-  async playerSay(from: string, text: string, to?: string): Promise<{ ok: true; to?: string; request?: string } | { error: string }> {
+  async playerSay(from: string, text: string, to?: string, at?: { x: number; y: number; z: number }): Promise<{ ok: true; to?: string; request?: string } | { error: string }> {
     if (!PLAYER_TALK.on) return { error: 'MC_TALK is off' };
     if (!/^[A-Za-z0-9_]{1,16}$/.test(from) || this.isAgent(from)) return { error: 'from must be a player name, not an agent\'s' };
     const line = text.replace(/\s+/g, ' ').trim().slice(0, 256);
@@ -6147,7 +6149,7 @@ export class MineflayerWorld implements WorldAdapter {
       this.chatQueue = this.chatQueue.then(() => this.routeChat(from, line)).catch((e: unknown) => console.error('[chat] routing failed:', e));
       return { ok: true };
     }
-    const pos = await this.speakerAt(from);
+    const pos = at ? new Vec3(at.x, at.y, at.z) : await this.speakerAt(from);
     a.pushEvent('chat', `<${from}> ${line}`, { from, text: line, talk: true });
     const r = this.talkHeard(a, from, line, pos);
     return { ok: true, to: a.name, ...(r ? { request: r.id } : {}) };
@@ -6242,8 +6244,10 @@ export class MineflayerWorld implements WorldAdapter {
         options = [];
       }
     }
-    const user = talkUser({ agent: a.name, role, village: v.name, persona, from: r.from, lines: rs.map((x) => x.text), history: historyLines(v.name, r.from, now, 5, r.id).filter((_, i, xs) => i >= xs.length - 5),
-      state: this.talkState(v), ...(offers ? { works: offers } : {}), ...(options ? { options } : {}), ...(r.via ? { via: r.via } : {}) });
+    // (#179: the person's requests as the world shows them now, not the ledger's word for "under way")
+    const history = historyLines(v.name, r.from, now, 5, r.id, (q) => (q.status === 'queued' || q.status === 'under_way' ? this.talkProgress(v, q, now).state : undefined));
+    const user = talkUser({ agent: a.name, role, village: v.name, persona, from: r.from, lines: rs.map((x) => x.text), history,
+      state: this.talkState(v), status: this.talkStatus(v, r.from, now), ...(offers ? { works: offers } : {}), ...(options ? { options } : {}), ...(r.via ? { via: r.via } : {}) });
     const res = await callModel({ spec, system: talkSystem(role), user, tools: [talkTool(role)], level: REASONING.talk, agent: a.name, kind: 'talk', priority: 'human' });
     const p = parseRespond(res.reply as { calls?: Array<{ name: string; input: Record<string, unknown> }>; text?: string }, role);
     if (!p) {
@@ -6265,8 +6269,12 @@ export class MineflayerWorld implements WorldAdapter {
       this.talkSay(a.name, line);
     };
     if (p.kind === 'chat') {
-      updateRequest(r.id, { kind: 'chat', status: 'chat', say: p.say, answer: p.say, closed: now });
-      if (p.say) this.talkSay(a.name, p.say);
+      // (#179: a question about the person's requests gets code's facts after the model's line: train 13's Mayor said
+      // "being built right where you marked" while nothing was)
+      const facts = isStatusQuestion(r.text) ? this.talkStatus(v, r.from, now) : [];
+      const line = facts.length ? answerLine(p.say, facts.at(-1)!.replace(/^r\d+, /, '')) : p.say;
+      updateRequest(r.id, { kind: 'chat', status: 'chat', say: p.say, answer: line, closed: now });
+      if (line) this.talkSay(a.name, line);
       return;
     }
     // (a Mayor's refusal names what the village could build instead, when the model's reason does not)
@@ -6294,13 +6302,20 @@ export class MineflayerWorld implements WorldAdapter {
     const check = this.talkBuildCheck(v, r, p, offers);
     if ('why' in check) return refuse(check.why);
     updateRequest(r.id, { kind: 'build', status: 'queued', say: p.say, answer: answerLine(p.say, check.facts), piece: check.piece, what: check.what, eta: check.eta, units: check.units, ...(check.place ? { place: check.place } : {}) });
+    // (#179: joined to the street already asked for: its place set, followed from now as growth lays it out)
+    if (check.join && v.growth?.request && check.place?.x !== undefined) {
+      v.growth.request.near = { x: check.place.x, z: check.place.z! };
+      this.villages.save();
+      updateRequest(r.id, { status: 'under_way', started: now });
+      console.log(`[talk] ${v.name}: ${r.from}'s ${r.id} puts the street already asked for (by ${v.growth.request.by}) near ${check.place.x},${check.place.z}`);
+    }
     this.talkSay(a.name, answerLine(p.say, check.facts));
     if (MEMORY.on) applyWrites(v.name, a.name, { remember: `${r.from} (a person) asked for ${check.what}${check.place ? ` ${check.place.words}` : ''}; I said yes` }, 'world', now);
   }
 
   /** #37/#38: the work named checked, placed and timed; or why not. */
   private talkBuildCheck(v: Village, r: PlayerRequest, p: Respond, offers: WorkOffer[]):
-    { piece: string; what: string; units: number; eta: number; facts: string; place?: NonNullable<PlayerRequest['place']> } | { why: string } {
+    { piece: string; what: string; units: number; eta: number; facts: string; place?: NonNullable<PlayerRequest['place']>; join?: boolean } | { why: string } {
     const g = v.growth;
     const asked = (p.work ?? '').trim();
     if ((g?.projectFails ?? 0) >= 3) return { why: 'our last public works failed, and building rests for now' };
@@ -6310,9 +6325,17 @@ export class MineflayerWorld implements WorldAdapter {
     if (/^(houses?|homes?|a street of houses)$/i.test(asked)) {
       const homeless = HOUSING ? this.homeless(v).length : 0;
       if (!HOUSING || !homeless) return { why: 'every member has a house already' };
-      if (g?.request) return { why: 'a street of houses is already asked for' };
+      // (#179: the person's place too, as a work's: the street is laid out as near it as there is room)
+      const place = this.talkPlace(v, r, p.place), home = villageHome(v);
+      const where = place?.x !== undefined && home ? `, as near ${place.words} as there is room (${bearing(home, { x: place.x, z: place.z! })})${place.note ? `; ${place.note}` : ''}` : place?.note ? `; ${place.note}` : ', where the next street has room';
+      // (a street already asked for and not yet laid out takes the person's place when it has none: the request joins it)
+      if (g?.request) {
+        if (place?.x === undefined || g.request.near) return { why: 'a street of houses is already asked for' };
+        const what = `the street of houses already asked for (${homeless} member${homeless > 1 ? 's' : ''} without one)`;
+        return { piece: 'houses', what, units: 0, eta: 0, place, join: true, facts: `${what}${where}${g.active ? `, ${busy}` : ''}` };
+      }
       const what = `a street of houses for the ${homeless} member${homeless > 1 ? 's' : ''} without one`;
-      return { piece: 'houses', what, units: 0, eta: 0, facts: `${what}${busy ? `, ${busy}` : ''}` };
+      return { piece: 'houses', what, units: 0, eta: 0, place: place ?? undefined, facts: `${what}${where}${busy ? `, ${busy}` : ''}` };
     }
     const w = matchWork(offers, asked);
     if (!w) return { why: `we cannot build ${asked ? `"${asked}"` : 'that'} here; we could build ${offers.slice(0, 5).map((x) => x.words).join(', ')}` };
@@ -6389,10 +6412,14 @@ export class MineflayerWorld implements WorldAdapter {
         } else if (!started && v.complete) started = this.talkStart(v, r, now);
       } else if (r.status === 'under_way') {
         if (r.piece === 'houses') {
+          // (#179: the street's layout, for where and how far along)
+          if (r.layout === undefined && g?.active && !g.active.project && g.active.at >= (r.started ?? 0) - 1000) updateRequest(r.id, { layout: g.active.layout });
           const past = g?.past.find((x) => !x.project && x.at >= (r.started ?? 0) - 1000);
           if (past) {
             updateRequest(r.id, { status: past.why === 'built' ? 'done' : 'failed', outcome: `${past.built} houses built`, closed: now });
-            tell(`${r.from}, ${past.why === 'built' ? 'the new houses you asked for are finished' : `the houses you asked for stopped (${past.built} built)`}.`);
+            if (r.layout === undefined) updateRequest(r.id, { layout: past.layout });
+            const where = this.talkProgress(v, { ...r, status: 'done' }, now).where;
+            tell(`${r.from}, ${past.why === 'built' ? 'the new houses you asked for are finished' : `the houses you asked for stopped (${past.built} built)`}${where && past.why === 'built' ? `, ${where}` : ''}.`);
           } else if (!g?.request && !g?.active && now - (r.started ?? now) > (20 * 60000) / scale) updateRequest(r.id, { status: 'failed', outcome: 'growth did not lay the houses out', closed: now });
           continue;
         }
@@ -6415,13 +6442,64 @@ export class MineflayerWorld implements WorldAdapter {
     }
   }
 
+  /** #179: a person's requests now, as facts (statusLines). */
+  private talkStatus(v: Village, from: string, now: number): string[] {
+    return statusLines(v.name, from, now, (q) => this.talkProgress(v, q, now));
+  }
+
+  /** #179: what the world shows of a request now: its state, where (the layout's place, else the place asked), how far
+   *  along (the layout's Build tasks done). Never more than the records hold. */
+  private talkProgress(v: Village, r: PlayerRequest, now: number): ReqProgress {
+    const g = v.growth, home = villageHome(v);
+    const mins = (ms: number) => Math.max(1, Math.round(ms / 60000));
+    // (where: the layouts' centre from home and, for a place asked, each one's distance from it: a street laid outward is
+    // a layout a house, from the request's first to the next growth layout)
+    const at = (ls: Area | Area[]) => {
+      const cs = (Array.isArray(ls) ? ls : [ls]).map((a) => ({ x: Math.round((a.x1 + a.x2) / 2), z: Math.round((a.z1 + a.z2) / 2) }));
+      const c = { x: Math.round(cs.reduce((t, q) => t + q.x, 0) / cs.length), z: Math.round(cs.reduce((t, q) => t + q.z, 0) / cs.length) };
+      const offs = r.place?.x !== undefined ? cs.map((q) => Math.round(Math.hypot(q.x - r.place!.x!, q.z - r.place!.z!) / 5) * 5).sort((p, q) => p - q) : [];
+      const off = !offs.length ? '' : offs[0] === offs.at(-1) ? `, ~${offs[0]} blocks from the place asked` : `, ${cs.length} buildings ~${offs[0]}-${offs.at(-1)} blocks from the place asked`;
+      return `${home ? bearing(home, c) : `at ${c.x},${c.z}`}${off}`;
+    };
+    const asked = r.place?.x !== undefined && home ? `asked ${r.place.words} (${bearing(home, { x: r.place.x, z: r.place.z! })})` : r.place?.note;
+    const next = r.layout === undefined ? undefined : Math.min(...[...(g?.past ?? []), ...(g?.active ? [g.active] : [])].map((q) => q.layout).filter((n) => n > r.layout!), (v.layouts?.length ?? 0) + 1);
+    const lays = r.layout !== undefined && r.piece === 'houses' ? (v.layouts ?? []).slice(r.layout - 1, next! - 1) : [];
+    const lay = lays.length ? lays : r.layout !== undefined ? v.layouts?.[r.layout - 1] : undefined;
+    const act = g?.active && r.layout !== undefined && g.active.layout === r.layout ? g.active : undefined;
+    const rests = (until?: number) => (until && until > now ? `; building rests ${mins(until - now)} more min after a failed layout` : '');
+    switch (r.status) {
+      case 'promised': return { state: `promised by ${r.to}${r.due ? `, due ${r.due > now ? `in ${mins(r.due - now)} min` : 'now'}` : ''}` };
+      case 'kept': return { state: `done ${mins(now - (r.closed ?? now))} min ago` };
+      case 'broken': return { state: `not done: ${r.outcome ?? 'not in time'}` };
+      case 'refused': return { state: `refused: ${r.reason ?? ''}` };
+      case 'failed': return { state: `could not be built: ${r.outcome ?? 'it stopped'}`, ...(lay ? { where: at(lay) } : {}) };
+      case 'done': return { state: `finished ${mins(now - (r.closed ?? now))} min ago`, ...(lay ? { where: at(lay) } : asked ? { where: asked } : {}) };
+      case 'queued': {
+        const before = g?.active ? `after the ${g.active.project ? workWords(g.active.project) : 'street of houses'} under way` : g?.work?.piece ? `after the ${workWords(g.work.piece)} the village voted for` : 'waiting its turn';
+        return { state: `accepted, not started yet: ${before}${rests(r.piece === 'houses' ? g?.backoff : g?.projectBackoff)}`, ...(asked ? { where: asked } : {}) };
+      }
+      case 'under_way': {
+        if (act) {
+          const done = act.builds.filter((id) => v.tasks.find((t) => t.id === id)?.status === 'done').length;
+          return { state: 'being built', done, of: act.builds.length, where: at(lays.length ? lays : act.plot) };
+        }
+        if (r.piece === 'houses') {
+          if (g?.request) return { state: `accepted, not started yet: the street is laid out when growth is free${rests(g.backoff)}`, where: asked ?? 'where the next street has room' };
+          return { state: 'not under way: no street of houses is being built now', ...(asked ? { where: asked } : {}) };
+        }
+        return { state: r.layout === undefined ? 'being laid out' : 'being built', ...(lay ? { where: at(lay) } : asked ? { where: asked } : {}) };
+      }
+      default: return { state: r.status };
+    }
+  }
+
   /** A queued request's layout started when the village is free (never over a voted work, a vote or growth); true if so. */
   private talkStart(v: Village, r: PlayerRequest, now: number): boolean {
     const g = (v.growth ??= { past: [] });
     if (g.active || g.work?.piece || this.voting.get(v.name) || growBusy.has(v.name) || this.growQueued(v, now) || (this.growError.get(v.name) ?? 0) > now || (g.projectBackoff ?? 0) > now) return false;
     if (r.piece === 'houses') {
       if (g.request) return false;
-      g.request = { by: `request:${r.id}`, at: now };
+      g.request = { by: `request:${r.id}`, at: now, ...(r.place?.x !== undefined ? { near: { x: r.place.x, z: r.place.z! } } : {}) };
       this.villages.save();
       updateRequest(r.id, { status: 'under_way', started: now });
       console.log(`[talk] ${v.name}: ${r.from}'s ${r.id} asks growth for a street of houses`);

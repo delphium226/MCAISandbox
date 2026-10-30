@@ -7,6 +7,8 @@
  * - the chain laid deep by landings: aim 40 below or the diamond level, `aboveY` and `diamond` on the leg, none at the
  *   diamond level, none while the rung is not current, none while the stairs still go down;
  * - who the next diamond pickaxe is for, and the iron pickaxe gate;
+ * - #180: with fewer than 3 iron pickaxes given, iron comes first: no deepening, the iron dig's own words, no gate, no
+ *   false "every deep miner has a diamond pickaxe";
  * - with MC_DIAMOND_AGE=off (a second run of this file): the stages are words, nothing deepens.
  * Usage: node node_modules/tsx/dist/cli.mjs scripts/checks/diamond_unit.mts (sets MC_LADDER and MC_IRON_AGE itself)
  */
@@ -28,10 +30,12 @@ const ok = (cond: boolean, what: string) => {
   console.log(`${cond ? 'ok  ' : 'FAIL'} ${what}`);
 };
 const reg = { note: () => undefined, save: () => undefined };
-/** A village on the diamond rung, its chain's current level at `level` (its stairs from 6 above), finished or not. */
-const make = (level: number | undefined, current = 'diamond'): Village => {
+/** A village on the diamond rung, its chain's current level at `level` (its stairs from 6 above), finished or not;
+ *  `picks` members given an iron pickaxe (3: enough for the deep miners, #180). */
+const make = (level: number | undefined, current = 'diamond', picks = 3): Village => {
   const iron = { x: 0, z: 0, y: (level ?? -10) + 6, dir: [1, 0], steps: level === undefined ? 3 : 6, level, legs: level === undefined ? [] : [{ x: 6, z: 0, y: level, dir: [1, 0], dug: 0, ended: [] }], dug: 40, got: {} };
   const v = { name: 'T', complete: true, mine: { top: { x: 0, z: 0 }, hut: { x1: -2, z1: -2, x2: 2, z2: 2 }, dir: [1, 0], level: 57, steps: 9, dug: 0, ended: [], got: {}, iron } } as unknown as Village;
+  v.mine!.ironGiven = ['Ada', 'Ben', 'Cara'].slice(0, picks).map((to) => ({ item: 'iron_pickaxe', to, by: 'Dan', at: 1 }));
   L.ladderOf(v, 1)!;
   if (current) L.chooseRung(v, current as never, [current as never], 2);
   return v;
@@ -119,6 +123,19 @@ ok(D.deepDigBlocked(f, false, {}) === 'the deep level needs an iron pickaxe' && 
 ok(D.deepDigBlocked(make(-8), false, {}) !== null, 'gated for the whole rung, the landings too');
 ok(D.deepDigBlocked(make(-8, 'letters'), false, {}) === null, 'not on an iron level before the rung');
 ok(D.deepDigWords(f, { diamond: 4 })?.name === 'Dig for diamonds in the deep mine' && D.deepDigWords(make(-8, 'letters'), {}) === null, `the dig's words: ${D.deepDigWords(f, { diamond: 4 })?.facts}`);
+
+// 4b. #180: iron first while the deep miners lack iron pickaxes (train 13: MC_LADDER_START=diamond on a village with none)
+const s0 = make(-8, 'diamond', 0);
+ok(D.deepenForDiamonds(reg, s0) === '' && s0.mine!.iron!.level === -8 && !s0.mine!.ironPast && !s0.mine!.iron!.finished, 'no pickaxes given: the iron level is not closed as a landing');
+ok(D.deepDigBlocked(s0, false, {}) === null && D.deepDigWords(s0, {}) === null, 'no pickaxes: the dig is iron\'s own and open to a stone pickaxe');
+ok(/0 of 3 given\): iron first/.test(D.ironFirstFact(s0)), `the dig's fact: ${D.ironFirstFact(s0)}`);
+const s2 = make(-8, 'diamond', 2);
+s2.mine!.ironGiven!.push({ item: 'iron_pickaxe', to: 'Ben', by: 'Dan', at: 2 });
+ok(D.deepenForDiamonds(reg, s2) === '' && /2 of 3/.test(D.ironFirstFact(s2)), 'two members given pickaxes (one twice): still iron first');
+s2.mine!.ironGiven!.push({ item: 'iron_pickaxe', to: 'Cara', by: 'Dan', at: 3 });
+ok(!!D.deepenForDiamonds(reg, s2) && D.ironFirstFact(s2) === '' && D.deepDigBlocked(s2, false, {}) !== null, 'the third given: the chain goes deep and the gate holds');
+ok(D.ironFirstFact(make(-8, 'letters', 0)) === '' && D.deepDigBlocked(make(-56, 'diamond', 0), false, {}) !== null, 'not before the rung; a deep chain stays gated');
+ok(D.diamondForgeNeed(s0, [{ name: 'Ada', digs: 0 }], 9) === 'no member has dug in the mine yet', `no false "every deep miner has a diamond pickaxe": ${D.diamondForgeNeed(s0, [{ name: 'Ada', digs: 0 }], 9)}`);
 
 // 5. The diamond forge's planner takes diamonds from stock (the world's has no source for them: the block's recipe loops)
 const { default: minecraftData } = await import('minecraft-data');

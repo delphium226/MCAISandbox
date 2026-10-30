@@ -15,7 +15,7 @@
  */
 import { Vec3 } from 'vec3';
 import type { Area, Design, Reservation, Structure, Village } from '../village';
-import { MINE_SUPPORT, deepChain, diamondWanted, hasIronPick, inIronLevel, ironTrip, mineAreas, mineFacesGoing, nearMineFace } from './mcMine';
+import { MINE_SUPPORT, deepChain, deepPicksShort, diamondWanted, hasIronPick, inIronLevel, ironTrip, mineAreas, mineFacesGoing, nearMineFace } from './mcMine';
 import { teleportHome } from './mcRescue';
 import { cellKey, libraryOf, setLibrary, type LibraryCell, type LibraryRecord } from './mcLibrary';
 import { FARM_TRIP_RANGE, PARTS_MAKE, SCOUT_RANGE, STATION_NAMES, STATIONS_TASK, VILLAGE_RANGE, areaText, overlaps, partClaim, preparedAt, signCall, signTask, villageHome, type StationName } from '../village';
@@ -4331,11 +4331,12 @@ async function layOutOutward(a: BotAgent, v: Village, houses: string[], project:
   const hubPad = first.pads!.find((q) => /meeting/.test(q.what)) ?? first.pads![0];
   const hub = { x: Math.round((hubPad.x1 + hubPad.x2) / 2), z: Math.round((hubPad.z1 + hubPad.z2) / 2) };
   const home = first.y ?? v.plots[0]?.y ?? Math.floor(a.bot.entity.position.y);
-  // The area: the pads' extent and 20 round it, at most 72 from the meeting point (the ground a member at home has loaded)
-  const R = 20, M = 72;
+  // The area: the pads' extent and 20 round it, at most 72 from the meeting point (the ground a member at home has loaded);
+  // #179: and 16 round a place a person asked for (train 13's "here" lay past the pads' 20)
+  const R = 20, M = 72, N = 16, near = nearArg(args.near);
   const area = {
-    x1: Math.max(hub.x - M, Math.min(...pads.map((q) => q.x1)) - R), z1: Math.max(hub.z - M, Math.min(...pads.map((q) => q.z1)) - R),
-    x2: Math.min(hub.x + M, Math.max(...pads.map((q) => q.x2)) + R), z2: Math.min(hub.z + M, Math.max(...pads.map((q) => q.z2)) + R),
+    x1: Math.max(hub.x - M, Math.min(...pads.map((q) => q.x1 - R), ...(near ? [near.x - N] : []))), z1: Math.max(hub.z - M, Math.min(...pads.map((q) => q.z1 - R), ...(near ? [near.z - N] : []))),
+    x2: Math.min(hub.x + M, Math.max(...pads.map((q) => q.x2 + R), ...(near ? [near.x + N] : []))), z2: Math.min(hub.z + M, Math.max(...pads.map((q) => q.z2 + R), ...(near ? [near.z + N] : []))),
   };
   const ins = (q: Area, x: number, z: number, n = 0) => x >= q.x1 - n && x <= q.x2 + n && z >= q.z1 - n && z <= q.z2 + n;
   const reg = a.world.villages;
@@ -4371,7 +4372,6 @@ async function layOutOutward(a: BotAgent, v: Village, houses: string[], project:
     return { name: h, width: d.width, depth: d.depth, door, out };
   });
   if (!items.length) throw new Error(`lay_out_houses: no design for ${houses.join(', ')}`);
-  const near = nearArg(args.near);
   const placed = placeOutward({ area, ground: (x, z) => gm.get(`${x},${z}`) ?? null, taken, hub, ...(near ? { near } : {}), home, pads: pads.filter((q) => q.y !== undefined).map((q) => ({ ...q, y: q.y! })), items });
   // (no await from here to the record: D7)
   if (!v.complete || v.growth?.active || (v.growth?.stop && !(project && /house design/.test(v.growth.stop)))) throw new Error('lay_out_houses: the village changed during the survey');
@@ -6160,7 +6160,8 @@ async function digIron(a: BotAgent, args: Record<string, unknown>, signal: Abort
   const v = a.village();
   if (!v?.mine || v.mine.level === undefined) throw new Error('dig_iron: the village has no mine at a level yet');
   // (MC_DIAMOND_AGE: a trip to the deep chain at least 8 minutes: the walk down is some 120 blocks of stairs)
-  const deep = DIAMOND_AGE && IRON_AGE && deepChain(v.mine), gems = DIAMOND_AGE && IRON_AGE && (deep || diamondWanted(v));
+  // (#180: not while iron comes first, the deep miners' pickaxes not yet made: the iron levels are dug with stone ones)
+  const deep = DIAMOND_AGE && IRON_AGE && deepChain(v.mine), gems = DIAMOND_AGE && IRON_AGE && (deep || (diamondWanted(v) && !deepPicksShort(v)));
   const minutes = Math.max(deep ? 8 : 1, args.minutes !== undefined ? Math.max(1, num(args.minutes, 'minutes')) : 6);
   const want = args.want !== undefined ? Math.max(1, Math.floor(num(args.want, 'want'))) : 6;
   const h = v.storageHut;

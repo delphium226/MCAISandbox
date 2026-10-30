@@ -307,6 +307,23 @@ def restore_records(source, villages):
         print(f"{name}: the checkpoint's {len(mine.get('proposals', mine.get('agents', {})))} put back, {len(rest.get('proposals', rest.get('agents', {})))} of other villages kept")
 
 
+def clear_talk(villages):
+    """#179: the talk ledger's requests and people of the reset villages dropped (a checkpoint does not hold them: a request
+    left from an earlier run, "finished", made the Mayor refuse a new one)."""
+    data = read_json(T.TEST / "talk.json", None)
+    if not data:
+        return
+    vs = set(villages)
+    keep = [r for r in data.get("requests", []) if str(r.get("village", "")).lower() not in vs]
+    n = len(data.get("requests", [])) - len(keep)
+    if not n:
+        return
+    data["requests"] = keep
+    data["people"] = [q for q in data.get("people", []) if str(q.get("village", "")).lower() not in vs]
+    write_json(T.TEST / "talk.json", data, indent=1)
+    print(f"talk.json: {n} requests of the reset villages dropped")
+
+
 def save_checkpoint(site, regions, name, force):
     """Copy the site's regions as the stopped test world has them, the villages on them and their atlas summaries into
     mc/testcheckpoints/NAME (the servers must be stopped first, so Paper has saved every chunk)."""
@@ -495,6 +512,7 @@ def main():
         restore_atlas(regions, source)
         if source != T.SNAP:
             restore_records(source, [v["name"].lower() for v in read_json(source / "villages.json", {}).get("villages", [])])
+        clear_talk([v["name"].lower() for v in read_json(T.TEST / "villages.json", {}).get("villages", []) if any(in_regions(a, regions) for a in village_areas(v))])
     if "--no-start" in opts:
         print(f"{'saved' if save else 'restored'}; not started (--no-start)")
         return

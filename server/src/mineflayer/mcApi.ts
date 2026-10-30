@@ -210,10 +210,13 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
   // through code's guard (impossible never accepted, the user's calls deferred, the foundry only for a ticketable
   // capability); the world reports it to the proposer and its backers on its next sweep
   // G7 (MC_TALK, #35): a person's line, as if said in the game (`to`: a village's Mayor or a member answers it wherever
-  // it is); the request ledger with each person's record
+  // it is); the request ledger with each person's record. `pos` {x, y, z}: where the person stands, for "here" when they
+  // are not in the game (staged checks, #179)
   if (parts[1] === 'say' && req.method === 'POST') {
     const b = await readJson(req);
-    const out = await w.playerSay(typeof b.from === 'string' && b.from.trim() ? b.from.trim() : 'SausageOfDoom4', String(b.text ?? ''), typeof b.to === 'string' && b.to.trim() ? b.to.trim() : undefined);
+    const p = b.pos as { x?: unknown; y?: unknown; z?: unknown } | undefined;
+    const pos = p && [p.x, p.y ?? 64, p.z].every((n) => Number.isFinite(Number(n))) ? { x: Number(p.x), y: Number(p.y ?? 64), z: Number(p.z) } : undefined;
+    const out = await w.playerSay(typeof b.from === 'string' && b.from.trim() ? b.from.trim() : 'SausageOfDoom4', String(b.text ?? ''), typeof b.to === 'string' && b.to.trim() ? b.to.trim() : undefined, pos);
     return sendJson(res, 'error' in out ? 400 : 200, out);
   }
   if (parts[1] === 'requests' && req.method === 'GET') {

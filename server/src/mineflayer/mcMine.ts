@@ -2199,6 +2199,18 @@ export const DEEP_TRIP_Y = -40;
 /** Whether the village wants its chain deep: diamond its current rung (MC_DIAMOND_AGE, MC_LADDER, MC_IRON_AGE). */
 export const diamondWanted = (v: Village): boolean => DIAMOND_AGE && IRON_AGE && LADDER && v.ladder?.current === 'diamond';
 
+/** The members given an iron pickaxe or better (the forge's record; one each, however many were forged). */
+export function picksGiven(m: Mine | undefined): number {
+  return new Set((m?.ironGiven ?? []).filter((g) => /^(iron|diamond|netherite)_pickaxe$/.test(g.item)).map((g) => g.to)).size;
+}
+
+/**
+ * #180: the village wants diamonds but fewer than IRON_MINERS members have been given an iron pickaxe (a ladder started on
+ * diamond, or iron reached with few made). The chain is then not laid deep: its iron levels are dug as before, with stone
+ * pickaxes, until the forge has given enough (it gives one to each member who has dug iron).
+ */
+export const deepPicksShort = (v: Village): boolean => diamondWanted(v) && picksGiven(v.mine) < IRON_MINERS;
+
 /** Whether the iron chain's current level is deep (its level, else its stairs' aim, at or below DEEP_TRIP_Y). */
 export function deepChain(m: Mine | undefined): boolean {
   const i = m?.iron;
@@ -2220,6 +2232,8 @@ export function chainDeepest(m: Mine | undefined): number | null {
 export function deepenForDiamonds(reg: { note: (v: Village, s: string) => void; save: () => void }, v: Village, a?: BotAgent, now = Date.now()): string {
   const m = v.mine, i = m?.iron;
   if (!m || !i || !diamondWanted(v) || i.level === undefined || i.level <= DIAMOND_Y + 2) return '';
+  // (#180: not before the deep miners' iron pickaxes are made: the iron levels give their iron first)
+  if (deepPicksShort(v)) return '';
   const dm = m as Mine & { diamondTried?: number };
   if (dm.diamondTried && now - dm.diamondTried < DIAMOND_RETRY_MS) return '';
   const was = i.finished;

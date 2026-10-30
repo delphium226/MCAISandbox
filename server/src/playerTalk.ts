@@ -171,10 +171,36 @@ const STATUS_WORDS: Record<ReqStatus, string> = {
   refused: 'refused', promised: 'promised', kept: 'promise kept', broken: 'promise not kept', unanswered: 'not answered',
 };
 
-/** What a person said to this village before and how it went (the talk prompt's memory), newest last. */
-export function historyLines(village: string, from: string, now: number, n = 5, except?: string): string[] {
+/** What a person said to this village before and how it went (the talk prompt's memory), newest last. `state`: the
+ *  world's words for a request's state now (#179: "under_way" for houses meant only "asked growth"), else the ledger's. */
+export function historyLines(village: string, from: string, now: number, n = 5, except?: string, state?: (r: PlayerRequest) => string | undefined): string[] {
   return requestsOf(village).filter((r) => same(r.from, from) && r.id !== except).slice(-n).map((r) =>
-    `${ago(now - r.at)} to ${r.to}${r.via ? ` (via ${r.via})` : ''}: "${r.text.slice(0, 100)}" -> ${STATUS_WORDS[r.status]}${r.what ? ` (${r.what}${r.place?.words ? ` ${r.place.words}` : ''})` : ''}${r.optionName ? ` (${r.optionName})` : ''}${r.reason ? `: ${r.reason.slice(0, 80)}` : ''}`);
+    `${ago(now - r.at)} to ${r.to}${r.via ? ` (via ${r.via})` : ''}: "${r.text.slice(0, 100)}" -> ${state?.(r) ?? STATUS_WORDS[r.status]}${r.what ? ` (${r.what}${r.place?.words ? ` ${r.place.words}` : ''})` : ''}${r.optionName ? ` (${r.optionName})` : ''}${r.reason ? `: ${r.reason.slice(0, 80)}` : ''}`);
+}
+
+// ---- status facts (#179) ----------------------------------------------------------------------------------------------
+
+/** What the world shows of a request now (the world fills it in): its state in words, where, and how far along. */
+export interface ReqProgress { state: string; where?: string; done?: number; of?: number }
+
+/** One request's fact line: what it is, its state, where and how far along; no more than `progress` shows. */
+export function statusFact(r: PlayerRequest, now: number, progress: ReqProgress): string {
+  const what = r.what ?? r.optionName ?? (r.piece === 'houses' ? 'houses' : r.piece ? workWords(r.piece) : 'a request');
+  return `${r.id}, ${what} (asked ${ago(now - r.at)}): ${progress.state}${progress.of ? `, ${progress.done ?? 0} of ${progress.of} built` : ''}${progress.where ? `; ${progress.where}` : ''}`;
+}
+
+/**
+ * #179: a person's builds and promises, open ones and those closed within the last hour (newest `n`), as facts from the
+ * ledger and the world (`progress`): the talk prompt's "their requests now" and a status answer's facts.
+ */
+export function statusLines(village: string, from: string, now: number, progress: (r: PlayerRequest) => ReqProgress, n = 3): string[] {
+  return requestsOf(village).filter((r) => same(r.from, from) && (r.kind === 'build' || r.kind === 'promise') && (!r.closed || now - r.closed < 60 * 60000))
+    .slice(-n).map((r) => statusFact(r, now, progress(r)));
+}
+
+/** A line asking how a request goes ("where?", "what happened to the house", "is it done yet"). */
+export function isStatusQuestion(text: string): boolean {
+  return /(what happened|^\s*where\b|\bwhere (is|are|'s|did|will|was)\b|how long|when will|\b(done|ready|finished|built) yet\b|\bis it (done|ready|finished|built)|\bhow('s| is| are) (the|my|our|it)\b|\bstatus\b|\bprogress\b|any news)/i.test(text);
 }
 
 /** A member's open promises to people (its choice prompt), and the option each tags. */
@@ -285,6 +311,7 @@ const MAYOR_SYSTEM = `You are the Mayor of a Minecraft village whose members are
 - kind=build when they ask the village to build something: work = the id of one work from the list of works we can build that fits what they asked, or "houses" for houses to live in. If nothing on the list fits, use kind=refuse and say in reason what we cannot build and what from the list we could.
 - kind=refuse for what the village cannot do (things not on the list, items or creatures it cannot get, fighting, anything outside this game); reason says why in one plain sentence.
 - kind=chat for greetings, questions and talk that asks nothing to be built: say answers from what you know of the village.
+- About the person's requests (what happened, where, when), say only what "Their requests now" shows: if it says a request is not started, do not say it is being built; give no place it does not give. Code adds the facts after your line.
 - place: copy the person's own words for where it should go ("by the river", "here", "next to the hall"), or leave it empty. Code finds the spot.
 - say: one short friendly line in your own voice. Do not give times, distances or coordinates: code adds them.`;
 
@@ -293,6 +320,7 @@ const MEMBER_SYSTEM = `You are a member of a Minecraft village whose members are
 - kind=forward when they ask for a building or for the village to build something: you pass it to the Mayor, who decides.
 - kind=refuse when nothing on your list does it, or it is outside this game; reason says why in one plain sentence.
 - kind=chat for greetings, questions and talk that asks for nothing: say answers from what you know.
+- About the person's requests (what happened, where, when), say only what "Their requests now" shows. Code adds the facts after your line.
 - say: one short friendly line in your own voice. Do not give times or coordinates: code adds them.`;
 
 export const talkSystem = (role: 'mayor' | 'member') => (role === 'mayor' ? MAYOR_SYSTEM : MEMBER_SYSTEM);
@@ -323,6 +351,8 @@ export interface TalkCtx {
   history: string[];
   /** The village's state in a few lines. */
   state: string[];
+  /** #179: the person's requests now (statusLines), the only facts the answer may give about them. */
+  status?: string[];
   works?: WorkOffer[];
   options?: Array<{ id: string; name: string }>;
   /** A member's line forwarded to the Mayor. */
@@ -335,6 +365,7 @@ export function talkUser(c: TalkCtx): string {
     ...c.persona.filter(Boolean),
     c.state.length ? `The village now:\n${c.state.map((l) => `- ${l}`).join('\n')}` : '',
     c.history.length ? `What ${c.from} asked before, and how it went:\n${c.history.map((l) => `- ${l}`).join('\n')}` : `You have not spoken with ${c.from} before.`,
+    c.status ? `Their requests now (from the village's records; say nothing about them these do not show):\n${c.status.length ? c.status.map((l) => `- ${l}`).join('\n') : '- none open'}` : '',
     c.works ? `Works we can build (id: what, size in units of work):\n${c.works.map((w) => `- ${w.id}: ${w.words} (${w.units})`).join('\n')}\n- houses: a street of houses for members` : '',
     c.options ? `Your chores (id: what):\n${c.options.map((o) => `- ${o.id}: ${o.name}`).join('\n')}` : '',
     `${c.via ? `${c.via} passes on what ${c.from} said to them` : `${c.from} says to you`}:\n${c.lines.map((l) => `"${l}"`).join('\n')}`,

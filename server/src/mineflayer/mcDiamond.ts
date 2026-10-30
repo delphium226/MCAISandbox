@@ -7,7 +7,8 @@
 import type { Village } from '../village';
 import { DIAMOND_AGE, DIAMOND_Y, IRON_AGE, LADDER } from '../ladderFlags';
 import { DIAMOND_DEPTH, type Counter } from '../ladder';
-import { chainDeepest, deepChain, diamondWanted } from './mcMine';
+import { IRON_MINERS } from '../ladderFlags';
+import { chainDeepest, deepChain, deepPicksShort, diamondWanted, picksGiven } from './mcMine';
 
 export { deepChain, deepenForDiamonds, hasIronPick } from './mcMine';
 
@@ -18,10 +19,19 @@ export const DIAMONDS_ON = DIAMOND_AGE && IRON_AGE && LADDER;
 /** A diamond pickaxe's diamonds (the jar's recipe, with 2 sticks). */
 export const PICK_DIAMONDS = 3;
 
+/** #180: whether the village digs iron first for its deep miners' pickaxes (it wants diamonds, has given fewer than
+ *  IRON_MINERS iron pickaxes, and its chain is not yet deep): the iron dig's own words and no pickaxe gate. */
+export const ironFirst = (v: Village): boolean => DIAMONDS_ON && deepPicksShort(v) && !deepChain(v.mine);
+
+/** #180: the iron dig's fact while iron comes first, or ''. */
+export function ironFirstFact(v: Village): string {
+  return ironFirst(v) ? `the deep stairs wait for the deep miners' iron pickaxes (${picksGiven(v.mine)} of ${IRON_MINERS} given): iron first` : '';
+}
+
 /** The dig option's words while the chain is deep or the village wants diamonds; null: iron's own. */
 export function deepDigWords(v: Village, store: Counts): { name: string; facts: string; effect: string } | null {
   const m = v.mine, i = m?.iron;
-  if (!DIAMONDS_ON || !m || !i || !(deepChain(m) || diamondWanted(v))) return null;
+  if (!DIAMONDS_ON || !m || !i || !(deepChain(m) || diamondWanted(v)) || ironFirst(v)) return null;
   const gems = store.diamond ?? 0;
   const where = i.level !== undefined && i.level <= DIAMOND_Y + 2
     ? `the deep level at y ${i.level}, ${i.dug - (i.dugAt ?? 0)} cells dug there`
@@ -36,7 +46,7 @@ export function deepDigWords(v: Village, store: Counts): { name: string; facts: 
 /** Why a member may not take the dig now: the village wants diamonds (or the chain is deep) and it carries no iron
  *  pickaxe, nor does storage hold one (a stone one would dig diamond ore for nothing, in the stairs as in the tunnels). */
 export function deepDigBlocked(v: Village, carriesIronPick: boolean, store: Counts): string | null {
-  if (!DIAMONDS_ON || !(diamondWanted(v) || deepChain(v.mine)) || carriesIronPick) return null;
+  if (!DIAMONDS_ON || !(diamondWanted(v) || deepChain(v.mine)) || carriesIronPick || ironFirst(v)) return null;
   return (store.iron_pickaxe ?? 0) + (store.diamond_pickaxe ?? 0) + (store.netherite_pickaxe ?? 0) > 0 ? null : 'the deep level needs an iron pickaxe';
 }
 
@@ -49,8 +59,11 @@ export function diamondForgeNeed(v: Village, members: Array<{ name: string; digs
   const st = v.ladder;
   if (!DIAMONDS_ON || !st || !(st.current === 'diamond' || st.reached.some((r) => r.rung === 'diamond'))) return '';
   const given = v.mine?.ironGiven ?? [];
-  const miners = members.filter((q) => q.digs >= 1 && !given.some((g) => g.to === q.name && g.item === 'diamond_pickaxe'))
+  const diggers = members.filter((q) => q.digs >= 1);
+  const miners = diggers.filter((q) => !given.some((g) => g.to === q.name && g.item === 'diamond_pickaxe'))
     .sort((p, q) => q.digs - p.digs || p.name.localeCompare(q.name));
+  // (#180: said only when true; train 13's menus said it while no member had dug at all)
+  if (!diggers.length) return 'no member has dug in the mine yet';
   if (!miners.length) return 'every deep miner has a diamond pickaxe';
   if (diamonds < PICK_DIAMONDS) return `diamonds short for a diamond pickaxe (${diamonds} of ${PICK_DIAMONDS})`;
   return { for: miners[0].name };

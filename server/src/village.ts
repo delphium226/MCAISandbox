@@ -650,7 +650,9 @@ export interface Village {
     workRoom?: number;
     /** N.2 (MC_HOUSING): a street of houses asked for (a member's own project, or a vote won: by 'vote'); growth lays out
      *  only on one. */
-    request?: { by: string; at: number; vote?: string };
+    request?: { by: string; at: number; vote?: string;
+      /** #179 (G7): a person's place for the street (lay_out_houses near=). */
+      near?: { x: number; z: number } };
     fails?: number; tries?: number; backoff?: number; noSite?: Array<{ at: number; by: string }>; bad?: Array<Area & { at: number }>; stop?: string };
   /** Buildings of the objective that did not fit on the site: they wait for a second site and plan_layout. */
   unplaced?: string[];

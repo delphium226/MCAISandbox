@@ -148,7 +148,8 @@ export function placeOutward(input: OutwardInput): Array<OutwardPlace | { name: 
                 const g = G[z * W + x];
                 if (!Number.isNaN(g)) cost += Math.max(0, Math.abs(g - y) - k);
               }
-          cost += 1.5 * Math.hypot(sx - (input.near ?? hub).x, sz - (input.near ?? hub).z) + 4 * Math.max(0, Math.abs(y - home) - 2);
+          // (#179: a place asked pulls twice as hard: a staged street of 4 spread 11-47 blocks from it at 1.5)
+          cost += (input.near ? 3 : 1.5) * Math.hypot(sx - (input.near ?? hub).x, sz - (input.near ?? hub).z) + 4 * Math.max(0, Math.abs(y - home) - 2);
           if (!best || cost < best.cost)
             best = { name: it.name, x1, z1, x2, z2, x: x1 + Math.floor(w / 2), z: z1 + Math.floor(d / 2), rotate: rot * 90, door: { x: sx, z: sz }, y, cost: Math.round(cost * 10) / 10 };
         }
