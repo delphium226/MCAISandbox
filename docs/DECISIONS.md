@@ -955,3 +955,8 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 10-30 (the user's) **New feature flags default on**: "from now on - always default new feature flags to be set on". A
   build session's new flag ships `on` (`=off` turns it off); a test train's control arm sets new flags `off` explicitly.
   Flags built before 10-30 keep their defaults until the user decides each.
+- 10-30 (the user's, on the wants spec bf6359f) **Members get wants of their own, as the spec suggests**
+  (runs/2026-10-30/wants/spec.md, draft 2 and 9.7): pursuits chosen by the model from four code candidates or in its own
+  words (unmatched ones become proposals and wishes); rivalry shown only to high-pride members; imitation scaled by
+  sociability; outlet calls for idle members; explore ring 2 only for the pilot; a per-member split as the pilot, then
+  village-wide pairs with a menu-only arm. Flags on by default; build after step 0's census and baseline.

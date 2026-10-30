@@ -476,3 +476,15 @@ differ. (Claude's decisions; the user's choices stay in section 8, revised in 9.
 - Open questions 1-3 and 6 stand. Question 4 (outlet calls) now costs +15-30% tokens on its own; question 5 is "ring
   2 only (320 blocks) for the pilot, or ring 3 too". Added: **8. Does the menu-only arm earn its cost** (a third arm
   in every pair), or is shuffled-pursuit control enough for the pilot?
+
+### 9.7 The user's choices (10-30: "let's go with your suggestions")
+
+1. The model chooses its pursuit from code's four candidates, or describes its own (matched by code, else a proposal).
+2. Rivalry is shown only to members whose temperament leans to it (high pride).
+3. The pull to imitate varies by temperament (sociability).
+4. Idle members get the outlet call (its own call kind, rate-limited, against the token budget).
+5. Explore ring 2 only (320 blocks) for the pilot; ring 3 after the supply census.
+6. Unmatched pursuits go to proposals and the wanted list by default (on, the 10-30 flag rule).
+7. The per-member split first, as a pilot; the village-wide pairs after it.
+8. The menu-only arm runs in the village-wide pair, where it separates the want from the menu; the pilot relies on
+   shadow and shuffled pursuits.
