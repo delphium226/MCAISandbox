@@ -952,3 +952,6 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   to the first member who asks (wealth deciding it waits for coins to be tested); decorations stay code's; whether
   `MC_HOME_DESIGN=model` becomes the default is decided after the test train; the train runs with `MC_MEMORY=on`; a
   design over budget is cut in the member's own ranking.
+- 10-30 (the user's) **New feature flags default on**: "from now on - always default new feature flags to be set on". A
+  build session's new flag ships `on` (`=off` turns it off); a test train's control arm sets new flags `off` explicitly.
+  Flags built before 10-30 keep their defaults until the user decides each.

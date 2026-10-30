@@ -126,6 +126,8 @@ issues live there (moved with their numbers); the public `origin` stays as it wa
   (`.foundry/ID`) holds a `node_modules` junction to the repo's: remove it only with `python scripts/foundry.py --cleanup
   ID --delete-branch`** (plain `git worktree remove` deleted through the junction and emptied the repo's node_modules,
   s38; `npm ci` restores it).
+- **A new feature flag defaults on** (the user's, 2026-10-30): its registry entry's default is `on` and `=off` turns it
+  off; a test train's control arm sets the new flags `off` explicitly.
 - Write prose (README, comments) plainly; match the surrounding comment density. Run logs go in `runs/<date>/`
   (gitignored).
 

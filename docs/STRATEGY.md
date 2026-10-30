@@ -53,8 +53,8 @@ answered, new activities members take up.
 
 ## The milestones, in order
 
-Each is a GitHub milestone. The method is the project's own: spec, adversarial check, build behind a flag (off), the
-offline checks, a staged run, then a model-driven run at 25 (lesson 124).
+Each is a GitHub milestone. The method is the project's own: spec, adversarial check, build behind a flag (on by default
+since 10-30, the user's), the offline checks, a staged run, then a model-driven run at 25 (lesson 124).
 
 1. **G1 Memory and the clock** (goals 4 and 2; #26, done 10-21: `deea7ea`, `1bd83b8`, F272-F273; open: #86). Agent state, a persistent journal, the village clock and
    `respawn_agents.py` (PLAN.md Phase E, E.2), on the G2 design (`docs/research/memory/`). Done when an agent-server
@@ -135,7 +135,7 @@ Every work session:
 - **leaves live testing to the test train** (the user's, 10-24): a build session stops at the offline ladder
   (typecheck, `check:offline`, the goldens, a new check for its piece, a bench or `MC_MODEL_REPLAY` if a prompt
   changed) plus at most one short targeted live check, and only for what needs the real world (walks, digs, placing);
-  it commits with its flag off and reports the flag ready. **The test train** is one test session, started by the
+  it commits with its flag on by default (the user's, 10-30; `=off` turns it off) and reports the flag ready. **The test train** is one test session, started by the
   planning session once or twice a day or after each step on the busiest files: it gathers every flag built since the
   last train into one `run_series` spec, splits per-member features by member inside one run (half the members on, by
   seed) and per-message ones by holdout (as `MC_TALK_HOLDOUT`), pairs village-wide flags on/off with several sharing
