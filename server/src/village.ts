@@ -755,6 +755,23 @@ const BOARD_REFRESH_MS = 1000;
  */
 export const CLAIM_LOOK_MS = 1000;
 
+/** The highest number in any registry-made id (t123, r45, s6, plot78) anywhere in saved villages (#177). */
+export function highestId(villages: unknown): number {
+  let max = 0;
+  const walk = (x: unknown): void => {
+    if (Array.isArray(x)) { for (const y of x) walk(y); return; }
+    if (!x || typeof x !== 'object') return;
+    for (const [k, y] of Object.entries(x as Record<string, unknown>)) {
+      if (k === 'id' && typeof y === 'string') {
+        const m = /^(?:t|r|s|plot)(\d+)$/.exec(y);
+        if (m) max = Math.max(max, Number(m[1]));
+      } else walk(y);
+    }
+  };
+  walk(villages);
+  return max;
+}
+
 export class VillageRegistry {
   villages = new Map<string, Village>();
   private nextId = 1;
@@ -794,7 +811,9 @@ export class VillageRegistry {
   constructor(private file: string) {
     try {
       const data = JSON.parse(fs.readFileSync(file, 'utf8')) as { nextId: number; villages: Village[] };
-      this.nextId = data.nextId ?? 1;
+      // (#177: a checkpoint restored onto a world keeps that world's nextId, which can be below ids the restored
+      // villages already use: never hand out an id lower than the highest one saved)
+      this.nextId = Math.max(data.nextId ?? 1, highestId(data.villages ?? []) + 1);
       for (const v of data.villages ?? []) {
         if (v.mine) upgradeMine(v.mine);
         this.villages.set(v.name.toLowerCase(), v);
