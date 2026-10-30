@@ -2,12 +2,12 @@
  * More mines (#8; spec runs/2026-10-30/mines/spec.md): when the village's mine gives nothing (its stairs stopped short
  * of stone, or every level ended or capped) and the village needs stone or iron, a new mine is opened: code finds an
  * entrance near the village, off every village's work, and an idle member digs its stairs (mcMine's open_mine, mcWorld's
- * mineTick). World-free and pure: the world feeds the ground and the keep-off test. Behind MC_MORE_MINES (off).
+ * mineTick). World-free and pure: the world feeds the ground and the keep-off test. Behind MC_MORE_MINES (on since 10-30).
  */
 import { rawSetting } from './settings';
 
 /** MC_MORE_MINES=on: a new mine opened when the village's mine gives nothing and stone or iron is short. */
-export const MORE_MINES = /^(on|1|true|yes)$/i.test(rawSetting('MC_MORE_MINES') ?? 'off');
+export const MORE_MINES = /^(on|1|true|yes)$/i.test(rawSetting('MC_MORE_MINES') ?? 'on');
 
 /** Mines a village has at most, the first one counted; cobblestone in storage under which stone counts as short. */
 export const MAX_MINES = 4, COBBLE_SHORT = 256;

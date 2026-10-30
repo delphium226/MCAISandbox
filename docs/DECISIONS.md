@@ -963,3 +963,6 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 10-30 (the user's) **Unmatched pursuits go to the triage session first** (wants spec question 6, overriding 9.7's
   point 6): a pursuit the game cannot offer becomes a proposal for the Claude triage session only, not a wanted-list
   entry or a foundry ticket.
+- 10-30 (the user's, after train 12) **The supply flags and more mines on by default**: `MC_FIELD_RIPE=0.5`,
+  `MC_OWN_ROD`, `MC_FLOWER_WANTS`, `MC_MORE_MINES`. Train 12 showed no regression from them (its hunger came from
+  `MC_MERCHANT=off`, #178). `MC_OWN_ROD` acts only with `MC_OWN` on (off by default). choice_golden pins their old values.

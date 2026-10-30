@@ -273,17 +273,17 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_APPETITE` | string | (unset) | yes |  | Appetite: off, or the food points drained a busy game-hour (18 typical). |
 | `MC_APPETITE_IDLE` | number | `0.25` |  |  | The share of the appetite drain while idle. |
 | `MC_APPETITE_START` | number | `20` |  |  | Food points a member starts with (0-20). |
-| `MC_FIELD_RIPE` | number | `0.75` |  |  | The share of a wheat field's grown plants that must be ripe (and 4 at least) before it is offered for harvest; 0.5 gives about 1.5x the harvest options and a tenth more wheat (train 9c's supply gaps). |
-| `MC_FLOWER_WANTS` | flag | `off` |  |  | The flower picking activity is offered for a flower whose dye a good under its keep takes (lilac for magenta dye), counted by that flower's own stock, and picks it. |
+| `MC_FIELD_RIPE` | number | `0.5` |  |  | The share of a wheat field's grown plants that must be ripe (and 4 at least) before it is offered for harvest; 0.5 gives about 1.5x the harvest options and a tenth more wheat (train 9c's supply gaps). |
+| `MC_FLOWER_WANTS` | flag | `on` |  |  | The flower picking activity is offered for a flower whose dye a good under its keep takes (lilac for magenta dye), counted by that flower's own stock, and picks it. |
 | `MC_HOME_BASICS` | flag | `on` |  |  | MC_HOME_BASICS: on by default since 10-24 (the user's, after test train 1); off turns it off. |
-| `MC_MORE_MINES` | flag | `off` |  |  | MC_MORE_MINES=on (#8, off by default): when the village mine gives nothing (stairs short of stone, every level ended or capped) and cobblestone in storage is under 256 or the iron level has no way down, an idle member opens a new mine: code finds an entrance 16-40 from home off every village's work and the member digs its stairs (open_mine); up to 4 mines a village, the old ones kept off. |
+| `MC_MORE_MINES` | flag | `on` |  |  | MC_MORE_MINES (#8, on by default since 10-30): when the village mine gives nothing (stairs short of stone, every level ended or capped) and cobblestone in storage is under 256 or the iron level has no way down, an idle member opens a new mine: code finds an entrance 16-40 from home off every village's work and the member digs its stairs (open_mine); up to 4 mines a village, the old ones kept off. |
 | `MC_NEED_COOLDOWN_MIN` | number | `90` |  |  | Game minutes after a farmstead is laid out before another is offered (a crop cycle and its first harvest). |
 | `MC_NEED_FARMSTEAD` | flag | `off` |  |  | MC_NEED_FARMSTEAD=on: the farmstead (s39) beside the field (s40); off by default: where no 9x9 field pad is left, no 19x19 farmstead pad is either (Night40, the field spec's check 5). |
 | `MC_NEED_FIELD_COOLDOWN_MIN` | number | `45` |  |  | Game minutes after a field work is laid out before another (s40: a crop cycle to its first harvest is ~40). |
 | `MC_NEED_HOLD_MIN` | number | `30` |  |  | Game minutes the flow must stay short before the farmstead is offered (MC_NEED_HOLD_MIN shortens it for tests). |
 | `MC_NEED_WORKS` | flag | `on` |  |  | MC_NEED_WORKS: on (the default since s40, 10-19) or off (0, false). |
 | `MC_NEEDS` | string | (unset) | yes |  | N.1's needs (spec_needs_v2): off; show (measured, logged, on the API and panel); on (also on the menus). |
-| `MC_OWN_ROD` | flag | `off` |  | `MC_OWN` | A member whose own chest holds a fishing rod may go fishing with it while storage has none to spare (out of its chest at its door, back after). |
+| `MC_OWN_ROD` | flag | `on` |  | `MC_OWN` | A member whose own chest holds a fishing rod may go fishing with it while storage has none to spare (out of its chest at its door, back after). |
 
 ## Server and run
 

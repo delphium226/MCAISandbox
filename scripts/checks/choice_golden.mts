@@ -77,6 +77,11 @@ process.env.MC_WORKS_GROW = 'off';
 process.env.MC_PEN_VARIETY ??= 'off';
 // (#122's policy options: on by default since 10-25, off here: the golden is of the menus without the gated options)
 process.env.MC_POLICY_OPTIONS ??= 'off';
+// (the supply flags and #8's more mines: on by default since 10-30, pinned to their old values here)
+process.env.MC_FIELD_RIPE ??= '0.75';
+process.env.MC_OWN_ROD ??= 'off';
+process.env.MC_FLOWER_WANTS ??= 'off';
+process.env.MC_MORE_MINES ??= 'off';
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), 'choice-golden-'));
 const CHOICE_LOG = path.join(SCRATCH, 'choices.jsonl');
 process.env.MCAI_CHOICE_LOG = CHOICE_LOG;
