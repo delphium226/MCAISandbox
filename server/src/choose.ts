@@ -73,15 +73,17 @@ const byRank = (a: ChoiceOption, b: ChoiceOption) => a.rank - b.rank;
  * rank asc), the rest of the room by lp desc then rank asc. A plain lp cut hid every workshop option (ranks 850+) behind
  * 8 older options at the same lp (S.9's review, lens 2 M1).
  */
-export function trimMenu(options: ChoiceOption[], ambition = PROMPT_SELF): ChoiceOption[] {
+export function trimMenu(options: ChoiceOption[], ambition = PROMPT_SELF, pinStep = true): ChoiceOption[] {
   // (G2: an option answering a request or keeping a promise keeps its place, beyond the per-kind limit; MC_HOME_BASICS:
   // so does a basic need of the member's own house)
   // (#117, MC_PROMPT_SELF: and one option for the village's ambition, its best by weight, unless a pinned one feeds it)
   const amb = ambition && !options.some((o) => (o.social || o.basic) && o.vw)
     ? options.filter((o) => o.vw && !o.social && !o.basic).sort((a, b) => (b.lp ?? 1) * weights(b) - (a.lp ?? 1) * weights(a) || byRank(a, b))[0] : undefined;
-  const pinned = options.filter((o) => o.social || o.basic || o === amb);
+  // (the wants spec: and the pursuit's next step, its best one, which a trim would otherwise hide)
+  const step = pinStep && !options.some((o) => (o.social || o.basic || o === amb) && o.step) ? options.filter((o) => o.step && !o.social && !o.basic && o !== amb).sort((a, b) => weights(b) - weights(a) || byRank(a, b))[0] : undefined;
+  const pinned = options.filter((o) => o.social || o.basic || o === amb || o === step);
   if (pinned.length) {
-    const rest = trimMenu(options.filter((o) => !pinned.includes(o)), false);
+    const rest = trimMenu(options.filter((o) => !pinned.includes(o)), false, false);
     return [...pinned.slice(0, MENU_MAX), ...rest.slice(0, Math.max(0, MENU_MAX - pinned.length))].sort(byRank);
   }
   const perKind = new Map<string, number>();
@@ -187,15 +189,18 @@ export function shuffled<T>(xs: T[], seed: string): T[] {
 }
 
 /** Whether an option carries any weight (tw, nw, ww or gw): the fixed pick reads the weights only then. */
-export const weighted = (o: ChoiceOption) => o.tw !== undefined || o.nw !== undefined || o.ww !== undefined || o.gw !== undefined || o.iw !== undefined || o.sw !== undefined || o.cf !== undefined || o.vw !== undefined || o.rw !== undefined;
+export const weighted = (o: ChoiceOption) => o.tw !== undefined || o.nw !== undefined || o.ww !== undefined || o.gw !== undefined || o.iw !== undefined || o.sw !== undefined || o.cf !== undefined || o.vw !== undefined || o.rw !== undefined
+  || o.pmw !== undefined || o.imw !== undefined || o.dbw !== undefined || o.rpw !== undefined;
 /** #79: the cap on an option's weights' product (temperament's top, 2.5 squared), applied when a life goal weighs on it. */
 export const WEIGHT_CAP = 6.25;
 /** An option's weights' product (tw x nw x ww x gw; capped where a goal weighs, so goals off leave it as it was). */
 export const weights = (o: ChoiceOption) => {
-  const p = (o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * (o.gw ?? 1) * (o.iw ?? 1) * (o.sw ?? 1) * (o.cf ?? 1) * (o.vw ?? 1) * (o.rw ?? 1);
+  // (the wants spec: the pursuit's step, the admired member's way, a repayment and pointless repetition beside them)
+  const p = (o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * (o.gw ?? 1) * (o.iw ?? 1) * (o.sw ?? 1) * (o.cf ?? 1) * (o.vw ?? 1) * (o.rw ?? 1)
+    * (o.pmw ?? 1) * (o.imw ?? 1) * (o.dbw ?? 1) * (o.rpw ?? 1);
   // (character v2's B1: with any layer on, every product capped at 6.25 and floored at 0.16)
   if (characterAny()) return capFloor(p);
-  return o.gw !== undefined ? Math.min(WEIGHT_CAP, p) : p;
+  return o.gw !== undefined || o.pmw !== undefined ? Math.min(WEIGHT_CAP, p) : p;
 };
 
 /** A.3p: how much each later kind (in rank order) counts against a temperament's weight in the fixed pick. */
@@ -223,7 +228,7 @@ export function fixedPick(menu: ChoiceMenu): ChoiceOption | undefined {
   // (N.1: a need's weight beside the temperament's)
   // (#69: the member's own wants beside both)
   // (#79, the user's: a life goal's options exempt from the decay)
-  const score = (o: ChoiceOption) => weights(o) * KIND_DECAY ** (o.gw !== undefined ? 0 : place.get(o.kind) ?? 0);
+  const score = (o: ChoiceOption) => weights(o) * KIND_DECAY ** (o.gw !== undefined || o.pmw !== undefined ? 0 : place.get(o.kind) ?? 0);
   for (const o of menu.options) {
     const d = score(o) - score(best);
     if (d > 1e-9 || (Math.abs(d) <= 1e-9 && o.rank < best.rank)) best = o;
@@ -263,7 +268,7 @@ export interface PromptMemory {
  * scale's top for every houseless member, not the member's temperament.
  */
 const tag = (o: ChoiceOption) => (o.tw === undefined || o.kind === 'grow' ? '' : o.tw >= ENJOYED ? ' [you enjoy this]' : o.tw <= DULL ? ' [you find this dull]' : '')
-  + (o.gw !== undefined ? ' [toward your goal]' : '') + (o.basic ? ` ${o.basicNeed ? basicTag(o.basicNeed) : '[a basic need: your own house]'}` : '') + (o.social ? ` ${o.social}` : '') + (o.mark ? ` ${o.mark}` : '') + (o.ruleTag ? ` ${o.ruleTag}` : '') + (o.ladderTag ? ` ${o.ladderTag}` : '') + (o.tradeTag ? ` ${o.tradeTag}` : '');
+  + (o.gw !== undefined && o.pmw === undefined ? ' [toward your goal]' : '') + (o.wantTag ? ` ${o.wantTag}` : '') + (o.basic ? ` ${o.basicNeed ? basicTag(o.basicNeed) : '[a basic need: your own house]'}` : '') + (o.social ? ` ${o.social}` : '') + (o.mark ? ` ${o.mark}` : '') + (o.ruleTag ? ` ${o.ruleTag}` : '') + (o.ladderTag ? ` ${o.ladderTag}` : '') + (o.tradeTag ? ` ${o.tradeTag}` : '');
 
 /** A context line with its label, unless the world wrote the label already. */
 const labelled = (label: string, text: string) => (text.toLowerCase().startsWith(label.toLowerCase()) ? text : `${label}: ${text}`);
@@ -284,10 +289,15 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
   if (ctx.rules?.trim()) lines.push(ctx.rules.trim());
   if (ctx.others?.trim()) lines.push(labelled('Others now', ctx.others.trim()));
   if (ctx.social?.trim()) lines.push(ctx.social.trim());
+  // (the wants spec 5: the one social line after what the others are doing)
+  if (ctx.esteem?.trim()) lines.push(ctx.esteem.trim());
   if (ctx.needs?.length) lines.push(`Village needs: ${ctx.needs.join('; ')}`);
   if (ctx.scarcity?.trim()) lines.push(ctx.scarcity.trim());
   if (ctx.wants?.trim()) lines.push(ctx.wants.trim());
+  // (the wants spec 5: restlessness after the wants, the pursuit where the life goal's line is)
+  if (ctx.restless?.trim()) lines.push(ctx.restless.trim());
   if (ctx.goal?.trim()) lines.push(ctx.goal.trim());
+  if (ctx.pursuit?.trim()) lines.push(ctx.pursuit.trim());
   if (ctx.ladder?.trim()) lines.push(ctx.ladder.trim());
   // (M3, MC_MONUMENT_NEWS: the cathedral's progress, its news and the member's trade)
   if (ctx.monument?.trim()) lines.push(ctx.monument.trim());

@@ -30,7 +30,7 @@ GOLDENS = {
 UNITS = ["board_version", "call_gate", "chat_route", "choose_unit", "model_usage", "save_debounce", "street_plan",
          "light_check", "workshop_check", "gen_designs", "pf_share", "at_goal", "huts_box", "vanilla_tags", "vanilla_recipes",
          "temperament_table", "vote_unit", "activities_unit", "decor_check", "public_works", "small_works",
-         "menu_probe", "needs_unit", "housing", "parts_unit", "needworks_unit", "utilisation_unit", "mine_flow_unit", "merchant_unit", "tech_unit", "goals_unit", "works_grow", "wanted_unit", "own_pending_unit", "own_share_unit", "pay_ledger", "pay_acts", "pay_store", "talk_acts", "flowers_unit", "gardens_unit", "rules_unit", "customs_unit", "law_reading",
+         "menu_probe", "needs_unit", "housing", "parts_unit", "needworks_unit", "utilisation_unit", "mine_flow_unit", "merchant_unit", "tech_unit", "goals_unit", "pursuits_unit", "works_grow", "wanted_unit", "own_pending_unit", "own_share_unit", "pay_ledger", "pay_acts", "pay_store", "talk_acts", "flowers_unit", "gardens_unit", "rules_unit", "customs_unit", "law_reading",
          "ladder_unit", "ladder_letters", "iron_legs_unit", "character_preset", "vanilla_all", "model_pace", "llm_limits", "fixes_all1", "wood_variants", "gen_homes", "open_hut", "make_short", "pads_plan", "grow_outward", "pens_flowers", "gothic_gen", "gothic_detail", "cutter_unit", "cutter_monument", "dye_bed_unit", "castle_gen", "furnish_165", "geode_guard", "deep_stone_unit", "copper_roof_unit", "geode_unit", "dye_stand_in", "decor_slots", "new_shaft", "greens_mix", "home_design", "house_program", "diamond_unit"]
 
 
@@ -90,7 +90,11 @@ def commands():
 # Checks written for a default since changed: the setting they assume (small_works checks the small-work pieces of the
 # default library, before MC_VANILLA_ALL went on by default on 10-25; vanilla_all.mts checks the library with it on; and
 # without #45's gardens, on by default since 10-26, which gardens_unit.mts checks).
-CHECK_ENV = {"small_works": {"MC_VANILLA_ALL": "off", "MC_GARDENS": "off"}}
+# (the wants spec, 10-30: the goldens and the menu checks set up for an empty village are of the picker without the wants;
+# pursuits_unit checks those)
+WANTS_OFF = {"MC_PURSUITS": "off", "MC_ESTEEM": "off", "MC_TITLES": "off", "MC_RESTLESS": "off", "MC_EXPLORE_RINGS": "1"}
+CHECK_ENV = {"small_works": {"MC_VANILLA_ALL": "off", "MC_GARDENS": "off"},
+             **{n: WANTS_OFF for n in ("choice_golden", "board_golden", "palette_golden", "palette_golden:old_board", "policy_options")}}
 
 
 def run(name, cmd, needs, logdir):

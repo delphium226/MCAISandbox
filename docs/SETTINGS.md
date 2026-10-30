@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-244 settings.
+253 settings.
 
 ## Game speed
 
@@ -198,6 +198,9 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_CHARACTER_SEED` | string | `mix` |  |  | The seed that orders which workers get which archetype in a mix: the same seed, the same assignment. |
 | `MC_CLOCK` | flag | `off` |  | `MC_MEMORY` | The village clock in prompts (with MC_MEMORY). |
 | `MC_DAY_MIN` | number | `20` |  |  | A village day (thought durations, decay), as memory.ts' MC_DAY_MIN. |
+| `MC_ESTEEM` | flag | `on` |  |  | The wants spec: esteem from works seen built, pursuits done, help and promises kept; the admired member's way tagged (imw, by sociability); debts and the options that repay them (dbw); one social line (owe, rival or admire). |
+| `MC_ESTEEM_RIVALS` | flag | `on` |  | `MC_ESTEEM` | The wants spec: the rival line (the record's holder on the member's pursuit) for high-pride members. |
+| `MC_EXPLORE_RINGS` | number | `2` |  |  | Survey rings round the village: 1 is the first ring (8 points at FARM_TRIP_RANGE); 2 adds 8 points at twice it, offered without the free-slot condition (the wants spec 9.2.6); 3 a third at three times. |
 | `MC_GAUGES` | flag | `off` |  |  | The character model's gauges layer (default: MC_CHARACTER). |
 | `MC_GOALS` | flag | `off` |  |  | On with MC_GOALS=on. |
 | `MC_GOALS_ONLY` | string | (unset) |  |  | Only these goals (comma list) in members' goal lines. |
@@ -210,11 +213,17 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_MEMORY_QUALITY` | flag | `off` |  | `MC_MEMORY` | Better memory notes (with MC_MEMORY). |
 | `MC_MOOD` | flag | `off` |  |  | The character model's mood layer (default: MC_CHARACTER). |
 | `MC_PROMPT_SELF` | flag | `on` |  |  | #117: the choice prompt's own state, basic needs first. |
+| `MC_PURSUITS` | flag | `on` |  |  | The wants spec (10-30; on by default, the user's rule since 10-30): each member's own pursuit, chosen at night from four code candidates in its own call (kind pursuit) or in its own words (matched, else a proposal), measured by code; the options that take its next step tagged "[your project]" with weight pmw (replacing the goal's gw) and kept by the trim; one prompt line. |
 | `MC_REFLECT` | flag | `on` |  | `MC_MEMORY` | Reflection notes in memory (with MC_MEMORY). |
+| `MC_RESTLESS` | flag | `on` |  |  | The wants spec: restlessness (0-10) from idling with nothing feasible and pointless chores; its prompt line at 4+; pointless repetition tagged (rpw 0.8); an outlet call (kind outlet) at 7+ or with an empty menu: explore further, ask, help, propose, rest at the green. |
 | `MC_SKILL` | flag | `off` |  |  | Skills that grow with practice. |
 | `MC_SKILL_DECAY` | number | `0.98` |  |  | How skill decays a village day. |
 | `MC_SKILL_GAIN` | number | `0.15` |  |  | How skill grows a practised chore. |
+| `MC_TITLES` | flag | `on` |  |  | The wants spec: the village's records on each pursuit and their titles (news when won or taken, beside the holder's name in others' awareness), and the "relied on" line in place of the role line. Off in customs and G4 control arms. |
 | `MC_VALUES` | flag | `off` |  |  | The character model's values layer (default: MC_CHARACTER). |
+| `MC_WANTS` | string | `on` |  |  | on: the wants' lines, tags and weights with the created options and outlets; menu: the created options and outlets only (the village-wide pair's menu-only arm). |
+| `MC_WANTS_FLIP` | flag | `off` |  |  | Reverses MC_WANTS_HOLDOUT's split (the second world of a pilot, so each member is on in one run and off in the other). |
+| `MC_WANTS_HOLDOUT` | number | `0` |  |  | The wants spec's per-member split: this share of members (by a hash of the name) has every want off (shadow pursuits only, never shown). |
 
 ## The ladder of ages
 

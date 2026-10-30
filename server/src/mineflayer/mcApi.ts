@@ -84,7 +84,8 @@ const REPO = rawSetting('MCAI_ROOT') ? path.resolve(rawSetting('MCAI_ROOT')!) : 
 function wantedOf(w: MineflayerWorld, v: Village) {
   return wantedList(v, {
     items: w.registry.itemsArray.map((it) => it.name), plan: (b) => w.materials.plan(b), skills: new Set(Object.keys(MC_SKILLS)),
-    activitySkills: new Set(w.library.specs.map((s) => s.skill)), now: Date.now(), proposals: allProposals(v.name),
+    // (the user's, 10-30: an unmatched pursuit's proposal is for the triage session only, never the wanted list's demand)
+    activitySkills: new Set(w.library.specs.map((s) => s.skill)), now: Date.now(), proposals: allProposals(v.name).filter((p) => p.source !== 'pursuit'),
   });
 }
 

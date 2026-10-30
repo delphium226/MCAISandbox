@@ -21,6 +21,7 @@ import { PROPOSALS_ON, addProposal, allProposals, endorse, parsePropose, propose
 import { refusedSince } from './acts';
 import { RULES, addLaw, backLaw, classOf, lawFrom, laws, putClassOf, ruleResults, rulesInForce, type Law } from './rules';
 import { rawSetting } from './settings';
+import { pursuitNight } from './pursuits';
 
 /** #164 (MC_LAW_BACKING=failures): a back also counts when the backer's failed chores that day name the law's target. */
 const LAW_BACKING = (rawSetting('MC_LAW_BACKING') ?? '').toLowerCase();
@@ -92,6 +93,8 @@ export function tick(now: number, villages: Array<{ name: string; members: Membe
         closeAgentDays(village, m.name, c.day);
         // (#164, MC_COUNCIL_SCRIPTED: F1's members reflect by the script, no model call)
         if (had && MEMORY.reflect && CHOOSE.mode !== 'scripted' && !(councilOn() && councilScripted())) void reflect(village, m, c.day, now);
+        // (the wants spec, MC_PURSUITS: the night's pursuit, in its own short call, only on nights that need one)
+        if (had) void pursuitNight(village, m, c.day, now);
         // (G5, the scripted controller: a proposal from a script on a fixed night, so staged runs exercise the store,
         // triage and the answers without models)
         if (had && PROPOSALS_ON && CHOOSE.mode === 'scripted') scriptedProposal(village, m.name, c.day);

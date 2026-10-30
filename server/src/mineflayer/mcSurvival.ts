@@ -2033,7 +2033,9 @@ async function scout(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
   const v = a.village();
   const home = villageHome(v, a.memory);
   // (exploring once the village stands, a chore code queues: as far as a farm slot's start may walk, FARM_TRIP_RANGE)
-  const range = v && (v.layouts?.length || v.plots.length) ? (args.chore === true && v.complete ? FARM_TRIP_RANGE : VILLAGE_RANGE) : SCOUT_RANGE;
+  // (the wants spec's far rings: a chore's `far` is its ring, 2 or 3 times that)
+  const ring = args.chore === true && typeof args.far === 'number' ? Math.max(1, Math.min(3, Math.round(args.far))) : 1;
+  const range = v && (v.layouts?.length || v.plots.length) ? (args.chore === true && v.complete ? FARM_TRIP_RANGE * ring : VILLAGE_RANGE) : SCOUT_RANGE;
   if (home) {
     const d = Math.hypot(x - home.x, z - home.z);
     if (d > range) {

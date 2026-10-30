@@ -305,6 +305,16 @@ export interface ChoiceOption {
    *  the member's own cathedral trade. */
   rw?: number;
   tradeTag?: string;
+  /** The wants spec (MC_PURSUITS, MC_ESTEEM, MC_RESTLESS): the pursuit's next step (pmw, replacing gw), the admired
+   *  member's way (imw), a repaying option (dbw), pointless repetition (rpw, below 1); their tags in `wantTag`
+   *  ("[your project]", "[Jonah's way]", "[repays Ben]"). */
+  pmw?: number;
+  imw?: number;
+  dbw?: number;
+  rpw?: number;
+  wantTag?: string;
+  /** The pursuit's next step (in the menu-only arm too, untagged and unweighted): the trim keeps one. */
+  step?: boolean;
 }
 
 export interface ChoiceContext {
@@ -349,6 +359,11 @@ export interface ChoiceContext {
   wants?: string;
   /** #79 (MC_GOALS=on): "Your life goal: beauty (3 works of yours stand, ...)." */
   goal?: string;
+  /** The wants spec: the member's pursuit line (MC_PURSUITS), its one social line (MC_ESTEEM: admire, rival, owe or relied
+   *  on) and its restlessness at 4+ (MC_RESTLESS). */
+  pursuit?: string;
+  esteem?: string;
+  restless?: string;
   /** G8 (MC_LADDER): the ladder's progress line, "The village's ambition: the iron age, stage 2 of 4: ...". */
   ladder?: string;
   /** M3 (MC_MONUMENT_NEWS): the cathedral's progress line, with its latest news and the member's trade. */

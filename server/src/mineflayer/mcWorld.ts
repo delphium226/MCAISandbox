@@ -77,7 +77,10 @@ import { SOCIAL, blockOn, awareness, noteChoice, noteHelp, observe, observing, r
 import { ACTS, TALK, actsHelp, actsState, answerLines, deliverAnswer, failAnswer, impliedAccept, newsLines, openRequests, requestersOf, handle as handleActs, inbox as actsInbox, mayAct, noteEnd as actsEnd, noteStart as actsStart, setAnswerer, setSpeaker, sweep as actsSweep, tags as actsTags, type ActFields, type ActsWorld, type NewsTag, type Question } from '../acts';
 import { CONTROLLER, SCRIPTED_ACTS, intentionFocus } from '../controller';
 import { SKILL, noteSkill, skillLine, skillOf, skillWeight } from '../skill';
-import { PROPOSALS_ON, allProposals, initProposals, markTriage, readyForTriage, verdictLine, type CheckCtx } from '../proposals';
+import { PROPOSALS_ON, addProposal, allProposals, initProposals, markTriage, readyForTriage, verdictLine, type CheckCtx } from '../proposals';
+import { WANTS, advances as pursuitAdvances, donePursuits, familyOf, noteEnd as pursuitEnd, noteMenu as pursuitMenu, noteTexts, pursuitLine, setPursuitHooks, update as pursuitUpdate, wantsMade, wantsOf, wantsShown, type WantsFacts } from '../pursuits';
+import { RESTLESS_LINE, capLeft, capOk, doneToday, markOutlet, noteEnd as restEnd, noteIdle, noteRest as restNoteRest, outletDue, outletPrompt, parseOutlet, resolveItem, restOf, restlessLine, type Outlet } from '../restless';
+import { admiredOf, distinctOf, esteemLine, imitationWeight, noteBuilt, noteDistinct, noteHelped, noteMake, notePursuitDone, noteRecord, owed, recordKey, reliedLine, repayWeight, rivalLine, titlesOf } from '../esteem';
 import { setProposalCtx } from '../society';
 import { topWanted, wantedList } from '../wanted';
 import { SELLS } from '../merchant';
@@ -317,6 +320,15 @@ export class MineflayerWorld implements WorldAdapter {
       initProposals(dataDir);
       setProposalCtx((village) => this.proposalCtx(village));
     }
+    // (the wants spec: the night's pursuit gets the member's facts, sends an unmatched want on as a proposal, tells at dawn)
+    if (WANTS.pursuits) setPursuitHooks({
+      facts: (village, agent) => {
+        const v = this.villages.get(village);
+        return v ? this.wantsFacts(v, agent, Date.now()) : null;
+      },
+      propose: (village, agent, what, why, day) => this.wantProposal(village, agent, what, why, day, 'pursuit'),
+      tell: (village, agent, text) => tellMember(village, agent, text),
+    });
     // (G3, MC_RULES: a zone law's place found on its village)
     if (RULES.on) {
       setZoneVillages((name) => this.villages.villages.get(name.toLowerCase()));
@@ -4326,6 +4338,8 @@ export class MineflayerWorld implements WorldAdapter {
   private endInitiative(v: Village, it: Initiative, state: 'built' | 'failed' | 'lapsed', why: string) {
     it.state = state;
     if (state === 'built' && it.by !== STALL_BY) think(v.name, it.by, 'built', `your ${smallWorkKind(it.kind)?.words ?? it.kind} was built`, Date.now());
+    // (the wants spec 3.1: the members who met its starter lately esteem it)
+    if (state === 'built' && it.by !== STALL_BY && WANTS.esteem) noteBuilt(v.name, it.by, [...this.agents.values()].filter((b) => b.village()?.name === v.name).map((b) => b.name), `the ${smallWorkKind(it.kind)?.words ?? it.kind}`, Date.now());
     it.end = Date.now();
     it.why = why;
     this.villages.note(v, `${it.by}'s ${it.kind} (${it.id}) ${state}: ${why}; crew ${it.crew.join(', ')}`);
@@ -5209,7 +5223,7 @@ export class MineflayerWorld implements WorldAdapter {
     const shown = meta?.source === 'model' ? meta.shown : undefined;
     const options: ChoiceLogOption[] = (menu?.options ?? []).map((o) => ({
       id: o.id, kind: o.kind, key: o.key, name: o.name, facts: o.facts, effect: o.effect, rank: o.rank,
-      ...(o.lp !== undefined ? { lp: o.lp } : {}), ...(o.tw !== undefined ? { tw: o.tw } : {}), ...(o.nw !== undefined ? { nw: o.nw } : {}), ...(o.ww !== undefined ? { ww: o.ww } : {}), ...(o.gw !== undefined ? { gw: o.gw } : {}), ...(o.iw !== undefined ? { iw: o.iw } : {}), ...(o.sw !== undefined ? { sw: o.sw } : {}), ...(o.social ? { social: o.social } : {}), ...(o.ruleTag ? { ruleTag: o.ruleTag } : {}), ...(o.vw !== undefined ? { vw: o.vw, ladderTag: o.ladderTag } : {}), ...(o.rw !== undefined ? { rw: o.rw } : {}), ...(o.basic ? { basic: true, ...(o.basicNeed ? { basicNeed: o.basicNeed } : {}) } : {}), ...(o.mark ? { mark: o.mark } : {}), ...(o.mw !== undefined ? { mw: o.mw } : {}), ...(o.fw !== undefined ? { fw: o.fw } : {}), ...(o.dw !== undefined ? { dw: o.dw } : {}), ...(o.cf !== undefined ? { cf: o.cf, pre: Math.round((o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * (o.gw ?? 1) * (o.iw ?? 1) * (o.sw ?? 1) * o.cf * 1000) / 1000 } : {}), ...(shown && shown.includes(o.id) ? { shown: shown.indexOf(o.id) + 1 } : {}),
+      ...(o.lp !== undefined ? { lp: o.lp } : {}), ...(o.tw !== undefined ? { tw: o.tw } : {}), ...(o.nw !== undefined ? { nw: o.nw } : {}), ...(o.ww !== undefined ? { ww: o.ww } : {}), ...(o.gw !== undefined ? { gw: o.gw } : {}), ...(o.iw !== undefined ? { iw: o.iw } : {}), ...(o.sw !== undefined ? { sw: o.sw } : {}), ...(o.social ? { social: o.social } : {}), ...(o.ruleTag ? { ruleTag: o.ruleTag } : {}), ...(o.vw !== undefined ? { vw: o.vw, ladderTag: o.ladderTag } : {}), ...(o.rw !== undefined ? { rw: o.rw } : {}), ...(o.pmw !== undefined ? { pmw: o.pmw } : {}), ...(o.imw !== undefined ? { imw: o.imw } : {}), ...(o.dbw !== undefined ? { dbw: o.dbw } : {}), ...(o.rpw !== undefined ? { rpw: o.rpw } : {}), ...(o.wantTag ? { wantTag: o.wantTag } : {}), ...(o.step ? { step: true } : {}), ...(o.basic ? { basic: true, ...(o.basicNeed ? { basicNeed: o.basicNeed } : {}) } : {}), ...(o.mark ? { mark: o.mark } : {}), ...(o.mw !== undefined ? { mw: o.mw } : {}), ...(o.fw !== undefined ? { fw: o.fw } : {}), ...(o.dw !== undefined ? { dw: o.dw } : {}), ...(o.cf !== undefined ? { cf: o.cf, pre: Math.round((o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * (o.gw ?? 1) * (o.iw ?? 1) * (o.sw ?? 1) * o.cf * 1000) / 1000 } : {}), ...(shown && shown.includes(o.id) ? { shown: shown.indexOf(o.id) + 1 } : {}),
     }));
     const position = opt && shown?.includes(opt.id) ? shown.indexOf(opt.id) + 1 : undefined;
     logChoice({
@@ -5838,6 +5852,8 @@ export class MineflayerWorld implements WorldAdapter {
     }
     const open = guards && this.openMode(a);
     const r = this.choiceOptions(v, a, busy, guards, facts, first, open);
+    // (the wants spec: the families on its menus are the live paths of its pursuit candidates)
+    if (WANTS.pursuits && v.complete) pursuitMenu(v.name, a.name, r.feasible, facts.t);
     const ctx = this.choiceContext(v, a, facts, r.options.map((o) => o.kind));
     if (open) {
       ctx.villageNeeds = this.villageNeedsBlock(v, facts, r.dropped, r.options, r.reasons);
@@ -7154,6 +7170,32 @@ export class MineflayerWorld implements WorldAdapter {
       }
       if (!out.some((o) => o.kind === 'explore')) reasons.explore = points.length ? 'busy' : 'all visited';
     }
+    // The wants spec (9.2.6, MC_EXPLORE_RINGS): once the first ring is done, the far rings' points (ring r at r times the
+    // range, ids 8(r-1)+i), offered without the free-slot condition, one trip a point
+    const ring1 = !!ex?.done || Array.from({ length: 8 }, (_, i) => i).every((i) => (ex?.visited ?? []).includes(i));
+    // (the first ring's reason, kept for a menu the far points leave again below)
+    const ringReason = reasons.explore;
+    if (WANTS.rings >= 2 && v.complete && exHome && ring1) {
+      const visited = ex?.visited ?? [];
+      const far = Array.from({ length: 8 * (WANTS.rings - 1) }, (_, j) => {
+        const r = 2 + Math.floor(j / 8), i = j % 8;
+        return { idx: 8 * (r - 1) + i, i, r, x: Math.round(exHome.x + r * FARM_TRIP_RANGE * Math.cos((i * Math.PI) / 4)), z: Math.round(exHome.z + r * FARM_TRIP_RANGE * Math.sin((i * Math.PI) / 4)) };
+      }).filter((q) => !visited.includes(q.idx)).map((q) => ({ ...q, known: facts.known(`${q.x},${q.z}`) })).sort((p, q) => p.r - q.r || p.known - q.known);
+      let added = 0;
+      for (const [k, q] of far.entries()) {
+        const excludes = exInst ? [`explore:${q.idx}=`] : ['explore'];
+        if (excluded(exInst ? excludes : ['explore'], busy)) continue;
+        add({
+          id: `explore:${q.idx}`, kind: 'explore', key: exInst ? `explore:${q.idx}` : 'explore', excludes, name: `Explore far to the ${DIRECTIONS[q.i]}`, rank: 820 + k, at: { x: q.x, z: q.z },
+          facts: `${dist(q.x, q.z)}, ${q.r * FARM_TRIP_RANGE} blocks out; ${far.length} far points left; this point's land ${Math.round(q.known * 100)}% known${others('explore')}`,
+          effect: 'land beyond the village in the atlas, with what grows and lives there',
+        }, { kind: 'explore', i: q.idx, x: q.x, z: q.z, home: { x: Math.round(exHome.x), z: Math.round(exHome.z) } });
+        added++;
+        if (!exInst) break;
+      }
+      if (added) delete reasons.explore;
+      else if (!far.length) reasons.explore = 'explored far';
+    }
 
     // S.9's families, each only while MC_CHOICE_FAMILIES names it (off: no option and no reason). Code does the arithmetic
     // (targets, batches, earmarks, what is wanted and how much at once), the model only chooses (lesson 1)
@@ -8164,12 +8206,21 @@ export class MineflayerWorld implements WorldAdapter {
 
     // #122: the gated options stay only on a menu with nothing but filler makes (a meal aside), and the filler leaves it;
     // otherwise they go and their kinds keep the gate's reason
+    // (the wants spec: a far ring's point is the empty menu's outlet, filler here)
+    const far = (o: ChoiceOption) => o.kind === 'explore' && Number(o.id.split(':')[1]) >= 8;
     if (gated.size) {
-      const fillerOnly = out.every((o) => gated.has(o) || o.kind === 'eat' || isFiller(o));
+      const fillerOnly = out.every((o) => gated.has(o) || o.kind === 'eat' || isFiller(o) || far(o));
       for (let i = out.length - 1; i >= 0; i--) if (fillerOnly ? isFiller(out[i]) : gated.has(out[i])) pal.drop(out[i], 'view', fillerOnly ? 'filler, left for the gated options' : 'gated: nothing wants it');
       if (!fillerOnly) {
         for (const [k, w] of Object.entries(gateWhy) as Array<[ChoiceKind, string]>) if (!out.some((o) => o.kind === k)) reasons[k] = w;
       } else if (!out.some((o) => o.kind === 'make')) reasons.make ??= 'filler left for the gated options';
+    }
+    // The wants spec (9.2.6): the far rings only on a menu with nothing else but filler, meals and rest (24 member-minutes of
+    // trips against 110-170 idle member-minutes a 10-minute bin, step 0's census: an outlet, never ahead of other work)
+    if (out.some(far) && out.some((o) => !far(o) && o.kind !== 'eat' && o.kind !== 'rest' && !isFiller(o))) {
+      for (let i = out.length - 1; i >= 0; i--) if (far(out[i])) pal.drop(out[i], 'view', 'far rings: on an empty menu only');
+      if (ringReason) reasons.explore = ringReason;
+      else reasons.explore ??= 'the far rings wait for an empty menu';
     }
     // M1 (#144): the monument's options at most MONUMENT.share of the menu (one at least), the lowest-ranked kept
     if (MONUMENT.on) for (const o of capShare([...out], (q) => q.kind === 'monument')) pal.drop(o, 'view', "over the monument's share");
@@ -8293,6 +8344,9 @@ export class MineflayerWorld implements WorldAdapter {
         for (const o of out) if (o.kind !== 'eat' && o.kind !== 'grow' && serves(goal, o, this.goalFacts(v, o), craft)) o.gw = gw;
       }
     }
+    // The wants spec: the pursuit's step, the admired member's way, repayments, pointless repetition (after the goal's gw,
+    // which a step's pmw replaces)
+    if (v.complete && (WANTS.pursuits || WANTS.esteem || WANTS.restless)) this.wantsWeights(v, a, out, now, store);
     // G2 (MC_CONTROLLER=on): the day's intention weighs on the options of its focus kind
     if (CONTROLLER.on) {
       const focus = intentionFocus(v.name, a.name, now);
@@ -8440,6 +8494,250 @@ export class MineflayerWorld implements WorldAdapter {
     if (before === undefined) console.log(`[goal] ${v.name}: goals drawn over ${members.length} members: ${Object.entries(g.of).map(([m, x]) => `${m} ${x}`).join(', ')}`);
     return g;
   }
+
+  // ---------------------------------------------------------------------------------------------
+  // The wants spec (runs/2026-10-30/wants/spec.md; pursuits.ts, esteem.ts, restless.ts)
+  // ---------------------------------------------------------------------------------------------
+
+  /** When each idle member's last sweep with nothing feasible was (restlessness counts the time between). */
+  private wantsIdleAt = new Map<string, number>();
+  /** Outlet calls in flight, by village|agent. */
+  private outletAsking = new Set<string>();
+
+  /** What the night and the measures need of the world about a member. */
+  private wantsFacts(v: Village, name: string, now: number): WantsFacts {
+    const built: Record<string, number> = {};
+    for (const i of v.initiatives ?? []) if (i.by === name && i.state === 'built') built[i.kind] = (built[i.kind] ?? 0) + 1;
+    const tech = INNOVATE ? techOf(v) : undefined;
+    const inventions = tech ? LIBRARY.filter((e) => !tech.unlocked.includes(e.id)).slice(0, 6).map((e) => ({ id: e.id, name: e.name })) : [];
+    const visited = v.explore?.visited ?? [];
+    const ringLeft = WANTS.rings >= 2 ? Array.from({ length: 8 * (WANTS.rings - 1) }, (_, j) => 8 + j).filter((i) => !visited.includes(i)).length : 0;
+    const adm = WANTS.esteem ? admiredOf(v.name, name, now) : null;
+    const ap = adm ? wantsOf(v.name, adm.name).pursuit ?? donePursuits(v.name, adm.name).slice(-1)[0] : undefined;
+    return {
+      ...(GOALS_ON && goalsOf(v)?.of[name] ? { goal: goalsOf(v)!.of[name] } : {}), t: temperament(name), notes: noteTexts(v.name, name), built,
+      emeralds: v.homes?.[name]?.chest?.items?.emerald ?? 0, inventions, ringLeft, own: OWN.on,
+      ...(adm ? { admired: { name: adm.name, ...(ap ? { pursuit: { template: ap.template, ...(ap.param ? { param: ap.param } : {}) } } : {}) } } : {}),
+    };
+  }
+
+  /** An ended chore's goal facts, from its option id and name (the run data is gone by then). */
+  private endFacts(v: Village, kind: string, id: string, name: string): OptionFacts {
+    if (kind === 'initiate') return { work: id.split(':')[1] };
+    if (kind === 'help') return { helpKind: (v.initiatives ?? []).find((i) => `help:${i.id}` === id)?.kind, mine: /^Continue your /.test(name) };
+    if (kind === 'make') return { good: id.split(':')[1] };
+    if (kind === 'own') return { own: id.split(':')[1] };
+    return {};
+  }
+
+  /** A make family's stock against its keep, for the "relied on" line and distinctive acts (null: not a make family). */
+  private famShort(v: Village, fam: string, store: Counts): { stock: number; keep: number; words: string } | null {
+    const gs = this.goodsFor(v).filter((g) => familyOf(`make:${g.item}`) === fam);
+    if (!gs.length) return null;
+    const stock = gs.reduce((t, g) => t + (store[g.item] ?? 0), 0), keep = gs.reduce((t, g) => t + this.makeTarget(v, g), 0);
+    return { stock, keep, words: gs[0].words };
+  }
+
+  /** The options' wants weights and tags (an on-member's; the menu-only arm marks the step only). */
+  private wantsWeights(v: Village, a: BotAgent, out: ChoiceOption[], now: number, store: Counts) {
+    if (!wantsMade(a.name)) return;
+    const shown = wantsShown(a.name);
+    const t = temperament(a.name);
+    const add = (o: ChoiceOption, tag: string) => {
+      o.wantTag = [o.wantTag, tag].filter(Boolean).join(' ');
+    };
+    const p = WANTS.pursuits ? wantsOf(v.name, a.name).pursuit : undefined;
+    if (p?.state === 'active' && !p.shadow) for (const o of out) {
+      if (!pursuitAdvances(p, o, this.goalFacts(v, o))) continue;
+      o.step = true;
+      if (shown) {
+        // (one weight: the step's replaces the goal's, at least as strong)
+        o.pmw = Math.max(1.3, o.gw ?? 1);
+        delete o.gw;
+        add(o, '[your project]');
+      }
+    }
+    if (!shown) return;
+    if (WANTS.esteem) {
+      const adm = admiredOf(v.name, a.name, now);
+      if (adm) {
+        const acts = new Set(distinctOf(v.name, adm.name, now).map((x) => x.option));
+        for (const o of out) if (o.kind !== 'eat' && acts.has(o.id) && !o.step) {
+          o.imw = imitationWeight(t);
+          add(o, `[${adm.name}'s way]`);
+        }
+      }
+      const debts = owed(v.name, a.name, now);
+      if (debts.length) for (const o of out) {
+        if (o.kind === 'eat') continue;
+        const d = OPTION_RUN.get(o);
+        const it = d?.kind === 'help' ? (v.initiatives ?? []).find((i) => i.id === d.id) : undefined;
+        const asker = /^\[(\w+) asked you\]/.exec(o.social ?? '')?.[1];
+        const to = debts.find((x) => x.to === it?.by || x.to === asker)?.to;
+        if (to) {
+          o.dbw = repayWeight(t);
+          add(o, `[repays ${to}]`);
+        }
+      }
+    }
+    // (pointless repetition only: a make over its keep done 3+ times today; repetition itself is a specialist's work)
+    if (WANTS.restless) for (const o of out) {
+      const d = OPTION_RUN.get(o);
+      if (d?.kind !== 'make' || o.step) continue;
+      if ((store[d.good.item] ?? 0) >= this.makeTarget(v, d.good) && doneToday(v.name, a.name, o.id, now) >= 3) {
+        o.rpw = 0.8;
+        add(o, '[you have done this a lot, and storage is full of it]');
+      }
+    }
+  }
+
+  /** The prompt's wants lines (an on-member's): the pursuit, the one social line, restlessness, "relied on". */
+  private wantsLines(v: Village, a: BotAgent, facts: Facts): { pursuit: string; esteem: string; restless: string; relied: string } {
+    const now = facts.t;
+    const p = WANTS.pursuits ? wantsOf(v.name, a.name).pursuit : undefined;
+    const active = p?.state === 'active' && !p.shadow ? p : undefined;
+    const rival = WANTS.esteem && WANTS.rivals && WANTS.titles && active ? rivalLine(v.name, a.name, recordKey(active.template, active.param), active.value, temperament(a.name), now) : '';
+    return {
+      pursuit: WANTS.pursuits ? pursuitLine(v.name, a.name, now) : '',
+      esteem: WANTS.esteem ? esteemLine(v.name, a.name, now, rival) : '',
+      restless: WANTS.restless ? restlessLine(v.name, a.name, !!active) : '',
+      relied: WANTS.titles ? reliedLine(v.name, a.name, now, (fam) => this.famShort(v, fam, facts.store)) : '',
+    };
+  }
+
+  /** A chore's end into the wants: the pursuit's counters and progress, its record, restlessness, esteem and debts. */
+  private wantsAtEnd(c: { agent: string; village: string; choice: ChoiceState }, kind: string, id: string, ok: boolean, cut: boolean, contention: boolean, productive: boolean, message: string, now: number) {
+    const v = this.villages.get(c.village);
+    if (!v?.complete || contention || kind === 'eat') return;
+    const name = c.choice.name ?? id;
+    const t = temperament(c.agent);
+    let stepped = false;
+    const members = () => [...this.agents.values()].filter((b) => b.village()?.name === v.name).map((b) => b.name);
+    if (WANTS.pursuits && !cut) {
+      stepped = pursuitEnd(v.name, c.agent, { kind, option: id, name, message, ok, productive, facts: this.endFacts(v, kind, id, name) }, now, 15 * 60000 / timeScale());
+      const before = wantsOf(v.name, c.agent).pursuit;
+      const news = pursuitUpdate(v.name, c.agent, this.wantsFacts(v, c.agent, now), now);
+      if (before && WANTS.titles) {
+        const rec = noteRecord(v.name, recordKey(before.template, before.param), c.agent, before.value, now);
+        if (rec) {
+          this.villages.note(v, rec.text);
+          codeNews(v.name, c.agent, rec.text, members(), now);
+          console.log(`[title] ${v.name}: ${rec.text}`);
+        }
+      }
+      if (news && !before?.shadow) {
+        if (news.milestone === 4) {
+          this.villages.note(v, `${c.agent} finished a project: ${news.pursuit.label}`);
+          if (WANTS.esteem) notePursuitDone(v.name, c.agent, members(), news.pursuit.label.replace(/:.*$/, ''), now);
+        }
+        console.log(`[pursuit] ${v.name}: ${c.agent} at ${news.milestone * 25}% of ${news.pursuit.label}`);
+      }
+    }
+    if (WANTS.restless && wantsMade(c.agent)) {
+      const g = kind === 'make' ? this.goodsFor(v).find((x) => `make:${x.item}` === id) : undefined;
+      restEnd(v.name, c.agent, { option: id, ok, productive, unused: !!g && unusedGood(g), stepped, cut }, t, now);
+    }
+    if (WANTS.esteem && ok && !cut) {
+      if (WANTS.titles && productive && kind === 'make') noteMake(v.name, c.agent, familyOf(id), now);
+      // (distinctive acts, what imitation copies: an initiative, a pursuit's step, a make the village is short of)
+      const short = kind === 'make' && productive ? this.famShort(v, familyOf(id), storageContents(v)) : null;
+      if (kind === 'initiate' || stepped || (short && short.stock < short.keep)) noteDistinct(v.name, c.agent, id, name, now);
+      if (kind === 'help') {
+        const it = (v.initiatives ?? []).find((i) => `help:${i.id}` === id);
+        if (it && it.by !== c.agent) noteHelped(v.name, c.agent, it.by, smallWorkKind(it.kind)?.words ?? it.kind, now);
+      }
+    }
+  }
+
+  /** The sweep's none path for one member: restlessness rises with the time idle; an outlet call when due. */
+  private restlessIdle(v: Village, a: BotAgent, menu: ChoiceMenu, now: number) {
+    const k = `${v.name}|${a.name}`;
+    const last = this.wantsIdleAt.get(k);
+    this.wantsIdleAt.set(k, now);
+    if (last !== undefined) noteIdle(v.name, a.name, now - last, temperament(a.name), now);
+    if (this.chooseMode(a) !== 'model' || this.outletAsking.has(k) || !outletDue(v.name, a.name, now, true)) return;
+    void this.runOutlet(v, a, menu, now);
+  }
+
+  /** An unmet want as a proposal (G5's store, code's check), at most OUTLET_CAP a member-day from outlets. */
+  private wantProposal(village: string, agent: string, what: string, why: string, day: number, source: string): string | null {
+    const ctx = this.proposalCtx(village);
+    if (!ctx) return null;
+    const got = addProposal({ village, by: agent, kind: 'activity', what, why, day, source }, ctx);
+    if (!got) return null;
+    logAct({ type: 'proposal', village, agent, id: got.id, kind: got.kind, what: got.what, why: got.why, status: got.status, check: got.check.verdict, reason: got.check.reason, day, source });
+    console.log(`[wants] ${village}: ${agent} proposes "${what.slice(0, 80)}" (${source}): ${got.id}, ${got.check.verdict}`);
+    return got.id;
+  }
+
+  /**
+   * The outlet call (the wants spec 4.3 with 9.2.7): an idle member with nothing feasible chooses what it does about it:
+   * rest at the green (watching the others: more works seen for esteem), ask anyone for an item, or propose a want to the
+   * council. Asks and proposals are capped 2 a member-day; rest alone runs without a call. Never throws.
+   */
+  private async runOutlet(v: Village, a: BotAgent, menu: ChoiceMenu, now: number) {
+    const k = `${v.name}|${a.name}`;
+    this.outletAsking.add(k);
+    markOutlet(v.name, a.name, now);
+    try {
+      const outlets: Outlet[] = [];
+      const home = villageHome(v, a.memory);
+      if (home) outlets.push({ id: 'rest', name: 'Sit at the green and watch the others', facts: 'walk to the middle of the village and watch what the others do for about 2 minutes' });
+      const items = ACTS.on && capLeft(v.name, a.name, 'asks', now) ? [...new Set(this.actsWorld(v, now).items.values())] : [];
+      if (items.length) outlets.push({ id: 'ask', name: 'Ask the others for something you need', facts: 'a request to anyone for one item (name it in `item`); a member who has it or can make it may bring it' });
+      if (PROPOSALS_ON && capLeft(v.name, a.name, 'props', now)) outlets.push({ id: 'propose', name: 'Propose something the village cannot do yet', facts: 'a wish for the council (say it in `what`): a work, a good or an activity nobody here can do now' });
+      if (!outlets.length) return;
+      const spec = parseSpec(typeof a.memory.chooseModel === 'string' ? a.memory.chooseModel : typeof a.memory.execModel === 'string' ? a.memory.execModel : CHOOSE.model);
+      const allowed = !!spec && !((isCloudModel(spec.model) && !usage.allows('decisions')) || usage.blocked(spec.model, a.name));
+      if (outlets.length === 1 || !allowed || !spec) {
+        if (outlets[0].id === 'rest' && home) this.outletRest(v, a, home, 'nothing else to do');
+        return;
+      }
+      const p = wantsOf(v.name, a.name).pursuit;
+      const why = [...new Set(Object.entries(menu.reasons).filter(([kk]) => !/^(annex|works|grow)$/.test(kk)).map(([kk, w]) => `${KIND_WORDS[kk] ?? kk}: ${w}`))].slice(0, 8).join('; ');
+      const pr = outletPrompt({
+        persona: personaOf(a.name), pursuit: wantsShown(a.name) ? pursuitLine(v.name, a.name, now) : '', wants: OWN.on ? (() => { const w = this.wantsOf(v, a.name); return w ? wantsLine(w) : ''; })() : '',
+        restless: wantsShown(a.name) ? restlessLine(v.name, a.name, p?.state === 'active') : '', why, items,
+      }, outlets);
+      const r = await callModel({ spec, system: pr.system, user: pr.user, tools: pr.tools, level: REASONING.outlet, agent: a.name, kind: 'outlet', priority: 'decision', maxWaitMs: CHOOSE.waitMs, fallbackMs: CHOOSE.fallbackMs });
+      const call = r.reply.calls.find((x) => x.name === 'outlet') ?? r.reply.calls[0];
+      const got = parseOutlet(call ? call.input : r.reply.text.slice(r.reply.text.indexOf('{'), r.reply.text.lastIndexOf('}') + 1), outlets);
+      const t = Date.now();
+      const done: string[] = [];
+      const pick = got?.outlet.id ?? 'rest';
+      const item = pick === 'ask' && got?.item ? resolveItem(got.item, items) : null;
+      if (item && capOk(v.name, a.name, 'asks', t)) {
+        done.push(...handleActs(v.name, a.name, { act: 'request', act_to: 'anyone', act_item: item }, { option: '', kind: '', name: '', decisionId: `outlet-${t}` }, this.actsWorld(v, t), t, false));
+      } else if (pick === 'ask' && got?.item && !item && PROPOSALS_ON && capOk(v.name, a.name, 'props', t)) {
+        // (an ask for what nobody here makes is a want for the council, spec 9.2.7)
+        const id = this.wantProposal(v.name, a.name, `${got.item}: nobody here can make it yet`, got.reason || 'restless with nothing to do', clockOf(v.name, t)?.day ?? 0, 'outlet');
+        if (id) done.push(`proposed ${id} (asked for ${got.item})`);
+      } else if (pick === 'propose' && got?.what && capOk(v.name, a.name, 'props', t)) {
+        const id = this.wantProposal(v.name, a.name, got.what, got.reason || 'restless with nothing to do', clockOf(v.name, t)?.day ?? 0, 'outlet');
+        if (id) done.push(`proposed ${id}`);
+      }
+      // (rest when chosen, and after an ask or a proposal too: the member is still idle and goes to watch the others)
+      if (home && this.isIdleMember(v, a, t)) this.outletRest(v, a, home, got?.reason || 'outlet');
+      if (pick === 'rest') restNoteRest(v.name, a.name);
+      const rs = restOf(v.name, a.name);
+      rs.picks = { ...(rs.picks ?? {}), [pick]: (rs.picks?.[pick] ?? 0) + 1 };
+      logAct({ type: 'outlet', village: v.name, agent: a.name, outlets: outlets.map((x) => x.id), pick, valid: !!got, reason: got?.reason ?? '', item: got?.item, what: got?.what, done, restless: rs.g, system: pr.system, prompt: pr.user, ms: r.ms, promptTokens: r.reply.promptTokens, outputTokens: r.reply.outputTokens });
+      console.log(`[outlet] ${v.name}: ${a.name} (restless ${Math.round(rs.g)}): ${pick}${got?.item ? ` ${got.item}` : ''}${got?.what ? ` "${got.what.slice(0, 60)}"` : ''}${done.length ? `: ${done.join(', ')}` : ''}`);
+    } catch (e) {
+      console.log(`[outlet] ${v.name}: ${a.name}: ${String((e as Error)?.message ?? e).slice(0, 200)}`);
+    } finally {
+      this.outletAsking.delete(k);
+    }
+  }
+
+  /** Chosen rest at the green: a walk to the village's middle and a wait (logged apart from busy: kind rest). */
+  private outletRest(v: Village, a: BotAgent, home: { x: number; z: number }, reason: string) {
+    if (!this.isIdleMember(v, a, Date.now())) return;
+    const y = Math.round(a.bot?.entity?.position?.y ?? 64);
+    const opt = { id: 'rest:green', kind: 'rest', key: `rest:${a.name}`, name: 'Sit at the green and watch the others', rank: 1300 } as ChoiceOption;
+    this.setChore(v, a, opt.key, [a.enqueue('move_to', { x: home.x, y, z: home.z, range: 4, chore: true }), a.enqueue('wait', { seconds: Math.max(10, Math.round(120 / timeScale())), chore: true })], 'watch the others at the green', undefined, { source: 'model', reason }, [], opt);
+  }
+
 
   /** #79: what an option's run data says for the goals (the work an initiative builds, a make's good, an own option's what). */
   private goalFacts(v: Village, o: ChoiceOption): OptionFacts {
@@ -8906,8 +9204,20 @@ export class MineflayerWorld implements WorldAdapter {
     // (G2: under MCAI_SOCIAL on and countsonly the awareness block replaces this line; off shows neither)
     const others = blockOn() || socialOff() ? '' : [...[...kinds.entries()].map(([k, n]) => `${KIND_WORDS[k] ?? k} ${n.length} (${n.slice(0, 3).join(', ')}${n.length > 3 ? ', ...' : ''})`),
       ...(choosing ? [`choosing ${choosing}`] : []), `idle ${idle}`].join(', ');
-    const block = blockOn() ? awareness(v.name, a.name, facts.t, { kinds, choosing, idle, menuKinds, near: this.nearOf(v, a) }).text : '';
-    const role = roleLine(v.name, a.name);
+    let block = blockOn() ? awareness(v.name, a.name, facts.t, { kinds, choosing, idle, menuKinds, near: this.nearOf(v, a) }).text : '';
+    let role = roleLine(v.name, a.name);
+    const wl = v.complete && wantsShown(a.name) ? this.wantsLines(v, a, facts) : null;
+    if (wl) {
+      // (MC_TITLES: the holders' titles beside their names in the awareness block; "relied on" in place of the role line)
+      if (WANTS.titles) {
+        for (const b of this.agents.values()) {
+          if (b === a || b.village()?.name !== v.name) continue;
+          const t = titlesOf(v.name, b.name, facts.t)[0];
+          if (t && block) block = block.replace(new RegExp(`\\b${b.name}\\b`), `${b.name} (${t})`);
+        }
+        role = wl.relied;
+      }
+    }
     const skill = skillLine(v.name, a.name);
     const rules = RULES.on ? [rulesLine(v.name), councilLine(v.name, facts.t)].filter(Boolean).join(' ') : '';
     // (A.3p: the user's own persona first, else the temperament's line; the own-pattern reminder from the last 10 ends)
@@ -8922,6 +9232,7 @@ export class MineflayerWorld implements WorldAdapter {
       ...(pattern ? { pattern } : {}),
       village: village.slice(0, 300), others: others.slice(0, 200),
       ...(block ? { social: block } : {}), ...(role ? { role } : {}), ...(skill ? { skill } : {}), ...(rules ? { rules } : {}),
+      ...(wl?.pursuit ? { pursuit: wl.pursuit } : {}), ...(wl?.esteem ? { esteem: wl.esteem } : {}), ...(wl?.restless ? { restless: wl.restless } : {}),
       outcomes: this.choiceStats.outcomes(v.name, a.name, 5).map((l) => scrub(v.name, a.name, l)),
       // (#69: the member's own wants, one line)
       ...(OWN.on ? (() => { const w = this.wantsOf(v, a.name); const line = w ? wantsLine(w) : ''; return line ? { wants: line.slice(0, 240) } : {}; })() : {}),
@@ -9164,11 +9475,12 @@ export class MineflayerWorld implements WorldAdapter {
         ex.visited.push(d.i);
         ex.last = `${worker.name} to ${d.x},${d.z}`;
         this.villages.save();
-        const out = worker.enqueue('scout', { x: d.x, z: d.z, chore: true });
+        // (a far ring's point, ids 8 and up: the scout walks that ring's distance)
+        const out = worker.enqueue('scout', { x: d.x, z: d.z, chore: true, ...(d.i >= 8 ? { far: 1 + Math.floor(d.i / 8) } : {}) });
         // (home: true, teleported home when the walk back fails: Worker1 floated in a lake 4 min, F189)
         const back = worker.enqueue('scout', { x: d.home.x, z: d.home.z, chore: true, home: true });
         this.setChore(v, worker, opt.key, [out, back], `explore ${d.x},${d.z}`, undefined, meta, opt.holds, opt);
-        console.log(`[explore] ${v.name}: ${worker.name} scouts ${d.x},${d.z} (${ex.visited.length} of 8), then home`);
+        console.log(`[explore] ${v.name}: ${worker.name} scouts ${d.x},${d.z} (${d.i >= 8 ? `far ring ${1 + Math.floor(d.i / 8)}, ${ex.visited.filter((i) => i >= 8).length} far points` : `${ex.visited.length} of 8`}), then home`);
         return;
       }
       case 'make': {
@@ -9779,10 +10091,15 @@ export class MineflayerWorld implements WorldAdapter {
         }
         if (!pick) {
           none.push({ agent: a.name, reasons: menu.reasons });
+          // (the wants spec 4: idle with nothing feasible raises restlessness; an outlet call when it is due)
+          if (WANTS.restless && v.complete && wantsMade(a.name)) this.restlessIdle(v, a, menu, now);
           // (today's loop stopped at the first member with nothing: the rest have nothing either; not with an appetite, where
           // menus differ by member: a hungry member's empty menu must not cost a fed one its chore, the food check's H2)
           if (!model && !appetiteOn(v)) {
-            for (const b of members.slice(n + 1)) if (this.isIdleMember(v, b, now)) none.push({ agent: b.name, reasons: menu.reasons });
+            for (const b of members.slice(n + 1)) if (this.isIdleMember(v, b, now)) {
+              none.push({ agent: b.name, reasons: menu.reasons });
+              if (WANTS.restless && v.complete && wantsMade(b.name)) this.restlessIdle(v, b, menu, now);
+            }
             break;
           }
           continue;
@@ -10223,6 +10540,14 @@ export class MineflayerWorld implements WorldAdapter {
     if (kind === 'help' && ok && !cut && observing()) {
       const it = (this.villages.get(c.village)?.initiatives ?? []).find((i) => `help:${i.id}` === id);
       if (it && it.by !== c.agent) noteHelp(c.village, c.agent, it.by, now, it.id);
+    }
+    // (the wants spec: the end into the member's pursuit, restlessness, esteem and records)
+    if (WANTS.pursuits || WANTS.esteem || WANTS.restless) {
+      try {
+        this.wantsAtEnd(c, kind ?? '', id, ok, cut, contention, productive, message, now);
+      } catch (e) {
+        console.log(`[wants] ${c.village}: ${c.agent}'s chore end: ${String((e as Error)?.stack ?? e).slice(0, 300)}`);
+      }
     }
     // (every trip that was not cut, failed ones too: spec 7.5's "the last 2 trips found nothing new")
     if (kind === 'explore' && known !== undefined && !cut) this.exploreYields.set(c.village, [...(this.exploreYields.get(c.village) ?? []), known].slice(-10));

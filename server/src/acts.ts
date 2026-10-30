@@ -21,6 +21,7 @@ import type { Commitment } from './social';
 import { SOCIAL, memberSocial, noteHeard, noteKept, setActsOn } from './social';
 import { MEMORY, addNoteCheck, clockOf, contentWords, logAct, membersOf, touchMemory, villageSocialOf } from './memory';
 import { noteFact, think } from './character';
+import { ESTEEM_ON, noteKeptTo } from './esteem';
 import { rawSetting } from './settings';
 
 const scale = Math.max(0.1, Number(rawSetting('MC_TIME_SCALE') ?? 1) || 1);
@@ -857,6 +858,8 @@ function close(st: ActsState, village: string, c: ActsState['commitments'][numbe
   }
   if (s === 'kept' || s === 'broken') {
     noteKept(village, c.to, c.from, s === 'kept');
+    // (the wants spec 3.1, 3.3: esteem, and a favour owed or repaid)
+    if (ESTEEM_ON) noteKeptTo(village, c.to, c.from, s === 'kept', now);
     noteFact(village, c.to, c.from, s === 'kept' ? 'kept' : 'broke');
     think(village, c.to, s === 'kept' ? 'kept' : 'broke', `${c.from} ${s === 'kept' ? 'kept' : 'broke'} a promise to you`, now);
     push(st, c.to, { t: now, kind: 'report', text: `${c.from} ${s === 'kept' ? 'kept' : 'broke'} a promise to you: ${c.what.words} (${c.id})` });
