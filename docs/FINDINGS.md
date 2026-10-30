@@ -2407,3 +2407,31 @@ CLAUDE.md when a phase ends.
   hungry by +55 and busy by 10 min fell from 60-95% to 11-38% in the second hour, which hides the working mine's effect
   (41 / 66 trips, 990 / 1,299 cobblestone; MC_MORE_MINES never triggered, as expected). Laws 30 (67% typed) / 27 (26%);
   [lag] 0, [stuck] 34 / 50; $0.84 / $0.89. Report: runs/2026-10-30/train12/report.md.
+- F342 (10-30, train13, G2, G5, G7, G8, #179, #180) **Test train 13 (everything new together: talk, diamond rung, wants pilot,
+  more mines, supply flags, merchant back on; P program houses, M model picks) from t12_pad_open at de617fb: food and busy
+  are back; the wants pull choices but do not raise persistence; the diamond rung deadlocked.** With the merchant's rods
+  fishing returned: hungry 0% / 0% of member-time (train 12: 48 / 33%), cooked cod 139 / 83 and salmon 46 / 23 made,
+  every [fish] trip reached 8 fish (#176 held); busy 85 / 81%, second hour 65-89% (train 12: 11-38%); 2,205 / 2,173
+  choices, $1.39 / $1.26. Own rod: a fixture gave each of 24 new homes' chests a rod (own_tool_back), but its storage clear
+  matched no rod (nested item data) so storage kept 1-3 merchant rods; own rods still went out 5 / 9 times. **Wants pilot**
+  (holdout 0.5, same split both worlds): the step is taken at 2.9 / 3.5x its shown share, +34 / +47 points over shuffled
+  pursuits (prediction 1 holds; shadow pursuits also lift 1.4 / 2.0x, as they follow the life goal); family-grain
+  persistence on 5/11, 4/14 against off 11/19, 10/17 (the other way, pilot n); hour-2 chore busy on 7-14 points below off
+  (outlet rest picks); pursuits mostly stall (16 / 18 of 27), so 9.4's prediction 2 fails; tokens per member-hour on
+  94-100k against off 100-111k. Outlets 105 / 126 calls (ask 68 / 79, rest 27 / 29, propose 10 / 18); 34 / 42 proposals,
+  mostly duplicates or "iron ingot: nobody here can make it yet". 11 titles a run; 8 far-ring trips a run, all home.
+  **Diamond (#180):** MC_LADDER_START=diamond on a village with no iron pickaxes stays at stage 0: no iron level is dug
+  while diamond is current, the deep level needs an iron pickaxe, raw iron came only from tunnels (4 / 2 smelted); the
+  menu line claims "every deep miner has a diamond pickaxe". Stages 1-4 and the forge are untested. **Talk:** temple and
+  library built in 3.6 / 4.4 min against 5-min ETAs; nether portal, a grain silo and vague asks refused; members refused
+  bread (not on their menu); a house request ignores its place and the Mayor invents where it is (#179). **Houses:**
+  programs 9 of 12 two-storey (train 12: 5), 11 forms, 274 blocks; model picks 7 of 12, 338 blocks, 8 forms (commonest
+  4, "L-shaped two-storey"). Mine 1,505 / 1,153 cells, MC_MORE_MINES never triggered; M's torch floor rule refused 102
+  chores; [lag] 0, [stuck] 117 / 151. Report: runs/2026-10-30/train13/report.md.
+- F343 (10-30, train13 side bench, G7) **Vision models can judge clear building shapes from renders; glm-5.3-flash judges
+  best, gemma4 is near free, qwen3.8 is no gate.** 21 untitled two-view renders (7 hand-made shapes, 13 real designs, a
+  program house), three blind calls each (what is it; reads as its label; reads as a decoy). Both checks right: glm-5.3-flash
+  13/21 (made shapes 6/7, thinking must stay on or it writes prose), gemma4:cloud 9 (5/7, 1 false yes, 0.6 s, $0.07 a
+  thousand checks), mistral-large-4 9, kimi-k3 9 (25-30x gemma's cost), qwen3.8 6 (3/7, 5 false yeses). No model saw a
+  7-wide block silo (it reads as a tower); vanilla shop houses read as "a house" to all (their use is inside), so a critic
+  needs code's facts with the picture. Report: runs/2026-10-30/rendbench/report.md.
