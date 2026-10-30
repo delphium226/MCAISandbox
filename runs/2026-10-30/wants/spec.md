@@ -485,6 +485,9 @@ differ. (Claude's decisions; the user's choices stay in section 8, revised in 9.
 4. Idle members get the outlet call (its own call kind, rate-limited, against the token budget).
 5. Explore ring 2 only (320 blocks) for the pilot; ring 3 after the supply census.
 6. Unmatched pursuits go to proposals and the wanted list by default (on, the 10-30 flag rule).
+   **Overridden by the user (10-30, DECISIONS ab8bc07): unmatched pursuits go to the triage session first**: a proposal
+   (source `pursuit`) for the Claude triage session (G5) only, never on the wanted list or feeding foundry tickets; the
+   member hears the triage's answer when it comes. Built in fa1bfcc (wanted list) and the commit after it (foundry).
 7. The per-member split first, as a pilot; the village-wide pairs after it.
 8. The menu-only arm runs in the village-wide pair, where it separates the want from the menu; the pilot relies on
    shadow and shuffled pursuits.

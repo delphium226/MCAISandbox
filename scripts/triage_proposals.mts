@@ -94,7 +94,7 @@ for (const g of groups) {
     rows.push(line);
     if (WRITE) P.applyVerdict(p.id, v);
     if (v.decision === 'accept') {
-      accepted.push({ id: p.id, by: p.by, kind: p.kind, what: p.what, route: v.route, capability: p.check.capability?.id ?? p.target.capability ?? null, size: v.size, reason: v.reason, notes: v.notes, at: v.at });
+      accepted.push({ id: p.id, by: p.by, kind: p.kind, what: p.what, ...(p.source ? { source: p.source } : {}), route: v.route, capability: p.check.capability?.id ?? p.target.capability ?? null, size: v.size, reason: v.reason, notes: v.notes, at: v.at });
       issues.push(`### ${p.id}: ${p.what}\n\nProposed by ${p.by} (${p.source ?? p.village}), ${p.kind}; why: ${p.why}\n\nCode's check: ${p.check.verdict}: ${p.check.reason}\n\nTriage: accept, route ${v.route ?? '?'}, size ${v.size ?? '?'}: ${v.reason}${v.notes ? `\n\nNotes: ${v.notes}` : ''}\n`);
     }
   }
