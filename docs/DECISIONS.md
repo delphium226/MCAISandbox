@@ -960,3 +960,6 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   words (unmatched ones become proposals and wishes); rivalry shown only to high-pride members; imitation scaled by
   sociability; outlet calls for idle members; explore ring 2 only for the pilot; a per-member split as the pilot, then
   village-wide pairs with a menu-only arm. Flags on by default; build after step 0's census and baseline.
+- 10-30 (the user's) **Unmatched pursuits go to the triage session first** (wants spec question 6, overriding 9.7's
+  point 6): a pursuit the game cannot offer becomes a proposal for the Claude triage session only, not a wanted-list
+  entry or a foundry ticket.
