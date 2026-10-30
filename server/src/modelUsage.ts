@@ -28,14 +28,14 @@
 import { LLM_LIMITS } from './llmLimits';
 import { onSetting, rawSetting } from './settings';
 
-export const CALL_KINDS = ['exec', 'plan', 'design', 'choose', 'ballot', 'reflect', 'answer', 'home', 'talk', 'pursuit', 'outlet'] as const;
+export const CALL_KINDS = ['exec', 'plan', 'design', 'choose', 'ballot', 'reflect', 'answer', 'home', 'talk', 'pursuit', 'outlet', 'goal_map', 'goal_take'] as const;
 export type CallKind = (typeof CALL_KINDS)[number];
 export type ReasoningLevel = 'low' | 'medium' | 'high';
 export type Reasoning = Record<CallKind, ReasoningLevel>;
 
 const LEVELS: readonly string[] = ['low', 'medium', 'high'];
 
-export const DEFAULT_REASONING: Reasoning = { exec: 'medium', plan: 'low', design: 'medium', choose: 'low', ballot: 'low', reflect: 'medium', answer: 'low', home: 'low', talk: 'low', pursuit: 'low', outlet: 'low' };
+export const DEFAULT_REASONING: Reasoning = { exec: 'medium', plan: 'low', design: 'medium', choose: 'low', ballot: 'low', reflect: 'medium', answer: 'low', home: 'low', talk: 'low', pursuit: 'low', outlet: 'low', goal_map: 'medium', goal_take: 'low' };
 
 /** Warnings printed once per distinct text (a bad setting would otherwise repeat on every call). */
 const warned = new Set<string>();

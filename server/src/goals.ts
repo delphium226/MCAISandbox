@@ -6,6 +6,7 @@
  * fixed pick's rank decay; the weights' product capped). World-free: the world (mcWorld.ts) keeps the counters at chore
  * ends and applies the weights; the simulator runs it.
  */
+import fs from 'node:fs';
 import { price, boardOf } from './barter';
 import { fnv1a } from './choose';
 import { OWN } from './own';
@@ -18,8 +19,12 @@ import { rawSetting } from './settings';
 
 type Counts = Record<string, number>;
 
-/** On with MC_GOALS=on. */
-export const GOALS_ON = /^(on|1|true)$/i.test(rawSetting('MC_GOALS') ?? 'off');
+/** On unless MC_GOALS=off (on by default since 10-30, the user's). */
+export const GOALS_ON = /^(on|1|true)$/i.test(rawSetting('MC_GOALS') ?? 'on');
+/** The start screen (spec runs/2026-10-30/startscreen/spec.md 7): a typed goal's text in the lines (MC_GOAL_TEXT) and as a
+ *  kept memory line (MC_GOAL_PIN); both on unless set off. */
+export const GOAL_TEXT = !/^(off|0|false|no)$/i.test(rawSetting('MC_GOAL_TEXT') ?? 'on');
+export const GOAL_PIN = !/^(off|0|false|no)$/i.test(rawSetting('MC_GOAL_PIN') ?? 'on');
 
 export const GOALS = ['wealth', 'invention', 'mastery', 'standing', 'home', 'beauty'] as const;
 export type Goal = (typeof GOALS)[number];
@@ -42,6 +47,88 @@ export const BEAUTY_WORKS = new Set(['statue', 'gazebo', 'lamp_posts', 'bench', 
 export const STANDING_WORKS = new Set(SMALL_WORKS.map((k) => k.kind).filter((k) => !BEAUTY_WORKS.has(k)));
 /** Goods made for the look of the village. */
 export const DECOR_GOODS = new Set(['lantern', 'jack_o_lantern']);
+
+/**
+ * A typed goal (the start screen, spec 2.2 as revised in 12.2.4-5): the text shown verbatim, the measure it maps to (one of
+ * the six, or null: words only), up to 3 pursuit templates (pursuits.ts, first preferred) and the words with no lever.
+ */
+export interface GoalSpec {
+  text: string;
+  measure: Goal | null;
+  pursuits: string[];
+  unmatched: string[];
+  by: 'user' | 'take';
+  mappedBy?: 'model' | 'user';
+  model?: string;
+}
+/** The run's goal plan (MC_GOAL_PLAN): the typed goals by member, kept on each village apart from the drawable record. */
+export interface GoalPlan { mode: 'village' | 'member'; hash: string; village?: string; specs: Record<string, GoalSpec> }
+
+/** The longest goal text a member is shown (spec 12.2.6). */
+export const GOAL_TEXT_MAX = 120;
+/** A text cut to `n` characters at a word, never mid-word. */
+export function clip(text: string, n = GOAL_TEXT_MAX): string {
+  const t = text.replace(/\s+/g, ' ').trim();
+  if (t.length <= n) return t;
+  const cut = t.slice(0, n + 1).replace(/\s+\S*$/, '');
+  return (cut || t.slice(0, n)).replace(/[,;:.\s]+$/, '');
+}
+
+/** A goal plan from its JSON (malformed specs dropped, texts clipped, unknown measures as none). */
+export function parsePlan(raw: unknown): GoalPlan | null {
+  const p = raw as Partial<GoalPlan> | null;
+  if (!p || typeof p !== 'object' || !p.specs || typeof p.specs !== 'object') return null;
+  const specs: Record<string, GoalSpec> = {};
+  for (const [name, x] of Object.entries(p.specs)) {
+    if (!x || typeof x.text !== 'string' || !x.text.trim()) continue;
+    specs[name] = {
+      text: clip(x.text), measure: (GOALS as readonly string[]).includes(x.measure as string) ? (x.measure as Goal) : null,
+      pursuits: (Array.isArray(x.pursuits) ? x.pursuits : []).filter((t) => typeof t === 'string').slice(0, 3),
+      unmatched: (Array.isArray(x.unmatched) ? x.unmatched : []).filter((t) => typeof t === 'string').map((t) => clip(t, 160)),
+      by: x.by === 'take' ? 'take' : 'user', ...(x.mappedBy ? { mappedBy: x.mappedBy } : {}), ...(x.model ? { model: x.model } : {}),
+    };
+  }
+  return { mode: p.mode === 'village' ? 'village' : 'member', hash: String(p.hash ?? ''), ...(p.village ? { village: clip(String(p.village)) } : {}), specs };
+}
+
+function loadPlan(file: string): GoalPlan | null {
+  if (!file) return null;
+  try {
+    const plan = parsePlan(JSON.parse(fs.readFileSync(file, 'utf8')));
+    if (plan) console.log(`[goal] plan: ${Object.keys(plan.specs).length} members typed (${plan.mode}), ${Object.values(plan.specs).reduce((n, s) => n + s.unmatched.length, 0)} unmatched words, from ${file}`);
+    return plan;
+  } catch (e) {
+    console.log(`[goal] plan ${file} not read (${(e as Error).message}): every goal drawn`);
+    return null;
+  }
+}
+let PLAN: GoalPlan | null = loadPlan(rawSetting('MC_GOAL_PLAN') ?? '');
+/** The run's plan (checks set one by hand). */
+export const goalPlan = () => PLAN;
+export function setGoalPlan(p: GoalPlan | null): void {
+  PLAN = p;
+}
+
+/**
+ * The village's plan: the run's, put on the village when it differs (a fresh village, a checkpoint of another run); a
+ * checkpoint's plan cleared in a run without one (logged). Kept on `v.goalPlan`, outside the record ensureGoals may delete
+ * (the check's 12.1.1). `fresh` is called once when a plan is put on.
+ */
+export function goalPlanOf(v: Village, fresh?: (p: GoalPlan) => void): GoalPlan | undefined {
+  const x = v as Village & { goalPlan?: GoalPlan };
+  if (PLAN && x.goalPlan?.hash !== PLAN.hash) {
+    x.goalPlan = PLAN;
+    console.log(`[goal] ${v.name}: plan ${PLAN.hash || '(no hash)'} applied: ${Object.entries(PLAN.specs).map(([m, s]) => `${m} "${s.text.slice(0, 40)}" ${s.measure ?? 'words only'}`).join('; ')}`);
+    fresh?.(PLAN);
+  } else if (!PLAN && x.goalPlan) {
+    console.log(`[goal] ${v.name}: the checkpoint's goal plan ${x.goalPlan.hash} cleared (this run has none: goals drawn)`);
+    delete x.goalPlan;
+  }
+  return x.goalPlan;
+}
+
+/** A member's typed goal, if the run has one for it. */
+export const specOf = (v: Village, name: string): GoalSpec | undefined => (GOALS_ON ? goalPlanOf(v)?.specs[name] : undefined);
 
 /** A member's counters, kept at its chore ends. */
 export interface GoalStats { done: Counts; lights: number; furnished: number; furnishedOwn: number; helps: number }
@@ -103,9 +190,17 @@ export function lateGoal(name: string, t: Temperament, of: Record<string, Goal>,
  */
 export function ensureGoals(v: Village, members: Array<{ name: string; t: Temperament }>, now: number): Goals {
   const x = v as Village & { goals?: Goals };
-  if (x.goals && (!members.some((m) => x.goals!.of[m.name]) || (members.length > x.goals.drawnFor && !Object.keys(x.goals.stats).length))) delete x.goals;
-  if (!x.goals) x.goals = { of: drawGoals(members), drawnFor: members.length, at: now, stats: {} };
-  for (const m of members) if (!x.goals.of[m.name]) x.goals.of[m.name] = lateGoal(m.name, m.t, x.goals.of);
+  // (the start screen: members with a typed goal are never drawn; the draw and its redraw rules are over the rest)
+  const spec = goalPlanOf(v)?.specs ?? {};
+  const free = members.filter((m) => !spec[m.name]);
+  if (x.goals && ((free.length && !free.some((m) => x.goals!.of[m.name])) || (free.length > x.goals.drawnFor && !Object.keys(x.goals.stats).length))) delete x.goals;
+  if (!x.goals) x.goals = { of: drawGoals(free), drawnFor: free.length, at: now, stats: {} };
+  for (const m of members) {
+    const s = spec[m.name];
+    if (s?.measure) x.goals.of[m.name] = s.measure;
+    else if (s) delete x.goals.of[m.name];
+  }
+  for (const m of free) if (!x.goals.of[m.name]) x.goals.of[m.name] = lateGoal(m.name, m.t, x.goals.of);
   return x.goals;
 }
 
@@ -138,6 +233,12 @@ export function noteEnd(v: Village, name: string, kind: string, option: string, 
 export function topCraft(s: GoalStats | undefined): string | undefined {
   const best = Object.entries(s?.done ?? {}).sort((a, b) => b[1] - a[1])[0];
   return best && best[1] >= 5 ? best[0] : undefined;
+}
+
+/** The goal as the persona names it: a typed goal's text in quotes (MC_GOAL_TEXT), else the goal word. */
+export function goalName(v: Village, name: string): string | undefined {
+  const s = GOAL_TEXT ? specOf(v, name) : undefined;
+  return s ? `"${s.text}"` : goalsOf(v)?.of[name];
 }
 
 const words = (s: string) => s.replace(/^(make|activity):/, '').replace(/_/g, ' ');
@@ -236,5 +337,8 @@ export const GOAL_MEANING: Record<Goal, string> = {
  *  (#117) the goal's sentence after it. */
 export function goalLine(v: Village, name: string, meaning = false): string {
   const goal = goalsOf(v)?.of[name];
+  // (a typed goal: its text, with the measure's progress when it has one; the text is its own meaning)
+  const s = GOAL_TEXT ? specOf(v, name) : undefined;
+  if (s) return `Your life goal: "${s.text}"${goal ? ` (${progress(v, name, goal).text})` : ''}.`;
   return goal ? `Your life goal: ${goal} (${progress(v, name, goal).text}).${meaning ? ` Your goal: ${GOAL_MEANING[goal]}` : ''}` : '';
 }

@@ -19,6 +19,7 @@ import { villageHome } from '../village';
 import { GROW, GROW_FARMS } from '../grow';
 import { APPETITE } from '../appetite';
 import { TEMPERAMENT_MODE, temperamentTable } from '../temperament';
+import { GOALS_ON, goalPlan, goalsOf, progress, type GoalPlan } from '../goals';
 import { WANTED_TOP } from '../tech';
 import { allProposals, applyVerdict, guardVerdict, proposal, type Verdict } from '../proposals';
 import { PLAYER_TALK, peopleOf, requestsOf } from '../playerTalk';
@@ -158,6 +159,27 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
     const changed = parts[2] === 'pause' ? pause() : resume();
     const tick = changed ? await w.rcon.command(parts[2] === 'pause' ? 'tick freeze' : 'tick unfreeze').catch((e: Error) => `rcon: ${e.message}`) : '';
     return sendJson(res, 200, { ...runState(), changed, tick });
+  }
+  // The start screen (spec 3.5): each village's life goals: typed (text, measure, pursuits, by) or drawn, with progress
+  if (parts[1] === 'goals') {
+    const plan = goalPlan();
+    return sendJson(res, 200, {
+      on: GOALS_ON, plan: plan ? { mode: plan.mode, hash: plan.hash, village: plan.village ?? null, members: Object.keys(plan.specs).length, specs: plan.specs } : null,
+      // (read only: the villages a plan or a draw has reached; the plan goes on a village with its first goals, not here)
+      villages: [...w.villages.villages.values()].filter((v) => goalsOf(v) || (v as Village & { goalPlan?: GoalPlan }).goalPlan).map((v) => {
+        const specs = (v as Village & { goalPlan?: GoalPlan }).goalPlan?.specs ?? {};
+        const of = goalsOf(v)?.of ?? {};
+        const names = [...new Set([...Object.keys(specs), ...Object.keys(of)])];
+        return {
+          village: v.name, complete: !!v.complete,
+          members: names.map((n) => {
+            const s = specs[n], m = s ? s.measure : of[n];
+            return { name: n, by: s ? s.by : 'drawn', text: s?.text ?? null, measure: m ?? null, pursuits: s?.pursuits ?? [], unmatched: s?.unmatched ?? [],
+              progress: m && goalsOf(v) ? progress(v, n, m).text : null };
+          }),
+        };
+      }),
+    });
   }
   // A.3p: every named agent's temperament, kind weights and persona line, and the mode in force
   if (parts[1] === 'temperaments') return sendJson(res, 200, { mode: TEMPERAMENT_MODE, agents: temperamentTable() });

@@ -420,7 +420,20 @@ def start_agents(logdir, stamp):
     print(f"test agent server: {status.get('server')}, world settings: {status['worldRules'].get('summary')}")
 
 
+def warn_locked():
+    """A warning when the world is locked by a run series this reset is not part of (spec 12.1.2: direct resets take no
+    lock; they only warn)."""
+    try:
+        lk = json.load(open(ROOT / "runs" / "locks" / f"world-{T.WORLD}.json", encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if lk.get("pid") != os.getppid() and not (lk.get("token") and lk.get("token") == os.environ.get("MCAI_LOCK_TOKEN")):
+        print(f"WARNING: world {T.WORLD} is locked by {lk.get('by')} run {lk.get('name')} (pid {lk.get('pid')}, since "
+              f"{lk.get('started')}): this reset is not part of it", flush=True)
+
+
 def main():
+    warn_locked()
     argv, opts, args = sys.argv[1:], {}, []
     while argv:
         a = argv.pop(0)

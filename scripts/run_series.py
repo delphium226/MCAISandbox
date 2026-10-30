@@ -33,6 +33,11 @@ The spec (every key optional unless said; a run's keys override the spec's, its 
     "show": ["FOOD"],                    more line prefixes to print from the stage log
     "sweep": {"MC_CHARACTER_MIX": ["wealth:100", "drawn:100"]},  on a run: one run per value of one server setting,
                                          named NAME-<value> (e.g. a culture-mix experiment, #115)
+    "goal_mode": "village", "goals": {...}   typed life goals (the start screen, spec runs/2026-10-30/startscreen/spec.md):
+                                         drawn (default), village ({"village": SPEC, "members": {NAME: SPEC}}: the
+                                         village's spec for every member without its own) or member (blanks drawn);
+                                         every SPEC mapped already (scripts/goal_map.mts); the run's plan is written to
+                                         NAME.goals.json and passed as MC_GOAL_PLAN, unmatched words to NAME.unmatched.json
     "runs": [
       {"name": "CP1", "server_env": {"MC_GROW": "0"}, "args": "--after 0.5", "save": "mv3_cp1"},
       {"name": "V1", "checkpoint": "mv3_cp1", "args": "--after 20"},
@@ -59,8 +64,13 @@ A run with "checkpoint" restores that checkpoint (reset_site.py --checkpoint) an
 "save" saves the site as that checkpoint after its stage run (reset_site.py --save --force --no-start; the next run's reset
 starts the servers again). "reset": false runs on the world as the last run left it. Run names are the village names unless
 "village" is given; names must be unique in the spec.
+World locks (spec 12.1.2): a series holds runs/locks/world-N.json for each world its runs use, created atomically and
+removed at its end; another series (or the start screen) is refused while a live one holds it, and a lock whose series is
+gone is cleared. A series started with MCAI_LOCK_TOKEN adopts a lock carrying that token (the launcher's).
 """
-import datetime, json, os, re, shlex, subprocess, sys, threading, time, urllib.error, urllib.request
+import datetime, hashlib, json, os, re, shlex, subprocess, sys, threading, time, urllib.error, urllib.request
+
+from agent_names import worker_names
 
 from run_report import perf_summary
 from http_keepalive import urlopen  # (#112: one kept-alive connection per agent server)
@@ -153,7 +163,95 @@ def as_args(v):
     return shlex.split(v, posix=False) if isinstance(v, str) else list(v or [])
 
 
-PROFILE_OWN = ("name", "describe", "kind", "settings", "schedule")
+PROFILE_OWN = ("name", "describe", "kind", "settings", "schedule", "goal_mode", "goals")
+LOCKS = os.path.join(ROOT, "runs", "locks")
+
+
+def pid_cmdline(pid):
+    """A live process's command line ('' when there is none with that pid)."""
+    ps = f"(Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}').CommandLine"
+    r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True)
+    return r.stdout.strip()
+
+
+def lock_path(world):
+    return os.path.join(LOCKS, f"world-{int(world)}.json")
+
+
+def lock_holder(world):
+    """The live lock on a world, or None (a stale one, whose series process is gone, is removed with a line). A lock younger
+    than a minute is live whatever its pid (the launcher's, before its series adopts it)."""
+    p = lock_path(world)
+    try:
+        lk = json.load(open(p, encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if time.time() - float(lk.get("at", 0)) < 60:
+        return lk
+    cmd = pid_cmdline(lk.get("pid", 0)) if lk.get("pid") else ""
+    if "run_series.py" in cmd and (not lk.get("spec") or os.path.basename(lk["spec"]) in cmd):
+        return lk
+    print(f"world {world}: stale lock of {lk.get('name')} (pid {lk.get('pid')} gone) cleared", flush=True)
+    try:
+        os.remove(p)
+    except OSError:
+        pass
+    return None
+
+
+def take_lock(world, rec):
+    """The world's lock for this process (rec: by, name, spec), or an error naming the holder. A lock carrying this series'
+    MCAI_LOCK_TOKEN is adopted."""
+    os.makedirs(LOCKS, exist_ok=True)
+    token = os.environ.get("MCAI_LOCK_TOKEN", "")
+    held = lock_holder(world)
+    if held and not (token and held.get("token") == token):
+        return f"world {world} is locked by {held.get('by')} run {held.get('name')} (pid {held.get('pid')}, since {held.get('started')})"
+    me = {**rec, "pid": os.getpid(), "token": token, "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "at": time.time()}
+    if held:
+        json.dump(me, open(lock_path(world), "w", encoding="utf-8"))
+        return None
+    try:
+        fd = os.open(lock_path(world), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return f"world {world} was locked by another starter just now"
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(me, f)
+    return None
+
+
+def drop_lock(world, pid=None):
+    """Remove the world's lock (only this pid's, when given)."""
+    p = lock_path(world)
+    try:
+        if pid is not None and json.load(open(p, encoding="utf-8")).get("pid") != pid:
+            return
+        os.remove(p)
+    except (OSError, ValueError):
+        pass
+
+
+def goal_plan(run):
+    """The run's goal plan (spec 2, 12.2.8) from its goal mode and goals: {mode, hash, village, specs}, or None (drawn).
+    Refused when a typed goal is not mapped: mapping is a recorded step of its own, never a series' start."""
+    mode = run.get("goal_mode") or "drawn"
+    if mode == "drawn":
+        return None
+    goals = run.get("goals") or {}
+    vg = goals.get("village") if mode == "village" else None
+    names = ["Mayor"] + worker_names(int(run.get("workers", 2)))
+    specs = {}
+    for n in names:
+        s = (goals.get("members") or {}).get(n)
+        s = s if s and str(s.get("text", "")).strip() else vg
+        if not s:
+            continue
+        if s.get("mappedBy") not in ("model", "user"):
+            raise SystemExit(f"run {run['name']}: {n}'s goal \"{s.get('text', '')[:40]}\" is not mapped (scripts/goal_map.mts)")
+        specs[n] = {"text": s["text"], "measure": s.get("measure"), "pursuits": s.get("pursuits", []), "unmatched": s.get("unmatched", []),
+                    "by": "take" if s is not vg and s.get("by") == "take" else "user", "mappedBy": s["mappedBy"], **({"model": s["model"]} if s.get("model") else {})}
+    body = json.dumps(specs, sort_keys=True)
+    return {"mode": mode, "hash": hashlib.sha1(body.encode()).hexdigest()[:10], **({"village": vg["text"]} if vg else {}), "specs": specs}
 
 
 def node_json(args, stdin=None):
@@ -195,7 +293,11 @@ def with_profile(spec, run):
         f = (int(run["workers"]) + 1) / (check.get("members") or 1)
         est = {**est, "tokensHour": round(est["tokensHour"] * f), "usdHour": round(est["usdHour"] * f, 2)}
     out["_profile"] = {"name": prof["name"], "kind": prof["kind"], "file": os.path.relpath(path, ROOT).replace("\\", "/"),
-                       "warnings": check["warnings"], "estimate": est, "schedule": prof.get("schedule", [])}
+                       "warnings": check["warnings"], "estimate": est, "schedule": prof.get("schedule", []), "source": prof}
+    # (the start screen's goals: the run's own over the profile's)
+    for k in ("goal_mode", "goals"):
+        if k in prof and k not in run:
+            out[k] = prof[k]
     return out
 
 
@@ -227,7 +329,11 @@ def write_profile_json(run, server_env):
     rec = {"name": run["name"], "profile": prof or None, "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "commit": commit,
            "world": run["world"], "port": run["port"], "site": run["site"], "village": run["village"], "checkpoint": run["checkpoint"],
            "stage": run["stage"][1:], "settings": given, "stage_env": run["stage_env"], "errors": eff["errors"],
-           "warnings": eff["warnings"], "effective": eff["effective"], "assignment": eff.get("assignment"), "changes": []}
+           "warnings": eff["warnings"], "effective": eff["effective"], "assignment": eff.get("assignment"), "changes": [],
+           # (the start screen: the goals as run, and settings this series inherited from its starter's environment, which
+           # reach the agent server unrecorded otherwise: spec 12.2.8)
+           "goal_mode": run.get("goal_mode", "drawn"), "goals": run.get("goals"), "goal_plan": run.get("goal_plan"),
+           "inherited": {k: v for k, v in os.environ.items() if re.match(r"^(MC|MCAI)_", k) and k not in given and k not in OWN_ENV}}
     with open(os.path.join(run["out"], f"{run['name']}.profile.json"), "w", encoding="utf-8") as f:
         json.dump(rec, f, indent=1)
     for e in eff["errors"]:
@@ -300,9 +406,13 @@ def resolve(spec, run, out_default):
         "stage": [PY, "scripts/watch_village.py" if watch else "scripts/stage_village.py", village] + args,
         "timeout": float(get("timeout_min", float(get("minutes", 20)) + float(get("after", 0) or 0) + 15 if watch else 60)) * 60,
         "checks": checks, "show": tuple(SHOW) + tuple(get("show", [])),
-        "profile": run.get("_profile"),
+        "profile": run.get("_profile"), "goal_mode": get("goal_mode", "drawn"), "goals": get("goals"), "workers": workers,
         "log": os.path.join(out, f"{run['name']}.log"), "reset_log": os.path.join(out, f"reset_{run['name']}.log"),
     }
+
+
+# (the series' own environment keys, not counted as inherited in NAME.profile.json)
+OWN_ENV = {"MCAI_API", "MCAI_TEST_API_PORT", "MCAI_TEST_WORLD", "MCAI_CHOICE_LOG", "MCAI_LOCK_TOKEN", "MCAI_LOCK_BY"}
 
 
 def envs(run):
@@ -408,6 +518,14 @@ def main():
     today = f"runs/{datetime.date.today():%Y-%m-%d}"
     runs = [resolve(spec, with_profile(spec, r), today) for r in spec["runs"] if not pick or r["name"] in pick]
 
+    # (the world locks: refused here, before detaching, when a live series holds one; the detached child takes them)
+    worlds = sorted({r["world"] for r in runs})
+    if "--dry-run" not in flags:
+        for w in worlds:
+            held = lock_holder(w)
+            if held and not (os.environ.get("MCAI_LOCK_TOKEN") and held.get("token") == os.environ["MCAI_LOCK_TOKEN"]):
+                raise SystemExit(f"world {w} is locked by {held.get('by')} run {held.get('name')} (pid {held.get('pid')}, since {held.get('started')})")
+
     if "--detach" in flags:
         out = runs[0]["out"]
         os.makedirs(out, exist_ok=True)
@@ -424,8 +542,33 @@ def main():
         return
 
     print(f"SERIES {spec_path}: {', '.join(r['name'] for r in runs)} {time.strftime('%H:%M:%S')}", flush=True)
+    if "--dry-run" not in flags:
+        for w in worlds:
+            err = take_lock(w, {"by": os.environ.get("MCAI_LOCK_BY", "series"), "name": os.path.splitext(os.path.basename(spec_path))[0],
+                                "spec": os.path.abspath(spec_path)})
+            if err:
+                raise SystemExit(err)
+        import atexit
+        atexit.register(lambda: [drop_lock(w, os.getpid()) for w in worlds])
     results = []
     for run in runs:
+        plan = goal_plan(run)
+        if plan:
+            os.makedirs(run["out"], exist_ok=True)
+            pf = os.path.abspath(os.path.join(run["out"], f"{run['name']}.goals.json"))
+            json.dump(plan, open(pf, "w", encoding="utf-8"), indent=1)
+            run["server_env"]["MC_GOAL_PLAN"] = pf
+            run["goal_plan"] = {"file": pf, "hash": plan["hash"], "members": len(plan["specs"])}
+            words = [{"source": "goal", "by": "user" if plan.get("village") and s["text"] == plan["village"] else n, "text": w,
+                      "goal": s["text"], "run": run["name"]} for n, s in plan["specs"].items() for w in s["unmatched"]]
+            # (one entry per phrase and holder: a village text's words once, by "user")
+            seen, uniq = set(), []
+            for x in words:
+                if (x["by"], x["text"]) not in seen:
+                    seen.add((x["by"], x["text"]))
+                    uniq.append(x)
+            json.dump(uniq, open(os.path.join(run["out"], f"{run['name']}.unmatched.json"), "w", encoding="utf-8"), indent=1)
+            print(f"    goals: {plan['mode']}, {len(plan['specs'])} members typed (plan {plan['hash']}), {len(uniq)} unmatched words", flush=True)
         server_env, stage_env = envs(run)
         os.makedirs(run["out"], exist_ok=True)
         reset = [PY, "scripts/reset_site.py", run["site"]] + (["--checkpoint", run["checkpoint"]] if run["checkpoint"] else [])

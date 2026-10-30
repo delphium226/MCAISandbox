@@ -445,8 +445,9 @@ def main():
             R.add_source(reqs, w["id"], "wanted", village, score=w["rank"], title=w["name"], why="; ".join(w["why"])[:300])
             R.set_blocked(reqs, w["id"], blocked_why(w))
     for x in accepted:
-        # (the user's, 10-30: an unmatched pursuit's proposal is for the triage session only, never a foundry ticket)
-        if x.get("source") == "pursuit":
+        # (the user's, 10-30: an unmatched pursuit's proposal, or a typed goal's unmatched words, is for the triage session
+        # only, never a foundry ticket)
+        if x.get("source") in ("pursuit", "goal"):
             continue
         R.add_source(reqs, x["capability"], "proposal", str(x.get("id")), score=1, why=f"{x.get('by')}: {str(x.get('what'))[:120]}")
         w = by_id.get(x["capability"])

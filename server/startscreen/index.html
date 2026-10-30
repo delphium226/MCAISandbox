@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Start a Run</title>
+<!--TOKEN-->
+<style>
+  /* (the control panel's tokens and look, server/panel/index.html) */
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --panel-2: #f0f2f5; --text: #1c1f24; --muted: #5f6773; --line: #dde1e6;
+    --accent: #2f6fdb; --good: #1f8a4c; --bad: #c8372d; --warn: #b7791f; --info: #6b4fd8;
+    --mono: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111418; --panel: #1a1e24; --panel-2: #222731; --text: #e6e9ee; --muted: #9aa3ae; --line: #2d333d;
+      --accent: #6c9cff; --good: #4cc27f; --bad: #ff6b60; --warn: #e5a93b; --info: #a58cff;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #111418; --panel: #1a1e24; --panel-2: #222731; --text: #e6e9ee; --muted: #9aa3ae; --line: #2d333d;
+    --accent: #6c9cff; --good: #4cc27f; --bad: #ff6b60; --warn: #e5a93b; --info: #a58cff;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { background: var(--panel); padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: 12px; color: var(--muted); }
+  .chip b { color: var(--text); font-weight: 600; }
+  .chip.busy b { color: var(--warn); } .chip.free b { color: var(--good); }
+  .spacer { flex: 1; }
+  button, input, select, textarea { font: inherit; }
+  button { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; padding: 6px 18px; }
+  button.danger { color: var(--bad); background: transparent; border-color: color-mix(in srgb, var(--bad) 55%, transparent); }
+  button:disabled { opacity: .5; cursor: default; }
+  input[type=text], input[type=number], input[type=password], select, textarea { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; }
+  input[type=number] { width: 70px; }
+  main { padding: 16px 16px 120px; max-width: 1400px; margin: 0 auto; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; font-weight: 600; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .row { display: flex; gap: 8px 16px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
+  .row > label { display: inline-flex; gap: 6px; align-items: center; }
+  .lbl { color: var(--muted); min-width: 92px; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .wide { flex: 1; min-width: 240px; }
+  .wide input { width: 100%; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  td input[type=text] { width: 100%; }
+  .tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); margin: 1px 2px 1px 0; }
+  .tag.m { color: var(--accent); border-color: var(--accent); } .tag.p { color: var(--good); border-color: var(--good); } .tag.u { color: var(--warn); border-color: var(--warn); }
+  .err { color: var(--bad); } .warn { color: var(--warn); } .ok { color: var(--good); }
+  .mono { font-family: var(--mono); font-size: 12px; }
+  details.group { border-top: 1px solid var(--line); padding: 4px 0; }
+  details.group summary { cursor: pointer; font-weight: 600; }
+  .set { display: grid; grid-template-columns: minmax(180px, 240px) 120px 1fr; gap: 4px 10px; align-items: start; padding: 3px 0; }
+  .set .d { color: var(--muted); font-size: 12px; }
+  .set.changed .n { color: var(--accent); font-weight: 600; }
+  .startbar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel); border-top: 1px solid var(--line); padding: 8px 16px; display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; z-index: 2; }
+  .steps li { margin: 2px 0; } .steps li.done::marker { content: "✓ "; color: var(--good); } .steps li.failed::marker { content: "✗ "; color: var(--bad); }
+  a { color: var(--accent); }
+  @media (max-width: 700px) { .set { grid-template-columns: 1fr; } .lbl { min-width: 0; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>MCAISandbox · start a run</h1>
+  <span id="worlds" class="row" style="margin:0"></span>
+  <span class="spacer"></span>
+  <span id="tokenBox" hidden><input id="token" type="password" placeholder="launcher token" style="width:150px"> <button id="tokenSave">Use</button></span>
+</header>
+<main>
+  <section>
+    <div class="row">
+      <span class="lbl">Profile</span>
+      <select id="profileSel"></select>
+      <button id="save">Save</button><button id="saveAs">Save as…</button><button id="del" class="danger">Delete</button>
+      <select id="pastSel"><option value="">Load a past run…</option></select>
+      <span id="dirty" class="sub"></span>
+    </div>
+    <div class="row"><span class="lbl">Describe</span><span class="wide"><input id="describe" type="text"></span></div>
+    <div id="pastNote" class="sub warn"></div>
+  </section>
+
+  <section>
+    <h2>1. Where</h2>
+    <div class="row"><span class="lbl">World</span><span id="worldPick" class="row" style="margin:0"></span></div>
+    <div class="row"><span class="lbl">Start</span>
+      <label><input type="radio" name="startFrom" value="site" checked> fresh site</label> <select id="site"></select>
+      <label><input type="radio" name="startFrom" value="checkpoint"> checkpoint</label> <select id="checkpoint"></select>
+      <span id="cpNote" class="sub"></span>
+    </div>
+    <div class="row"><span class="lbl">Kind</span>
+      <label><input type="radio" name="kind" value="model"> model-driven</label>
+      <label><input type="radio" name="kind" value="staged"> staged (scripted workers)</label>
+      <label><input type="radio" name="kind" value="checkpoint"> checkpoint</label>
+      <label>Minutes <input id="minutes" type="number" min="1"></label>
+      <label>after completion <input id="after" type="number" min="0"></label>
+    </div>
+    <div class="row"><span class="lbl">Members</span><label><input id="workers" type="number" min="1" max="24"> + Mayor</label><span id="names" class="sub"></span></div>
+    <div class="row"><span class="lbl">Objective</span><span class="wide"><input id="objective" type="text" placeholder="the Mayor's objective (model-driven runs)"></span></div>
+    <div class="row"><span class="lbl">Character mix</span><span id="mix" class="row" style="margin:0"></span><label>seed <input id="mixSeed" type="text" style="width:70px"></label><span id="mixNote" class="sub"></span></div>
+  </section>
+
+  <section>
+    <h2>2. Goals</h2>
+    <div class="row">
+      <label><input type="radio" name="goalMode" value="drawn"> Let the code choose</label>
+      <label><input type="radio" name="goalMode" value="village"> One goal for the village</label>
+      <label><input type="radio" name="goalMode" value="member"> A goal per member</label>
+    </div>
+    <div class="row" id="villageRow"><span class="lbl">Village goal</span><span class="wide"><input id="villageGoal" type="text" maxlength="120" placeholder="e.g. explore the far lands and get rich"></span>
+      <button id="takes" title="One model call per member: each member's own version of the village goal">Draft takes</button>
+      <button id="fillBlanks">Fill blanks from it</button></div>
+    <div id="goalTable"></div>
+    <div class="row"><button id="mapGoals">Map goals</button><span id="goalNote" class="sub"></span></div>
+    <div id="unmatched" class="sub warn"></div>
+  </section>
+
+  <section>
+    <h2>3. Switches and settings <span class="spacer"></span>
+      <input id="find" type="text" placeholder="find" style="width:160px">
+      <label><input type="radio" name="view" value="changed" checked> changed</label>
+      <label><input type="radio" name="view" value="all"> all</label>
+      <label><input type="radio" name="view" value="live"> live only</label></h2>
+    <div id="settings"></div>
+    <div class="row"><input id="addName" type="text" list="settingNames" placeholder="add a setting…" style="width:240px"><datalist id="settingNames"></datalist><button id="addSetting">Add</button></div>
+  </section>
+
+  <section>
+    <h2>4. Check</h2>
+    <div id="check" class="sub">…</div>
+  </section>
+
+  <section id="progressBox" hidden>
+    <h2>The start</h2>
+    <ul id="steps" class="steps"></ul>
+    <div id="links"></div>
+    <div class="row"><button id="pause">Pause</button><button id="resume">Resume</button><button id="stop" class="danger">Stop</button></div>
+    <pre id="tail" class="mono sub" style="white-space:pre-wrap"></pre>
+  </section>
+</main>
+<div class="startbar">
+  <span id="checkLine" class="sub"></span><span class="spacer"></span>
+  <button id="start" class="primary">Start</button>
+</div>
+<script type="module">
+import { toState, fromState, members, goalRows, setMemberGoal, setVillageGoal, unmappedTexts, applyMapping, settingRows } from './state.mjs';
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+let TOKEN = window.LAUNCHER_TOKEN;
+try { TOKEN ||= localStorage.getItem('launcherToken'); } catch {}
+$('tokenBox').hidden = !!window.LAUNCHER_TOKEN;
+$('tokenSave').onclick = () => { TOKEN = $('token').value.trim(); try { localStorage.setItem('launcherToken', TOKEN); } catch {} refreshCheck(); };
+
+async function api(path, method = 'GET', body) {
+  const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json', ...(method !== 'GET' ? { 'X-Launcher-Token': TOKEN || '' } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+  if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  return j;
+}
+
+let REG = { settings: [], groups: [] }, NAMES = [], SITES = [], CPS = [], PROFILES = [], STATUS = [];
+let S = null, saved = '', committed = false, world = null, pastWarn = '';
+const ARCH = ['wealth', 'invention', 'community', 'tradition', 'beauty', 'drawn'];
+
+function load(p, isCommitted) {
+  S = toState(p);
+  committed = isCommitted;
+  saved = JSON.stringify(fromState(S));
+  render();
+}
+
+function render() {
+  $('describe').value = S.describe;
+  $('site').value = S.site;
+  $('checkpoint').value = S.checkpoint || '';
+  document.querySelector(`input[name=startFrom][value=${S.checkpoint ? 'checkpoint' : 'site'}]`).checked = true;
+  document.querySelectorAll('input[name=kind]').forEach((r) => (r.checked = r.value === S.kind));
+  $('minutes').value = S.minutes ?? ''; $('after').value = S.after ?? '';
+  $('workers').value = S.workers; $('objective').value = S.objective;
+  $('names').textContent = members(NAMES, S.workers).join(' ');
+  const mix = Object.fromEntries((S.settings.MC_CHARACTER_MIX || '').split(',').filter(Boolean).map((x) => x.split(':')));
+  $('mix').innerHTML = ARCH.map((a) => `<label>${a} <input type="number" min="0" max="100" data-arch="${a}" value="${esc(mix[a] ?? '')}" style="width:56px">%</label>`).join('');
+  $('mixSeed').value = S.settings.MC_CHARACTER_SEED ?? '';
+  document.querySelectorAll('#mix input').forEach((i) => (i.oninput = setMix));
+  document.querySelectorAll('input[name=goalMode]').forEach((r) => (r.checked = r.value === S.goal_mode));
+  $('villageGoal').value = S.goals.village?.text ?? '';
+  $('del').disabled = committed; $('save').disabled = committed;
+  renderWorlds(); renderGoals(); renderSettings(); markDirty(); refreshCheck();
+}
+
+function setMix() {
+  const parts = [...document.querySelectorAll('#mix input')].filter((i) => Number(i.value) > 0).map((i) => `${i.dataset.arch}:${Number(i.value)}`);
+  const sum = [...document.querySelectorAll('#mix input')].reduce((t, i) => t + (Number(i.value) || 0), 0);
+  if (parts.length) S.settings.MC_CHARACTER_MIX = parts.join(','); else delete S.settings.MC_CHARACTER_MIX;
+  $('mixNote').textContent = parts.length && sum !== 100 ? `shares sum to ${sum} (they are scaled to 100)` : '';
+  changed();
+}
+
+function renderWorlds() {
+  const rows = STATUS.filter((r) => r.offered);
+  $('worlds').innerHTML = rows.map((r) => {
+    const busy = r.lock || r.agents;
+    return `<span class="chip ${busy ? 'busy' : r.paper ? 'free' : ''}">world ${r.n}: <b>${busy ? `BUSY${r.lock ? ` (${esc(r.lock.name)})` : ` (${r.agents} agents)`}` : r.paper ? 'free' : 'down (starts with the run)'}</b></span>`;
+  }).join('');
+  if (world === null) world = rows.find((r) => !r.lock && !r.agents)?.n ?? null;
+  $('worldPick').innerHTML = rows.map((r) => `<label><input type="radio" name="world" value="${r.n}" ${r.n === world ? 'checked' : ''}> test ${r.n}${r.lock || r.agents ? ' <span class="warn">busy</span>' : ''}</label>`).join('');
+  document.querySelectorAll('input[name=world]').forEach((i) => (i.onchange = () => { world = Number(i.value); refreshCheck(); $('start').textContent = `Start on test ${world}`; }));
+  $('start').textContent = world ? `Start on test ${world}` : 'Start';
+}
+
+function renderGoals() {
+  const mode = S.goal_mode;
+  $('villageRow').hidden = mode === 'drawn';
+  $('takes').hidden = mode !== 'village';
+  $('fillBlanks').hidden = mode !== 'member';
+  $('mapGoals').hidden = mode === 'drawn';
+  if (mode === 'drawn') {
+    $('goalTable').innerHTML = '<p class="sub">Each member\'s life goal is drawn by code once the village is complete (today\'s draw: wealth, invention, mastery, standing, home, beauty, from its temperament or values).</p>';
+    $('unmatched').textContent = ''; $('goalNote').textContent = '';
+    return;
+  }
+  const rows = goalRows(S, NAMES);
+  $('goalTable').innerHTML = `<table><tr><th>member</th><th>goal (${mode === 'village' ? 'blank: the village goal' : 'blank: drawn by code'})</th><th>levers found</th><th></th></tr>${rows.map((r) => `<tr>
+    <td>${esc(r.name)}</td>
+    <td><input type="text" maxlength="120" data-member="${esc(r.name)}" value="${esc(r.by === 'village' || r.by === 'drawn' ? '' : r.text)}" placeholder="${esc(r.by === 'village' ? r.text : r.by === 'drawn' ? 'drawn by code' : '')}"><span class="sub">${r.by === 'take' ? 'a take' : ''}</span></td>
+    <td>${r.text ? (r.mapped ? `${r.measure ? `<span class="tag m">${esc(r.measure)}</span>` : '<span class="tag">no measure</span>'}${r.pursuits.map((p) => `<span class="tag p">${esc(p)}</span>`).join('')}${r.unmatched.map((u) => `<span class="tag u" title="no lever: sent to the triage">✗ ${esc(u)}</span>`).join('')}` : '<span class="sub">not mapped yet</span>') : ''}</td>
+    <td>${r.mapped && !r.measure && !r.pursuits.length ? '<span class="warn" title="words only: shown to the member, nothing weighs for it">⚠</span>' : ''}</td></tr>`).join('')}</table>`;
+  document.querySelectorAll('#goalTable input[data-member]').forEach((i) => (i.onchange = () => { setMemberGoal(S, i.dataset.member, i.value); renderGoals(); changed(); }));
+  const un = [...new Set(rows.flatMap((r) => r.unmatched))];
+  $('unmatched').textContent = un.length ? `Not matched, sent to the triage: ${un.map((u) => `"${u}"`).join(', ')} (no lever in this world; the member still sees the words)` : '';
+  const left = unmappedTexts(S).length;
+  $('goalNote').textContent = left ? `${left} text${left === 1 ? '' : 's'} to map (one model call each, cached)` : 'every goal mapped';
+}
+
+function inputFor(x) {
+  const v = esc(x.value);
+  if (x.type === 'flag') return `<select data-set="${x.name}">${['on', 'off'].map((o) => `<option ${/^(on|1|true|yes)$/i.test(x.value) === (o === 'on') ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
+  if (x.values) return `<select data-set="${x.name}">${['', ...x.values].map((o) => `<option ${o === x.value ? 'selected' : ''} value="${esc(o)}">${esc(o || '(unset)')}</option>`).join('')}</select>`;
+  return `<input type="text" data-set="${x.name}" value="${v}" style="width:110px">`;
+}
+
+function renderSettings() {
+  const view = document.querySelector('input[name=view]:checked').value;
+  const rows = settingRows(REG, S, view, $('find').value);
+  const groups = REG.groups.map((g) => [g, rows.filter((r) => r.group === g)]).filter(([, rs]) => rs.length);
+  $('settings').innerHTML = groups.length ? groups.map(([g, rs]) => `<details class="group" ${view === 'changed' || $('find').value ? 'open' : ''}><summary>${esc(g)} (${rs.length})</summary>${rs.map((x) => `
+    <div class="set ${x.changed ? 'changed' : ''}"><span class="n mono">${esc(x.name)}${x.name in S.settings ? ` <button data-unset="${x.name}" title="back to the default" style="padding:0 5px">×</button>` : ''}</span>${inputFor(x)}
+    <span class="d">${esc(x.describe.slice(0, 220))} <span class="sub">default ${esc(x.default || '(empty)')} · ${x.live ? 'live' : 'start-only'}${x.requires?.length ? ` · needs ${x.requires.join(', ')}` : ''}${x.requiredBy.length ? ` · needed by ${x.requiredBy.slice(0, 4).join(', ')}` : ''}</span></span></div>`).join('')}</details>`).join('')
+    : `<p class="sub">${view === 'changed' ? 'Every setting at its default.' : 'No setting matches.'}</p>`;
+  document.querySelectorAll('[data-set]').forEach((el) => (el.onchange = () => { S.settings[el.dataset.set] = el.value; renderSettings(); changed(); }));
+  document.querySelectorAll('[data-unset]').forEach((el) => (el.onclick = () => { delete S.settings[el.dataset.unset]; renderSettings(); changed(); }));
+}
+
+function markDirty() {
+  const now = JSON.stringify(fromState(S));
+  $('dirty').innerHTML = now === saved ? '<span class="ok">saved</span>' : '<span class="warn">● unsaved changes</span>';
+}
+function changed() { markDirty(); refreshCheck(); }
+
+function current() {
+  const p = fromState(S);
+  if (world) p.world = world;
+  return p;
+}
+
+let checkTimer = null, lastCheck = null;
+function refreshCheck() {
+  clearTimeout(checkTimer);
+  checkTimer = setTimeout(async () => {
+    if (!TOKEN) { $('check').innerHTML = '<span class="warn">Type the launcher token (runs/launcher.token on the PC) at the top right to check and start.</span>'; return; }
+    try {
+      const c = await api('/check', 'POST', { profile: current() });
+      lastCheck = c;
+      const est = c.estimate ? `Estimate ~$${c.estimate.usdHour.toFixed(2)} an hour${c.run_usd != null ? `, ~$${c.run_usd.toFixed(2)} for the run` : ''} (from ${c.estimate.from} recent runs, ${c.members} members)` : 'No cost estimate (staged, or no recent model-driven run)';
+      $('check').innerHTML = `<div>${c.errors.length} errors · ${c.warnings.length} warnings · commit ${esc(c.commit)}</div>
+        ${c.errors.map((e) => `<div class="err">✗ ${esc(e)}</div>`).join('')}${c.warnings.map((w) => `<div class="warn">⚠ ${esc(w)}</div>`).join('')}<div>${esc(est)}</div>`;
+      $('checkLine').innerHTML = c.errors.length ? `<span class="err">${c.errors.length} error${c.errors.length === 1 ? '' : 's'}: ${esc(c.errors[0])}</span>` : `<span class="ok">ready</span> ${c.warnings.length ? `· ${c.warnings.length} warnings` : ''}${c.estimate ? ` · ~$${c.estimate.usdHour.toFixed(2)}/h` : ''}`;
+      $('start').disabled = !!c.errors.length || !world;
+    } catch (e) { $('check').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  }, 350);
+}
+
+// --- the controls
+$('describe').oninput = () => { S.describe = $('describe').value; markDirty(); };
+$('site').onchange = () => { S.site = $('site').value; changed(); };
+$('checkpoint').onchange = () => { S.checkpoint = $('checkpoint').value; document.querySelector('input[name=startFrom][value=checkpoint]').checked = !!S.checkpoint; cpNote(); changed(); };
+document.querySelectorAll('input[name=startFrom]').forEach((r) => (r.onchange = () => { S.checkpoint = r.value === 'checkpoint' ? $('checkpoint').value : ''; cpNote(); changed(); }));
+document.querySelectorAll('input[name=kind]').forEach((r) => (r.onchange = () => { S.kind = r.value; S.preset = r.value === 'model' ? 'watch' : S.preset === 'watch' ? 's0' : S.preset; changed(); }));
+$('minutes').oninput = () => { S.minutes = $('minutes').value === '' ? undefined : Number($('minutes').value); changed(); };
+$('after').oninput = () => { S.after = $('after').value === '' ? undefined : Number($('after').value); changed(); };
+$('workers').oninput = () => { S.workers = Math.max(1, Math.min(24, Number($('workers').value) || 1)); $('names').textContent = members(NAMES, S.workers).join(' '); renderGoals(); changed(); };
+$('objective').oninput = () => { S.objective = $('objective').value; changed(); };
+$('mixSeed').oninput = () => { if ($('mixSeed').value) S.settings.MC_CHARACTER_SEED = $('mixSeed').value; else delete S.settings.MC_CHARACTER_SEED; changed(); };
+document.querySelectorAll('input[name=goalMode]').forEach((r) => (r.onchange = () => {
+  S.goal_mode = r.value;
+  // (a typed mode needs life goals on: MC_GOALS is on by default, so only an explicit off is changed)
+  if (r.value !== 'drawn' && /^(off|0|false|no)$/i.test(S.settings.MC_GOALS ?? '')) delete S.settings.MC_GOALS;
+  renderGoals(); changed();
+}));
+$('villageGoal').onchange = () => { setVillageGoal(S, $('villageGoal').value); renderGoals(); changed(); };
+$('fillBlanks').onclick = () => { for (const n of members(NAMES, S.workers)) if (!S.goals.members?.[n]?.text && $('villageGoal').value.trim()) setMemberGoal(S, n, $('villageGoal').value); renderGoals(); changed(); };
+$('mapGoals').onclick = mapGoals;
+async function mapGoals() {
+  const texts = unmappedTexts(S);
+  if (!texts.length) return true;
+  $('goalNote').textContent = `mapping ${texts.length} text${texts.length === 1 ? '' : 's'}…`;
+  $('mapGoals').disabled = true;
+  try {
+    const r = await api('/goals/map', 'POST', { texts, profile: current() });
+    applyMapping(S, r.results);
+    const bad = Object.entries(r.results).filter(([, x]) => x.error);
+    renderGoals(); changed();
+    const warns = Object.entries(r.results).flatMap(([t, x]) => (x.warnings || []).filter((w) => !/words only/.test(w)).map((w) => `"${t}": ${w}`));
+    if (warns.length || bad.length) $('goalNote').textContent += ' · ' + [...warns, ...bad.map(([t, x]) => `"${t}": ${x.error}`)].join(' · ');
+    return !bad.length;
+  } catch (e) { $('goalNote').textContent = `mapping failed: ${e.message}`; return false; }
+  finally { $('mapGoals').disabled = false; }
+}
+$('takes').onclick = async () => {
+  const text = $('villageGoal').value.trim();
+  if (!text) return;
+  setVillageGoal(S, text);
+  const who = members(NAMES, S.workers).filter((n) => n !== 'Mayor');
+  $('goalNote').textContent = `drafting ${who.length} takes (one model call each; they share the cloud's 3 slots with any running train)…`;
+  $('takes').disabled = true;
+  try {
+    const r = await api('/goals/takes', 'POST', { text, members: who, profile: current() });
+    for (const [n, t] of Object.entries(r.takes)) if (t) setMemberGoal(S, n, t, 'take');
+    renderGoals(); changed();
+  } catch (e) { $('goalNote').textContent = `takes failed: ${e.message}`; }
+  finally { $('takes').disabled = false; }
+};
+$('find').oninput = renderSettings;
+document.querySelectorAll('input[name=view]').forEach((r) => (r.onchange = renderSettings));
+$('addSetting').onclick = () => { const n = $('addName').value.trim(); const x = REG.settings.find((s) => s.name === n); if (x) { S.settings[n] = x.default; $('addName').value = ''; renderSettings(); changed(); } };
+
+$('profileSel').onchange = async () => { const r = await api(`/profiles/${$('profileSel').value}`); pastWarn = ''; $('pastNote').textContent = ''; load(r.profile, r.committed); };
+$('pastSel').onchange = async () => {
+  if (!$('pastSel').value) return;
+  const r = await api(`/runs/load?file=${encodeURIComponent($('pastSel').value)}`);
+  load(r.profile, false);
+  const inh = Object.keys(r.inherited || {});
+  $('pastNote').textContent = [r.commit && r.head && !r.head.startsWith(r.commit.replace(/-dirty$/, '')) ? `This run was on commit ${r.commit}; HEAD is ${r.head}.` : '', inh.length ? `It also inherited ${inh.join(', ')} from its starter's shell (not in the profile).` : ''].filter(Boolean).join(' ');
+  $('pastSel').value = '';
+};
+async function saveAs(name) {
+  const p = { ...fromState(S), name };
+  await api(`/profiles/${encodeURIComponent(name)}`, 'PUT', p);
+  await loadLists();
+  $('profileSel').value = name;
+  S.name = name; committed = false; saved = JSON.stringify(fromState(S)); render();
+}
+$('save').onclick = () => saveAs(S.name).catch((e) => alert(e.message));
+$('saveAs').onclick = () => { const n = prompt('Save as (profiles/local/NAME.json):', committed ? `${S.name}-mine` : S.name); if (n) saveAs(n.trim()).catch((e) => alert(e.message)); };
+$('del').onclick = async () => { if (!confirm(`Move profiles/local/${S.name}.json to profiles/local/.deleted/?`)) return; await api(`/profiles/${S.name}`, 'DELETE').catch((e) => alert(e.message)); await loadLists(); $('profileSel').onchange(); };
+
+$('start').onclick = async () => {
+  if (!world) return;
+  if (S.goal_mode !== 'drawn' && unmappedTexts(S).length && !(await mapGoals())) return;
+  $('start').disabled = true;
+  try {
+    const r = await api('/start', 'POST', { profile: current(), world });
+    $('progressBox').hidden = false;
+    $('links').innerHTML = linksHtml(r);
+    follow();
+  } catch (e) { alert(`Not started: ${e.message}`); $('start').disabled = false; }
+};
+const linksHtml = (r) => `<div class="row">Panel: ${r.panel.map((u) => `<a href="${esc(u)}" target="_blank">${esc(u)}</a>`).join(' · ')}</div><div class="row">Game: <span class="mono">${r.game.map(esc).join(' · ')}</span></div>`;
+let followTimer = null;
+async function follow() {
+  clearTimeout(followTimer);
+  try {
+    const p = await api(`/start/progress?world=${world}`);
+    if (p.ok) {
+      $('steps').innerHTML = p.steps.map((s) => `<li class="${s.done ? 'done' : s.failed ? 'failed' : ''}">${esc(s.step)}</li>`).join('');
+      $('links').innerHTML = linksHtml(p);
+      $('tail').textContent = p.tail.join('\n');
+      if (p.steps.at(-1).done) return;
+    }
+  } catch {}
+  followTimer = setTimeout(follow, 4000);
+}
+for (const what of ['pause', 'resume', 'stop'])
+  $(what).onclick = async () => {
+    if (what === 'stop' && !confirm(`Stop the run on test ${world}? Its agents are removed, the villages flushed and Paper saved.`)) return;
+    try { const r = await api(`/${what}`, 'POST', { world }); $('tail').textContent = JSON.stringify(r, null, 1); if (what === 'stop') { STATUS = await api('/status'); renderWorlds(); $('start').disabled = false; } } catch (e) { alert(e.message); }
+  };
+
+function cpNote() {
+  const c = CPS.find((x) => x.name === S.checkpoint);
+  $('cpNote').textContent = c ? `site ${c.site}, saved ${c.time}, ${c.villages.map((v) => `${v.name}${v.complete ? ' complete' : ''}, ${v.structures} buildings`).join('; ')}${c.site && c.site !== S.site ? ` (another site than ${S.site})` : ''}` : '';
+}
+
+async function loadLists() {
+  PROFILES = await api('/profiles');
+  $('profileSel').innerHTML = PROFILES.map((p) => `<option value="${esc(p.name)}">${esc(p.name)}${p.committed ? ' (committed)' : ''}</option>`).join('');
+}
+
+(async () => {
+  [REG, NAMES, SITES, CPS, STATUS] = await Promise.all([api('/registry'), api('/names?n=24'), api('/sites'), api('/checkpoints'), api('/status')]);
+  await loadLists();
+  $('site').innerHTML = SITES.map((s) => `<option>${esc(s.name)}</option>`).join('');
+  $('checkpoint').innerHTML = '<option value=""></option>' + CPS.map((c) => `<option value="${esc(c.name)}">${esc(c.name)} (${esc(c.site)}, ${esc((c.time || '').slice(5, 16))})</option>`).join('');
+  $('settingNames').innerHTML = REG.settings.map((s) => `<option value="${s.name}">`).join('');
+  const runs = await api('/runs?limit=40');
+  $('pastSel').innerHTML = '<option value="">Load a past run…</option>' + runs.map((r) => `<option value="${esc(r.file)}">${esc((r.started || '').slice(5, 16))} ${esc(r.name)} · world ${r.world} · ${esc(r.kind || '?')} · ${esc(r.goal_mode)} · ${esc(r.commit)}</option>`).join('');
+  // (?profile=NAME opens that profile)
+  const want = new URLSearchParams(location.search).get('profile');
+  const first = PROFILES.find((p) => p.name === want) ?? PROFILES.find((p) => p.name === 'acceptance') ?? PROFILES[0];
+  $('profileSel').value = first.name;
+  const r = await api(`/profiles/${first.name}`);
+  load(r.profile, r.committed);
+  setInterval(async () => { try { STATUS = await api('/status'); renderWorlds(); } catch {} }, 15000);
+})();
+</script>
+</body>
+</html>

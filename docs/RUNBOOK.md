@@ -19,6 +19,19 @@ holds new chores, choices and model calls, freezes Paper's ticks, and the watch 
 change the settings marked live in docs/SETTINGS.md during a run (logged `[setting] NAME old -> new (by ...)`;
 `run_report.py` lists them); a profile's `"schedule": [{"at_min": 30, "set": {"MC_CHOOSE": "model"}}]` applies them at
 run minutes from the agent server's start, paused time left out.
+**The start screen** (spec runs/2026-10-30/startscreen/spec.md, 10-30): `python scripts/stack.py up launcher` (also in
+`up`/`up all`; `down launcher`) starts `runctl.py serve --lan`: http://127.0.0.1:8780 (the page carries the token) and
+http://192.168.1.84:8780 (type the token in `runs/launcher.token` once; kept in the browser). Pick or edit a profile
+(save to `profiles/local/`, delete to `profiles/local/.deleted/`, load a past run's `NAME.profile.json`), a test world
+(1, 2, 4+; never main or 3), the run's goals (drawn; one village text, with "Draft takes" for personal versions; or one
+per member, blanks drawn), Map goals (one recorded call, kind `goal_map`, per distinct text, cached in
+`runs/goalmap/cache.jsonl`), Start (a one-run series), then follow the steps, the panel links and Pause/Resume/Stop. A
+profile's typed goals (`goal_mode`, `goals`) become `NAME.goals.json` (`MC_GOAL_PLAN`) and `NAME.unmatched.json` (words
+with no lever, for the triage) in the run folder; `GET /api/goals` on the agent server shows them. World locks:
+`runs/locks/world-N.json`, held by every run_series series (adopted from the launcher by `MCAI_LOCK_TOKEN`); a direct
+reset_site.py on a locked world only warns. CLI: `scripts/goal_map.mts catalogue|map|takes|profile NAME`; checks
+`goal_plan.mts`, `profile_roundtrip.mts` (in check:offline), `scripts/checks/run_again.py`; bench
+`scripts/bench/goalmapbench.mts ITEMS LABELS OUT` (runs/2026-10-30/startscreen/bench).
 
 ## Running and checking
 

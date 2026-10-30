@@ -83,6 +83,9 @@ export interface WantCounts { fam: Record<string, number>; lights: number; furni
 /** What the world tells the night and the sweep about a member (mcWorld.ts' wantsFacts). */
 export interface WantsFacts {
   goal?: string;
+  /** A typed goal's pursuit templates (the start screen), in place of the goal's, and its text as the persona names it. */
+  goalTemplates?: string[];
+  goalText?: string;
   t: Temperament;
   /** Live note texts and the day's intention. */
   notes: string[];
@@ -230,6 +233,20 @@ const DEFS: Record<Template, TemplateDef> = {
   },
 };
 
+/** Each template in fixed words (the start screen's lever catalogue, goalMap.ts; DEFS' labels need a parameter). */
+export const TEMPLATE_WORDS: Record<Template, string> = {
+  craft: "be the village's best at one craft (a good or activity done again and again)",
+  supply: 'keep the village supplied with one food (bread, fish, a harvest)',
+  works: 'build public works of your own (a well, a market stall, a woodshed, a signpost)',
+  light: 'light the village (torches, lanterns, lamp posts)',
+  explore: 'map the land beyond the village: walk to far survey points',
+  house: 'make your own house the finest: furnish and decorate it, a chest and farm of your own',
+  garden: 'make the village beautiful: flower beds, statues, benches, decorations',
+  research: 'unlock an invention by experiments (new goods and activities for the village)',
+  wealth: 'riches of your own: emeralds from selling your own goods and your own farm',
+  standing: "be the one everyone counts on: help others' projects",
+};
+
 /** Whether an option takes the pursuit's next step. */
 export function advances(p: Pick<Pursuit, 'template' | 'param'>, o: ChoiceOption, f: OptionFacts): boolean {
   return o.kind !== 'eat' && o.kind !== 'rest' && DEFS[p.template].advances(o, f, p.param);
@@ -299,7 +316,8 @@ export function candidates(s: WantsState, f: WantsFacts, day: number, seed: stri
     if (c && out.length < 4 && !has(c.template, c.param)) out.push(c);
   };
   if (f.admired?.pursuit) push(candidate(s, f.admired.pursuit.template, f, day, `like ${f.admired.name}'s`, f.admired.pursuit.param));
-  for (const t of GOAL_TEMPLATES[f.goal ?? ''] ?? []) push(candidate(s, t, f, day, 'your life goal'));
+  const mine = (f.goalTemplates ?? []).filter((t): t is Template => (TEMPLATES as readonly string[]).includes(t));
+  for (const t of mine.length ? mine : GOAL_TEMPLATES[f.goal ?? ''] ?? []) push(candidate(s, t, f, day, 'your life goal'));
   const top = topFamily(s.counts, s.seen);
   if (top) push(candidate(s, FOOD_FAMILIES.test(top) ? 'supply' : 'craft', f, day, 'what you do most', top));
   const text = f.notes.join(' ');
@@ -543,7 +561,7 @@ export async function pursuitNight(village: string, m: { name: string; persona: 
   if (!spec) return;
   if ((isCloudModel(spec.model) && !usage.allows('decisions')) || usage.blocked(spec.model, m.name)) return;
   asking.add(k);
-  const pr = pursuitPrompt(m.persona, goalLine || (f.goal ? `Your life goal: ${f.goal}.` : ''), s, cands, day);
+  const pr = pursuitPrompt(m.persona, goalLine || (f.goalText ?? f.goal ? `Your life goal: ${f.goalText ?? f.goal}.` : ''), s, cands, day);
   s.told = undefined;
   try {
     const r = await call({ spec, system: pr.system, user: pr.user, tools: pr.tools, level: REASONING.pursuit, agent: m.name, kind: 'pursuit', priority: 'reflection' });

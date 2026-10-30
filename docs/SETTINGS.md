@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-253 settings.
+256 settings.
 
 ## Game speed
 
@@ -202,7 +202,10 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_ESTEEM_RIVALS` | flag | `on` |  | `MC_ESTEEM` | The wants spec: the rival line (the record's holder on the member's pursuit) for high-pride members. |
 | `MC_EXPLORE_RINGS` | number | `2` |  |  | Survey rings round the village: 1 is the first ring (8 points at FARM_TRIP_RANGE); 2 adds 8 points at twice it, offered without the free-slot condition (the wants spec 9.2.6); 3 a third at three times. |
 | `MC_GAUGES` | flag | `off` |  |  | The character model's gauges layer (default: MC_CHARACTER). |
-| `MC_GOALS` | flag | `off` |  |  | On with MC_GOALS=on. |
+| `MC_GOAL_PIN` | flag | `on` |  | `MC_GOALS` | A typed goal is a kept line in the member's memory ("My life goal, set at the start: ..."), never evicted. |
+| `MC_GOAL_PLAN` | string | (unset) |  |  | The start screen's typed goals (spec runs/2026-10-30/startscreen/spec.md 3.5): a goal plan file (NAME.goals.json, written by run_series.py from a profile's "goals") whose members keep their typed goal text, measure and pursuit templates, never redrawn; empty: every goal drawn by code. |
+| `MC_GOAL_TEXT` | flag | `on` |  | `MC_GOALS` | A typed goal's text replaces the goal word in the goal line, the identity line and the vote's persona. Off: the mapped measure's word and progress only (a control arm for the words against the levers). |
+| `MC_GOALS` | flag | `on` |  |  | #79: life goals (wealth, invention, mastery, standing, home, beauty), one per member, drawn by code once the village is complete, or typed on the start screen (MC_GOAL_PLAN); on by default since 10-30 (the user's). |
 | `MC_GOALS_ONLY` | string | (unset) |  |  | Only these goals (comma list) in members' goal lines. |
 | `MC_HEXACO` | flag | `off` |  |  | The character model's HEXACO traits (default: MC_CHARACTER). |
 | `MC_IDENTITY` | flag | `off` |  |  | The character model's identity layer (default: MC_CHARACTER). |

@@ -1,8 +1,8 @@
 """The real-Minecraft stack in one command: what runs, start what is missing, stop it cleanly.
 
 Usage: python scripts/stack.py status
-       python scripts/stack.py up [main|test|all]       (default all; starts only what is not running)
-       python scripts/stack.py down [main|test|all]     (default all)
+       python scripts/stack.py up [main|test|launcher|all]       (default all; starts only what is not running)
+       python scripts/stack.py down [main|test|launcher|all]     (default all)
 Worlds: main (Paper on 25565, agent server and panel on 8766, mc/server) and test (Paper on 25566, agent server on
 MCAI_TEST_API_PORT or 8767, mc/testserver; restoring a site is reset_site.py's job). Agent servers start detached from a
 code snapshot (scripts/snapshot_code.py; MCAI_CODE_SNAPSHOT=0 runs the working tree), listening on 0.0.0.0, with
@@ -13,6 +13,9 @@ down: the agent server's villages are flushed, then it is killed (only a node pr
 RCON, which saves the world.
 Test worlds 2 to 9 (mc/testserverN, set up with MCAI_TEST_WORLD=N python mc/testserver.py init) are named test2...test9;
 status lists every one that is set up, and "all" covers them too.
+launcher: the start screen (scripts/runctl.py serve --lan, http://127.0.0.1:8780 and http://192.168.1.84:8780 with the
+token in runs/launcher.token), started detached; "all" (and no argument) starts it beside the worlds, as it costs nothing
+idle.
 """
 import datetime, json, os, pathlib, subprocess, sys, time, urllib.request
 
@@ -34,6 +37,7 @@ for _n in range(2, 10):
         WORLDS[f"test{_n}"] = {"dir": T.HERE / f"testserver{_n}", "game": 25565 + _n,
                                "api": T.API_PORT if T.WORLD == _n else 8766 + _n}
 OTHERS = {"Ollama app": 11434, "local model 1 (qwen3:30b)": 11435, "local model 2 (qwen3.8)": 11436}
+LAUNCHER = 8780
 
 
 def api(w, path, body=None):
@@ -59,6 +63,26 @@ def status():
             line += "down"
         print(line)
     print("  ".join(f"{k} :{p} {'up' if T.listening(p) else 'down'}" for k, p in OTHERS.items()))
+    print(f"launcher :{LAUNCHER} " + (f"up: the start screen at http://127.0.0.1:{LAUNCHER} and http://192.168.1.84:{LAUNCHER}"
+                                       if T.listening(LAUNCHER) else "down (python scripts/stack.py up launcher)"))
+
+
+def launcher_up():
+    if T.listening(LAUNCHER):
+        return print("launcher: already up")
+    log = logdir() / f"launcher-{time.strftime('%H%M%S')}.log"
+    # (a clean environment: no MC_/MCAI_ setting of this shell reaches the runs it starts, spec 12.2.8)
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("MC_", "MCAI_"))}
+    proc = R.detached([sys.executable, str(ROOT / "scripts" / "runctl.py"), "serve", "--lan"], cwd=ROOT, env=env, stdin=subprocess.DEVNULL,
+                      stdout=open(log, "w"), stderr=subprocess.STDOUT)
+    ok = R.wait_until(lambda: T.listening(LAUNCHER) or proc.poll() is not None, 20, 0.5) and T.listening(LAUNCHER)
+    print(f"launcher: {'up' if ok else 'did not start'} (pid {proc.pid}), log {log.relative_to(ROOT)}", flush=True)
+
+
+def launcher_down():
+    for pid in R.listening_pids(LAUNCHER):
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+    print(f"launcher: {'stopped' if R.wait_until(lambda: not T.listening(LAUNCHER), 15) else 'still listening'}")
 
 
 def logdir():
@@ -106,6 +130,9 @@ def start_agents(name, w):
 
 def up(names):
     for name in names:
+        if name == "launcher":
+            launcher_up()
+            continue
         w = WORLDS[name]
         if not T.listening(w["game"]):
             start_paper(name, w)
@@ -119,6 +146,9 @@ def up(names):
 
 def down(names):
     for name in names:
+        if name == "launcher":
+            launcher_down()
+            continue
         w = WORLDS[name]
         if T.listening(w["api"]):
             try:
@@ -139,9 +169,9 @@ def down(names):
 
 def main():
     a = sys.argv[1:]
-    if not a or a[0] not in ("status", "up", "down") or len(a) > 2 or (len(a) == 2 and a[1] not in (*WORLDS, "all")):
+    if not a or a[0] not in ("status", "up", "down") or len(a) > 2 or (len(a) == 2 and a[1] not in (*WORLDS, "launcher", "all")):
         raise SystemExit(__doc__)
-    names = list(WORLDS) if len(a) == 1 or a[1] == "all" else [a[1]]
+    names = [*WORLDS, "launcher"] if len(a) == 1 or a[1] == "all" else [a[1]]
     if a[0] == "status":
         return status()
     (up if a[0] == "up" else down)(names)

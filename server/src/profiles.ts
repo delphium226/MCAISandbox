@@ -37,7 +37,7 @@ export interface Profile {
 }
 
 /** The keys a profile may hold: its own, then run_series' run keys (its docstring). */
-const OWN_KEYS = ['name', 'describe', 'kind', 'settings', 'schedule', 'archetypes'];
+const OWN_KEYS = ['name', 'describe', 'kind', 'settings', 'schedule', 'archetypes', 'goal_mode', 'goals'];
 export const RUN_KEYS = ['world', 'site', 'village', 'workers', 'objective', 'minutes', 'checkpoint', 'port', 'preset', 'fast', 'time_scale', 'stage_env', 'args',
   'timeout_min', 'checks', 'show', 'save', 'reset', 'x', 'z', 'planner', 'site_size', 'after', 'replay', 'replay_mode', 'server_env', 'out'];
 const KINDS: ProfileKind[] = ['staged', 'model', 'checkpoint'];
@@ -127,6 +127,9 @@ export function checkProfile(p: Profile): Check {
   const c = checkSettings(given, p.kind);
   errors.push(...c.errors);
   warnings.push(...c.warnings);
+  const g = checkGoals(p, effectiveSettings(given));
+  errors.push(...g.errors);
+  warnings.push(...g.warnings);
   for (const [i, step] of (p.schedule ?? []).entries()) {
     if (!(Number(step?.at_min) >= 0)) errors.push(`schedule ${i + 1}: "at_min" must be a minute >= 0`);
     for (const n of Object.keys(step?.set ?? {})) {
@@ -135,6 +138,47 @@ export function checkProfile(p: Profile): Check {
       else if (!s.live) errors.push(`schedule ${i + 1}: ${n} cannot change during a run (start-only)`);
     }
   }
+  return { errors, warnings };
+}
+
+/** A typed goal in a profile (goals.ts' GoalSpec as the screen saves it; the measure null for words only). */
+interface ProfileGoal { text?: unknown; measure?: unknown; pursuits?: unknown; unmatched?: unknown; mappedBy?: unknown }
+const MEASURE_NEEDS: Record<string, string> = { wealth: 'MC_OWN', invention: 'MC_INNOVATE' };
+
+/**
+ * The start screen's goals (spec runs/2026-10-30/startscreen/spec.md 2, 12): goal_mode drawn (the default), village (one
+ * text for all, takes per member optional) or member (a goal per member, blanks drawn). A typed mode needs MC_GOALS on and
+ * every text mapped (the mapping is its own recorded step, never at a series' start); a measure whose setting is off and
+ * unmatched words with proposals off are warnings.
+ */
+export function checkGoals(p: Profile, eff: Record<string, string>): Check {
+  const errors: string[] = [], warnings: string[] = [];
+  const mode = (p.goal_mode as string | undefined) ?? 'drawn';
+  if (!['drawn', 'village', 'member'].includes(mode)) return { errors: [`"goal_mode" must be drawn, village or member`], warnings };
+  if (mode === 'drawn') return { errors, warnings };
+  if (!flagOn(eff.MC_GOALS)) errors.push(`typed goals (goal_mode ${mode}) need MC_GOALS on`);
+  const goals = (p.goals ?? {}) as { village?: ProfileGoal; members?: Record<string, ProfileGoal> };
+  const names = new Set(['Mayor', ...Array.from({ length: p.workers ?? 2 }, (_, i) => workerName(i + 1))]);
+  const all: Array<[string, ProfileGoal]> = [];
+  if (mode === 'village') {
+    if (typeof goals.village?.text !== 'string' || !goals.village.text.trim()) errors.push('village goals need "goals.village.text"');
+    else all.push(['the village', goals.village]);
+  }
+  for (const [n, g] of Object.entries(goals.members ?? {})) {
+    if (!names.has(n)) warnings.push(`a goal for ${n}, who is not among this run's ${names.size} members`);
+    if (typeof g?.text === 'string' && g.text.trim()) all.push([n, g]);
+  }
+  if (mode === 'member' && !all.length) errors.push('goal_mode member with no typed goal (every member drawn: use drawn)');
+  let unmatched = 0;
+  for (const [who, g] of all) {
+    const t = String(g.text);
+    if (t.length > 120) warnings.push(`${who}'s goal is ${t.length} characters: cut to 120 at a word`);
+    if (g.mappedBy !== 'model' && g.mappedBy !== 'user') errors.push(`${who}'s goal "${t.slice(0, 40)}" is not mapped yet (Map goals)`);
+    const m = typeof g.measure === 'string' ? g.measure : null;
+    if (m && MEASURE_NEEDS[m] && !flagOn(eff[MEASURE_NEEDS[m]])) warnings.push(`${who}'s goal counts ${m}, which needs ${MEASURE_NEEDS[m]} (off)`);
+    unmatched += Array.isArray(g.unmatched) ? g.unmatched.length : 0;
+  }
+  if (unmatched && !flagOn(eff.MC_PROPOSALS)) warnings.push(`${unmatched} unmatched words go to the triage file only (MC_PROPOSALS is off)`);
   return { errors, warnings };
 }
 

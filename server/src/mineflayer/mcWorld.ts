@@ -33,7 +33,7 @@ import { BAN_MEMBER, CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, basicOf, build
 import { Palette, reserved, type Dropped } from '../palette';
 import { workerNumber } from '../agentNames';
 import { KIND_PHRASE, TEMPERAMENT_MODE, activeKinds, kindWeights, optionWeight, personaOf, temperament, vectorOf } from '../temperament';
-import { GOALS_ON, ensureGoals, goalLine, goalScore, goalWeight, goalsOf, noteEnd as goalNoteEnd, serves, topCraft, type Goals, type OptionFacts } from '../goals';
+import { GOALS_ON, GOAL_PIN, ensureGoals, goalLine, goalName, goalScore, goalWeight, goalsOf, noteEnd as goalNoteEnd, goalPlanOf, serves, specOf, topCraft, type Goals, type OptionFacts } from '../goals';
 import { IRON_AGE, IRON_MINERS, LADDER, LETTERS, RUNG_DEFS, VW, chooseRung, feedsStage, ladderOf, lettersCounts, lettersCurrent, lettersReached, LETTERS_BOOKS, noteLadder, openRungBallot, progressLine, rungOptions, rungPreview, stageTag, type Counter as LadderCounter, type LadderNews } from '../ladder';
 import type { RungId } from '../wanted';
 import type { ChronicleEntry } from '../social';
@@ -84,7 +84,7 @@ import { admiredOf, distinctOf, esteemLine, imitationWeight, noteBuilt, noteDist
 import { setProposalCtx } from '../society';
 import { topWanted, wantedList } from '../wanted';
 import { SELLS } from '../merchant';
-import { clockOf, noteAnswer, scrub, setProjectLines, toldAnswer, villageMemory } from '../memory';
+import { clockOf, noteAnswer, scrub, setLifeGoal, setProjectLines, toldAnswer, villageMemory } from '../memory';
 import { codeNews, tellMember } from '../acts';
 import { RULES, boardSigns, breaks, contributeOwed, inClass, rulesInForce, claimHeld, claimRule, contributeTag, duties, levyRate, noteBlocked, noteClaimWait, noteCompliance, notePuts, noteReportUsed, noteTakes, pendReport, pendingReport, postClaim, postReport, reportFor, reportRule, rulesLine, setZoneVillages, skipReport, zoneBoxes, type ClaimWork, type Report } from '../rules';
 import { CUSTOMS, CUSTOM_IDS, TEMPLATES, customFacts, didOn, noteDid, noteExposed, offered as customOffered, seedLine, type CustomId } from '../customs';
@@ -2490,7 +2490,8 @@ export class MineflayerWorld implements WorldAdapter {
     }
     const hoods = [...styles.entries()].map(([s, n]) => `${n} of ${(STYLE_LOOK[s]?.name ?? s).toLowerCase()}`).join(', ');
     return {
-      persona: (typeof a.memory.persona === 'string' && a.memory.persona) || personaOf(a.name),
+      // (the start screen, MC_GOAL_TEXT: a typed goal's text after the persona, so ballots see it)
+      persona: [(typeof a.memory.persona === 'string' && a.memory.persona) || personaOf(a.name), GOALS_ON && specOf(v, a.name) && goalName(v, a.name)?.startsWith('"') ? `Your life goal: ${goalName(v, a.name)}.` : ''].filter(Boolean).join(' '),
       pattern: this.patternLine(v, a),
       self: `You built ${mine} of the village's ${v.structures.length} buildings.`,
       village: `${v.name}, ${housesOf(v)} houses for ${this.growMembers(v).length} members; areas of houses: ${hoods || 'none of one style'}`,
@@ -8482,9 +8483,19 @@ export class MineflayerWorld implements WorldAdapter {
   goalsFor(v: Village): Goals {
     const members = [...this.agents.values()].filter((b) => b.village() === v).map((b) => ({ name: b.name, t: vectorOf(b.name) }));
     const before = goalsOf(v)?.drawnFor;
+    // (the start screen: a typed goal's unmatched words to the proposals store once, when the plan is put on the village)
+    goalPlanOf(v, (p) => {
+      if (PROPOSALS_ON) for (const [m, s] of Object.entries(p.specs)) for (const w of s.unmatched) this.wantProposal(v.name, m, w, `words of my life goal "${s.text}" with no lever`, clockOf(v.name, Date.now())?.day ?? 0, 'goal');
+    });
     const g = ensureGoals(v, members, Date.now());
-    // (character v2, MC_VALUES: life goals drawn from values, the user's choice; a checkpoint's stored goals redrawn once, logged)
-    if (CHARACTER.values) for (const m of members) {
+    // (MC_GOAL_PIN: each typed goal a kept line in its member's memory)
+    if (GOAL_PIN) for (const m of members) {
+      const s = specOf(v, m.name);
+      if (s && setLifeGoal(v.name, m.name, s.text)) console.log(`[goal] ${v.name}: ${m.name}'s typed goal pinned: "${s.text}" (${s.measure ?? 'words only'}${s.pursuits.length ? `; ${s.pursuits.join(', ')}` : ''})`);
+    }
+    // (character v2, MC_VALUES: life goals drawn from values, the user's choice; a checkpoint's stored goals redrawn once, logged;
+    // never a typed goal)
+    if (CHARACTER.values) for (const m of members.filter((x) => !specOf(v, x.name))) {
       const want = goalFromValues(m.name);
       if (g.of[m.name] !== want) {
         console.log(`[goal] ${v.name}: ${m.name}'s goal ${g.of[m.name] ?? 'none'} -> ${want} (from values)`);
@@ -8515,7 +8526,9 @@ export class MineflayerWorld implements WorldAdapter {
     const adm = WANTS.esteem ? admiredOf(v.name, name, now) : null;
     const ap = adm ? wantsOf(v.name, adm.name).pursuit ?? donePursuits(v.name, adm.name).slice(-1)[0] : undefined;
     return {
-      ...(GOALS_ON && goalsOf(v)?.of[name] ? { goal: goalsOf(v)!.of[name] } : {}), t: temperament(name), notes: noteTexts(v.name, name), built,
+      ...(GOALS_ON && goalsOf(v)?.of[name] ? { goal: goalsOf(v)!.of[name] } : {}),
+      ...(GOALS_ON && specOf(v, name) ? { goalTemplates: specOf(v, name)!.pursuits, goalText: goalName(v, name) } : {}),
+      t: temperament(name), notes: noteTexts(v.name, name), built,
       emeralds: v.homes?.[name]?.chest?.items?.emerald ?? 0, inventions, ringLeft, own: OWN.on,
       ...(adm ? { admired: { name: adm.name, ...(ap ? { pursuit: { template: ap.template, ...(ap.param ? { param: ap.param } : {}) } } : {}) } } : {}),
     };
@@ -9113,7 +9126,7 @@ export class MineflayerWorld implements WorldAdapter {
     if (!characterAny()) return { persona: '', character: '' };
     const h = this.homeOf(v, a.name);
     const house = h && 'x1' in h ? `the ${(h as Structure).kind.replace(/_/g, ' ')} at ${Math.round(((h as Structure).x1 + (h as Structure).x2) / 2)},${Math.round(((h as Structure).z1 + (h as Structure).z2) / 2)}` : undefined;
-    const goal = GOALS_ON ? goalsOf(v)?.of[a.name] : undefined;
+    const goal = GOALS_ON ? goalName(v, a.name) : undefined;
     const role = SOCIAL.roles ? roleOf(v.name, a.name)?.kind : undefined;
     const persona = CHARACTER.identity ? identityLine(a.name, { goal, house, ...(role ? { role: roleNoun(role) } : {}) }) : CHARACTER.hexaco ? `You are ${temperamentWords(a.name)}.` : '';
     const lines = { identity: persona, values: CHARACTER.values ? valuesLine(a.name) : '', needs: needsLine(v.name, a.name), mood: moodLine(v.name, a.name, now) };

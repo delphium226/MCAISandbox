@@ -150,6 +150,8 @@ export interface AgentMemory {
   refused?: string;
   /** G5 (#90): the answers to its proposals and those it backed, pinned (the last 3), never evicted like notes. */
   answers?: Array<{ id: string; line: string; at: number }>;
+  /** The start screen (MC_GOAL_PIN): the life goal typed at the start, a kept line never evicted. */
+  lifeGoal?: string;
 }
 export interface VillageMemory {
   name: string;
@@ -310,6 +312,15 @@ export function noteAnswer(village: string, agent: string, id: string, line: str
   list.push({ id, line: line.slice(0, 220), at: now });
   if (list.length > 3) list.splice(0, list.length - 3);
   logAct({ type: 'answer', village, agent, id, line });
+  save();
+  return true;
+}
+/** The start screen (MC_GOAL_PIN): the member's typed life goal as a kept memory line; '' removes it. False when unchanged. */
+export function setLifeGoal(village: string, agent: string, text: string): boolean {
+  const a = ensureAgent(village, agent);
+  if ((a.lifeGoal ?? '') === text) return false;
+  if (text) a.lifeGoal = text;
+  else delete a.lifeGoal;
   save();
   return true;
 }
@@ -676,6 +687,7 @@ export function recall(village: string, agent: string, now: number, o: { cap?: n
     }
   }
   if (v?.days.length && villageLine()) lines.push({ text: `- The village: ${v.days[v.days.length - 1].line}`, items: ['village'] });
+  if (a?.lifeGoal) lines.push({ text: `- My life goal, set at the start: "${a.lifeGoal}"`, items: ['lifegoal'], keep: true });
   for (const x of a?.answers ?? []) lines.push({ text: `- ${x.line}`, items: [`answer:${x.id}`], keep: true });
   // (M3, MC_MONUMENT_NEWS: the member's own part in the village's project, kept by code on the project's record)
   for (const t of projectLines?.(village, agent, now) ?? []) lines.push({ text: `- ${t}`, items: ['project'], keep: true });
