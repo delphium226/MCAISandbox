@@ -966,3 +966,9 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 10-30 (the user's, after train 12) **The supply flags and more mines on by default**: `MC_FIELD_RIPE=0.5`,
   `MC_OWN_ROD`, `MC_FLOWER_WANTS`, `MC_MORE_MINES`. Train 12 showed no regression from them (its hunger came from
   `MC_MERCHANT=off`, #178). `MC_OWN_ROD` acts only with `MC_OWN` on (off by default). choice_golden pins their old values.
+- 10-30 (the user's) **The start screen's open questions take the planning session's recommendations**
+  (runs/2026-10-30/startscreen/spec.md sections 11 and 12.5): test worlds only in v1 (no main world); the launcher starts
+  with `stack.py up`, not at Windows logon; village mode gives the text to all, with a "Draft takes" button for
+  personal versions; typed goals shape members' own goals only, not what the village esteems (v1); the village goal
+  stays apart from the Mayor's objective; `MC_GOALS` on by default; goals do not change mid-run in v1; the LAN screen
+  (192.168.1.84:8780) behind a token typed once.
