@@ -109,6 +109,7 @@ import { DYE_BED, DYE_FLOWERS, DYE_REACH, TALL_FLOWERS, dyeRecipes, makeableColo
 import { DETAIL_COLOURS } from '../gothicGen';
 import { stoneStandIn, DEEP_BLOCKS, deepStandIn, GEM_STAND, DYE_FAILS, DYE_WAIT_MIN, dyeStandIn, dyeStood, furnishLeaveOut, leftOutItems, refurnishOn, COPPER_ROOF, COPPER_BLOCKS, copperFrom, copperOn, copperReached, copperStandIn, reroofReturns } from '../monument';
 import { DEEP_KEEP, deepenForStone, setKeepCopper } from './mcMine';
+import { DIAMONDS_ON, PICK_DIAMONDS, deepChain, deepDigBlocked, deepDigWords, deepenForDiamonds, diamondCounts, diamondForgeNeed, hasIronPick } from './mcDiamond';
 import { MORE_MINES, moreMinesDue } from '../mineSite';
 /** #162: minutes (game time) a stage waits for a quarried stone before the rest stands in as another. */
 const STONE_WAIT_MIN = 6;
@@ -1159,17 +1160,22 @@ export class MineflayerWorld implements WorldAdapter {
     const monumentBusy = MONUMENT.on && !!v.monument && v.monument.state !== 'site' && (v.monument.state !== 'built' || furnishStage(v.monument) > 0 && currentStage(v.monument) === furnishStage(v.monument));
     // (#168: the stairs one digger at a time; train 7 refused 29, 67 and 23 trips for them, each a member's chore)
     const stairsBy = ironStairsHeld(v.name, a.name, m, now);
+    // (#22, MC_DIAMOND_AGE: a finished level is laid deeper while the village wants diamonds, so the dig stays offered; no
+    // world test from here, the browsing member may be far from the mine: the stairs test the ground as they go)
+    if (DIAMONDS_ON && ironDone(m, now)) deepenForDiamonds(this.villages, v, undefined, now);
+    const pickless = deepDigBlocked(v, hasIronPick(a), store), deep = deepDigWords(v, store);
     if (ironDone(m, now)) why.push('iron level finished');
     else if (stairsBy) why.push(`the iron stairs being dug by ${stairsBy}`);
-    else if (monumentBusy && raw + ingots >= IRON_MONUMENT_ENOUGH) why.push(`iron enough while the monument is built (${raw + ingots} stored)`);
+    else if (monumentBusy && raw + ingots >= IRON_MONUMENT_ENOUGH && !deep) why.push(`iron enough while the monument is built (${raw + ingots} stored)`);
     else if (slot === undefined) why.push('every leg busy');
     else if (backing('dig')) why.push('digging backs off');
+    else if (pickless) why.push(pickless);
     else {
       added++;
       add({
-        id: 'iron:dig', kind: 'iron', key: `irondig:${slot}`, excludes: [`irondig:${slot}=`], name: 'Dig for iron in the mine', rank: 700,
-        facts: `${raw} raw iron and ${ingots} iron ingots in storage; the iron level ${m.iron ? `${m.iron.level !== undefined ? `at y ${m.iron.level}, ` : ''}${m.iron.dug} cells dug` : 'not started'}${others('iron', 'iron:dig')}; ${record('iron')}${lastOf('iron', 'iron:dig')}`,
-        effect: `raw iron for the smelters (${raw} in storage)`,
+        id: 'iron:dig', kind: 'iron', key: `irondig:${slot}`, excludes: [`irondig:${slot}=`], name: deep?.name ?? 'Dig for iron in the mine', rank: 700,
+        facts: `${deep ? `${deep.facts}; ` : ''}${raw} raw iron and ${ingots} iron ingots in storage; the iron level ${m.iron ? `${m.iron.level !== undefined ? `at y ${m.iron.level}, ` : ''}${m.iron.dug} cells dug` : 'not started'}${others('iron', 'iron:dig')}; ${record('iron')}${lastOf('iron', 'iron:dig')}`,
+        effect: deep?.effect ?? `raw iron for the smelters (${raw} in storage)`,
       }, { kind: 'iron', stage: 'dig', tool: '', iron: raw });
     }
     // (a works furnace first, else the hut's: the workshop's makes held all three works furnaces most of staged I1)
@@ -1204,6 +1210,27 @@ export class MineflayerWorld implements WorldAdapter {
         effect: need.for ? `${need.for} gets its own ${words(need.tool)}` : `a ${words(need.tool)} in the village storage`,
       }, { kind: 'iron', stage: 'forge', tool: need.tool, iron: ingots, ...(need.for ? { for: need.for } : {}) });
     }
+    // (#22, MC_DIAMOND_AGE: a diamond pickaxe for a deep miner without one, from stored diamonds less those earmarked)
+    if (DIAMONDS_ON) {
+      let gemsHeld = 0;
+      for (const [hk, c] of makeHolds) if (hk.startsWith(`${v.name}|`)) gemsHeld += c.diamond ?? 0;
+      const gems = Math.max(0, (store.diamond ?? 0) - gemsHeld);
+      const miners = [...this.agents.values()].filter((b) => b.village()?.name === v.name && b.memory.villageRole !== 'mayor')
+        .map((b) => ({ name: b.name, digs: this.workKinds.get(b.name.toLowerCase())?.get('iron:dig') ?? 0 }));
+      const dn = diamondForgeNeed(v, miners, gems);
+      const dk = typeof dn === 'string' ? '' : `diamondforge:${dn.for.toLowerCase()}`;
+      if (typeof dn === 'string') { if (dn) why.push(dn); }
+      else if (busy.has(dk)) why.push('a diamond pickaxe being made');
+      else if (backing('forge:diamond_pickaxe')) why.push('diamond forging backs off');
+      else {
+        added++;
+        add({
+          id: `diamond:forge:diamond_pickaxe:${dn.for}`, kind: 'iron', key: dk, excludes: [`${dk}=`], name: `Make a diamond pickaxe for ${dn.for} (a deep miner without one)`, rank: 703,
+          facts: `${gems} diamonds in storage, ${PICK_DIAMONDS} needed${others('iron', 'diamond:forge')}${lastOf('iron')}`,
+          effect: `${dn.for} gets its own diamond pickaxe`,
+        }, { kind: 'iron', stage: 'forge', tool: 'diamond_pickaxe', iron: gems, for: dn.for });
+      }
+    }
     if (!added) reasons.iron = why.join('; ');
   }
 
@@ -1217,6 +1244,11 @@ export class MineflayerWorld implements WorldAdapter {
       if (asker) return { tool: t, for: asker, why: 'asked for one', asked: true };
     }
     const members = [...this.agents.values()].filter((b) => b.village()?.name === v.name && b.memory.villageRole !== 'mayor');
+    // (#22, MC_DIAMOND_AGE: a deep miner whose iron pickaxe wore out gets another: the rung's trips need one, and a deep
+    // level's 1,000-odd blocks wear out four)
+    if (DIAMONDS_ON && deepChain(v.mine))
+      for (const b of members)
+        if ((this.workKinds.get(b.name.toLowerCase())?.get('iron:dig') ?? 0) >= 1 && has(b.name, 'iron_pickaxe') && b.bot?.entity && !hasIronPick(b)) return { tool: 'iron_pickaxe', for: b.name, why: 'its iron pickaxe for the deep level wore out' };
     for (const [t, test, why] of FORGE_NEEDS)
       for (const b of members) {
         const kinds = this.workKinds.get(b.name.toLowerCase());
@@ -5410,6 +5442,8 @@ export class MineflayerWorld implements WorldAdapter {
         // (#21, MC_LETTERS: cane harvested, leather bought or caught once the activity's deposit landed, books made, pieces
         // shelved)
         else if (LETTERS && (q.type !== 'trade' && q.type !== 'fish' || (act && c.status[act.depAt]?.state === 'done'))) got.push(...lettersCounts(q.type, q.message));
+        // (#22, MC_DIAMOND_AGE: the chain's depth, diamonds brought up, a diamond pickaxe given; only while diamond is current)
+        if (DIAMONDS_ON && v.ladder?.current === 'diamond') got.push(...diamondCounts(v, q.type, q.message, String(q.args?.item ?? '')));
         for (const [counter, n] of got) {
           for (const news of noteLadder(v, counter, c.agent, n, Date.now(), clockOf(v.name, Date.now())?.day)) this.ladderNews(v, news);
         }
@@ -9120,7 +9154,7 @@ export class MineflayerWorld implements WorldAdapter {
         };
         this.setChore(v, worker, opt.key, [status], `iron: ${stage}`, failed, meta, opt.holds, opt);
         // (G8: a forge's ingots earmarked until its chore ends, set after the chore as a make's are)
-        if (IRON_AGE && stage === 'forge') holdsSet(holdKey(v.name, worker.name), { iron_ingot: FORGE_COST[d.tool] ?? 3 });
+        if (IRON_AGE && stage === 'forge') holdsSet(holdKey(v.name, worker.name), d.tool === 'diamond_pickaxe' ? { diamond: PICK_DIAMONDS } : { iron_ingot: FORGE_COST[d.tool] ?? 3 });
         console.log(`[iron] ${v.name}: ${worker.name} ${stage === 'dig' ? `digs the iron level (${d.iron} iron in storage)` : stage === 'smelt' ? `smelts ${d.count} raw iron at works furnace ${d.k}`
           : stage === 'forge' ? `forges ${d.tool}${d.for ? ` for ${d.for}` : ' for the village'}` : `makes a ${stage}`}`);
         return;

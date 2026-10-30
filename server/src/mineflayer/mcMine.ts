@@ -15,7 +15,7 @@ import { checkAbort, num, reach, stateAt, wetAt } from './mcUtil';
 // What the mine may dig (the ground under a village, never logs or anything built), the stone the stairs end on and the
 // tunnels are dug in (plus ores), and blocks that fall into a hole dug under them; water as collect sees it (wetAt)
 import { FALLING, MINE_DIGGABLE as DIGGABLE, MINE_STONE as STONE } from './mcBlocks';
-import { IRON_AGE, IRON_MINERS, IRON_STAIRS2, ORE_MINE } from '../ladderFlags';
+import { DIAMOND_AGE, DIAMOND_Y, IRON_AGE, IRON_MINERS, IRON_STAIRS2, LADDER, ORE_MINE } from '../ladderFlags';
 import { rawSetting } from '../settings';
 
 /** A chunk not loaded: try again later (not a reason to end the mine). */
@@ -339,7 +339,7 @@ async function digCell(a: BotAgent, m: Mine, p: Vec3, signal: AbortSignal, stand
     if (!/^needs \w+_pickaxe/.test(m2)) throw e;
     // (the iron level never digs an iron or coal ore it cannot harvest: its iron would be lost, the design review's M2;
     // gold or emerald a stone pickaxe cannot take is dug through as the cobblestone mine does, the diff review's H2)
-    if (opts.strict && keeps(name)) throw Object.assign(new Error(`no pickaxe good enough for the ${name} at ${p.x},${p.y},${p.z} (${m2.slice(0, 80)})`), { tool: true });
+    if (opts.strict && keeps(name, a)) throw Object.assign(new Error(`no pickaxe good enough for the ${name} at ${p.x},${p.y},${p.z} (${m2.slice(0, 80)})`), { tool: true });
     // Stone with no pickaxe at all: make one. An ore this pickaxe cannot harvest (copper with a wooden one, StageH18):
     // dug through anyway, its drop lost, rather than the tunnel stopping there
     // (and none made from down there: the walk for logs is free to dig, the diff review's L1)
@@ -1214,8 +1214,16 @@ const KEEP = /^(?:deepslate_)?(iron|coal)_ore$/;
 let keepCopper = false;
 export const setKeepCopper = (on: boolean) => void (keepCopper = on);
 const COPPER_ORE = /^(?:deepslate_)?copper_ore$/;
-function keeps(name: string): boolean {
-  return KEEP.test(name) || (keepCopper && COPPER_ORE.test(name));
+/** MC_DIAMOND_AGE: diamond, redstone and lapis ore kept by a miner with an iron pickaxe (one that can take them: so a
+ *  stone one's iron trips dig on as before; the diamond rung's trips need an iron pickaxe, digIron and the menu). */
+const DEEP_ORES = /^(?:deepslate_)?(diamond|redstone|lapis)_ore$/;
+const DIAMONDS_ON = DIAMOND_AGE && IRON_AGE;
+function keeps(name: string, a?: BotAgent): boolean {
+  return KEEP.test(name) || (keepCopper && COPPER_ORE.test(name)) || (DIAMONDS_ON && !!a && DEEP_ORES.test(name) && hasIronPick(a));
+}
+/** Whether a bot carries an iron pickaxe or better (diamond ore drops nothing to a lesser one). */
+export function hasIronPick(a: BotAgent): boolean {
+  return a.bot.inventory.items().some((it) => /^(iron|diamond|netherite)_pickaxe$/.test(it.name));
 }
 /** Villages whose iron level a bot is digging now (one at a time). */
 const ironBusy = new Set<string>();
@@ -1406,7 +1414,8 @@ function ironRestart(m: Mine, a?: BotAgent): { x: number; z: number; y: number; 
   // (the level its stairs start from: a new shaft's own, openShaft)
   const old = m.iron ? parentOf(m, m.iron) : m.ironPast?.at(-1) ?? null;
   // (with a bot, MC_IRON_AGE: only starts the world shows fit, down to the level's aim)
-  const fits = a && old?.level !== undefined ? stairsFit(a, old.level, old.level - (m.iron?.targetY ?? old.level - IRON_DROP) + 1) : undefined;
+  // (a deep leg, MC_DIAMOND_AGE: on its first DIAMOND_FIT steps, as layNextIronLevel's)
+  const fits = a && old?.level !== undefined ? stairsFit(a, old.level, Math.min((m.iron as DeepLeg | undefined)?.diamond ? DIAMOND_FIT : Infinity, old.level - (m.iron?.targetY ?? old.level - IRON_DROP) + 1)) : undefined;
   if (old) return ironDeeperStart(old, m.iron?.abandoned ?? [], fits, ORE_ON ? (m.iron as OreLevel | undefined)?.toward : undefined, m.iron ? stairsOff(m, old, m.iron) : []);
   // (the first level, MC_IRON_AGE #113: a dug cell of the mine to start from, its first steps solid; All1's starts lay in
   // branches passed undug, which no bot could reach)
@@ -1422,7 +1431,7 @@ function ironRestart(m: Mine, a?: BotAgent): { x: number; z: number; y: number; 
  * on (the new level's own cells count from `dugAt`). Returns the new level's note, or '' when none is laid (`finished`
  * then stays set: the dig option goes).
  */
-export function layNextIronLevel(reg: { note: (v: Village, s: string) => void; save: () => void }, v: Village, m: Mine, i: IronLevel, a?: BotAgent, deep = false): string {
+export function layNextIronLevel(reg: { note: (v: Village, s: string) => void; save: () => void }, v: Village, m: Mine, i: IronLevel, a?: BotAgent, deep: boolean | 'diamond' = false): string {
   if (!IRON_AGE || !i.finished || i.level === undefined || m.iron !== i) return '';
   const past = m.ironPast ?? [];
   // (MC_ORE_MINE: ORE_DROP below or deeper where the iron seen is thicker, toward it; ORE_LEVELS and ORE_MINE_CELLS in all)
@@ -1430,14 +1439,20 @@ export function layNextIronLevel(reg: { note: (v: Village, s: string) => void; s
   // (the levels' and cells' counts are the shaft's: a new one, openShaft, starts them again)
   const ore = deep ? undefined : ORE_ON ? (shaftDug(i) < ORE_MINE_CELLS ? oreNextLevel(i, a ? a.world.atlas.near(i.x, i.z, 80) : []) : null) : undefined;
   if (ore === null) return openShaft(reg, v, m, a);
-  const target = deep ? Math.max(IRON_FLOOR_Y, Math.min(i.level - IRON_DROP, DEEP_DOWN)) : ore ? ore.y : i.level - IRON_DROP;
-  if ((!deep && shaftLevels(m, i) + 1 > (ore ? ORE_LEVELS : IRON_LEVELS)) || target < IRON_FLOOR_Y) return deep ? '' : openShaft(reg, v, m, a);
+  // ('diamond', MC_DIAMOND_AGE: DIAMOND_LEG below or the diamond level, past the iron levels' count and floor; the world's
+  // test on its first steps only, as a stop 6 or more below makes a landing: most long stairs meet a cave somewhere)
+  const dia = deep === 'diamond';
+  const target = dia ? Math.max(DIAMOND_Y, i.level - DIAMOND_LEG) : deep ? Math.max(IRON_FLOOR_Y, Math.min(i.level - IRON_DROP, DEEP_DOWN)) : ore ? ore.y : i.level - IRON_DROP;
+  if (!dia && ((!deep && shaftLevels(m, i) + 1 > (ore ? ORE_LEVELS : IRON_LEVELS)) || target < IRON_FLOOR_Y)) return deep ? '' : openShaft(reg, v, m, a);
   // (with a bot, the world's test too: stairsFit)
-  const s = ironDeeperStart(i, [], a ? stairsFit(a, i.level, i.level - target + 1) : undefined, ore?.toward);
+  // (a landing opened again, MC_DIAMOND_AGE: its deep legs given up before are not started again)
+  const given = dia ? (i as DeepLeg).deepGiven ?? [] : [];
+  const s = ironDeeperStart(i, given, a ? stairsFit(a, i.level, dia ? Math.min(DIAMOND_FIT, i.level - target + 1) : i.level - target + 1) : undefined, ore?.toward);
   if (!s) {
     reg.note(v, `no clear way down from the iron level at y=${i.level} to another below it`);
     return deep ? '' : openShaft(reg, v, m, a);
   }
+  if (target >= i.level) return '';
   m.ironPast = [...past, i];
   m.iron = { x: s.x, z: s.z, y: s.y, dir: s.dir, steps: 0, legs: [], dug: i.dug, dugAt: i.dug, got: { ...i.got }, targetY: target };
   // (a shaft's own count goes on with its levels, as the parent a level laid below another has by default)
@@ -1445,7 +1460,9 @@ export function layNextIronLevel(reg: { note: (v: Village, s: string) => void; s
   if (at !== undefined) (m.iron as Shaft).shaftAt = at;
   // (the iron seen goes on with it: what lies at the new level's height is drifted to there)
   if (ore) Object.assign(m.iron, { aboveY: i.level, seen: [...((i as OreLevel).seen ?? [])], ...(ore.toward ? { toward: ore.toward } : {}) });
-  const note = `the next iron level's stairs start at ${s.x},${s.y},${s.z}, going ${compass(s.dir)} down to about y=${target}`;
+  // (a diamond leg's stop settles 6 or more below its start: digIronStairs reads the level above from aboveY)
+  if (dia) Object.assign(m.iron, { aboveY: i.level, diamond: true }, given.length ? { abandoned: [...given], triesFrom: given.length } : {});
+  const note = `the next ${dia ? 'deep' : 'iron'} level's stairs start at ${s.x},${s.y},${s.z}, going ${compass(s.dir)} down to about y=${target}`;
   reg.note(v, note);
   reg.save();
   return note;
@@ -1895,6 +1912,8 @@ export function giveUpIronStairs(a: BotAgent, v: Village, m: Mine, i: IronLevel,
     reg.save();
     return `${why}; new stairs start at ${next.x},${next.y},${next.z} next trip`;
   }
+  // (a deep leg, MC_DIAMOND_AGE: its landing dug as a level again, as when its stairs stop with no start left)
+  if ((i as DeepLeg).diamond && reopenLanding(reg, v, m, i)) return `${why}; no other deep stairs start is clear: the landing above is dug as a level until the next try`;
   i.finished = short(`no way down: ${why}`);
   // (MC_IRON_AGE: tried again after a back-off, not ended for good)
   if (IRON_AGE) {
@@ -1943,6 +1962,8 @@ async function digIronStairs(a: BotAgent, v: Village, m: Mine, i: IronLevel, sig
       i.abandoned.pop();
       return level(y, last.x, last.z);
     }
+    // (a deep leg, MC_DIAMOND_AGE: its landing dug as a level again, its tunnels giving more starts later)
+    if (!next && (i as DeepLeg).diamond && reopenLanding(reg, v, m, i)) return `the deep stairs met ${why} at every start; the landing above is dug as a level until the next try`;
     if (next) {
       Object.assign(i, { x: next.x, z: next.z, y: next.y, dir: next.dir, steps: 0 });
       delete i.stopped;
@@ -2009,7 +2030,7 @@ async function digIronStairs(a: BotAgent, v: Village, m: Mine, i: IronLevel, sig
 async function keepOres(a: BotAgent, v: Village, m: Mine, cells: Vec3[], L: number, got: Record<string, number>, signal: AbortSignal, took?: Vec3[]): Promise<number> {
   const found: Array<{ q: Vec3; from: { x: number; z: number }; floor: boolean }> = [];
   const add = (q: Vec3, from: { x: number; z: number }, floor: boolean) => {
-    if (q.y < L - 1 || !keeps(a.bot.blockAt(q)?.name ?? '') || found.some((f) => f.q.equals(q)) || cells.some((c) => c.equals(q))) return;
+    if (q.y < L - 1 || !keeps(a.bot.blockAt(q)?.name ?? '', a) || found.some((f) => f.q.equals(q)) || cells.some((c) => c.equals(q))) return;
     found.push({ q, from, floor });
   };
   for (const c of cells)
@@ -2136,6 +2157,86 @@ export function deepenForStone(reg: { note: (v: Village, s: string) => void; sav
   return m.iron!.targetY ?? null;
 }
 
+// ---------------------------------------------------------------------------------------------
+// MC_DIAMOND_AGE (#22, runs/2026-10-30/diamond/spec.md): while the diamond rung is current the iron chain is laid deep, by
+// landings, to the diamond level. Straight stairs from y -8 to -56 are clear of caves and liquids at 28% of starts on
+// minevale3 (to -30, 46%), so each leg aims at most DIAMOND_LEG down and a stop 6 or more below its start is a landing the
+// next leg starts from. Everything the iron age built for several miners (locks, starts, retries, the walk down through
+// every level, the teleport home) holds on the way and at the bottom.
+// ---------------------------------------------------------------------------------------------
+
+/** A leg's aim at most this far below its landing, and the steps the world's test reads before choosing a start. */
+const DIAMOND_LEG = 40, DIAMOND_FIT = 8;
+/** The wait before a landing with no start is tried again (its tunnels give more starts within minutes). */
+const DIAMOND_RETRY_MS = 10 * 60000;
+/** A deep leg's record (MC_DIAMOND_AGE, in villages.json beside the rest): laid for diamonds; on a landing, the deep legs
+ *  from it given up before. */
+type DeepLeg = IronLevel & { diamond?: boolean; deepGiven?: NonNullable<IronLevel['abandoned']> };
+
+/**
+ * A deep leg with no start left (MC_DIAMOND_AGE, the adversarial check's 1: a landing has only its bottom step's sides to
+ * start from): its landing is the current level again, not finished, so it is dug as a level and its tunnels give more
+ * starts; the legs given up are kept on it, and the next deepening waits DIAMOND_RETRY_MS.
+ */
+function reopenLanding(reg: { note: (v: Village, s: string) => void; save: () => void }, v: Village, m: Mine, i: IronLevel): boolean {
+  const up = m.ironPast?.at(-1) as DeepLeg | undefined;
+  if (!up || m.iron !== i || up.level === undefined) return false;
+  m.ironPast = m.ironPast!.slice(0, -1);
+  delete up.finished;
+  up.deepGiven = [...(up.deepGiven ?? []), ...(i.abandoned ?? []).slice((i as IronRetry).triesFrom ?? 0)];
+  up.dug = i.dug;
+  up.got = i.got;
+  m.iron = up;
+  (m as Mine & { diamondTried?: number }).diamondTried = Date.now();
+  console.log(`[deep] ${v.name}: no deep stairs start left below the landing at y=${up.level} (${up.deepGiven.length} given up); it is dug as a level, the next try in ${DIAMOND_RETRY_MS / 60000} minutes`);
+  reg.note(v, `the deep stairs found no way down from the landing at y=${up.level}; it is dug as a level for now`);
+  reg.save();
+  return true;
+}
+/** At or below this the chain is deep: a trip there needs an iron pickaxe and runs longer (the walk down is long). */
+export const DEEP_TRIP_Y = -40;
+
+/** Whether the village wants its chain deep: diamond its current rung (MC_DIAMOND_AGE, MC_LADDER, MC_IRON_AGE). */
+export const diamondWanted = (v: Village): boolean => DIAMOND_AGE && IRON_AGE && LADDER && v.ladder?.current === 'diamond';
+
+/** Whether the iron chain's current level is deep (its level, else its stairs' aim, at or below DEEP_TRIP_Y). */
+export function deepChain(m: Mine | undefined): boolean {
+  const i = m?.iron;
+  return !!i && (i.level ?? i.targetY ?? i.y) <= DEEP_TRIP_Y;
+}
+
+/** The deepest the chain's stairs and levels have reached (a level's y, else its stairs' last step), or null. */
+export function chainDeepest(m: Mine | undefined): number | null {
+  const ys = m ? ironLevels(m).map((p) => p.level ?? p.y - p.steps) : [];
+  return ys.length ? Math.min(...ys) : null;
+}
+
+/**
+ * MC_DIAMOND_AGE: while the village wants diamonds and the chain's current level (its level known: stairs still going down
+ * are left to finish) lies above the diamond level, the level is closed as a landing and the next laid below it
+ * (layNextIronLevel's 'diamond'). No start fits: the level stays as it was (dug as an iron level, its tunnels giving more
+ * starts) and is tried again after DIAMOND_RETRY_MS. Returns the next level's note, or ''.
+ */
+export function deepenForDiamonds(reg: { note: (v: Village, s: string) => void; save: () => void }, v: Village, a?: BotAgent, now = Date.now()): string {
+  const m = v.mine, i = m?.iron;
+  if (!m || !i || !diamondWanted(v) || i.level === undefined || i.level <= DIAMOND_Y + 2) return '';
+  const dm = m as Mine & { diamondTried?: number };
+  if (dm.diamondTried && now - dm.diamondTried < DIAMOND_RETRY_MS) return '';
+  const was = i.finished;
+  i.finished = 'a landing on the deep stairs: the village wants diamonds';
+  const note = layNextIronLevel(reg, v, m, i, a, 'diamond');
+  if (!note) {
+    if (was) i.finished = was; else delete i.finished;
+    dm.diamondTried = now;
+    reg.save();
+    console.log(`[deep] ${v.name}: no way down from the level at y=${i.level} toward the diamond level; tried again in ${DIAMOND_RETRY_MS / 60000} minutes`);
+    return '';
+  }
+  delete dm.diamondTried;
+  console.log(`[deep] ${v.name}: a landing at y=${i.level}; ${note}`);
+  return note;
+}
+
 /**
  * The village's deep level, for a deep stone trip (its iron trip on that level): the current iron level when its floor is
  * at or below DEEP_Y and it is not finished, else null (no deep level yet: the stand-in rule holds the roof in wood).
@@ -2197,7 +2298,7 @@ async function digVein(a: BotAgent, v: Village, m: Mine, cells: Vec3[], L: numbe
   let n = 0;
   const tryOre = async (q: Vec3): Promise<boolean> => {
     const b = a.bot.blockAt(q);
-    if (!b || !keeps(b.name)) return false;
+    if (!b || !keeps(b.name, a)) return false;
     if (Math.abs(q.x - c.x) > VEIN_SIDE || Math.abs(q.z - c.z) > VEIN_SIDE || q.y < L - 1 - VEIN_DOWN || q.y > L + VEIN_UP) return leave('far'), false;
     if (q.equals(under) || eye.distanceTo(q.offset(0.5, 0.5, 0.5)) > 4.2) return leave('reach'), false;
     if (unsafe(a, v, m, q, false, 'tunnel', { x: c.x, z: c.z })) return leave('unsafe'), false;
@@ -2303,6 +2404,9 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
   // (a worked-out mine: a new shaft, laid by this trip, which digs its stairs)
   let opened = '';
   if (shaftDue(m, Date.now())) opened = openShaft(reg, v, m, a);
+  // (MC_DIAMOND_AGE: the chain laid deeper while the village wants diamonds)
+  // (not under other miners' feet: their trips would end at once)
+  if (diamondWanted(v) && !(ironTrips.get(v.name)?.size ?? 0)) opened = deepenForDiamonds(reg, v, a) || opened;
   const i = m.iron;
   if (i.finished) return `the iron level is finished: ${i.finished}`;
   if (IRON_AGE) {
@@ -2348,8 +2452,11 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
     await go(new Vec3(i.x + 0.5, i.y, i.z + 0.5), 1.5, 120000);
     if (IRON_AGE && i.level === undefined) {
       // (MC_IRON_AGE: the stairs taken only once at their start; a start no bot gets to is given up, not tried forever)
+      const off = () => { const at = a.bot.entity.position; return Math.abs(at.x - (i.x + 0.5)) > 1.6 || Math.abs(at.z - (i.z + 0.5)) > 1.6 || Math.abs(at.y - i.y) > 1.5; };
+      // (#22: a start at the foot of stairs above is reached within 1.5 a step up them: one closer walk before giving it up)
+      if (off()) await go(new Vec3(i.x + 0.5, i.y, i.z + 0.5), 0.6, 30000);
       const at = a.bot.entity.position;
-      if (Math.abs(at.x - (i.x + 0.5)) > 1.6 || Math.abs(at.z - (i.z + 0.5)) > 1.6 || Math.abs(at.y - i.y) > 1.5) {
+      if (off()) {
         why = giveUpIronStairs(a, v, m, i, `could not get to the iron stairs at ${i.x},${i.y},${i.z} (stuck at ${at.floored()})`);
         return why + tail();
       }
@@ -2380,6 +2487,13 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
       }
       if (r === TIME_UP) { why = 'the time was up on the iron stairs'; return why + tail(); }
       if (r) { why = r === UNLOADED ? 'the iron stairs are not loaded' : `the iron stairs stopped: ${r}`; return why + tail(); }
+      // (MC_DIAMOND_AGE: stairs that ended above the diamond level make a landing, and the next stairs start from it)
+      const on = i.level !== undefined && diamondWanted(v) ? deepenForDiamonds(reg, v, a) : '';
+      if (on) {
+        laid = on;
+        why = `a landing on the deep stairs at y=${i.level}`;
+        return why + tail();
+      }
     }
     // (MC_IRON_STAIRS2: the second lane caught up before the tunnels, when no one else digs it)
     if (laneBehind(i) && takeIronLane2(v.name, a.name, until)) {

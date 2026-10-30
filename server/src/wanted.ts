@@ -12,7 +12,7 @@
  */
 import { FOOD_POINTS } from './appetite';
 import { boardOf } from './barter';
-import { LETTERS } from './ladderFlags';
+import { DIAMOND_AGE, IRON_AGE, LETTERS } from './ladderFlags';
 import { goalsOf } from './goals';
 import { BUYS, SELLS } from './merchant';
 import { LIBRARY, LOCKED_SKILLS, techOf } from './tech';
@@ -145,7 +145,8 @@ export const RUNG_NEEDS: Record<RungId, Array<{ capability: string; how: 'have' 
   iron: [],
   // (MC_LETTERS: the books, shelves, lectern and shelving are built, #21)
   letters: LETTERS ? [] : [{ capability: 'library_furniture', how: 'hand', note: 'shelves and a lectern in the furnish catalogue' }],
-  diamond: [{ capability: 'deep_mine', how: 'hand', note: 'the deep stair past lava, its holders, teleport home' }],
+  // (MC_DIAMOND_AGE with the iron age: the deep chain, its diamonds and the diamond pickaxe forge are built, #22)
+  diamond: DIAMOND_AGE && IRON_AGE ? [] : [{ capability: 'deep_mine', how: 'hand', note: 'the deep stair past lava, its holders, teleport home' }],
   enchantment: [{ capability: 'cast_obsidian', how: 'ticket', note: 'water poured on lava for obsidian' }, { capability: 'enchant', how: 'hand', note: 'enchanting by a charged command, the XP ledger' }],
   nether: [{ capability: 'nether_travel', how: 'hand', note: 'portals, walking in the Nether, debris mining' }, { capability: 'barter_piglin', how: 'ticket', note: 'gold bartered with piglins' }],
   copper: [{ capability: 'copper_side', how: 'hand', note: 'copper kept from the iron mine' }, { capability: 'amethyst', how: 'ticket', note: 'amethyst shards for the spyglass (its climb-out from a deeper geode, #96)' }],

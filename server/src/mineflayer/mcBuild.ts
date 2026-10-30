@@ -15,7 +15,7 @@
  */
 import { Vec3 } from 'vec3';
 import type { Area, Design, Reservation, Structure, Village } from '../village';
-import { MINE_SUPPORT, inIronLevel, ironTrip, mineAreas, mineFacesGoing, nearMineFace } from './mcMine';
+import { MINE_SUPPORT, deepChain, diamondWanted, hasIronPick, inIronLevel, ironTrip, mineAreas, mineFacesGoing, nearMineFace } from './mcMine';
 import { teleportHome } from './mcRescue';
 import { cellKey, libraryOf, setLibrary, type LibraryCell, type LibraryRecord } from './mcLibrary';
 import { FARM_TRIP_RANGE, PARTS_MAKE, SCOUT_RANGE, STATION_NAMES, STATIONS_TASK, VILLAGE_RANGE, areaText, overlaps, partClaim, preparedAt, signCall, signTask, villageHome, type StationName } from '../village';
@@ -30,7 +30,7 @@ import { MINING_HUT, STORAGE_HUT, STORAGE_HUT_STATIONS, storageYardCandidates, s
 import type { DecorPart, LightPart } from './mcWorld';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
-import { WOODS, chargedItem, describeWork, gatherTasks, label, woodName, woodPart, type Counts, type Materials } from './mcMaterials';
+import { Materials, WOODS, chargedItem, describeWork, gatherTasks, label, woodName, woodPart, type Counts } from './mcMaterials';
 import { STORAGE_SKILLS, forgiveDebt, holdingStorageTask, ownTools, partsForFuel, refreshStorage, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS, STATION_REACH, holdVillageFurnace, placeStation, recordStation, stationNear, stationSpot, stationsReady, villageStation, villageStationCell } from './mcSurvival';
 import { ContentionError, at, checkAbort, goals, nearestBlocks, num, onVillageGround, reach, sleep, standableY, stateAt, str, syncInventory, unmoved, walk } from './mcUtil';
@@ -49,7 +49,7 @@ import { postLayout } from '../layout';
 import { pathLamps, planPadPaths } from '../padPaths';
 import { parseRefit } from '../refit';
 import { CHOOSE } from '../choose';
-import { IRON_AGE, LETTERS, LETTERS_PACE, OWN_TOOLS } from '../ladderFlags';
+import { DIAMOND_AGE, IRON_AGE, LETTERS, LETTERS_PACE, OWN_TOOLS } from '../ladderFlags';
 import { boardSigns, claimRule, zoneBoxes } from '../rules';
 import { boardCells } from '../streetPlan';
 import { rawSetting } from '../settings';
@@ -499,11 +499,11 @@ function shortage(a: BotAgent, what: string, need: Counts, inv: Counts, store: C
  * raw iron (the forge, furnace false) or without ingots (the smelting, at its furnace). Every other caller passes neither.
  */
 async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () => Promise<void>, signal: AbortSignal,
-  opts: { what?: string; noStockPick?: boolean; surplus?: boolean; stock?: Counts; furnace?: false | { x: number; y: number; z: number } } = {}): Promise<string | null> {
+  opts: { what?: string; noStockPick?: boolean; surplus?: boolean; stock?: Counts; furnace?: false | { x: number; y: number; z: number }; materials?: Materials } = {}): Promise<string | null> {
   const v = a.village();
   short = { ...short };
   // (by the hut's record, wherever the builder stands: a far builder that took no lock raced the panes' maker, S.3's review)
-  const smelts = opts.furnace === false ? false : opts.furnace ? true : !!v && !!villageStationCell(v, 'furnace') && a.world.materials.plan(short, {}).fuel.smelts > 0;
+  const smelts = opts.furnace === false ? false : opts.furnace ? true : !!v && !!villageStationCell(v, 'furnace') && (opts.materials ?? a.world.materials).plan(short, {}).fuel.smelts > 0;
   // (the walk to the hut before the wait, then the lock: released in the finally, a stopped action sends no report)
   const release = smelts ? await holdVillageFurnace(a, signal, `making ${listCounts(short)}${opts.what ? ` for ${opts.what}` : ''}`, opts.furnace || undefined) : () => undefined;
   try {
@@ -553,7 +553,9 @@ export function makeShortfall(materials: Materials, short: Counts, have: Counts)
 const SURPLUS_PART = /^glass(_pane)?$|_(door|slab|stairs)$/;
 
 async function makeHeld(a: BotAgent, v: Village | undefined, need: Counts, short: Counts, back: () => Promise<void>, signal: AbortSignal,
-  opts: { what?: string; surplus?: boolean; held?: boolean; stock?: Counts; furnace?: false | { x: number; y: number; z: number } }): Promise<string | null> {
+  opts: { what?: string; surplus?: boolean; held?: boolean; stock?: Counts; furnace?: false | { x: number; y: number; z: number }; materials?: Materials }): Promise<string | null> {
+  // (#22: the diamond forge's own planner, which takes diamonds as mined)
+  const mats = opts.materials ?? a.world.materials;
   // (read after the furnace is held: another agent's withdrawals and deposits while this one queued; a make's own view,
   // S.9)
   const store = opts.stock ?? (v ? storageContents(v) : {});
@@ -575,11 +577,11 @@ async function makeHeld(a: BotAgent, v: Village | undefined, need: Counts, short
   // builder then leaves the windows open)
   const bill: Counts = {};
   for (const [n, q] of Object.entries(short)) {
-    const p = a.world.materials.plan({ [n]: q }, other);
+    const p = mats.plan({ [n]: q }, other);
     if (!Object.keys(p.gather).length && !p.problems.length) bill[n] = q;
   }
   if (!Object.keys(bill).length) return null;
-  let plan = a.world.materials.plan(bill, other);
+  let plan = mats.plan(bill, other);
   const stations: string[] = [];
   if (plan.fuel.smelts && !other.furnace && !near('furnace')) stations.push('furnace');
   if (plan.steps.some((st) => st.do === 'craft' && !/_planks$|^any:planks$|^stick$/.test(st.item)) && !other.crafting_table && !near('crafting_table')) stations.push('crafting_table');
@@ -588,7 +590,7 @@ async function makeHeld(a: BotAgent, v: Village | undefined, need: Counts, short
     // (S.4's proof: no lamp or sign job makes a station of its own)
     console.log(`[station] ${a.name} bills a ${n} for ${opts.what ?? 'its job'}: no village station in reach`);
   }
-  plan = a.world.materials.plan(bill, other);
+  plan = mats.plan(bill, other);
   if (Object.keys(plan.gather).length || plan.problems.length) return null;
   // The storage hut's table and furnace serve this job: it crafts and smelts there, beside the chests (always when it holds
   // the hut's furnace: it walked there for the lock, and its surplus panes must reach storage)
@@ -598,7 +600,7 @@ async function makeHeld(a: BotAgent, v: Village | undefined, need: Counts, short
   const partFuel = v && atHut && plan.fuel.smelts > 0 ? partsForFuel(a, v, plan.fuel.smelts, new Set([...Object.keys(bill), ...Object.keys(need), ...Object.keys(plan.fromStock)])) : null;
   // (the smelts the parts cover take no planks: planned again without them, so none are fetched or sawn for fuel, the s37
   // review's M1; the coal stays planned in full, below)
-  if (partFuel && plan.fuel.planks > 0) plan = a.world.materials.plan(bill, other, partFuel.smelts);
+  if (partFuel && plan.fuel.planks > 0) plan = mats.plan(bill, other, partFuel.smelts);
   // Ingredients kept in storage come to hand first
   const fetch: Counts = {};
   for (const [n, q] of Object.entries(plan.fromStock)) {
@@ -6157,7 +6159,9 @@ async function ironPickaxes(a: BotAgent, v: Village, job: Job, signal: AbortSign
 async function digIron(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const v = a.village();
   if (!v?.mine || v.mine.level === undefined) throw new Error('dig_iron: the village has no mine at a level yet');
-  const minutes = args.minutes !== undefined ? Math.max(1, num(args.minutes, 'minutes')) : 6;
+  // (MC_DIAMOND_AGE: a trip to the deep chain at least 8 minutes: the walk down is some 120 blocks of stairs)
+  const deep = DIAMOND_AGE && IRON_AGE && deepChain(v.mine), gems = DIAMOND_AGE && IRON_AGE && (deep || diamondWanted(v));
+  const minutes = Math.max(deep ? 8 : 1, args.minutes !== undefined ? Math.max(1, num(args.minutes, 'minutes')) : 6);
   const want = args.want !== undefined ? Math.max(1, Math.floor(num(args.want, 'want'))) : 6;
   const h = v.storageHut;
   const job: Job = { targets: [], area: h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : v.mine.hut, y: v.plots[0]?.y ?? v.mine.level, free: true, what: 'the iron level', task: 'dig_iron' };
@@ -6165,8 +6169,12 @@ async function digIron(a: BotAgent, args: Record<string, unknown>, signal: Abort
     if (e.message === 'cancelled') throw e;
   });
   const picks = await ironPickaxes(a, v, job, signal);
+  // (the diamond rung's trips only with an iron pickaxe: diamond ore drops nothing to a stone one, and a stone one's mine
+  // digs it through; ironPickaxes took storage's best)
+  if (gems && !hasIronPick(a)) throw new Error('dig_iron: the deep level needs an iron pickaxe (diamond ore gives nothing to a stone one); none is carried and the village storage has none: the smiths can forge one');
   const raw = () => a.bot.inventory.items().filter((it) => it.name === 'raw_iron').reduce((n, it) => n + it.count, 0);
   const coal = () => a.bot.inventory.items().filter((it) => it.name === 'coal').reduce((n, it) => n + it.count, 0);
+  const gem = () => a.bot.inventory.items().filter((it) => it.name === 'diamond').reduce((n, it) => n + it.count, 0);
   const before = { iron: v.mine.iron?.got.raw_iron ?? 0, dug: v.mine.iron?.dug ?? 0, steps: v.mine.iron?.steps ?? 0, gaveUp: v.mine.iron?.abandoned?.length ?? 0 };
   let out = await ironTrip(a, v, want, signal, Date.now() + minutes * 60000);
   // Still down there (its walks up failed, or it fell into a cave below the level): teleported home, never left 40 blocks
@@ -6176,13 +6184,13 @@ async function digIron(a: BotAgent, args: Record<string, unknown>, signal: Abort
   const topY = Math.min(v.mine.level + v.mine.steps - 1, v.plots[0]?.y ?? Infinity);
   if (inIronLevel(a) || a.bot.entity.position.y < topY - 4) out += `; ${(await teleportHome(a, signal)) ?? 'no home to go back to'}`;
   const i = v.mine.iron;
-  const carried = { iron: raw(), coal: coal() };
+  const carried = { iron: raw(), coal: coal(), diamond: gem() };
   const stored = await STORAGE_SKILLS.deposit.run(a, { item: 'all' }, signal).catch((e: Error) => {
     if (e.message === 'cancelled') throw e;
     return `not deposited: ${e.message.slice(0, 100)}`;
   });
   const progress = !!i && (i.steps > before.steps || i.dug > before.dug || (i.got.raw_iron ?? 0) > before.iron || (i.abandoned?.length ?? 0) > before.gaveUp);
-  const text = `iron trip: ${out}; stairs ${i?.steps ?? 0} steps${i?.level !== undefined ? ` (level y=${i.level})` : ''}, ${i?.dug ?? 0} tunnel cells, ${i?.got.raw_iron ?? 0} raw iron and ${i?.got.coal ?? 0} coal in all; brought up ${carried.iron} raw iron, ${carried.coal} coal${picks ? ` (${picks})` : ''}; ${stored}`;
+  const text = `iron trip: ${out}; stairs ${i?.steps ?? 0} steps${i?.level !== undefined ? ` (level y=${i.level})` : ''}, ${i?.dug ?? 0} tunnel cells, ${i?.got.raw_iron ?? 0} raw iron and ${i?.got.coal ?? 0} coal in all; brought up ${carried.iron} raw iron, ${carried.coal} coal${DIAMOND_AGE && IRON_AGE ? `, ${carried.diamond} diamond` : ''}${picks ? ` (${picks})` : ''}; ${stored}`;
   if (!progress && !i?.finished) throw new Error(`dig_iron: no progress: ${text}`);
   return text;
 }
@@ -6200,8 +6208,10 @@ async function makeIronTool(a: BotAgent, args: Record<string, unknown>, signal: 
   const v = a.village();
   if (!v) throw new Error('make_iron_tool: not in a village');
   const item = str(args.item, 'item');
-  if (!/^(iron_pickaxe|bucket|shears|iron_axe|iron_shovel|iron_hoe)$/.test(item)) throw new Error(`make_iron_tool: not an iron tool: ${item}`);
-  const forge = IRON_AGE && args.smelt === false;
+  // (MC_DIAMOND_AGE: the diamond pickaxe too, forged from stored diamonds for a deep miner)
+  const gem = DIAMOND_AGE && IRON_AGE && item === 'diamond_pickaxe';
+  if (!gem && !/^(iron_pickaxe|bucket|shears|iron_axe|iron_shovel|iron_hoe)$/.test(item)) throw new Error(`make_iron_tool: not an iron tool: ${item}`);
+  const forge = IRON_AGE && (args.smelt === false || gem);
   const to = IRON_AGE && args.for !== undefined ? str(args.for, 'for') : undefined;
   const h = v.storageHut;
   const job: Job = { targets: [], area: h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : v.plots[0] ?? { x1: 0, z1: 0, x2: 0, z2: 0 }, y: v.plots[0]?.y ?? 64, free: true, what: `the ${item}${to ? ` for ${to}` : ''}`, task: 'make_iron_tool' };
@@ -6211,12 +6221,12 @@ async function makeIronTool(a: BotAgent, args: Record<string, unknown>, signal: 
   // smith's own), so nothing is smelted and no furnace is held
   let need: Counts = {}, opts: Parameters<typeof makeFromStock>[5] = { noStockPick: true, surplus: false };
   if (forge) {
-    const want = IRON_INGOTS[item];
-    const stored = storageContents(v).iron_ingot ?? 0, held = await serverCount(a, 'iron_ingot');
-    if (stored + held < want) throw new Error(`make_iron_tool: the ${item} needs ${want} iron_ingot, the storage holds ${stored}${held ? ` (and ${held} carried)` : ''}: smelt raw iron first (the iron smelting work)`);
+    const want = gem ? 3 : IRON_INGOTS[item], what = gem ? 'diamond' : 'iron_ingot';
+    const stored = storageContents(v)[what] ?? 0, held = await serverCount(a, what);
+    if (stored + held < want) throw new Error(`make_iron_tool: the ${item} needs ${want} ${what}, the storage holds ${stored}${held ? ` (and ${held} carried)` : ''}: ${gem ? 'dig the deep level for diamonds first' : 'smelt raw iron first (the iron smelting work)'}`);
     const stock = Object.fromEntries(Object.entries(storageContents(v)).filter(([n]) => !RAW_IRON.test(n)));
     need = await carriedCounts(a, ['raw_iron', 'raw_iron_block']);
-    opts = { ...opts, stock, furnace: false };
+    opts = { ...opts, stock, furnace: false, ...(gem ? { materials: (gemPlanner ??= new Materials(a.world.registry, { gems: true })) } : {}) };
   }
   // (a tool already in storage is not this one: the chore makes one; nor is one the smith carries, kept out of the plan:
   // each of Long4's 13 "cannot be made" forges was by a member carrying the tool it forged, which the plan counted as the
@@ -6241,6 +6251,9 @@ async function makeIronTool(a: BotAgent, args: Record<string, unknown>, signal: 
   if (given?.ok) return `made a ${item} (${made}); given to ${to}`;
   return `made a ${item} (${made}); ${given ? `${given.why}, so it went into storage: ` : ''}${stored}`;
 }
+
+/** #22: the diamond forge's planner (diamonds taken from stock as mined; made once). */
+let gemPlanner: Materials | undefined;
 
 /** The iron ingots each iron tool's recipe takes (the jar's recipes). */
 const IRON_INGOTS: Record<string, number> = { iron_pickaxe: 3, iron_axe: 3, bucket: 3, shears: 2, iron_hoe: 2, iron_shovel: 1 };

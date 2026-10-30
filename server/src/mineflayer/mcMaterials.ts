@@ -329,8 +329,9 @@ export class Materials {
    * bed): every dye is gathered (the dyer makes it, make_dye), so a plan asks for dyes, not for a flower. Off: the plans
    * as before.
    */
-  constructor(private registry: Registry, private opts: { cut?: boolean; dyes?: boolean } = {}) {
-    this.gathered = new Set([...GATHER, ...(opts.cut ? CUT_GATHER : []), ...(opts.dyes ? Object.keys(registry.itemsByName).filter((n) => /_dye$/.test(n)) : [])]);
+  constructor(private registry: Registry, private opts: { cut?: boolean; dyes?: boolean; gems?: boolean } = {}) {
+    // (`gems`, #22's diamond forge: diamonds as mined, so a plan takes them from stock; the diamond block's recipe loops)
+    this.gathered = new Set([...GATHER, ...(opts.cut ? CUT_GATHER : []), ...(opts.dyes ? Object.keys(registry.itemsByName).filter((n) => /_dye$/.test(n)) : []), ...(opts.gems ? ['diamond'] : [])]);
   }
 
   /** Crafting recipes (variant recipes merged into "any:" ones) and smelting for an item. */

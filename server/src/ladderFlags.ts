@@ -20,6 +20,16 @@ export const LETTERS = flag('MC_LETTERS');
  *  village work at completion (with MC_MERCHANT), so the merchant comes early. */
 /** (on by default since 10-25, the user's after test train 2; MC_LETTERS_PACE=off turns it off) */
 export const LETTERS_PACE = !/^(off|0|false|no)$/i.test(rawSetting('MC_LETTERS_PACE') ?? 'on');
+/** MC_DIAMOND_AGE (with MC_LADDER and MC_IRON_AGE, #22; on by default, the user's rule since 10-30; off turns it off): the
+ *  diamond rung's four counted stages (depth, diamonds, the first diamond pickaxe, one per deep miner), the iron chain laid
+ *  deep to the diamond level while the rung is current, diamond ore kept by the mine, and the diamond pickaxe forge. */
+export const DIAMOND_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_DIAMOND_AGE') ?? 'on');
+/** The diamond level's y (runs/2026-10-30/diamond/spec.md: diamond ore peaks at -57 to -53 on minevale3, 2 laid open per
+ *  100 cells dug at -56, lava below -55 cutting 8% of tunnels there). */
+export const DIAMOND_Y = -56;
+/** MC_LADDER_START (tests, #22): the rung a village's new ladder starts on instead of iron, the rungs before it counted
+ *  reached (a staged or model-driven test of a later rung from a checkpoint saved before the ladder began). */
+export const LADDER_START = rawSetting('MC_LADDER_START') ?? '';
 /** MC_OWN_TOOLS: a tool given to a member stays with it (deposits keep it) and its skills use it before storage's. */
 export const OWN_TOOLS = flag('MC_OWN_TOOLS');
 /** Up to this many miners at once on the iron level, each on its own leg (spec B2). */

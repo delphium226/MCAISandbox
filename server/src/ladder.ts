@@ -9,13 +9,14 @@
  */
 import type { LadderState, Village } from './village';
 import { rungNeeds, type RungId } from './wanted';
-import { LADDER, LETTERS } from './ladderFlags';
+import { DIAMOND_AGE, DIAMOND_Y, IRON_MINERS, LADDER, LADDER_START, LETTERS } from './ladderFlags';
 
-export { IRON_AGE, IRON_MINERS, LADDER, LETTERS, OWN_TOOLS } from './ladderFlags';
+export { DIAMOND_AGE, IRON_AGE, IRON_MINERS, LADDER, LETTERS, OWN_TOOLS } from './ladderFlags';
 
 /** What a stage counts: cells dug at the iron levels, raw iron brought up, ingots smelted, tools given to members; for
- *  letters (MC_LETTERS) sugar cane harvested, leather bought or caught, books bound and library pieces shelved. */
-export type Counter = 'cells' | 'raw_iron' | 'ingots' | 'tools' | 'cane' | 'leather' | 'books' | 'shelved';
+ *  letters (MC_LETTERS) sugar cane harvested, leather bought or caught, books bound and library pieces shelved; for diamond
+ *  (MC_DIAMOND_AGE) blocks dug down below y 0, diamonds brought up and diamond pickaxes given. */
+export type Counter = 'cells' | 'raw_iron' | 'ingots' | 'tools' | 'cane' | 'leather' | 'books' | 'shelved' | 'depth' | 'diamonds' | 'dtools';
 
 export interface StageDef {
   /** The stage in words, with {n} and {t} for the count and the target where it is counted. */
@@ -45,6 +46,11 @@ export const VW = 1.3;
  *  lectern, and the enchanting table's book: 16 books, 48 cane, 16 leather). */
 export const LETTERS_BOOKS = 16, LETTERS_PIECES = 5, LETTERS_SHELVES = 4;
 
+/** The diamond rung's targets (runs/2026-10-30/diamond/spec.md): the blocks from y 0 down to the diamond level (DIAMOND_Y);
+ *  10 diamonds (three pickaxes' 9); a diamond pickaxe for each of the deep miners (IRON_MINERS dig at once). */
+export const DIAMOND_DEPTH = -DIAMOND_Y, DIAMOND_FIND = 10, DIAMOND_PICKS = IRON_MINERS;
+export { DIAMOND_Y };
+
 /** The rungs (spec section 3, sized by draft 2's B1 for iron). Iron's stages are counted by code, and letters' with
  *  MC_LETTERS. */
 export const RUNG_DEFS: Record<RungId, RungDef> = {
@@ -72,7 +78,15 @@ export const RUNG_DEFS: Record<RungId, RungDef> = {
   },
   diamond: {
     id: 'diamond', name: 'the diamond age', what: 'a deep mine past lava, diamonds and a diamond pickaxe', after: ['iron'], time: 'about 3-4 hours',
-    stages: [{ words: 'the deep stair from the iron level down to y -32' }, { words: '4 iron pickaxes held by deep miners' }, { words: '10 diamonds' }, { words: 'a diamond pickaxe' }],
+    // (the last two count one counter, diamond pickaxes given to deep miners: the first, then one each)
+    stages: DIAMOND_AGE
+      ? [
+        { words: `{n} of {t} blocks dug down below y 0 toward the diamond level at y ${DIAMOND_Y}`, counter: 'depth', target: DIAMOND_DEPTH, feeds: /^iron:dig\b/ },
+        { words: '{n} of {t} diamonds brought up', counter: 'diamonds', target: DIAMOND_FIND, feeds: /^iron:dig\b/ },
+        { words: 'the first diamond pickaxe made for a deep miner', counter: 'dtools', target: 1, feeds: /^diamond:forge\b/ },
+        { words: '{n} of {t} diamond pickaxes given to the deep miners', counter: 'dtools', target: DIAMOND_PICKS, feeds: /^diamond:forge\b/ },
+      ]
+      : [{ words: 'the deep stair from the iron level down to y -32' }, { words: '4 iron pickaxes held by deep miners' }, { words: '10 diamonds' }, { words: 'a diamond pickaxe' }],
   },
   enchantment: {
     id: 'enchantment', name: 'the age of enchantment', what: 'obsidian, an enchanting table and enchanted tools', after: ['letters', 'diamond'], time: 'about 3-4 hours',
@@ -116,6 +130,13 @@ const words = (names: string[]) => (names.length <= 1 ? names.join('') : `${name
 export function ladderOf(v: Village, now: number): LadderState | undefined {
   if (!LADDER || !v.complete) return undefined;
   v.ladder ??= { current: 'iron', stage: 0, stageStart: now, count: 0, work: {}, reached: [], ballots: [] };
+  // (MC_LADDER_START, tests: a later rung, the rungs it needs reached)
+  const start = RUNG_DEFS[LADDER_START as RungId];
+  if (start && v.ladder.current === 'iron' && !v.ladder.reached.length && !v.ladder.totals) {
+    const need = (id: RungId): RungId[] => [...RUNG_DEFS[id].after.flatMap(need), ...RUNG_DEFS[id].after];
+    v.ladder.reached = [...new Set(need(start.id))].map((rung) => ({ rung, t: now, workers: [] }));
+    v.ladder.current = start.id;
+  }
   return v.ladder;
 }
 
@@ -139,7 +160,8 @@ export function noteLadder(v: Village, counter: Counter, member: string, n: numb
   if (!st?.current || n <= 0) return [];
   const def = RUNG_DEFS[st.current as RungId];
   if (!def) return [];
-  const i = def.stages.findIndex((q) => q.counter === counter);
+  // (the current stage when it counts this, else the first that does: the diamond rung's last two share one counter)
+  const i = def.stages[st.stage]?.counter === counter ? st.stage : def.stages.findIndex((q) => q.counter === counter);
   if (i < 0) return [];
   const totals = (st.totals ??= {});
   totals[counter] = (totals[counter] ?? 0) + n;
@@ -192,6 +214,9 @@ export function rungTotal(v: Village, rung: RungId, counter: Counter): number {
   const st = LADDER ? v.ladder : undefined;
   return st?.current === rung ? st.totals?.[counter] ?? 0 : 0;
 }
+
+/** Whether diamond is the current rung (MC_DIAMOND_AGE and MC_LADDER on). */
+export const diamondCurrent = (v: Village): boolean => DIAMOND_AGE && LADDER && v.ladder?.current === 'diamond';
 
 /** Whether letters is the current rung (MC_LETTERS and MC_LADDER on). */
 export const lettersCurrent = (v: Village): boolean => LETTERS && LADDER && v.ladder?.current === 'letters';
