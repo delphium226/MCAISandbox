@@ -526,7 +526,18 @@ const ctxWarned = new Set<string>();
  * CallWithdrawn (recorded as withdrawn), CallFallback, or the provider's error (recorded as an error; as withdrawn when the
  * caller's own signal aborted the send).
  */
+/** A stand-in for the models (the village simulator's modelled calls): a reply answers the call at once, null sends it on. */
+let callStub: ((req: CallRequest) => Reply | null) | null = null;
+export function setCallStub(fn: ((req: CallRequest) => Reply | null) | null): void {
+  callStub = fn;
+}
+
 export async function callModel(req: CallRequest): Promise<{ reply: Reply; ms: number; waitMs: number }> {
+  const stubbed = callStub?.(req);
+  if (stubbed) {
+    req.onSend?.();
+    return { reply: stubbed, ms: 0, waitMs: 0 };
+  }
   const { spec, agent, kind } = req;
   const seqKey = `${agent}|${kind}`;
   const callNo = (callNumbers.get(seqKey) ?? 0) + 1;

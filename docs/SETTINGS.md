@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-257 settings.
+258 settings.
 
 ## Game speed
 
@@ -227,6 +227,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_WANTS` | string | `on` |  |  | on: the wants' lines, tags and weights with the created options and outlets; menu: the created options and outlets only (the village-wide pair's menu-only arm). |
 | `MC_WANTS_FLIP` | flag | `off` |  |  | Reverses MC_WANTS_HOLDOUT's split (the second world of a pilot, so each member is on in one run and off in the other). |
 | `MC_WANTS_HOLDOUT` | number | `0` |  |  | The wants spec's per-member split: this share of members (by a hash of the name) has every want off (shadow pursuits only, never shown). |
+| `MC_WANTS_TUNE` | flag | `on` |  | `MC_PURSUITS` | The wants tuning (10-31, runs/2026-10-31/wants/spec.md): a pursuit stalls after 2 village days by the clock (not day numbers) and a step that ends well counts against the stall; research and wealth candidates only with their option seen on a menu; a pursuit with no step on any menu for a village day, or 3 failed steps in a row, is dropped and re-planned the next night; no rest at the green after an outlet's ask or proposal, and a chosen rest of 1 minute. |
 
 ## The ladder of ages
 

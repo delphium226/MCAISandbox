@@ -12,7 +12,11 @@
  *
  * Usage: node node_modules/tsx/dist/cli.mjs scripts/sim/village_sim.mts [--series SPEC.json --run NAME] [--checkpoint DIR]
  *   [--minutes N] [--scale S] [--random-tick R] [--env K=V,...] [--stock item:N,...] [--calib REF.choices.jsonl]
- *   [--step SEC] [--seed N] [--out DIR] [--log]
+ *   [--step SEC] [--seed N] [--out DIR] [--log] [--stub-models [P_STEP]]
+ * --stub-models (the wants tuning, runs/2026-10-31/wants): the model chooser with its calls answered by code: a choice takes
+ * the "[your project]" step at P_STEP (0.7, the pilot's take share) when one is shown, else the fixed pick (an invalid
+ * reply's fallback); an outlet picks ask, rest or propose at the pilot's shares (0.72, 0.18, 0.10); a night's pursuit takes
+ * the life goal's candidate (the bench's 26 of 30), else the first; every other call gets an empty reply.
  * Writes OUT/sim.choices.jsonl (the choice log, as a real run's), OUT/sim.report.json and OUT/sim.score.jsonl (#80: the
  * scorecard's samples every 10 minutes, scripts/scorecard.py); prints the report.
  * Compare with a real run: scripts/sim/sim_report.mts REF.choices.jsonl OUT/sim.choices.jsonl.
@@ -54,6 +58,10 @@ const STEP = Number(opt('--step') ?? 5) * 1000;
 const SEED = Number(opt('--seed') ?? 1);
 const OUT = opt('--out') ?? fs.mkdtempSync(path.join(os.tmpdir(), 'village-sim-'));
 const LOG = flag('--log');
+const STUB_I = argv.indexOf('--stub-models');
+const STUB = STUB_I >= 0;
+const P_STEP = STUB && /^\d*\.?\d+$/.test(argv[STUB_I + 1] ?? '') ? Number(argv.splice(STUB_I + 1, 1)[0]) : 0.7;
+if (STUB) argv.splice(STUB_I, 1);
 /** The merchant's buy rule before 0a377e6 (F259): every sold item counts as used (the first experiment's "off" arm). */
 const BUY_ALL = flag('--buy-all');
 /** Offers the merchant also buys, "item:n[:stock]" (an experiment: what the village grows and nothing uses). */
@@ -98,7 +106,7 @@ fs.rmSync(CHOICE_LOG, { force: true });
 // (s42: the run's own growth, public works, housing, needs works and votes (predicted: code) unless --v0, which switches
 // them off as v0 first ran; the members' brains take board tasks as a staged run's scripted workers do)
 const V0 = flag('--v0');
-Object.assign(process.env, env, { MC_CHOOSE: 'fixed', MC_MODEL_RECORD: '0', MCAI_CHOICE_LOG: CHOICE_LOG },
+Object.assign(process.env, env, { MC_CHOOSE: STUB ? 'model' : 'fixed', MC_MODEL_RECORD: '0', MCAI_CHOICE_LOG: CHOICE_LOG },
   V0 ? { MC_VOTE: 'off', MC_GROW: '0', MC_PROJECTS: 'off', MC_HOUSING: 'off', MC_NEED_WORKS: 'off' } : { MC_VOTE: process.env.MC_VOTE === 'model' ? 'predicted' : (process.env.MC_VOTE ?? 'predicted') });
 process.env.MCAI_TEMPERAMENT ??= 'on';
 
@@ -221,6 +229,41 @@ const T0_TASK = Math.max(0, ...v.tasks.map((t: Any) => Number(/\d+/.exec(t.id)?.
 // ---- the modelled world: crops, eggs, the members ----------------------------------------------------------------------
 
 const rng = S.rngOf(SEED);
+
+// ---- the stubbed models (--stub-models) ----------------------------------------------------------------------------------
+
+const stubCalls: Counts = {};
+if (STUB) {
+  const { setCallStub } = await import('../../server/src/modelCall');
+  const srng = S.rngOf(SEED + 7);
+  const call = (name: string, input: Record<string, unknown>) => ({ calls: [{ name, input }], text: '', promptTokens: 0, outputTokens: 0 });
+  const none = { calls: [], text: '', promptTokens: 0, outputTokens: 0 };
+  const enumOf = (req: Any, prop: string): string[] => req.tools?.[0]?.input_schema?.properties?.[prop]?.enum ?? [];
+  setCallStub((req: Any) => {
+    stubCalls[req.kind] = (stubCalls[req.kind] ?? 0) + 1;
+    if (req.kind === 'choose') {
+      const names = enumOf(req, 'choice');
+      const steps = names.filter((n) => req.user.split('\n').some((l: string) => l.startsWith(`- ${n}`) && l.includes('[your project]')));
+      if (steps.length && srng() < P_STEP) return call('choose', { reason: 'my project', choice: steps[Math.floor(srng() * steps.length)] });
+      return call('choose', { reason: 'stub', choice: '(none: the fixed pick)' });
+    }
+    if (req.kind === 'outlet') {
+      const names = enumOf(req, 'choice');
+      const by = (re: RegExp) => names.find((n) => re.test(n));
+      const r = srng();
+      const pick = (r < 0.72 ? by(/^Ask/) : r < 0.9 ? by(/^Sit/) : by(/^Propose/)) ?? by(/^Ask/) ?? names[0];
+      const listed = /makes or gathers ([^.]*?) and more/.exec(req.tools?.[0]?.input_schema?.properties?.item?.description ?? '')?.[1]?.split(', ') ?? [];
+      const item = listed.length && srng() < 0.5 ? listed[Math.floor(srng() * listed.length)] : 'iron ingot';
+      return call('outlet', { reason: 'stub', choice: pick, item, what: 'a communal smelter' });
+    }
+    if (req.kind === 'pursuit') {
+      const names = enumOf(req, 'pursuit').filter((n) => n !== 'own');
+      const goal = names.find((n) => req.user.split('\n').some((l: string) => l.startsWith(`- ${n} (your life goal)`)));
+      return call('pursue', { why: 'stub', pursuit: goal ?? names[0] ?? 'own' });
+    }
+    return none;
+  });
+}
 /** A crop's growth chance per random tick (SIM_CROP_G, 0.25: Stg2's 13 wheat harvests in 30 min; 1/6 gave 9). */
 const CROP_G = Number(process.env.SIM_CROP_G ?? 0.25);
 const crops = new S.CropStore(w.registry, S.rngOf(SEED + 1), (randomTick * 20 * scale) / 4096, CROP_G);
@@ -648,7 +691,7 @@ const itsNew = its.filter((i) => i.at >= T0);
 const report = {
   checkpoint, village: v.name, members: agents.length, minutes, scale, randomTick, seed: SEED, step: STEP / 1000,
   families: [...CHOOSE.families].join(','), buyAll: BUY_ALL, extraBuys: EXTRA_BUYS, merchantOn: process.env.MC_MERCHANT ?? 'on', calib: calibFrom,
-  realSeconds: Math.round(realMs / 100) / 10, ticks, actionEnds,
+  realSeconds: Math.round(realMs / 100) / 10, ticks, actionEnds, ...(STUB ? { stub: { pStep: P_STEP, calls: stubCalls } } : {}),
   busy: Math.round((1000 * [...busyMs.values()].reduce((s, x) => s + x, 0)) / (agents.length * minutes * 60000)) / 10,
   busyBins: binMs.map((ms, i) => Math.round((1000 * ms) / (agents.length * Math.min(10, minutes - i * 10) * 60000)) / 10),
   picks: byKind(picks),

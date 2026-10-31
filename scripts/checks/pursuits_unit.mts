@@ -86,6 +86,8 @@ ok(end('make:oak_fence', 'make', T0 + 3 * MIN) === true, 'a fence of another woo
 ok(end('make:bread', 'make', T0 + 4 * MIN) === false, 'bread is not');
 ok(end('make:birch_fence', 'make', T0 + 30 * MIN) === true && P.wantsOf(V, 'Ada').pursuit!.resumed === 1, 'a step after 15+ min of other work: resumed');
 for (let i = 0; i < 2; i++) end('make:birch_fence', 'make', T0 + 31 * MIN + i);
+// (the world marks a step seen on the menu; without it the tuning drops a pursuit after a day with no path)
+P.noteStepSeen(V, 'Ada', T0 + 31 * MIN);
 let n = P.update(V, 'Ada', facts(), T0 + 32 * MIN);
 ok(n?.milestone === 1, `4 of 12: the 25% milestone (${n?.milestone})`);
 ok(P.pursuitLine(V, 'Ada', T0 + 32 * MIN).startsWith('Your own project (day 2 of it)'), `the line: ${P.pursuitLine(V, 'Ada', T0 + 32 * MIN)}`);
@@ -96,6 +98,42 @@ ok(P.needsChoice(P.wantsOf(V, 'Ada')), 'a new one needed after');
 const q = P.startPursuit(V, 'Ada', cands[1], facts(), T0 + 35 * MIN);
 P.update(V, 'Ada', facts(), T0 + 35 * MIN + 2 * DAY + MIN);
 ok(P.wantsOf(V, 'Ada').done.slice(-1)[0]?.state === 'stalled' && q.state === 'stalled', 'stalled after 2 days without progress');
+
+// The tuning (runs/2026-10-31/wants/spec.md): stalls by the clock, steps count, no path and failures drop, live paths
+ok(P.WANTS.tune, 'MC_WANTS_TUNE on by default');
+const night2 = T0 + DAY + 18 * MIN; // (day 2's night; day 4 begins 22 minutes later)
+const t1p = P.startPursuit(V, 'Ada', { template: 'light', label: 'light the village: 24 lights', target: 24, source: 'x' }, facts(), night2);
+P.noteStepSeen(V, 'Ada', night2 + 15 * MIN);
+P.update(V, 'Ada', facts(), night2 + 22 * MIN + 30 * 1000);
+ok(t1p.state === 'active', 'chosen at night: not stalled at the second dawn (by day numbers it was)');
+P.noteEnd(V, 'Ada', { kind: 'light', option: 'light:s1', name: 'Light', message: 'lit 0 spots', ok: true, productive: true, facts: {} }, night2 + 30 * MIN, 15 * MIN);
+P.noteStepSeen(V, 'Ada', night2 + 55 * MIN);
+P.update(V, 'Ada', facts(), night2 + 60 * MIN);
+ok(t1p.state === 'active', 'a step done counts against the stall, though the measure did not move');
+P.update(V, 'Ada', facts(), night2 + 30 * MIN + 2 * DAY);
+ok(t1p.state === 'stalled', 'stalled 2 days after the last step');
+const t2p = P.startPursuit(V, 'Ada', { template: 'house', label: 'the finest house: 6 more things in it', target: 6, source: 'x' }, facts(), T0 + 200 * MIN);
+P.update(V, 'Ada', facts(), T0 + 200 * MIN + DAY + MIN);
+ok(t2p.state === 'dropped' && /^no path/.test(t2p.endWhy ?? ''), `no step on a menu for a day: dropped (${t2p.state} ${t2p.endWhy})`);
+const day0 = mem.clockOf(V, T0 + 200 * MIN + DAY + MIN)!.day;
+P.noteMenu(V, 'Ada', [opt('furnish:s1', 'furnish', 'Furnish your own house')], T0 + 200 * MIN + DAY + MIN);
+ok(!P.candidates(P.wantsOf(V, 'Ada'), facts({ notes: ['my house'] }), day0, 'x').some((c) => c.template === 'house'), 'a no-path template is left out for 2 days');
+ok(P.candidates(P.wantsOf(V, 'Ada'), facts({ notes: ['my house'] }), day0 + 2, 'x').some((c) => c.template === 'house'), 'and offered again after');
+const t3p = P.startPursuit(V, 'Ada', { template: 'light', label: 'light the village: 24 lights', target: 24, source: 'x' }, facts(), T0 + 300 * MIN);
+for (let i = 0; i < 3; i++) P.noteEnd(V, 'Ada', { kind: 'light', option: 'light:s2', name: 'Light', message: 'could not craft 16 torch', ok: false, productive: false, facts: {} }, T0 + 301 * MIN + i, 15 * MIN);
+ok(t3p.state === 'dropped' && /^failed/.test(t3p.endWhy ?? ''), `3 failed steps in a row: dropped (${t3p.state})`);
+const sw = P.wantsOf(V, 'Clara');
+const dC = mem.clockOf(V, T0 + 300 * MIN)!.day;
+const inv = facts({ goal: 'invention', inventions: [{ id: 'pies', name: 'pies' }], own: true, notes: [] });
+ok(!P.candidates(sw, inv, dC, 'x').some((c) => c.template === 'research' || c.template === 'wealth'), 'research and wealth need their option seen on a menu');
+P.noteMenu(V, 'Clara', [opt('innovate:pies', 'innovate'), opt('own:farm:wheat', 'own')], T0 + 300 * MIN);
+const cc = P.candidates(sw, inv, dC, 'x');
+ok(cc.some((c) => c.template === 'research') && cc.some((c) => c.template === 'wealth'), 'and are offered once seen');
+P.setWants({ tune: false });
+const t4p = P.startPursuit(V, 'Ben', { template: 'light', label: 'light', target: 24, source: 'x' }, facts(), night2 + 400 * MIN);
+P.update(V, 'Ben', facts(), night2 + 400 * MIN + DAY + MIN);
+ok(t4p.state === 'active', 'tune off: no no-path drop');
+P.setWants({ tune: true });
 
 // The step option: tagged and weighed by the world; here the trim keeps it and the fixed pick follows it
 const menu: Opt[] = Array.from({ length: 12 }, (_, i) => ({ ...opt(`make:g${i}`, i < 6 ? 'make' : `k${i}` as never), rank: 100 + i, lp: 1 }));

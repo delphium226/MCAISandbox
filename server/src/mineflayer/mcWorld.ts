@@ -78,7 +78,7 @@ import { ACTS, TALK, actsHelp, actsState, answerLines, deliverAnswer, failAnswer
 import { CONTROLLER, SCRIPTED_ACTS, intentionFocus } from '../controller';
 import { SKILL, noteSkill, skillLine, skillOf, skillWeight } from '../skill';
 import { PROPOSALS_ON, addProposal, allProposals, initProposals, markTriage, readyForTriage, verdictLine, type CheckCtx } from '../proposals';
-import { WANTS, advances as pursuitAdvances, donePursuits, familyOf, noteEnd as pursuitEnd, noteMenu as pursuitMenu, noteTexts, pursuitLine, setPursuitHooks, update as pursuitUpdate, wantsMade, wantsOf, wantsShown, type WantsFacts } from '../pursuits';
+import { WANTS, advances as pursuitAdvances, donePursuits, familyOf, noteEnd as pursuitEnd, noteMenu as pursuitMenu, noteStepSeen as pursuitStepSeen, noteTexts, pursuitLine, setPursuitHooks, update as pursuitUpdate, wantsMade, wantsOf, wantsShown, type WantsFacts } from '../pursuits';
 import { RESTLESS_LINE, capLeft, capOk, doneToday, markOutlet, noteEnd as restEnd, noteIdle, noteRest as restNoteRest, outletDue, outletPrompt, parseOutlet, resolveItem, restOf, restlessLine, type Outlet } from '../restless';
 import { admiredOf, distinctOf, esteemLine, imitationWeight, noteBuilt, noteDistinct, noteHelped, noteMake, notePursuitDone, noteRecord, owed, recordKey, reliedLine, repayWeight, rivalLine, titlesOf } from '../esteem';
 import { setProposalCtx } from '../society';
@@ -8631,6 +8631,11 @@ export class MineflayerWorld implements WorldAdapter {
 
   /** The options' wants weights and tags (an on-member's; the menu-only arm marks the step only). */
   private wantsWeights(v: Village, a: BotAgent, out: ChoiceOption[], now: number, store: Counts) {
+    // (the tuning: a step of the pursuit, shown or shadow, on the menu keeps it from the no-path drop)
+    if (WANTS.pursuits && WANTS.tune) {
+      const q = wantsOf(v.name, a.name).pursuit;
+      if (q?.state === 'active' && out.some((o) => pursuitAdvances(q, o, this.goalFacts(v, o)))) pursuitStepSeen(v.name, a.name, now);
+    }
     if (!wantsMade(a.name)) return;
     const shown = wantsShown(a.name);
     const t = temperament(a.name);
@@ -8773,7 +8778,7 @@ export class MineflayerWorld implements WorldAdapter {
     try {
       const outlets: Outlet[] = [];
       const home = villageHome(v, a.memory);
-      if (home) outlets.push({ id: 'rest', name: 'Sit at the green and watch the others', facts: 'walk to the middle of the village and watch what the others do for about 2 minutes' });
+      if (home) outlets.push({ id: 'rest', name: 'Sit at the green and watch the others', facts: `walk to the middle of the village and watch what the others do for about ${WANTS.tune ? 'a minute' : '2 minutes'}` });
       const items = ACTS.on && capLeft(v.name, a.name, 'asks', now) ? [...new Set(this.actsWorld(v, now).items.values())] : [];
       if (items.length) outlets.push({ id: 'ask', name: 'Ask the others for something you need', facts: 'a request to anyone for one item (name it in `item`); a member who has it or can make it may bring it' });
       if (PROPOSALS_ON && capLeft(v.name, a.name, 'props', now)) outlets.push({ id: 'propose', name: 'Propose something the village cannot do yet', facts: 'a wish for the council (say it in `what`): a work, a good or an activity nobody here can do now' });
@@ -8807,8 +8812,9 @@ export class MineflayerWorld implements WorldAdapter {
         const id = this.wantProposal(v.name, a.name, got.what, got.reason || 'restless with nothing to do', clockOf(v.name, t)?.day ?? 0, 'outlet');
         if (id) done.push(`proposed ${id}`);
       }
-      // (rest when chosen, and after an ask or a proposal too: the member is still idle and goes to watch the others)
-      if (home && this.isIdleMember(v, a, t)) this.outletRest(v, a, home, got?.reason || 'outlet');
+      // (rest when chosen, and after an ask or a proposal too: the member is still idle and goes to watch the others; with
+      // the tuning only when chosen: the pilot's rest after asks kept members from work the next sweep had)
+      if (home && this.isIdleMember(v, a, t) && (pick === 'rest' || !WANTS.tune)) this.outletRest(v, a, home, got?.reason || 'outlet');
       if (pick === 'rest') restNoteRest(v.name, a.name);
       const rs = restOf(v.name, a.name);
       rs.picks = { ...(rs.picks ?? {}), [pick]: (rs.picks?.[pick] ?? 0) + 1 };
@@ -8826,7 +8832,7 @@ export class MineflayerWorld implements WorldAdapter {
     if (!this.isIdleMember(v, a, Date.now())) return;
     const y = Math.round(a.bot?.entity?.position?.y ?? 64);
     const opt = { id: 'rest:green', kind: 'rest', key: `rest:${a.name}`, name: 'Sit at the green and watch the others', rank: 1300 } as ChoiceOption;
-    this.setChore(v, a, opt.key, [a.enqueue('move_to', { x: home.x, y, z: home.z, range: 4, chore: true }), a.enqueue('wait', { seconds: Math.max(10, Math.round(120 / timeScale())), chore: true })], 'watch the others at the green', undefined, { source: 'model', reason }, [], opt);
+    this.setChore(v, a, opt.key, [a.enqueue('move_to', { x: home.x, y, z: home.z, range: 4, chore: true }), a.enqueue('wait', { seconds: Math.max(10, Math.round((WANTS.tune ? 60 : 120) / timeScale())), chore: true })], 'watch the others at the green', undefined, { source: 'model', reason }, [], opt);
   }
 
 

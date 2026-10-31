@@ -36,7 +36,13 @@ export const WANTS = {
   flip: /^(on|1|true|yes)$/i.test(rawSetting('MC_WANTS_FLIP') ?? ''),
   /** on: lines, tags, weights, created options and outlets; menu: created options and outlets only. */
   mode: (/^menu$/i.test(rawSetting('MC_WANTS') ?? 'on') ? 'menu' : 'on') as 'on' | 'menu',
+  /** The tuning (runs/2026-10-31/wants/spec.md): stalls by the clock with steps counting, live paths from menus, no-path
+   *  and failure drops; the outlet's rest (mcWorld.ts). */
+  tune: on('MC_WANTS_TUNE'),
 };
+/** The tuning's numbers: village days without progress before a stall, without a step on a menu before a no-path drop,
+ *  failed steps in a row before a drop, and days a no-path template is left out of the candidates. */
+export const TUNE = { stallDays: 2, noPathDays: 1, fails: 3, avoidDays: 2 };
 /** Tests and the simulator. */
 export function setWants(s: Partial<typeof WANTS>): void {
   Object.assign(WANTS, s);
@@ -116,11 +122,17 @@ export interface Pursuit {
   lastProgressDay: number;
   /** The last chore that took a step, and how many steps came after 15+ minutes of other work. */
   lastStepAt?: number;
+  /** The tuning: when a step was last on the member's menus, and failed steps in a row. */
+  stepSeenAt?: number;
+  fails?: number;
   steps: number;
   resumed: number;
   milestone: number;
   state: 'active' | 'done' | 'dropped' | 'stalled';
   ended?: number;
+  /** The tuning: the village day it ended, and why it was dropped (no path, failed). */
+  endDay?: number;
+  endWhy?: string;
   source: string;
   why?: string;
   /** An off-member's: chosen and measured by code, never shown. */
@@ -283,8 +295,10 @@ export function topFamily(c: WantCounts, seen?: Record<string, number>): string 
 /** Whether a candidate has a live path: an option advancing it was on the member's menus in the last 2 days. */
 function live(s: WantsState, t: Template, param: string | undefined, f: WantsFacts, day: number): boolean {
   if (t === 'explore') return f.ringLeft > 0;
-  if (t === 'wealth') return f.own;
-  if (t === 'research') return !!param && f.inventions.some((e) => e.id === param);
+  const seenSince = (re: RegExp) => Object.entries(s.seen).some(([k, d]) => d >= day - 2 && re.test(k));
+  // (the tuning: the pilot's research and wealth had no step on any menu in 15 of 24 no-path stalls)
+  if (t === 'wealth') return f.own && (!WANTS.tune || seenSince(/^(own:(?!pledge|basics|shear|decor)|activity:lib:sell$)/));
+  if (t === 'research') return !!param && f.inventions.some((e) => e.id === param) && (!WANTS.tune || (s.seen[`innovate:${param}`] ?? -99) >= day - 2);
   if (t === 'works' || t === 'garden' || t === 'standing') return Object.entries(s.seen).some(([k, d]) => d >= day - 2 && (k.startsWith('initiate') || k.startsWith('help')));
   if (t === 'light') return Object.entries(s.seen).some(([k, d]) => d >= day - 2 && (k.startsWith('light') || k === 'make:torch'));
   if (t === 'house') return Object.entries(s.seen).some(([k, d]) => d >= day - 2 && (k.startsWith('furnish') || /^own:(decor|basics|chest|farm|shear)/.test(k)));
@@ -299,6 +313,7 @@ function candidate(s: WantsState, t: Template, f: WantsFacts, day: number, sourc
   if (t === 'research' && !p) p = f.inventions[0]?.id;
   if ((t === 'craft' || t === 'supply' || t === 'research') && !p) return null;
   if (!live(s, t, p, f, day)) return null;
+  if (WANTS.tune && s.done.some((d) => d.template === t && d.param === p && d.endWhy && /^(no path|failed)/.test(d.endWhy) && day - (d.endDay ?? -99) < TUNE.avoidDays)) return null;
   const target = DEFS[t].target(f, p);
   return { template: t, ...(p ? { param: p } : {}), label: DEFS[t].label(p, target), target, source };
 }
@@ -353,7 +368,16 @@ export function matchOwn(text: string, s: WantsState, f: WantsFacts, day: number
 /** A chore's end into the member's counters; returns whether it took the pursuit's step. */
 export function noteEnd(village: string, agent: string, e: { kind: string; option: string; name: string; message: string; ok: boolean; productive: boolean; facts: OptionFacts }, now: number, otherWorkGapMs: number): boolean {
   const s = wantsOf(village, agent);
-  if (!e.ok) return false;
+  if (!e.ok) {
+    // (the tuning: failed steps in a row end the pursuit, re-planned the next night)
+    const q = s.pursuit;
+    if (WANTS.tune && q?.state === 'active' && advances(q, { id: e.option, kind: e.kind as ChoiceOption['kind'], name: e.name } as ChoiceOption, e.facts)) {
+      q.fails = (q.fails ?? 0) + 1;
+      if (q.fails >= TUNE.fails) end(village, agent, 'dropped', now, clockOf(village, now)?.day ?? q.day, `failed: ${q.fails} steps in a row (${e.message.slice(0, 80)})`);
+      touchMemory();
+    }
+    return false;
+  }
   const c = s.counts;
   const fam = familyOf(e.option);
   if (e.productive || e.kind === 'innovate' || e.kind === 'own') c.fam[fam] = (c.fam[fam] ?? 0) + 1;
@@ -372,6 +396,12 @@ export function noteEnd(village: string, agent: string, e: { kind: string; optio
     p.steps++;
     if (p.lastStepAt !== undefined && now - p.lastStepAt >= otherWorkGapMs) p.resumed++;
     p.lastStepAt = now;
+    if (WANTS.tune) {
+      // (a step done is progress for the stall clock: the pilot's wealth steps never moved its emeralds)
+      p.fails = 0;
+      p.lastProgressAt = now;
+      p.lastProgressDay = clockOf(village, now)?.day ?? p.lastProgressDay;
+    }
   }
   touchMemory();
   return step;
@@ -400,8 +430,13 @@ export function update(village: string, agent: string, f: WantsFacts, now: numbe
     out = { agent, pursuit: p, milestone: ms };
     logAct({ type: 'pursuit-progress', village, agent, template: p.template, param: p.param, value: p.value - p.base, target: p.target, milestone: ms * 25, shadow: !!p.shadow, day });
   }
+  const dayMs = clockOf(village, now)?.dayMs ?? 0;
   if (frac >= 1) end(village, agent, 'done', now, day);
-  else if (day - p.lastProgressDay >= 2) end(village, agent, 'stalled', now, day);
+  else if (WANTS.tune && dayMs) {
+    // (the tuning: by the clock; by day numbers a pursuit chosen at night stalled after one working day, 40 of 68)
+    if (now - p.lastProgressAt >= TUNE.stallDays * dayMs) end(village, agent, 'stalled', now, day);
+    else if (now - (p.stepSeenAt ?? p.at) >= TUNE.noPathDays * dayMs) end(village, agent, 'dropped', now, day, 'no path: no step on any menu for a day');
+  } else if (day - p.lastProgressDay >= 2) end(village, agent, 'stalled', now, day);
   touchMemory();
   return out;
 }
@@ -412,6 +447,8 @@ function end(village: string, agent: string, state: 'done' | 'dropped' | 'stalle
   if (!p) return;
   p.state = state;
   p.ended = now;
+  p.endDay = day;
+  if (why) p.endWhy = why.slice(0, 200);
   s.done = [...s.done, p].slice(-8);
   s.pursuit = undefined;
   logAct({ type: 'pursuit-end', village, agent, template: p.template, param: p.param, state, value: p.value - p.base, target: p.target, days: day - p.day, steps: p.steps, resumed: p.resumed, shadow: !!p.shadow, ...(why ? { why } : {}), day });
@@ -439,6 +476,12 @@ export function pursuitLine(village: string, agent: string, now: number): string
 }
 /** Done pursuits, for the identity line and esteem ("made the finest house, day 4"). */
 export const donePursuits = (village: string, agent: string) => wantsOf(village, agent).done.filter((p) => p.state === 'done');
+
+/** The tuning: a step of the active pursuit (shown or shadow) was on the member's menu now (the world marks it). */
+export function noteStepSeen(village: string, agent: string, now: number): void {
+  const p = wantsOf(village, agent).pursuit;
+  if (p?.state === 'active') p.stepSeenAt = now;
+}
 
 /** The menu's families into the member's live paths (the world calls it with each built menu's feasible options). */
 export function noteMenu(village: string, agent: string, feasible: ChoiceOption[], now: number): void {

@@ -102,6 +102,8 @@ G.setGoalPlan(plan);
 // 6. Pursuit candidates from the typed templates, the goal word's otherwise
 {
   const s = P.wantsOf('GP', 'Ada');
+  // (the wants tuning: research is a candidate once its experiment was on a menu)
+  s.seen['innovate:kiln'] = 1;
   const f = { t: vectorOf('Ada'), notes: [], built: {}, emeralds: 0, inventions: [{ id: 'kiln', name: 'kiln' }], ringLeft: 4, own: true };
   const typedC = P.candidates(s, { ...f, goal: 'invention', goalTemplates: ['explore', 'research'] }, 1, 'x');
   ok(typedC[0]?.template === 'explore' && typedC[0].source === 'your life goal' && typedC[1]?.template === 'research', `typed templates first (${typedC.map((c) => `${c.template}/${c.source}`).join(', ')})`);
