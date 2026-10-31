@@ -4236,9 +4236,6 @@ export class MineflayerWorld implements WorldAdapter {
         this.architectPicks.delete(v.name);
         v.monument = newMonumentPicked(this.catalogWoodOf(v), now, pick.pick, pick.by, pick.why);
       } else v.monument = newMonument(this.catalogWoodOf(v), now);
-      // (MC_CIVIC: the kiln, lodge and quarries the civic buildings left)
-      // (#190: a kiln smaller than this record's own is left behind)
-      if (CIVIC.on) Object.assign(v.monument, civicKit(v, kilnSize(this.materials.plan(monumentPlan(v.monument).bill, {}).fuel.smelts)));
       // (M2, #145: the glass colours the flowers near the village give, chosen once; M3: the architect's when it chose)
       if (MONUMENT.glazing && v.monument.palette === 'full') {
         // (#162, MC_DYE_BED: the dye census, tall flowers and out to 144)
@@ -4252,6 +4249,9 @@ export class MineflayerWorld implements WorldAdapter {
           console.log(`[dyebed] ${v.name}: the windows' colours: ${cs.join(', ') || 'none (plain glass)'}`);
         }
       }
+      // (MC_CIVIC: the kiln, lodge and quarries the civic buildings left; #190: a kiln smaller than this record's own,
+      // its glass colours chosen, is left behind)
+      if (CIVIC.on) Object.assign(v.monument, civicKit(v, kilnSize(this.materials.plan(monumentPlan(v.monument).bill, {}).fuel.smelts)));
       const c = monumentPlan(v.monument);
       this.villages.save();
       const named = m3(v.monument).name ? `, dedicated to ${m3(v.monument).name}` : '';
