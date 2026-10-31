@@ -39,6 +39,7 @@ import { KILN, kilnHolds } from './kiln';
 import { CUTTER, needsCutting, type CutStep, type CutterRecord } from './cutter';
 import type { DyeBed } from './dyeBed';
 import { FURNISH_STAGE, furnishKindOf, furnishKinds, furnishOn, furnishTrade, type FurnishKind } from './furnish';
+import { civicEntries, civicEntry, drawCivic } from './civic';
 
 export { KILN };
 export const MONUMENT = {
@@ -53,13 +54,20 @@ export const MONUMENT = {
   /** #153: the monument's type: the cathedral or the castle (castleGen.ts). */
   type: (/^castle$/i.test(rawSetting('MC_MONUMENT_TYPE') ?? 'cathedral') ? 'castle' : 'cathedral') as MonumentType,
 };
-export type MonumentType = 'cathedral' | 'castle';
+/** 'civic' (MC_CIVIC, civic.ts): a civic building on the same machinery, before the monument. */
+export type MonumentType = 'cathedral' | 'castle' | 'civic';
 /** #153: a monument's type (records from before it are cathedrals). */
 export const monumentType = (m: Monument): MonumentType => (m as MonumentM3).type ?? 'cathedral';
 /** The monument's noun in lines ("the castle's site"). */
-export const monumentNoun = (m: Monument) => monumentType(m);
+export const monumentNoun = (m: Monument) => (monumentType(m) === 'civic' ? civicEntry(m.preset)?.kind ?? 'building' : monumentType(m));
 /** The presets of a type. */
-export const presetsOf = (t: MonumentType): Record<string, unknown> => (t === 'castle' ? CASTLE_PRESETS : GOTHIC_PRESETS);
+export const presetsOf = (t: MonumentType): Record<string, unknown> => (t === 'castle' ? CASTLE_PRESETS : t === 'civic' ? Object.fromEntries(civicEntries().map((e) => [e.id, e])) : GOTHIC_PRESETS);
+/** A civic building's record (MC_CIVIC): its preset drawn at 1:scale, in the village wood. */
+export function newCivic(preset: string, scale: number, wood: string, now: number): MonumentM3 {
+  return { type: 'civic', preset, scale, palette: 'full', wood, at: now, state: 'site', done: [], yard: {}, stages: [] };
+}
+/** civicDraw's oak as the village wood (oak and stripped oak only). */
+const civicWood = (block: string, wood: string) => block.replace(/^(stripped_)?oak_/, `$1${wood}_`);
 
 /** The dye each flower makes (the jar's recipes), and the generator's three glass colours with what may stand in. */
 export const FLOWER_DYE: Record<string, string> = {
@@ -318,7 +326,7 @@ export function monumentPlan(m: Monument): MonumentPlan {
   const key = `${type}|${m.preset}|${m.scale}|${m.palette}|${m.wood}|${JSON.stringify(m.colours ?? {})}|${detail}|${JSON.stringify(standIns)}|${JSON.stringify(from)}|${JSON.stringify(fk ?? null)}|${deep}|${copper}|${reroof.join(',')}|${accents}|${refurnish.join(',')}`;
   let c = plans.get(key);
   if (c) return c;
-  const gen: Cathedral = type === 'castle' ? generateCastle(CASTLE_PRESETS[m.preset] ?? CASTLE_PRESETS.conwy, m.scale)
+  const gen: Cathedral = type === 'civic' ? drawCivic(m.preset, m.scale) : type === 'castle' ? generateCastle(CASTLE_PRESETS[m.preset] ?? CASTLE_PRESETS.conwy, m.scale)
     : generateCathedral(GOTHIC_PRESETS[m.preset] ?? GOTHIC_PRESETS.notre_dame, m.scale, { detail, furnish: !!fk, ...(fk ? { furnishKinds: fk } : {}), ...(copper ? { copperRoof: true } : {}), ...(accents ? { accents: true } : {}) });
   {
     const wood = m.wood || 'oak';
@@ -326,7 +334,7 @@ export function monumentPlan(m: Monument): MonumentPlan {
     // (the copper characters as the roof stood before the rung: deepslate or its stand-in)
     const old: Record<string, string> = {}, old0: Record<string, string> = {};
     for (const [ch, b] of Object.entries(gen.design.palette)) {
-      pal0[ch] = m.palette === 'today' ? todayBlock(b, wood) : fullBlock(b, wood, m.colours, detail, deep);
+      pal0[ch] = type === 'civic' ? civicWood(b, wood) : m.palette === 'today' ? todayBlock(b, wood) : fullBlock(b, wood, m.colours, detail, deep);
       pal[ch] = standIn(pal0[ch], standIns);
       if (COPPER_BLOCKS.includes(gothicItem(b))) {
         old0[ch] = fullBlock(copperOff(b), wood, m.colours, detail, deep);
@@ -835,9 +843,9 @@ export function noteTrade(m: Monument, member: string, trade: Trade, now: number
 }
 
 /** The monument's name for lines: its dedication, else "the cathedral" (or "the castle", #153). */
-export const cathedralName = (m: Monument) => (m3(m).name ? `the ${monumentNoun(m)} of ${m3(m).name}` : `the ${monumentNoun(m)}`);
+export const cathedralName = (m: Monument) => (monumentType(m) === 'civic' ? civicEntry(m.preset)?.title ?? `the ${monumentNoun(m)}` : m3(m).name ? `the ${monumentNoun(m)} of ${m3(m).name}` : `the ${monumentNoun(m)}`);
 const PRESET_WORDS: Record<string, string> = { notre_dame: 'Notre-Dame', salisbury: 'Salisbury', chartres: 'Chartres', conwy: 'Conwy', white_tower: 'the White Tower' };
-export const presetWords = (p: string) => PRESET_WORDS[p] ?? p;
+export const presetWords = (p: string) => PRESET_WORDS[p] ?? civicEntry(p)?.title ?? p;
 
 /** The current stage's parts: built and in all. */
 export function stageParts(m: Monument): { stage: number; built: number; of: number } {
@@ -851,7 +859,7 @@ export function stageParts(m: Monument): { stage: number; built: number; of: num
 export function progressLine(m: Monument, now: number, dayMs: number, member?: string): string {
   const c = monumentPlan(m), n = m3(m);
   const blocks = c.jobs.filter((j, i) => m.done.includes(i) && j.reroof === undefined && j.refurnish === undefined).reduce((t, j) => t + j.blocks, 0);
-  const head = `The village's monument: ${cathedralName(m)} (${presetWords(m.preset)} at 1:${m.scale})`;
+  const head = monumentType(m) === 'civic' ? `The village's public building: ${cathedralName(m)}, a ${monumentNoun(m)} (at 1:${m.scale})` : `The village's monument: ${cathedralName(m)} (${presetWords(m.preset)} at 1:${m.scale})`;
   let what: string;
   if (m.state === 'built') {
     const fs = furnishStage(m), p = fs && currentStage(m) === fs ? stageParts(m) : null;

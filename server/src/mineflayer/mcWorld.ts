@@ -111,6 +111,8 @@ import { cutWork, cutterOn } from './mcCutter';
 import { bedBuilding, dyeBedOn } from './mcDyeBed';
 import { DYE_BED, DYE_FLOWERS, DYE_REACH, TALL_FLOWERS, dyeRecipes, makeableColours, windowColours } from '../dyeBed';
 import { DETAIL_COLOURS } from '../gothicGen';
+import { CIVIC, civicOptions, civicsStanding, civicDone, civicKit, codePick, CIVIC_SYSTEM, CIVIC_TOOL, CIVIC_SITE_FAILS, checkCivic, civicPrompt, civicLine, type CivicOption } from '../civic';
+import { newCivic, monumentType } from '../monument';
 import { stoneStandIn, DEEP_BLOCKS, deepStandIn, GEM_STAND, DYE_FAILS, DYE_WAIT_MIN, dyeStandIn, dyeStood, furnishLeaveOut, leftOutItems, refurnishOn, COPPER_ROOF, COPPER_BLOCKS, copperFrom, copperOn, copperReached, copperStandIn, reroofReturns } from '../monument';
 import { DEEP_KEEP, deepenForStone, setKeepCopper } from './mcMine';
 import { DIAMONDS_ON, PICK_DIAMONDS, deepChain, deepDigBlocked, deepDigWords, deepenForDiamonds, diamondCounts, diamondForgeNeed, hasIronPick, ironFirstFact } from './mcDiamond';
@@ -4170,7 +4172,17 @@ export class MineflayerWorld implements WorldAdapter {
    *  progress logged every 5 minutes. */
   private monumentTick(v: Village) {
     const now = Date.now();
+    // (MC_CIVIC: a civic building that stands, or whose site failed CIVIC_SITE_FAILS times, leaves the record for the next)
+    if (CIVIC.on && v.monument && monumentType(v.monument) === 'civic' && (v.monument.state === 'built' || (v.monument.state === 'site' && (v.monument.fails ?? 0) >= CIVIC_SITE_FAILS))) {
+      const c = civicDone(v, now);
+      this.villages.save();
+      const text = c.skipped ? `The village gives up ${presetWords(c.preset)}: ${c.skipped}` : `The village finished ${presetWords(c.preset)} (a ${c.kind}, ${c.blocks} blocks)`;
+      if (M3.news) this.monumentNews(v, text, 'Mayor');
+      else this.villages.note(v, text);
+      console.log(`[civic] ${v.name}: ${text}; ${civicLine(v)}`);
+    }
     if (!v.monument) {
+      if (CIVIC.on && this.civicTick(v, now)) return;
       if (!ironReached(v)) return;
       // (M3, MC_MONUMENT_ARCHITECT: the architect model picks the parameters first; the record waits for its answer; the
       // cathedral's only, #153: code sets the castle's)
@@ -4185,6 +4197,8 @@ export class MineflayerWorld implements WorldAdapter {
         this.architectPicks.delete(v.name);
         v.monument = newMonumentPicked(this.catalogWoodOf(v), now, pick.pick, pick.by, pick.why);
       } else v.monument = newMonument(this.catalogWoodOf(v), now);
+      // (MC_CIVIC: the kiln, lodge and quarries the civic buildings left)
+      if (CIVIC.on) Object.assign(v.monument, civicKit(v));
       // (M2, #145: the glass colours the flowers near the village give, chosen once; M3: the architect's when it chose)
       if (MONUMENT.glazing && v.monument.palette === 'full') {
         // (#162, MC_DYE_BED: the dye census, tall flowers and out to 144)
@@ -4213,6 +4227,79 @@ export class MineflayerWorld implements WorldAdapter {
     if (v.monument.quarry) console.log(`[quarry] ${v.name}: ${quarryLine(v.monument.quarry)}`);
     if (v.monument.kiln) console.log(`[kiln] ${v.name}: ${kilnLine(v.monument.kiln, now, timeScale())}`);
     if (M3.roles && m3(v.monument).trades) console.log(`[trade] ${v.name}: ${Object.entries(m3(v.monument).trades!).filter(([, r]) => r.trade).map(([n, r]) => `${n} ${r.trade}`).join(', ') || 'no trades yet'}`);
+  }
+
+  /** MC_CIVIC: the mayor's choice under way ('asking') or answered, by village. */
+  private civicPicks = new Map<string, 'asking' | { id: string | null; by: string; reason: string }>();
+
+  /** MC_CIVIC (civic.ts): the next civic building begun (true: begun or its choice under way; false: none to begin, the
+   *  monument's turn when the iron age is done). */
+  private civicTick(v: Village, now: number): boolean {
+    const iron = ironReached(v);
+    if (iron && civicsStanding(v) >= CIVIC.first) return false;
+    const last = (v as { civics?: Array<{ built?: number; at: number }> }).civics?.at(-1);
+    if (last && now - (last.built ?? last.at) < (CIVIC.gap * 60000) / timeScale()) return true;
+    const options = civicOptions(v, iron);
+    if (!options.length) return false;
+    let pick: { id: string | null; by: string; reason: string };
+    if (CIVIC.choose === 'model') {
+      const p = this.civicPicks.get(v.name);
+      if (!p) {
+        this.civicPicks.set(v.name, 'asking');
+        this.askCivic(v, options).then((r) => this.civicPicks.set(v.name, r), (e) => this.civicPicks.set(v.name, { id: null, by: 'code', reason: String((e as Error)?.message ?? e).slice(0, 160) }));
+        return true;
+      }
+      if (p === 'asking') return true;
+      this.civicPicks.delete(v.name);
+      pick = p;
+    } else pick = { id: null, by: 'code', reason: 'MC_CIVIC_CHOOSE=code' };
+    const o = options.find((x) => x.id === pick.id) ?? codePick(options);
+    const rec = newCivic(o.id, o.scale, this.catalogWoodOf(v), now);
+    rec.arch = { by: pick.by, reason: pick.reason, ...(pick.id ? {} : { fallback: pick.reason }) };
+    Object.assign(rec, civicKit(v));
+    v.monument = rec;
+    this.villages.save();
+    const text = `The village begins ${o.title}, a ${o.kind} (1:${o.scale}): ${o.blocks} blocks in ${o.jobs} parts${pick.id ? `, chosen by ${pick.by}` : ''}`;
+    if (M3.news) this.monumentNews(v, text, pick.id ? pick.by : 'Mayor');
+    else this.villages.note(v, text);
+    console.log(`[civic] ${v.name}: begun: ${monumentLine(rec)} (by ${pick.by}: ${pick.reason}; offered ${options.map((x) => `${x.id} 1:${x.scale} ${x.blocks}`).join(', ')})`);
+    return true;
+  }
+
+  /** MC_CIVIC: the mayor's model picks the next civic building from the short list; code checks it (one retry with the
+   *  problem, transient errors waited out as the architect's are), and code's pick when it fails. */
+  private async askCivic(v: Village, options: CivicOption[]): Promise<{ id: string | null; by: string; reason: string }> {
+    const mayor = [...this.agents.values()].find((a) => a.village() === v && a.role === 'mayor');
+    const by = mayor?.name ?? 'Mayor';
+    const mem = mayor?.memory ?? {};
+    const spec = [mem.designModel, mem.planModel, mem.execModel, rawSetting('MC_PLAN_MODEL'), rawSetting('MC_EXEC_MODEL'), 'ollama:gpt-oss:120b-cloud']
+      .map((x) => (typeof x === 'string' ? parseSpec(x) : null)).find((x) => x);
+    const facts = {
+      village: v.name, members: Math.max([...this.agents.values()].filter((a) => a.village() === v).length, rosterOf(v.name).length), wood: this.catalogWoodOf(v),
+      houses: v.plots.length, built: ((v as { civics?: Array<{ preset: string; skipped?: string }> }).civics ?? []).filter((c) => !c.skipped).map((c) => presetWords(c.preset)), options,
+    };
+    let user = civicPrompt(facts), why = 'no model', transient = 0;
+    for (let attempt = 0; spec && attempt < 2; attempt++) {
+      try {
+        const { reply } = await callModel({ spec, system: CIVIC_SYSTEM, user, tools: [CIVIC_TOOL], level: REASONING.design, agent: by, kind: 'design', priority: 'plan' });
+        const call = reply.calls?.find((c) => c.name === CIVIC_TOOL.name);
+        if (!call) { why = 'the mayor called no choose_civic'; user = `${civicPrompt(facts)}\nCall choose_civic now.`; continue; }
+        const r = checkCivic(call.input as Record<string, unknown>, options);
+        console.log(`[civic] ${v.name}: ${by} (${label(spec)}) ${'pick' in r ? `picks ${r.pick.id}: ${r.reason}` : `sent back: ${r.problem}`}`);
+        if ('pick' in r) return { id: r.pick.id, by, reason: r.reason };
+        why = r.problem;
+        user = `${civicPrompt(facts)}\nYour last choice could not be used: ${why}. Choose again.`;
+      } catch (e) {
+        why = String((e as Error)?.message ?? e).slice(0, 160);
+        console.log(`[civic] ${v.name}: the call failed: ${why}`);
+        if (isTransient(e) && transient < 6) {
+          transient++;
+          attempt--;
+          await new Promise((r) => setTimeout(r, (30000 * transient) / timeScale()).unref?.());
+        }
+      }
+    }
+    return { id: null, by: 'code', reason: why };
   }
 
   /** M3 (MC_MONUMENT_ARCHITECT): the pick under way ('asking') or answered, by village. */
@@ -7934,8 +8021,8 @@ export class MineflayerWorld implements WorldAdapter {
         if ((m.backoff ?? 0) <= now && !busy.has('monument:site'))
           add({
             id: 'monument:site', kind: 'monument', key: 'monument:site', excludes: ['monument:site='], rank: 155,
-            name: `Choose and level the ${N}'s site (the village's monument)`,
-            facts: `the village began a ${N} after the iron age: ${c.design.width}x${c.design.depth}, ${c.design.blocks} blocks in ${c.stageNames.length} stages; its pad goes at the edge of the village`,
+            name: `Choose and level the ${N}'s site (the village's ${monumentType(m) === 'civic' ? 'public building' : 'monument'})`,
+            facts: `the village began a ${N}${monumentType(m) === 'civic' ? ` (${presetWords(m.preset)})` : ' after the iron age'}: ${c.design.width}x${c.design.depth}, ${c.design.blocks} blocks in ${c.stageNames.length} stages; its pad goes at the edge of the village`,
             effect: `the ${N}'s pad, level and ready for its foundations`,
           }, { kind: 'monument', step: 'site' });
       } else {

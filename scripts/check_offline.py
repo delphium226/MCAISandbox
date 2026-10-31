@@ -84,6 +84,7 @@ def commands():
     out["character_mix"] = ([node, TSX, "scripts/checks/character_mix.mts"], [])
     out["run_pause"] = ([node, TSX, "scripts/checks/run_pause.mts"], [])
     out["live_settings"] = ([node, TSX, "scripts/checks/live_settings.mts"], [])
+    out["civic_gen"] = ([node, TSX, "scripts/checks/civic_gen.mts"], [])
     return out
 
 
@@ -93,8 +94,11 @@ def commands():
 # (the wants spec, 10-30: the goldens and the menu checks set up for an empty village are of the picker without the wants;
 # pursuits_unit checks those)
 WANTS_OFF = {"MC_PURSUITS": "off", "MC_ESTEEM": "off", "MC_TITLES": "off", "MC_RESTLESS": "off", "MC_EXPLORE_RINGS": "1"}
+# (the civic tier, 10-31: the goldens and the monument's checks are of the monument at the iron rung, without it)
+CIVIC_OFF = {"MC_CIVIC": "off"}
 CHECK_ENV = {"small_works": {"MC_VANILLA_ALL": "off", "MC_GARDENS": "off"},
-             **{n: WANTS_OFF for n in ("choice_golden", "board_golden", "palette_golden", "palette_golden:old_board", "policy_options")}}
+             **{n: {**WANTS_OFF, **CIVIC_OFF} for n in ("choice_golden", "board_golden", "palette_golden", "palette_golden:old_board", "policy_options")},
+             **{n: CIVIC_OFF for n in ("monument_unit", "monument_m3", "castle_monument")}}
 
 
 def run(name, cmd, needs, logdir):

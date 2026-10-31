@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-259 settings.
+264 settings.
 
 ## Game speed
 
@@ -233,6 +233,11 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 
 | Setting | Type | Default | Live | Requires | Description |
 | --- | --- | --- | --- | --- | --- |
+| `MC_CIVIC` | flag | `on` |  | `MC_MONUMENT` | MC_CIVIC=on (the civic tier): once the village is complete it raises real public buildings one at a time before its monument (guildhalls, market halls, tithe barns, mills, inns, almshouses from timberGen.ts; lighthouses and clock towers from towerGen.ts), timber kinds first and stone kinds once it has its mine or iron, each on the monument's machinery (site, yard, kiln, jobs) at the largest scale under MC_CIVIC_BLOCKS; the mayor's model picks the next from a short list. The iron age's monument waits for MC_CIVIC_FIRST to stand. Off: the monument exactly as before. |
+| `MC_CIVIC_BLOCKS` | number | `2000` |  | `MC_CIVIC` | The most blocks a civic building is drawn with: the scale (1:1 to 1:4) is the largest that keeps under it. |
+| `MC_CIVIC_CHOOSE` | string | `model` |  | `MC_CIVIC` | Who picks the next civic building from the short list: the mayor's model (code's first option when it fails), or code. |
+| `MC_CIVIC_FIRST` | number | `1` |  | `MC_CIVIC` | Civic buildings that must stand before the iron age's monument begins (0: the monument at the iron rung, after the civic building under way). |
+| `MC_CIVIC_GAP` | number | `5` |  | `MC_CIVIC` | Minutes (divided by MC_TIME_SCALE) between one civic building standing and the next one's choice. |
 | `MC_COPPER_ROOF` | string | `off` |  | `MC_MONUMENT_DETAIL`, `MC_KILN` | MC_COPPER_ROOF=on\|test\|off (#162, tier 3, chain B; off by default; with MC_MONUMENT_DETAIL and MC_KILN): once the village has reached the copper rung, a detail cathedral's high roof (nave, choir, transepts) and its flèche base are cut copper and cut copper stairs, which weather green over the hours. Raw copper from storage first, then iron mine trips that keep copper ore; the kiln smelts it, the carver forges blocks (9 ingots) and cuts them (4 a block). Before the rung the roof is deepslate (MC_DEEP_STONE) or wood; a roof built so is re-roofed in copper by jobs of its own once the rung is reached, its old blocks back to storage. Short of copper after a wait, the old roof's blocks stand in. test: the rung counted reached (staged runs). |
 | `MC_DEEP_STONE` | flag | `on` |  | `MC_MONUMENT_DETAIL`, `MC_IRON_AGE` | MC_DEEP_STONE=on (#162, tier 3, chain A; off by default; with MC_MONUMENT_DETAIL and MC_IRON_AGE): a detail cathedral begun with it keeps the generator deepslate roof tiles and tuff plinth (otherwise the village wood and stone bricks), cut at the stonecutter from cobbled deepslate and tuff. What storage holds is claimed first; then the iron mine lays a deep level (y 0 or below, past the iron age level count) and members make iron trips there for the stone; short after a wait, or with no way down, the wood and stone bricks stand in. No ladder rung (the user, 10-27). |
 | `MC_DIAMOND_AGE` | flag | `on` |  | `MC_LADDER`, `MC_IRON_AGE` | MC_DIAMOND_AGE (#22; on by default, the user's rule since 10-30; off turns it off): the diamond rung's four counted stages (blocks dug down below y 0, diamonds brought up, the first diamond pickaxe, one for each of 3 deep miners); while the rung is current the iron chain is laid deeper by landings to the diamond level at y -56; a miner with an iron pickaxe keeps diamond, redstone and lapis ore; the rung's trips need an iron pickaxe (a worn-out one is forged again); and a forge makes diamond pickaxes for the deep miners. |
