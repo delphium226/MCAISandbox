@@ -987,3 +987,14 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   next webs there, and a teleport to the surface spot when the climb back fails (as the iron level's, 10-08). Fishing
   rods are a workshop good made only from stored string (two string, three sticks). The merchant still sells rods
   when on.
+- 10-31 (planning session, under the user's "make your own decisions and continue progressing") **House design
+  stays `MC_HOME_DESIGN=character` by default**: program houses were the most varied (train 13) but need the local
+  qwen3.8 server running, and model picks were bigger but converged; character needs neither. Revisit when a cloud
+  model writes house programs as well as qwen3.8.
+- 10-31 (planning session, same authority) **Civic picks are steered towards variety**: the Mayor took Pembridge's
+  market hall first in all three staged runs (as the monument architect repeats, #155). Code leaves out of the
+  civic list any building the village has already built and any other village's most recent one, and shows the
+  kinds not yet built first; the model still picks from what is left.
+- 10-31 (planning session, same authority) **Test train 15 tests what is new since train 14 together**: the wants
+  tuning (`MC_WANTS_TUNE`), the civic tier (`MC_CIVIC`), string from cobwebs (`MC_STRING`) and the #181-#183 fixes,
+  model-driven, flags on against off; survival stays opt-in and out of the train.
