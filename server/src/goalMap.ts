@@ -10,6 +10,7 @@ import { GOALS, GOAL_MEANING, GOAL_TEXT_MAX, clip, type Goal, type GoalSpec } fr
 import { TEMPLATES, TEMPLATE_WORDS } from './pursuits';
 import { fnv1a } from './choose';
 import type { ToolDef } from './world';
+import { MODES, worldMode, type WorldMode } from './worldMode';
 
 /** The settings that put a measure in play (goals.ts' goalsInPlay, against a profile's settings, not this process's). */
 export const MEASURE_NEEDS: Partial<Record<Goal, string>> = { wealth: 'MC_OWN', invention: 'MC_INNOVATE' };
@@ -21,8 +22,16 @@ export function measuresInPlay(eff: Record<string, string>): Goal[] {
   return GOALS.filter((g) => (!MEASURE_NEEDS[g] || ON.test(eff[MEASURE_NEEDS[g]!] ?? '')) && (!only.length || only.includes(g)));
 }
 
-/** What the world is, for the words with no lever (the model's facts; spec 2.5's "nothing can be taken"). */
-const WORLD_FACTS = 'The world: a peaceful Minecraft village of members who gather, craft, farm, build and trade. There are no hostile mobs, no damage, no fighting, no stealing (storage is shared and nothing can be taken from another member), no travel beyond walking and no magic. Members can explore the land around the village (survey points on rings), research new things, make goods, light and decorate the village, furnish their own houses, help others\' projects, build public works, and, when own stock is on, keep and trade goods of their own for emeralds.';
+/** What the world is, for the words with no lever (the model's facts; spec 2.5's "nothing can be taken"); by MC_WORLD_MODE
+ *  (survival: peaceful's words as before; the others say what hurts, and hunger and nights where they are real). */
+export function worldFacts(mode: WorldMode = worldMode()): string {
+  const m = MODES[mode];
+  if (!m.damage) return PEACEFUL_FACTS;
+  const harm = m.mobs ? 'Monsters come out at night and in the dark; falls, deep water, fire and lava hurt' : 'There are no hostile mobs, but falls, deep water, fire and lava hurt';
+  return `The world: a Minecraft village of members who gather, craft, farm, build and trade. ${harm}${m.hunger ? '; members get hungry and must eat, and nights fall (one member asleep in a bed ends the night)' : ''}. A member who dies wakes at the village storage with their things. There is no stealing (storage is shared and nothing can be taken from another member), no travel beyond walking and no magic. ${PEACEFUL_FACTS.slice(PEACEFUL_FACTS.indexOf('Members can'))}`;
+}
+const PEACEFUL_FACTS = 'The world: a peaceful Minecraft village of members who gather, craft, farm, build and trade. There are no hostile mobs, no damage, no fighting, no stealing (storage is shared and nothing can be taken from another member), no travel beyond walking and no magic. Members can explore the land around the village (survey points on rings), research new things, make goods, light and decorate the village, furnish their own houses, help others\' projects, build public works, and, when own stock is on, keep and trade goods of their own for emeralds.';
+const WORLD_FACTS = worldFacts();
 
 /** The catalogue's version (the cache key's half): changes when a measure's or template's words change. */
 export function catalogueVersion(): string {

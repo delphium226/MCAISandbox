@@ -14,6 +14,7 @@ import { SMALL_WORKS } from './smallWorks';
 import type { MaterialPlan } from './mineflayer/mcMaterials';
 import type { ToolDef } from './world';
 import { rawSetting } from './settings';
+import { modeSpec } from './worldMode';
 
 type Counts = Record<string, number>;
 
@@ -218,7 +219,8 @@ export function checkProposal(p: Pick<Proposal, 'kind' | 'what' | 'why'>, ctx: C
   const bad = items.find((it) => !ctx.merchantSells?.has(it) && (HOSTILE[it] || NEEDS_OTHER_WORLD[it] || OTHER_WORLD.test(it)));
   if (bad) return { target, check: { verdict: 'impossible', reason: `${words(bad)}: ${HOSTILE[bad] ?? NEEDS_OTHER_WORLD[bad] ?? 'it comes from the Nether or the End, which this village cannot reach'}`, route: 'none' } };
   // (a work or rule against monsters, whatever it is built of: "a stone wall to keep monsters out")
-  if (MOBS.test(text) && (p.kind === 'work' || p.kind === 'rule' || !items.some((it) => !WEAK.has(it) && !GENERIC.has(it)))) return { target, check: { verdict: 'impossible', reason: 'this world is peaceful: no hostile mobs spawn and nobody takes damage', route: 'none' } };
+  // (by MC_WORLD_MODE: with monsters (normal) a wall against them is no longer impossible; with damage, harm is real)
+  if (!modeSpec().mobs && MOBS.test(text) && (p.kind === 'work' || p.kind === 'rule' || !items.some((it) => !WEAK.has(it) && !GENERIC.has(it)))) return { target, check: { verdict: 'impossible', reason: modeSpec().damage ? 'no hostile mobs spawn in this world' : 'this world is peaceful: no hostile mobs spawn and nobody takes damage', route: 'none' } };
   const capStatus = cap ? statusOf(cap, ctx) : undefined;
   if (cap && capStatus?.status === 'dead') return { target, check: { verdict: 'impossible', reason: `${cap.name.toLowerCase()}: ${capStatus.reason}`, capability: { id: cap.id, status: 'dead' }, route: 'none' } };
   // 2. a chore that keeps failing: a fix, whatever the member called it (a farther farm is a fix, not a rule)
@@ -536,9 +538,17 @@ export function parsePropose(input: unknown): { kind: string; what: string; why:
 // The triage's prompt and reply (scripts/triage_proposals.mts runs it)
 // ---------------------------------------------------------------------------------------------
 
+/** The triage's world line by MC_WORLD_MODE (peaceful's words as before). */
+const TRIAGE_WORLD = {
+  peaceful: 'peaceful survival (no hostile mobs, no damage), time frozen at day',
+  damage: 'survival with damage (falls, drowning, fire) but no hostile mobs, time frozen at day',
+  hunger: 'easy survival (damage and real hunger, no hostile mobs), day and night (one sleeper skips the night)',
+  mobs: 'normal survival (damage, hunger and monsters at night and in the dark), day and night',
+};
+
 export const TRIAGE_SYSTEM = `You triage proposals that LLM-driven members of a Minecraft village make for improving the game they live in. You work for the project's developers, who build accepted proposals through their usual design, review and test steps.
 
-The world: a Paper 26.1 server, peaceful survival (no hostile mobs, no damage), time frozen at day, an overworld only (no Nether or End). Members gather and craft, keep shared storage, farm, tend pens, fish, build houses and small public works, make goods in a workshop, research inventions, and trade. New activities come from a "skill foundry" that writes one skill from a ticket (best at an item used on a block, e.g. shears on a bee nest).
+The world: a Paper 26.1 server, ${TRIAGE_WORLD[modeSpec().mobs ? 'mobs' : modeSpec().hunger ? 'hunger' : modeSpec().damage ? 'damage' : 'peaceful']}, an overworld only (no Nether or End). Members gather and craft, keep shared storage, farm, tend pens, fish, build houses and small public works, make goods in a workshop, research inventions, and trade. New activities come from a "skill foundry" that writes one skill from a ticket (best at an item used on a block, e.g. shears on a bee nest).
 
 The project's goals: 25 agents doing many different activities; emergent social behaviour; agents proposing improvements (this); long-horizon memory; new activities learned by a self-improving loop.
 

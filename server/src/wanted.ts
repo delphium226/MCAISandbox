@@ -20,6 +20,7 @@ import type { MaterialPlan } from './mineflayer/mcMaterials';
 import { FOOD_GOODS, MAKE_GOODS } from './mineflayer/mcWorkshop';
 import type { Village } from './village';
 import { rawSetting } from './settings';
+import { modeSpec } from './worldMode';
 
 type Counts = Record<string, number>;
 
@@ -74,11 +75,11 @@ export interface Capability {
 export const CAPABILITIES: Capability[] = [
   {
     id: 'honeycomb', name: 'Harvest honeycomb from bee nests', verb: 'use_on_block', target: ['bee_nest', 'beehive'], state: 'honey_level=5', tool: 'shears', yields: ['honeycomb'], find: ['bee_nest', 'beehive'],
-    facts: 'shears used on a bee nest or beehive whose honey_level is 5 (full) drop 3 honeycomb and set it to 0; bees refill it by bringing pollen from flowers; the bees come out angry, but a peaceful world takes no damage; a campfire under the nest keeps them calm; nests hang on tree trunks 2-5 blocks up in forests and plains with flowers',
+    facts: `shears used on a bee nest or beehive whose honey_level is 5 (full) drop 3 honeycomb and set it to 0; bees refill it by bringing pollen from flowers; the bees come out angry, ${modeSpec().hunger ? 'and angry bees sting' : 'but a peaceful world takes no damage'}; a campfire under the nest keeps them calm; nests hang on tree trunks 2-5 blocks up in forests and plains with flowers`,
   },
   {
     id: 'honey_bottle', name: 'Bottle honey from bee nests', verb: 'use_on_block', target: ['bee_nest', 'beehive'], state: 'honey_level=5', tool: 'glass_bottle', yields: ['honey_bottle'], find: ['bee_nest', 'beehive'],
-    facts: 'a glass bottle used on a bee nest or beehive whose honey_level is 5 becomes a honey bottle and sets it to 0 (the bottle is used up); bees refill it; angry bees do no damage in peaceful',
+    facts: `a glass bottle used on a bee nest or beehive whose honey_level is 5 becomes a honey bottle and sets it to 0 (the bottle is used up); bees refill it; ${modeSpec().hunger ? 'angry bees sting: keep a campfire under the nest' : 'angry bees do no damage in peaceful'}`,
   },
   {
     id: 'wool', name: 'Shear the sheep', verb: 'use_on_entity', target: ['sheep'], tool: 'shears', yields: ['white_wool'], skill: 'shear_sheep',

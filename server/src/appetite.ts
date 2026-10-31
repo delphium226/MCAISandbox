@@ -5,10 +5,13 @@
  * Peckish (12 or less) members eat before they take new work; hungry ones (6 or less) take only food work. Nothing is
  * slowed and nothing damages. World-independent: the world drains and runs the chore (mcWorld.ts appetiteTick, mcBuild.ts
  * eat_meal); the record lives on the village (v.food, lesson 103). Spec runs/2026-10-15/s30/spec_food.md D6-D11.
+ * With real hunger (MC_WORLD_MODE=easy or normal, survival stage (b)) the level is vanilla's food bar: the world copies
+ * each member's bar instead of draining, eat_meal eats for real, and the record keeps on without MC_APPETITE.
  */
 import type { ChoiceKind } from './world';
 import type { Village } from './village';
 import { onSetting, rawSetting } from './settings';
+import { realHunger } from './worldMode';
 
 type Counts = Record<string, number>;
 
@@ -28,7 +31,8 @@ export const APPETITE = {
   idle: Number(rawSetting('MC_APPETITE_IDLE') ?? 0.25) || 0,
   start: Math.max(0, Math.min(20, Number(rawSetting('MC_APPETITE_START') ?? 20) || 0)),
   cap: 20,
-  eatAt: 12,
+  // (real hunger: 14, since vanilla heals only at 18 or more; 12 left members unhealed most of a run)
+  eatAt: realHunger() ? 14 : 12,
   hungryAt: 6,
   eaters: 4,
 };
@@ -121,11 +125,15 @@ export function isFoodTask(t: { title: string; detail: string }): boolean {
   return /\btend_farm layout=/.test(t.detail) || /\bcollect block=wheat_seeds\b/.test(t.detail);
 }
 
-/** Whether a village keeps an appetite now: on, complete, and its record started (by the world's first drain, once a field
- *  is planted, or by the test API). The food rules (claims, the menu, food goods, keeps) follow the record. */
+/** Whether a village keeps an appetite now: on (MC_APPETITE, or real hunger), complete, and its record started (by the
+ *  world's first drain, once a field is planted, or with real hunger at completion, or by the test API). The food rules
+ *  (claims, the menu, food goods, keeps) follow the record. */
 export function appetiteOn(v: Village | undefined): v is Village & { food: NonNullable<Village['food']> } {
-  return APPETITE.rate > 0 && !!v?.complete && !!v.food;
+  return (APPETITE.rate > 0 || realHunger()) && !!v?.complete && !!v.food;
 }
+
+/** The level a real food bar gives (bot.food, 0-20; a bot without one reads as full). */
+export const barLevel = (food: number | undefined): number => Math.max(0, Math.min(APPETITE.cap, typeof food === 'number' && Number.isFinite(food) ? food : APPETITE.cap));
 
 /**
  * Meals under way, by "village|agent" (lens 1 M1: the sweep, the claim gate and every eater read the storage record, which

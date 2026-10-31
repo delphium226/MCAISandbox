@@ -44,7 +44,9 @@ import { contractOf, deliveryDone, givePurse, oweLevy } from '../pay';
 import { boardOf, offerText, settle } from '../barter';
 import { OFFERS } from '../merchant';
 import { LIBRARY, addPledge, chanceFor, needOf, pointsIn, ptsText, settleAttempt, techOf, techOwnRecipes } from '../tech';
-import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, holdMeal, noteFood, releaseMeal, stateOf, storeForMeals } from '../appetite';
+import { eatItems } from './mcSurvivalB';
+import { realHunger } from '../worldMode';
+import { APPETITE, FOOD_POINTS, appetiteOn, barLevel, chooseMeal, holdMeal, noteFood, releaseMeal, stateOf, storeForMeals } from '../appetite';
 import { postLayout } from '../layout';
 import { pathLamps, planPadPaths } from '../padPaths';
 import { parseRefit } from '../refit';
@@ -5446,7 +5448,9 @@ async function bakeCake(a: BotAgent, _args: Record<string, unknown>, signal: Abo
  * A meal from the village storage (s30's appetite, D9; a chore code queues for a peckish member, never a model's tool): at
  * the storage hut, food carried goes in first by name (a stopped meal's, lesson 112), then the meal code chooses
  * (appetite.ts chooseMeal) is withdrawn, counted on the server and consumed by `clear` (vanilla `eat` refuses at 20/20, and
- * peaceful refills the bar), the level raised and the meal recorded on the village; what is left goes back by name.
+ * peaceful refills the bar), the level raised and the meal recorded on the village; what is left goes back by name. With
+ * real hunger (survival stage (b)) the meal is eaten for real, item by item (mcSurvivalB eatItems), and the level read back
+ * from the bar.
  */
 async function eatMeal(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const v = a.village();
@@ -5487,10 +5491,11 @@ async function eatMeal(a: BotAgent, _args: Record<string, unknown>, signal: Abor
     // (another member was first to the last of it: contention, which neither bans eating for the village nor cools it)
     if (!meal || !have) throw new ContentionError('eat_meal: nothing to eat in the village storage (other members took it)', 'taken', 'stock:food');
     // (from the take to the record nothing awaits but the take itself: a stop there still records the meal, as harvest_farm's loot)
-    const took = await a.world.rcon.take(a.name, meal.item, Math.min(meal.n, have), have);
-    if (!took) throw new Error(`eat_meal: the server took no ${meal.item} from ${a.name}`);
-    const before = e.level;
-    e.level = Math.min(APPETITE.cap, e.level + took * FOOD_POINTS[meal.item]);
+    const real = realHunger();
+    const before = real ? barLevel(a.bot.food) : e.level;
+    const took = real ? await eatItems(a, meal.item, Math.min(meal.n, have), signal) : await a.world.rcon.take(a.name, meal.item, Math.min(meal.n, have), have);
+    if (!took) throw new Error(real ? `eat_meal: ate no ${meal.item} (food ${before} of 20)` : `eat_meal: the server took no ${meal.item} from ${a.name}`);
+    e.level = real ? barLevel(a.bot.food) : Math.min(APPETITE.cap, e.level + took * FOOD_POINTS[meal.item]);
     e.meals = (e.meals ?? 0) + 1;
     e.lastMeal = { at: Date.now(), item: meal.item, n: took };
     const f = v.food!;

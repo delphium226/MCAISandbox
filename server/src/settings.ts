@@ -559,7 +559,7 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'MC_WORK_BLOCKS: model decisions paced through the hour (modelCallsLastHour), at most PACE_BURST at a time.' },
   { name: 'MC_WORLD_MODE', type: 'string', default: 'peaceful', group: 'server', live: false, values: ['peaceful', 'damage', 'easy', 'normal'],
     read: 'worldMode.ts, choose.ts, memory.ts, mineflayer/mcRules.ts, mineflayer/botAgent.ts, mineflayer/mcUtil.ts',
-    describe: 'The world\'s survival stage (worldMode.ts; peaceful by default, the user\'s 10-30): damage turns on falls, drowning and fire (still peaceful, always day; spawnpoints at the storage, air and fire reflexes, a drop limit of 4); easy and normal are stage (b) and (c) rule sets only. keep_inventory stays on.' },
+    describe: 'The world\'s survival stage (worldMode.ts; peaceful by default, the user\'s 10-30): damage turns on falls, drowning and fire (still peaceful, always day; spawnpoints at the storage, air and fire reflexes, a drop limit of 4); easy is stage (b): easy difficulty, real hunger (the appetite reads the game food bar; an eating reflex), nights one sleeper in a bed ends (players_sleeping_percentage 1), the after-burn reflex and safe spawnpoints, no monsters; normal adds monsters (the stage (c) rules). keep_inventory stays on.' },
 ];
 
 const BY_NAME = new Map(SETTINGS.map((s) => [s.name, s]));

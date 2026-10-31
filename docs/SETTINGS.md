@@ -313,7 +313,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_VERSION` | string | `26.1` |  |  | The Minecraft version Mineflayer speaks. |
 | `MC_VIEW_DISTANCE` | number | `10` |  |  | The sandbox: the players' view distance in chunks. |
 | `MC_WORLD` | string | `world` |  |  | The sandbox: the world's folder name under server/worlds. |
-| `MC_WORLD_MODE` | string | `peaceful` |  |  | The world's survival stage (worldMode.ts; peaceful by default, the user's 10-30): damage turns on falls, drowning and fire (still peaceful, always day; spawnpoints at the storage, air and fire reflexes, a drop limit of 4); easy and normal are stage (b) and (c) rule sets only. keep_inventory stays on. |
+| `MC_WORLD_MODE` | string | `peaceful` |  |  | The world's survival stage (worldMode.ts; peaceful by default, the user's 10-30): damage turns on falls, drowning and fire (still peaceful, always day; spawnpoints at the storage, air and fire reflexes, a drop limit of 4); easy is stage (b): easy difficulty, real hunger (the appetite reads the game food bar; an eating reflex), nights one sleeper in a bed ends (players_sleeping_percentage 1), the after-burn reflex and safe spawnpoints, no monsters; normal adds monsters (the stage (c) rules). keep_inventory stays on. |
 | `MCAI_ACTS_LOG` | string | (unset) |  |  | Where the acts log goes (default: beside the choice log). |
 | `MCAI_CHOICE_LOG` | string | (unset) |  |  | Where the choice log (choices.jsonl) goes. |
 | `MCAI_ROOT` | string | (unset) |  |  | The repository root the server reads and writes under (a code snapshot sets it to the repo). |

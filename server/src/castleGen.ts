@@ -16,7 +16,8 @@
  * the order real castles grew in (the keep, the curtain, its towers, the gatehouses, the halls, the battlements), with
  * those a preset has no part for left out and the rest numbered from 1.
  */
-import type { Cathedral, GothicJob } from './gothicGen';
+import type { CivicSource } from './civic';
+import { CIVIC_BLOCK, type Cathedral, type GothicJob } from './gothicGen';
 import type { Design } from './village';
 
 export interface CastleTower {
@@ -55,6 +56,12 @@ export interface CastlePreset {
   /** The passage through a gate (metres). */
   gateWidth: number;
   gateHeight: number;
+  /** A civic building (CASTLE_CIVIC, the civic tier's), not a monument: its category, title, place and date. */
+  kind?: 'monument' | 'civic';
+  category?: string;
+  title?: string;
+  place?: string;
+  built?: string;
 }
 
 /** The towers of a rectangle of 2 x n drum towers (north row then south row). */
@@ -371,6 +378,127 @@ export const CASTLE_PRESETS: Record<string, CastlePreset> = {
   },
 };
 
+/** A civic preset: no curtain, gates or halls unless given. */
+const civic = (name: string, category: string, title: string, place: string, built: string, description: string, more: Partial<CastlePreset>): CastlePreset => ({
+  name, description, kind: 'civic', category, title, place, built,
+  wallHeight: 0, wallThick: 0, towers: [], walls: [], gates: [], halls: [], gateWidth: 3, gateHeight: 5, ...more,
+});
+
+/** The civic tier's tower houses, town gates, fortified manors and watchtowers (kind 'civic'; the monument picker never
+ *  sees them: CIVIC_SOURCE hands them to civic.ts). Measures from the sources in runs/2026-10-31/monuments40/report.md;
+ *  each turned so its door or gate faces west. */
+export const CASTLE_CIVIC: Record<string, CastlePreset> = {
+  // Tower houses
+  threave: civic('threave', 'tower house', 'Threave Castle', 'Galloway', '1369', 'the Black Douglases\' tall tower house, an artillery wall with round towers before it', {
+    // the tower 18.4 x 12.1 m, 21 m, walls ~2 m; the artillery wall 6 m high and 1.5 m thick, its round towers ~5 m
+    // across (est.), drawn further out than its real 4.4 m from the tower
+    wallHeight: 6, wallThick: 1.5, towers: [T(0, 0, 0, 0), T(55, 0, 5, 10), T(55, 35, 5, 10), T(0, 35, 0, 0)], walls: loop(0, 4),
+    gates: [{ a: 3, b: 0, portcullis: true, barbican: 0 }], keep: { x: 14, z: 11, w: 18.4, d: 12.1, h: 21, t: 2 },
+  }),
+  eilean_donan: civic('eilean_donan', 'tower house', 'Eilean Donan', 'Loch Duich', '13th c., rebuilt 1912-1932', 'a keep on a tidal island in a small walled courtyard', {
+    // the keep 16.5 x 12.4 m, walls 3 m, ~16 m high (est.); the courtyard ~45 x 26 m (est.); the island and bridge left out
+    wallHeight: 7, wallThick: 2, towers: [T(0, 0, 0, 0), T(45, 0, 0, 0), T(45, 26, 0, 0), T(0, 26, 0, 0)], walls: loop(0, 4),
+    gates: [{ a: 3, b: 0, portcullis: false, barbican: 0 }], keep: { x: 14, z: 7, w: 16.5, d: 12.4, h: 16, t: 3 },
+  }),
+  bunratty: civic('bunratty', 'tower house', 'Bunratty Castle', 'County Clare', 'c. 1425', 'a great Irish tower house, a turret at each corner joined by high arches', {
+    // ~19 x 13 m (est.), ~25 m high
+    keep: { x: 0, z: 0, w: 19, d: 13, h: 25, t: 3 },
+  }),
+  smailholm: civic('smailholm', 'tower house', 'Smailholm Tower', 'the Scottish Borders', '15th c.', 'a small, tall Border peel tower on a crag', {
+    // 12.1 x 9.4 m, ~20 m high, walls 2.4 m (the barmkin and the crag left out)
+    keep: { x: 0, z: 0, w: 12.1, d: 9.4, h: 19.8, t: 2.4 },
+  }),
+  blarney: civic('blarney', 'tower house', 'Blarney Castle', 'County Cork', '1446', 'a tall machicolated tower house over the river', {
+    // ~18.3 x 11.9 m, ~27 m high, walls 3.6 m at the base
+    keep: { x: 0, z: 0, w: 18.3, d: 11.9, h: 27, t: 3.6 },
+  }),
+  // Town gates
+  holstentor: civic('holstentor', 'town gate', 'the Holstentor', 'Lübeck', '1464-1478', 'two round towers under conical roofs either side of the gate, a stretch of wall each side', {
+    // ~30 m wide (est.): the towers ~11 m across, ~20 m to the eaves and ~30 m to the cone tips (est.), the gate block
+    // between; drawn 24 m apart, room for a gate at 1:4
+    wallHeight: 14, wallThick: 6, towers: [T(0, -20, 0, 0), T(0, 0, 11, 20, { roof: 10 }), T(0, 24, 11, 20, { roof: 10 }), T(0, 44, 0, 0)],
+    walls: [[0, 1], [1, 2], [2, 3]], gates: [{ a: 1, b: 2, portcullis: true, barbican: 0 }],
+  }),
+  westgate_canterbury: civic('westgate_canterbury', 'town gate', 'the Westgate', 'Canterbury', '1379', 'the largest surviving English town gate: two drum towers, the city wall either side', {
+    // 18 m high, the drum towers ~8 m across (est.), the city wall 1.2-2.3 m thick
+    wallHeight: 8, wallThick: 2, towers: [T(0, -24, 0, 0), T(0, 0, 8, 18), T(0, 24, 8, 18), T(0, 48, 0, 0)],
+    walls: [[0, 1], [1, 2], [2, 3]], gates: [{ a: 1, b: 2, portcullis: true, barbican: 0 }],
+  }),
+  krakow_barbican: civic('krakow_barbican', 'town gate', 'the Barbican', 'Kraków', '1498-1499', 'a round brick barbican with a watch turret before the city gate', {
+    // 24.4 m across inside, walls ~3 m, ~12 m high (est.); drawn as one drum tower, its seven turrets as one
+    towers: [T(0, 0, 27, 12, { turret: true })],
+  }),
+  avila_gate: civic('avila_gate', 'town gate', 'the Puerta del Alcázar', 'Ávila', '12th c.', 'two massive half-round towers joined over the gate, in the walls of Ávila with their round towers', {
+    // the walls ~12 m high and 3 m thick, round towers every ~20 m (~8 m across, est.; drawn wider apart), the gate's
+    // towers 20 m
+    wallHeight: 12, wallThick: 3, towers: [T(0, -60, 0, 0), T(0, -36, 8, 16), T(0, 0, 12, 20), T(0, 24, 12, 20), T(0, 60, 8, 16), T(0, 84, 0, 0)],
+    walls: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5]], gates: [{ a: 2, b: 3, portcullis: true, barbican: 0 }],
+  }),
+  porta_nigra: civic('porta_nigra', 'town gate', 'the Porta Nigra', 'Trier', 'c. 170', 'a Roman city gate of black sandstone: two towers round-fronted to the field, a gate block between', {
+    // ~36 m long, 21.5 m deep, 29.3 m high (the west tower)
+    wallHeight: 21, wallThick: 21.5, towers: [T(0, 0, 15, 29), T(0, 24, 15, 29)], walls: [[0, 1]],
+    gates: [{ a: 0, b: 1, portcullis: false, barbican: 0 }],
+  }),
+  // Fortified manors
+  stokesay: civic('stokesay', 'fortified manor', 'Stokesay Castle', 'Shropshire', '1285-1291', 'a fortified manor: a great hall between a north tower and a tall south tower, round a walled courtyard', {
+    // the courtyard ~46 x 38 m, the hall 16.6 x 9.4 m and ~10 m high, the south tower ~12 m across (est.); the curtain
+    // ~10 m from the moat's floor (the moat and the timber gatehouse left out)
+    wallHeight: 8, wallThick: 1.5, towers: [T(0, 0, 9, 16), T(46, 0, 12, 20), T(46, 38, 0, 0), T(0, 38, 0, 0)], walls: loop(0, 4),
+    gates: [{ a: 3, b: 0, portcullis: false, barbican: 0 }], halls: [{ x0: 10, x1: 36, z0: 0, z1: 13, h: 10 }],
+  }),
+  ightham_mote: civic('ightham_mote', 'fortified manor', 'Ightham Mote', 'Kent', 'c. 1320-1530', 'a moated manor house: ranges round a courtyard, a gate tower in the west range', {
+    wallHeight: 8, wallThick: 6, towers: [T(0, 0, 0, 0), T(36, 0, 0, 0), T(36, 32, 0, 0), T(0, 32, 0, 0), T(0, 28, 7, 14, { square: true }), T(0, 4, 7, 14, { square: true })],
+    walls: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 0]], gates: [{ a: 4, b: 5, portcullis: false, barbican: 0 }],
+    halls: [{ x0: 8, x1: 30, z0: 0, z1: 14, h: 9 }],
+  }),
+  oxburgh_hall: civic('oxburgh_hall', 'fortified manor', 'Oxburgh Hall', 'Norfolk', '1482', 'a moated brick manor round a courtyard, entered through a tall twin-turreted gatehouse', {
+    wallHeight: 10, wallThick: 6, towers: [T(0, 0, 0, 0), T(55, 0, 0, 0), T(55, 50, 0, 0), T(0, 50, 0, 0), T(0, 37, 8, 24, { square: true }), T(0, 13, 8, 24, { square: true })],
+    walls: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 0]], gates: [{ a: 4, b: 5, portcullis: false, barbican: 0 }],
+    halls: [{ x0: 8, x1: 47, z0: 0, z1: 14, h: 10 }, { x0: 8, x1: 47, z0: 36, z1: 50, h: 10 }],
+  }),
+  markenfield_hall: civic('markenfield_hall', 'fortified manor', 'Markenfield Hall', 'North Yorkshire', '1310', 'a moated manor: a first-floor hall and its chapel tower on a walled courtyard', {
+    wallHeight: 7, wallThick: 2, towers: [T(0, 0, 0, 0), T(42, 0, 7, 14, { square: true }), T(42, 40, 0, 0), T(0, 40, 0, 0)], walls: loop(0, 4),
+    gates: [{ a: 3, b: 0, portcullis: false, barbican: 0 }], halls: [{ x0: 6, x1: 32, z0: 0, z1: 14, h: 10 }],
+  }),
+  haddon_hall: civic('haddon_hall', 'fortified manor', 'Haddon Hall', 'Derbyshire', '12th-16th c.', 'a rambling manor of two courtyards, the banqueting hall and the long gallery, the Eagle Tower', {
+    wallHeight: 9, wallThick: 4, towers: [T(0, 0, 0, 0), T(50, 0, 0, 0), T(90, 0, 8, 20, { square: true }), T(90, 55, 0, 0), T(50, 55, 0, 0), T(0, 55, 0, 0),
+      T(0, 40, 6, 14, { square: true }), T(0, 15, 6, 14, { square: true })],
+    walls: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 0], [1, 4]],
+    gates: [{ a: 6, b: 7, portcullis: false, barbican: 0 }, { a: 1, b: 4, portcullis: false, barbican: 0 }],
+    halls: [{ x0: 55, x1: 85, z0: 0, z1: 12, h: 12 }, { x0: 55, x1: 88, z0: 45, z1: 55, h: 10 }],
+  }),
+  // Watchtowers
+  martello_tower: civic('martello_tower', 'watchtower', 'a Martello tower', 'the coast of Kent and Sussex', '1805-1812', 'a squat round gun tower of thick brick, two storeys and a gun platform', {
+    // ~14.5 m across, ~10 m high, walls ~2.4 m (the first-floor door drawn at the ground)
+    towers: [T(0, 0, 14.5, 10)],
+  }),
+  torre_de_belem: civic('torre_de_belem', 'watchtower', 'the Belém Tower', 'Lisbon', '1514-1519', 'a square Manueline tower over a bastion with corner watch turrets, on the Tagus', {
+    // the tower ~12 m square and 30 m; the bastion ~36 x 24 m (est.) with its turrets, drawn a little apart from the tower
+    wallHeight: 8, wallThick: 2, towers: [T(20, 0, 4, 10), T(44, 0, 4, 10), T(56, 12, 4, 10), T(44, 24, 4, 10), T(20, 24, 4, 10)], walls: loop(0, 5),
+    gates: [{ a: 3, b: 4, portcullis: false, barbican: 0 }], keep: { x: 0, z: 6, w: 12, d: 12, h: 30, t: 2 },
+  }),
+  torre_del_oro: civic('torre_del_oro', 'watchtower', 'the Torre del Oro', 'Seville', '1220-1221', 'a twelve-sided Almohad watchtower on the river, smaller stages on top', {
+    // 15.2 m across, ~20 m to the first stage's top (est.), 36.75 m with the upper stages (the dodecagon drawn round,
+    // the stages as a turret)
+    towers: [T(0, 0, 15.2, 20, { turret: true })],
+  }),
+  tour_de_constance: civic('tour_de_constance', 'watchtower', 'the Tour de Constance', 'Aigues-Mortes', '1242-1254', 'a great round tower with walls 6 m thick, a lantern turret on top', {
+    // 22 m across, walls 6 m, ~32 m to the terrace, the lantern turret ~11 m
+    towers: [T(0, 0, 22, 32, { turret: true })],
+  }),
+  galata_tower: civic('galata_tower', 'watchtower', 'the Galata Tower', 'Istanbul', '1348', 'a tall round Genoese tower under a conical roof', {
+    // 16.45 m across, walls 3.75 m, the cone from ~48 m to 62.6 m (67 m with the finial)
+    towers: [T(0, 0, 16.45, 48, { roof: 14.6 })],
+  }),
+};
+
+/** CASTLE_CIVIC for the civic tier (civic.ts reads castleGen's CIVIC_SOURCE): small jobs, the village's blocks. */
+export const CIVIC_SOURCE: CivicSource = {
+  family: 'castle',
+  entries: Object.values(CASTLE_CIVIC).map((p) => ({ id: p.name, title: p.title!, kind: p.category!, age: 'stone', description: p.description, place: p.place!, built: p.built! })),
+  draw: (id, scale) => generateCastle(CASTLE_CIVIC[id], scale, { jobMin: 150, jobMax: 450, blocks: CIVIC_BLOCK }),
+};
+
 /** The castle's stages in the order real castles grew (the note's); a preset's empty ones are left out. */
 export const CASTLE_STAGES = [
   'pad and footings', 'keep', 'curtain walls', 'towers', 'gatehouses and barbicans', 'halls and roofs', 'battlements and turrets',
@@ -384,12 +512,14 @@ const M = {
 };
 
 export type Castle = Cathedral & { stageNames: string[] };
+/** The job size (300/800), and each block swapped before the bill is made (the civic tier's CIVIC_BLOCK). */
+export interface CastleOpts { jobMin?: number; jobMax?: number; blocks?: (block: string) => string }
 
 const key = (x: number, y: number, z: number) => `${x},${y},${z}`;
 const STEP4: Array<[number, number, string]> = [[0, -1, 'north'], [1, 0, 'east'], [0, 1, 'south'], [-1, 0, 'west']];
 
 /** Draw a preset at 1:scale. `opts.jobMin`/`jobMax` set the job size (300/800). */
-export function generateCastle(p: CastlePreset, scale: number, opts: { jobMin?: number; jobMax?: number } = {}): Castle {
+export function generateCastle(p: CastlePreset, scale: number, opts: CastleOpts = {}): Castle {
   const s = (m: number, min = 1) => Math.max(min, Math.round(m / scale));
   const gateW = s(p.gateWidth, 1), gateH = s(p.gateHeight, 3);
   // (the curtain stands above its passages, their portcullis row and a lintel; towers above the curtain)
@@ -404,7 +534,9 @@ export function generateCastle(p: CastlePreset, scale: number, opts: { jobMin?: 
       square: !!t.square, roof: t.roof ? s(t.roof, 3) : 0 };
   });
   const barbs = p.gates.map((g) => (g.barbican ? s(g.barbican, 3) : 0));
-  const keep = p.keep && { x0: Math.round(p.keep.x / scale), z0: Math.round(p.keep.z / scale), w: s(p.keep.w, 7), d: s(p.keep.d, 7), h: s(p.keep.h, 8), t: s(p.keep.t, 1), round: p.keep.round };
+  // (a civic tower house's keep may be smaller: 5 blocks across leaves 3 inside, still walkable)
+  const kMin = p.kind === 'civic' ? 5 : 7;
+  const keep = p.keep && { x0: Math.round(p.keep.x / scale), z0: Math.round(p.keep.z / scale), w: s(p.keep.w, kMin), d: s(p.keep.d, kMin), h: s(p.keep.h, 8), t: s(p.keep.t, 1), round: p.keep.round };
 
   // The grid: everything drawn in plan coordinates first, then shifted so its west and north edges are 0
   const cells = new Map<string, string>();
@@ -537,6 +669,8 @@ export function generateCastle(p: CastlePreset, scale: number, opts: { jobMin?: 
         const d = Math.hypot(x - t.cx, z - t.cz);
         if (d < best) { best = d; target = [x, z]; }
       }
+    // (a lone tower, or one on a wall with no ward behind it, a town gate's: its door faces west)
+    if (!target) target = [Math.floor(t.cx - t.r) - 1, Math.round(t.cz)];
     if (target) {
       let x = t.cx, z = t.cz;
       for (let n = 0; n < 20 && !(x === target[0] && z === target[1]); n++) {
@@ -748,7 +882,8 @@ export function generateCastle(p: CastlePreset, scale: number, opts: { jobMin?: 
 export const castleItem = (block: string) => block.replace(/\[.*\]$/, '');
 
 function finish(p: CastlePreset, scale: number, cells: Map<string, string>, stageOf: Map<string, number>, W: number, D: number,
-  stageNames: string[], opts: { jobMin?: number; jobMax?: number }): Castle {
+  stageNames: string[], opts: CastleOpts): Castle {
+  if (opts.blocks) for (const [kk, b] of cells) cells.set(kk, opts.blocks(b));
   let H = 0;
   for (const kk of cells.keys()) H = Math.max(H, Number(kk.split(',')[1]) + 1);
   const blocks = [...new Set(cells.values())].sort();

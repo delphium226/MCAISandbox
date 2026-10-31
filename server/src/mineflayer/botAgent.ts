@@ -18,6 +18,7 @@ import { mineAreas } from './mcMine';
 import { home, outOfWater, rescue, swimUp, teleportHome } from './mcRescue';
 import { timeScale } from './mcRules';
 import { takesDamage } from '../worldMode';
+import { spawnCellFor, survivalB } from './mcSurvivalB';
 import { causeFromState, deathCauseOf, hazardOf, noteTrap, safeCellNear, trappedUnderWater, type DeathCause, type Hazard } from './mcHazard';
 import { isPaused } from '../runClock';
 import { WALK_DIG } from './mcBlocks';
@@ -662,9 +663,47 @@ export class BotAgent implements WorldAgent {
       this.spawnCheckedAt = now;
       void this.keepSpawnpoint();
     }
+    // (stage (b): the after-burn and the eating reflex, mcSurvivalB.ts; it keeps its own watch on fire and health, and
+    // starts nothing while a reflex runs)
+    survivalB(this);
     if (this.reflex || now - this.hazardEnded < 1500) return;
     const hz = hazardOf(this);
     if (hz) this.hazardReflex(hz);
+  }
+
+  /** A reflex is running (stage (b)'s night tick and reflexes ask before starting one). */
+  inReflex(): boolean {
+    return !!this.reflex;
+  }
+
+  /**
+   * Run `fn` in the reflex slot (stage (b), mcSurvivalB.ts), like hazardReflex: the action under way is put back and
+   * resumes after. False when a reflex already runs. `done` gets fn's message; `failed` its error (not a cancel).
+   */
+  runReflex(what: string, fn: (signal: AbortSignal) => Promise<string>, done?: (msg: string) => void, failed?: (e: Error) => void): boolean {
+    if (this.reflex) return false;
+    this.interrupt();
+    const ac = new AbortController();
+    this.reflex = ac;
+    fn(ac.signal).then(
+      (msg) => (done ? done(msg) : console.log(`[hazard] ${this.name} ${what}: ${msg} (health ${Math.round(this.bot.health ?? 0)})`)),
+      (e: Error) => {
+        if (e.message === 'cancelled') return;
+        if (failed) failed(e);
+        else console.log(`[hazard] ${this.name} ${what}: ${e.message}`);
+      },
+    ).finally(() => {
+      if (this.reflex === ac) this.reflex = null;
+      this.hazardEnded = Date.now();
+      this.halt();
+    });
+    return true;
+  }
+
+  /** Set the spawnpoint at home again on the next check (a bed slept in moved it to the bed, stage (b)). */
+  resetSpawnpoint() {
+    this.spawnSet = '';
+    this.spawnCheckedAt = 0;
   }
 
   /** The member's spawnpoint beside home (the storage hut's aisle, else the chest), set over RCON when home moves: a death
@@ -672,12 +711,14 @@ export class BotAgent implements WorldAgent {
   private async keepSpawnpoint() {
     const h = home(this);
     if (!h || h.y === undefined || h.what === 'the world spawn') return;
-    const key = `${h.x} ${h.y} ${h.z}`;
+    // (stage (b): a home cell blocked or burning gives the nearest safe cell within 6 blocks, mcSurvivalB.ts)
+    const c = spawnCellFor(this, { x: h.x, y: h.y, z: h.z });
+    const key = `${c.x} ${c.y} ${c.z}`;
     if (key === this.spawnSet) return;
     this.spawnSet = key;
     try {
       const out = await this.world.rcon.command(`spawnpoint ${this.name} ${key}`);
-      console.log(`[spawnpoint] ${this.name} at ${key} (${h.what}): ${out.trim()}`);
+      console.log(`[spawnpoint] ${this.name} at ${key} (${h.what}${c.why ? `; home unsafe: ${c.why}` : ''}): ${out.trim()}`);
     } catch (e) {
       this.spawnSet = '';
       console.log(`[spawnpoint] ${this.name}: not set (${(e as Error).message})`);

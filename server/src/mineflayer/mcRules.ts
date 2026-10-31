@@ -64,6 +64,15 @@ export async function applyWorldRules(rcon: Rcon): Promise<WorldRulesStatus> {
     const now = /set to:\s*(\S+)/.exec(reply)?.[1];
     if (now !== value) problems.push(`${rule}: wanted ${value}, server says ${reply.trim() || 'nothing'}`);
   }
+  // (survival (b): a server switched back from a mode with nights may stand at night with the clock stopped: noon again)
+  if (!spec.nights) {
+    // (26.1: "Timeline minecraft:day is at N tick(s)"; `time query daytime` is gone)
+    const daytime = Number(/is at (\d+)/.exec(await rcon.command('time query day'))?.[1]);
+    if (Number.isFinite(daytime) && daytime % 24000 >= 12542 && daytime % 24000 < 23460) {
+      await rcon.command('time set noon');
+      console.log(`[world] the clock stood at night (${daytime}) in a mode without nights: set to noon`);
+    }
+  }
   // Every start sets the tick rate, so a test at 2x never leaves the server fast for the next run
   const rate = Math.round(20 * timeScale());
   await rcon.command(`tick rate ${rate}`);

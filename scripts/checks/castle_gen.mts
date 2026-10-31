@@ -6,6 +6,8 @@
  * - the bill: designBill equals the generator's; Conwy's blocks in a range (1:2 4-12k, the note's estimate ~6-9k; 1:4
  *   1-4k), its parts all there (8 drum towers, 3 gates with 2 portcullises, a hall roof, battlements); every preset at 1:3
  *   holds 0.5-60k blocks, is at most 250 wide, stands as high as its tallest tower and roof, and has each hall it names;
+ *   the civic tier's (CASTLE_CIVIC) at 1:4 and 1:3 the same, 50-20k blocks at 1:3, kind 'civic', none among the
+ *   monument presets, each in CIVIC_SOURCE;
  * - the stages and jobs: the stages (only those the preset has parts for, in the castle's order) and the jobs each sum
  *   to the whole bill, every cell in exactly one job, jobs at most 800 blocks and (but a stage's last) at least 300, and
  *   a sample of jobDesign holding just its job's cells;
@@ -20,7 +22,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import minecraftData from 'minecraft-data';
 import { jobDesign } from '../../server/src/gothicGen';
-import { CASTLE_PRESETS, CASTLE_STAGES, generateCastle } from '../../server/src/castleGen';
+import { CASTLE_CIVIC, CASTLE_PRESETS as MONUMENTS, CASTLE_STAGES, CIVIC_SOURCE, generateCastle } from '../../server/src/castleGen';
 import { turnState, validateDesign } from '../../server/src/designs';
 import type { Design } from '../../server/src/village';
 import { designBill } from '../../server/src/mineflayer/mcMaterials';
@@ -110,6 +112,7 @@ if (out) fs.mkdirSync(out, { recursive: true });
 let failures = 0;
 const fail = (msg: string) => { failures++; console.log(`  FAIL ${msg}`); };
 const cases: Array<[string, number]> = [];
+const CASTLE_PRESETS = { ...MONUMENTS, ...CASTLE_CIVIC };
 for (const name of Object.keys(CASTLE_PRESETS)) cases.push([name, 4], [name, 3]);
 cases.push(['conwy', 2], ['white_tower', 2], ['conwy', 1]);
 for (const [name, scale] of cases) {
@@ -140,7 +143,8 @@ for (const [name, scale] of cases) {
   }
   if (scale === 3) {
     const P = CASTLE_PRESETS[name];
-    if (total < 500 || total > 60000) fail(`${total} blocks at 1:3, outside 0.5-60k`);
+    const civic = P.kind === 'civic';
+    if (civic ? total < 50 || total > 20000 : total < 500 || total > 60000) fail(`${total} blocks at 1:3, outside ${civic ? '50-20k' : '0.5-60k'}`);
     if (d.width > 250 || d.depth > 250) fail(`${d.width}x${d.depth} at 1:3, wider than 250`);
     const want = Math.round(Math.max(P.keep?.h ?? 0, ...P.towers.map((t) => t.h + (t.roof ?? 0)), P.wallHeight) / scale) - 2;
     if (d.height < want) fail(`${d.height} high at 1:3, its tallest part wants ${want}`);
@@ -169,5 +173,11 @@ for (const [name, scale] of cases) {
   const shut = shutIn(d);
   if (shut) fail(`${shut} floor cells not reached on foot from outside`);
 }
+// The civic presets: marked civic, kept out of the monument presets, all handed to the civic tier
+for (const [name, P] of Object.entries(CASTLE_CIVIC)) {
+  if (P.kind !== 'civic' || !P.category || !P.title || !P.place || !P.built) fail(`${name}: not marked civic with its category, title, place and date`);
+  if (MONUMENTS[name] || Object.values(MONUMENTS).some((m) => m.kind === 'civic')) fail(`${name}: among the monument presets`);
+}
+if (CIVIC_SOURCE.entries.map((e) => e.id).join() !== Object.keys(CASTLE_CIVIC).join()) fail('CIVIC_SOURCE does not list CASTLE_CIVIC');
 console.log(failures ? `FAIL: ${failures} problems` : 'OK: every preset and scale passed');
 process.exit(failures ? 1 : 0);

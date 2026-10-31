@@ -7,8 +7,9 @@
  *  - damage: stage (a): falls, drowning and fire (lava too) hurt; still peaceful difficulty, always day;
  *  - easy: stage (b)'s rules: easy difficulty (hunger real, starvation stops at 10 hp), no monsters, day and night;
  *  - normal: stage (c)'s rules on normal difficulty: monsters at night and in the dark, mob griefing off.
- * keep_inventory stays on in every mode (the user's, 10-30). easy and normal are rule sets only: the curfew, the eating
- * reflex and the fighting reflex's extensions are stages (b) and (c).
+ * keep_inventory stays on in every mode (the user's, 10-30). Stage (b) (runs/2026-10-31/survival/spec_b.md) gives easy and
+ * normal real hunger (appetite.ts reads vanilla's bar, an eating reflex) and nights one sleeper ends (mcSurvivalB.ts);
+ * the fighting reflex's extensions are stage (c).
  */
 import { rawSetting } from './settings';
 
@@ -23,6 +24,10 @@ export interface ModeSpec {
   damage: boolean;
   /** Hostile mobs spawn. */
   mobs: boolean;
+  /** Vanilla's food bar drains (not peaceful difficulty): it replaces the simulated appetite (stage (b)). */
+  hunger: boolean;
+  /** Day and night (advance_time): one member asleep in a bed ends the night (stage (b)). */
+  nights: boolean;
   /** The status line's words. */
   summary: string;
 }
@@ -44,17 +49,20 @@ const BASE: Record<string, string> = {
   advance_time: 'false',
   // (vanilla's value; off only with monsters: creepers and endermen take blocks. Sheep eating grass needs it)
   mob_griefing: 'true',
+  // (vanilla's 100; 1 with nights, so one sleeper of 25 skips the night: the user's 10-30)
+  players_sleeping_percentage: '100',
 };
 const HURTS = { fall_damage: 'true', drowning_damage: 'true', fire_damage: 'true' };
+const NIGHTS = { advance_time: 'true', players_sleeping_percentage: '1' };
 
 export const MODES: Record<WorldMode, ModeSpec> = {
-  peaceful: { difficulty: 'peaceful', rules: BASE, damage: false, mobs: false, summary: 'peaceful, no damage, keep_inventory, always day' },
-  damage: { difficulty: 'peaceful', rules: { ...BASE, ...HURTS }, damage: true, mobs: false,
+  peaceful: { difficulty: 'peaceful', rules: BASE, damage: false, mobs: false, hunger: false, nights: false, summary: 'peaceful, no damage, keep_inventory, always day' },
+  damage: { difficulty: 'peaceful', rules: { ...BASE, ...HURTS }, damage: true, mobs: false, hunger: false, nights: false,
     summary: 'peaceful, damage on (falls, drowning, fire), keep_inventory, always day (MC_WORLD_MODE=damage)' },
-  easy: { difficulty: 'easy', rules: { ...BASE, ...HURTS, advance_time: 'true' }, damage: true, mobs: false,
-    summary: 'easy, damage and hunger on, no monsters, keep_inventory, day and night (MC_WORLD_MODE=easy)' },
-  normal: { difficulty: 'normal', rules: { ...BASE, ...HURTS, advance_time: 'true', spawn_monsters: 'true', mob_griefing: 'false' }, damage: true, mobs: true,
-    summary: 'normal, damage and hunger on, monsters, no mob griefing, keep_inventory, day and night (MC_WORLD_MODE=normal)' },
+  easy: { difficulty: 'easy', rules: { ...BASE, ...HURTS, ...NIGHTS }, damage: true, mobs: false, hunger: true, nights: true,
+    summary: 'easy, damage and hunger on, no monsters, keep_inventory, day and night (one sleeper skips it) (MC_WORLD_MODE=easy)' },
+  normal: { difficulty: 'normal', rules: { ...BASE, ...HURTS, ...NIGHTS, spawn_monsters: 'true', mob_griefing: 'false' }, damage: true, mobs: true, hunger: true, nights: true,
+    summary: 'normal, damage and hunger on, monsters, no mob griefing, keep_inventory, day and night (one sleeper skips it) (MC_WORLD_MODE=normal)' },
 };
 
 /** The mode a value names, or null (case and spaces aside). */
@@ -80,6 +88,10 @@ export function worldMode(): WorldMode {
 export const modeSpec = (): ModeSpec => MODES[worldMode()];
 /** Members take damage in this mode. */
 export const takesDamage = (): boolean => modeSpec().damage;
+/** Vanilla's food bar is real in this mode (stage (b)): appetite.ts reads it instead of draining its own. */
+export const realHunger = (): boolean => modeSpec().hunger;
+/** Nights fall in this mode (stage (b)): the night tick sends a sleeper to bed. */
+export const nightsFall = (): boolean => modeSpec().nights;
 
 /** The primer's first sentence (choose.ts, MC_PRIMER) by mode. */
 export function harmLine(mode: WorldMode = worldMode()): string {
@@ -88,5 +100,6 @@ export function harmLine(mode: WorldMode = worldMode()): string {
   return (m.mobs
     ? 'you live in a Minecraft world where monsters come out at night and in the dark, and falls, deep water, fire and lava hurt; '
     : 'you live in a Minecraft world with no monsters, but falls, deep water, fire and lava hurt; ')
-    + 'a member who dies wakes at the village storage with their things and walks back to work.';
+    + 'a member who dies wakes at the village storage with their things and walks back to work.'
+    + (m.hunger ? ' You get hungry and must eat (a starving member weakens), and nights fall; one member asleep in a bed ends the night for all.' : '');
 }

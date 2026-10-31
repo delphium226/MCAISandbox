@@ -5,7 +5,8 @@
  * - the bill: designBill (what a build charges) equals the generator's, and Notre-Dame's blocks fall in a range: 1:2
  *   6-22k (the report's shell estimate was ~12.5k, its detailed one ~20k; the generator's one-block walls and hollow
  *   towers came to ~8k), 1:4 a church of 2-6k; every preset at 1:3 holds 2-60k blocks, is at most 250 wide, and stands as
- *   high as its tallest tower and spire (the parts were drawn);
+ *   high as its tallest tower and spire (the parts were drawn); the civic tier's (GOTHIC_CIVIC, not with --detail) at
+ *   1:4 and 1:3 the same, 200-20k blocks at 1:3, kind 'civic', none among the monument presets, each in CIVIC_SOURCE;
  * - the stages and jobs: the eight stages and the jobs each sum to the whole bill, every cell in exactly one job, jobs
  *   at most 800 blocks and (but a stage's last) at least 300, and every job's jobDesign holding just its cells;
  * - every roof stair faces uphill (the cell on its facing side is higher or holds a block at its layer, the one behind
@@ -24,7 +25,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import minecraftData from 'minecraft-data';
-import { GOTHIC_PRESETS, GOTHIC_STAGES, generateCathedral, jobDesign } from '../../server/src/gothicGen';
+import { CIVIC_SOURCE, GOTHIC_CIVIC, GOTHIC_PRESETS as MONUMENTS, GOTHIC_STAGES, generateCathedral, jobDesign } from '../../server/src/gothicGen';
 import { Materials, chargedItem, cutOptions } from '../../server/src/mineflayer/mcMaterials';
 import { turnState, validateDesign } from '../../server/src/designs';
 import type { Design } from '../../server/src/village';
@@ -115,6 +116,7 @@ if (out) fs.mkdirSync(out, { recursive: true });
 let failures = 0;
 const fail = (msg: string) => { failures++; console.log(`  FAIL ${msg}`); };
 const cases: Array<[string, number]> = [];
+const GOTHIC_PRESETS = { ...MONUMENTS, ...(DETAIL ? {} : GOTHIC_CIVIC) };
 for (const name of Object.keys(GOTHIC_PRESETS)) cases.push([name, 4], [name, 3]);
 for (const name of ['notre_dame', 'salisbury', 'chartres', 'cologne']) cases.push([name, 2]);
 cases.push(['notre_dame', 1]);
@@ -154,9 +156,10 @@ for (const [name, scale] of cases) {
   if (name === 'notre_dame' && scale === 4 && (total < 2000 || total > 6000)) fail(`Notre-Dame 1:4 has ${total} blocks, outside 2-6k`);
   if (scale === 3) {
     const P = GOTHIC_PRESETS[name];
-    if (total < 2000 || total > 60000) fail(`${total} blocks at 1:3, outside 2-60k`);
+    const civic = P.kind === 'civic';
+    if (civic ? total < 200 || total > 20000 : total < 2000 || total > 60000) fail(`${total} blocks at 1:3, outside ${civic ? '0.2-20k' : '2-60k'}`);
     if (d.width > 250 || d.depth > 250) fail(`${d.width}x${d.depth} at 1:3, wider than 250`);
-    const tops = [P.towers ? P.towerHeight + Math.max(0, ...P.spires) : 0, P.crossing === 'tower' ? P.crossingHeight + P.crossingSpire : 0, ...(P.sideTowers ?? []).map((t) => t.height + t.spire)];
+    const tops = [P.towers ? P.towerHeight + Math.max(0, ...P.spires) + (P.upper?.height ?? 0) : 0, P.crossing === 'tower' ? P.crossingHeight + P.crossingSpire : 0, ...(P.sideTowers ?? []).map((t) => t.height + t.spire)];
     const want = Math.round(Math.max(P.vault, ...tops) / scale) - 2;
     if (d.height < want) fail(`${d.height} high at 1:3, its tallest part wants ${want}`);
   }
@@ -183,5 +186,11 @@ for (const [name, scale] of cases) {
   const shut = shutIn(d);
   if (shut) fail(`${shut} floor cells not reached on foot from outside`);
 }
+// The civic presets: marked civic, kept out of the monument presets (the architect's list), all handed to the civic tier
+for (const [name, P] of Object.entries(GOTHIC_CIVIC)) {
+  if (P.kind !== 'civic' || !P.category || !P.title || !P.place || !P.built) fail(`${name}: not marked civic with its category, title, place and date`);
+  if (MONUMENTS[name] || Object.values(MONUMENTS).some((m) => m.kind === 'civic')) fail(`${name}: among the monument presets`);
+}
+if (CIVIC_SOURCE.entries.map((e) => e.id).join() !== Object.keys(GOTHIC_CIVIC).join()) fail('CIVIC_SOURCE does not list GOTHIC_CIVIC');
 console.log(failures ? `FAIL: ${failures} problems` : `OK: every preset and scale passed${DETAIL ? ' (detail)' : ''}`);
 process.exit(failures ? 1 : 0);

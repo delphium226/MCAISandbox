@@ -100,7 +100,9 @@ import { applyWrites } from '../memory';
 import { deathMemory, deathWords, type DeathCause } from './mcHazard';
 import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, etaMinutes, historyLines, initTalk, isStatusQuestion, matchWork, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, statusFor, statusLines, talkSystem, talkTool, talkUser, updateRequest, workWords, type PlayerRequest, type ReqProgress, type Respond, type WorkOffer } from '../playerTalk';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
-import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
+import { nightTick } from './mcSurvivalB';
+import { nightsFall, realHunger, worldMode } from '../worldMode';
+import { APPETITE, FOOD_POINTS, appetiteOn, barLevel, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
 import { quarryFeeds } from './mcQuarry';
 import { FURNISH_FAILS, bannerStandIn, furnishKindOf, refurnishReady, furnishBatch, furnishItem, furnishTrade, furnishWants } from '../furnish';
@@ -2048,7 +2050,9 @@ export class MineflayerWorld implements WorldAdapter {
    * MC_APPETITE_START. A state change is logged and saved, other changes saved at most once a minute.
    */
   private appetiteTick() {
-    if (!APPETITE.rate) return;
+    // (survival stage (b): with real hunger the level is each member's food bar, read, never drained; no MC_APPETITE needed)
+    const real = realHunger();
+    if (!APPETITE.rate && !real) return;
     const now = Date.now();
     if (now - this.appetiteAt < 5000) return;
     const wallMs = this.appetiteAt ? Math.min(15000, now - this.appetiteAt) : 0;
@@ -2061,12 +2065,13 @@ export class MineflayerWorld implements WorldAdapter {
       if (v) villages.set(v.name, v);
     }
     for (const v of villages.values()) {
-      if (!v.complete || !(v.layouts ?? []).some((l) => (l.farm?.planted ?? 0) > 0)) continue;
+      if (!v.complete || (!real && !(v.layouts ?? []).some((l) => (l.farm?.planted ?? 0) > 0))) continue;
       kept = true;
       if (!v.food) {
         v.food = { members: {}, made: {}, eaten: {}, meals: 0 };
         changed = true;
-        console.log(`[food] ${v.name}: the appetite starts (${APPETITE.rate} a busy game-hour, ${APPETITE.rate * APPETITE.idle} idle; members start at ${APPETITE.start})`);
+        console.log(real ? `[food] ${v.name}: the appetite starts (real hunger: vanilla's food bar, MC_WORLD_MODE=${worldMode()})`
+          : `[food] ${v.name}: the appetite starts (${APPETITE.rate} a busy game-hour, ${APPETITE.rate * APPETITE.idle} idle; members start at ${APPETITE.start})`);
       }
       const store = storageContents(v);
       // (s39, MC_NEED_WORKS: what the members drain, counted as rate x minutes, never from levels, which stop at 0)
@@ -2077,8 +2082,15 @@ export class MineflayerWorld implements WorldAdapter {
         const was = stateOf(e.level);
         const running = a.current?.status.type ?? a.queue[0]?.type;
         const busy = !a.idle() && running !== 'eat_meal';
-        drained += (minutes * (busy ? APPETITE.rate : APPETITE.rate * APPETITE.idle)) / 60;
-        e.level = drain(e.level, minutes, busy);
+        if (real) {
+          // (the bar's falls are what was drained; a rise is a meal or the eating reflex)
+          const bar = barLevel(a.bot.food);
+          drained += Math.max(0, e.level - bar);
+          e.level = bar;
+        } else {
+          drained += (minutes * (busy ? APPETITE.rate : APPETITE.rate * APPETITE.idle)) / 60;
+          e.level = drain(e.level, minutes, busy);
+        }
         e.at = now;
         const s = stateOf(e.level);
         if (s === 'hungry') e.hungryMs = (e.hungryMs ?? 0) + wallMs;
@@ -2233,6 +2245,11 @@ export class MineflayerWorld implements WorldAdapter {
       this.appetiteTick();
     } catch (e) {
       console.error('[food] appetite check failed:', e);
+    }
+    try {
+      nightTick(this.agents.values(), (a) => a.village());
+    } catch (e) {
+      console.error('[night] check failed:', e);
     }
     this.utilTick();
     try {
@@ -7459,7 +7476,7 @@ export class MineflayerWorld implements WorldAdapter {
           // (short enough for add()'s 240-character cut with a record, others on it and a last end: the tail is what the cut
           // took first, B.4's review, lens 2 L4)
           facts2 = `${P.unlit} of ${P.spots.length} torch spots unlit${k ? ` (${k} vanilla's own)` : ''}; takes ${n} torches (${spare} spare); walks ${d} blocks from the hut and back, ~${min} min; ${tail}`;
-          effect = `+${n} torches in the ${P.label}: for the village's look (time stands at day and no mobs spawn in this peaceful world, so the light is for the look)`;
+          effect = `+${n} torches in the ${P.label}: for the village's look (${nightsFall() ? 'and for its nights' : 'time stands at day and no mobs spawn in this peaceful world, so the light is for the look'})`;
           const door = P.place ? placedDoor(P.place) : null;
           if (door && P.structure) at = { x: door.x, y: P.structure.y + 1, z: door.z };
         } else {

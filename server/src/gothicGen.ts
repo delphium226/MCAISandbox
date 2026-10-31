@@ -17,6 +17,7 @@
  * report's eight stages, each cut into jobs of about 300-800 blocks by x slices (M1 hands them out; jobDesign gives a
  * job as a Design with '_' everywhere else). World-independent, like buildingGen.ts; not wired into the game yet.
  */
+import type { CivicSource } from './civic';
 import type { Design } from './village';
 
 /** A cathedral's measures in metres (1:1) and its parts. */
@@ -61,6 +62,18 @@ export interface GothicPreset {
   /** Towers beside the body (Vienna's south tower, Seville's Giralda): the west face's distance from the west front, the
    *  side, the side's length, the height and a spire above it (metres); a door in the outer face. */
   sideTowers?: Array<{ at: number; side: 'n' | 's'; size: number; height: number; spire: number }>;
+  /** A cloister on that side of the nave, against the transept's west side: its square's side (metres). */
+  cloister?: { side: 'n' | 's'; size: number };
+  /** 'tower': a free-standing bell tower (`nave` its side, `towerHeight`, `spires[0]`, `upper` a narrower top stage),
+   *  nothing else drawn. */
+  form?: 'church' | 'tower';
+  upper?: { side: number; height: number };
+  /** A civic building (GOTHIC_CIVIC, the civic tier's), not a monument: its category, title, place and date. */
+  kind?: 'monument' | 'civic';
+  category?: string;
+  title?: string;
+  place?: string;
+  built?: string;
 }
 
 export const GOTHIC_PRESETS: Record<string, GothicPreset> = {
@@ -232,6 +245,150 @@ export const GOTHIC_PRESETS: Record<string, GothicPreset> = {
   },
 };
 
+/** A free-standing bell tower's preset (form 'tower'): the base's side, the square shaft's height, a narrower top stage
+ *  and the spire (metres). */
+const belfry = (name: string, title: string, place: string, built: string, description: string, side: number, height: number,
+  spire: number, upper?: { side: number; height: number }, openwork = false): GothicPreset => ({
+  name, description, title, place, built, kind: 'civic', category: 'bell tower', form: 'tower', ...(upper ? { upper } : {}), ...(openwork ? { openwork } : {}),
+  length: side, bay: side, nave: side, aisle: 0, buttress: 0, vault: height, aisleHeight: 0, transeptBay: 0, transeptBays: 0, transeptArm: 0,
+  towers: 1, towerHeight: height, spires: [spire], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 0,
+});
+
+/** The civic tier's stone churches, abbeys, chapels and bell towers (kind 'civic'; the monument picker never sees them:
+ *  CIVIC_SOURCE hands them to civic.ts). Measures from the sources in runs/2026-10-31/monuments40/report.md. */
+export const GOTHIC_CIVIC: Record<string, GothicPreset> = {
+  // Parish churches
+  lavenham_church: {
+    name: 'lavenham_church', title: 'the church of St Peter and St Paul', place: 'Lavenham', built: '1485-1525', kind: 'civic', category: 'parish church',
+    description: 'a Suffolk wool church: a long clerestoried nave and a great flint west tower',
+    length: 48, bay: 4.5, nave: 8, aisle: 6.5, buttress: 1.5, vault: 13, aisleHeight: 7, transeptBay: 6, transeptBays: 1, transeptArm: 0,
+    towers: 1, towerHeight: 42.5, spires: [0], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 0, east: 'flat',
+  },
+  long_melford: {
+    name: 'long_melford', title: 'Holy Trinity', place: 'Long Melford', built: '1467-1497', kind: 'civic', category: 'parish church',
+    description: 'a wool church walled almost all in glass, long and low, with a west tower',
+    length: 74.7, bay: 4.5, nave: 8, aisle: 5, buttress: 1.5, vault: 12.6, aisleHeight: 7.3, transeptBay: 8, transeptBays: 1, transeptArm: 0,
+    towers: 1, towerHeight: 36, spires: [0], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 0, east: 'flat',
+  },
+  st_mary_redcliffe: {
+    name: 'st_mary_redcliffe', title: 'St Mary Redcliffe', place: 'Bristol', built: '1292-1470', kind: 'civic', category: 'parish church',
+    description: 'a parish church built like a cathedral: vaulted throughout, a transept, a tower and spire of 89 m',
+    length: 76, bay: 5, nave: 9, aisle: 4.5, buttress: 2, vault: 16.7, aisleHeight: 9, transeptBay: 8, transeptBays: 2, transeptArm: 9,
+    towers: 1, towerHeight: 34, spires: [46], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 0, east: 'flat',
+  },
+  patrington: {
+    name: 'patrington', title: 'St Patrick\'s', place: 'Patrington', built: '1310-1410', kind: 'civic', category: 'parish church',
+    description: 'the Queen of Holderness: a cruciform church with aisled transepts and a spire over the crossing',
+    length: 45.7, bay: 5, nave: 8, aisle: 4, buttress: 1.5, vault: 11, aisleHeight: 8, transeptBay: 5, transeptBays: 2, transeptArm: 6,
+    towers: 0, towerHeight: 0, spires: [], crossing: 'tower', crossingHeight: 25, crossingSpire: 28, rose: 0, east: 'flat',
+  },
+  cirencester_church: {
+    name: 'cirencester_church', title: 'the church of St John the Baptist', place: 'Cirencester', built: '1400-1530', kind: 'civic', category: 'parish church',
+    description: 'a Cotswold wool church: a tall Perpendicular nave of glass and a buttressed west tower',
+    length: 55, bay: 5, nave: 9, aisle: 7, buttress: 2, vault: 15, aisleHeight: 8, transeptBay: 6, transeptBays: 1, transeptArm: 0,
+    towers: 1, towerHeight: 41, spires: [0], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 0, east: 'flat',
+  },
+  // Abbeys and priories, each with its cloister
+  fountains_abbey: {
+    name: 'fountains_abbey', title: 'Fountains Abbey', place: 'North Yorkshire', built: '1132-1526', kind: 'civic', category: 'abbey',
+    description: 'a great Cistercian abbey: a long aisled nave, Huby\'s tower at the north transept, a cloister to the south',
+    length: 110, bay: 5.5, nave: 8.5, aisle: 5.5, buttress: 2, vault: 20, aisleHeight: 9, transeptBay: 11, transeptBays: 2, transeptArm: 10,
+    towers: 0, towerHeight: 0, spires: [], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 0, east: 'flat',
+    sideTowers: [{ at: 62, side: 'n', size: 10, height: 49, spire: 0 }], cloister: { side: 's', size: 39 },
+  },
+  rievaulx_abbey: {
+    name: 'rievaulx_abbey', title: 'Rievaulx Abbey', place: 'North Yorkshire', built: '1132-1230', kind: 'civic', category: 'abbey',
+    description: 'a Cistercian abbey in a narrow valley: a tall Early English choir and a cloister beside the nave',
+    length: 107, bay: 5.5, nave: 9, aisle: 5, buttress: 2, vault: 22, aisleHeight: 10, transeptBay: 9, transeptBays: 2, transeptArm: 9,
+    towers: 0, towerHeight: 0, spires: [], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 0, east: 'flat',
+    cloister: { side: 's', size: 42 },
+  },
+  tintern_abbey: {
+    name: 'tintern_abbey', title: 'Tintern Abbey', place: 'the Wye valley', built: '1269-1301', kind: 'civic', category: 'abbey',
+    description: 'a Cistercian abbey church of great windows, its cloister on the north side',
+    length: 69.5, bay: 5.5, nave: 11, aisle: 5.5, buttress: 2, vault: 22, aisleHeight: 10, transeptBay: 6, transeptBays: 2, transeptArm: 12,
+    towers: 0, towerHeight: 0, spires: [], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 0, east: 'flat',
+    cloister: { side: 'n', size: 30 },
+  },
+  melrose_abbey: {
+    name: 'melrose_abbey', title: 'Melrose Abbey', place: 'the Scottish Borders', built: '1385-1500', kind: 'civic', category: 'abbey',
+    description: 'a Cistercian abbey rebuilt in rich Gothic, a great east window, the cloister on the north',
+    length: 78.6, bay: 5.5, nave: 9, aisle: 5, buttress: 2, vault: 18, aisleHeight: 9, transeptBay: 7, transeptBays: 2, transeptArm: 8,
+    towers: 0, towerHeight: 0, spires: [], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 0, east: 'flat',
+    cloister: { side: 'n', size: 35 },
+  },
+  fontenay_abbey: {
+    name: 'fontenay_abbey', title: 'the Abbey of Fontenay', place: 'Burgundy', built: '1139-1147', kind: 'civic', category: 'abbey',
+    description: 'the plainest Cistercian abbey: a barrel-vaulted church with a square east end and its cloister to the south',
+    length: 66, bay: 5.5, nave: 8, aisle: 3.5, buttress: 1.5, vault: 16.7, aisleHeight: 8, transeptBay: 8, transeptBays: 1, transeptArm: 6,
+    towers: 0, towerHeight: 0, spires: [], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 0, east: 'flat',
+    cloister: { side: 's', size: 36 },
+  },
+  // Chapels
+  sainte_chapelle: {
+    name: 'sainte_chapelle', title: 'the Sainte-Chapelle', place: 'Paris', built: '1242-1248', kind: 'civic', category: 'chapel',
+    description: 'a royal reliquary chapel: one tall vessel walled in stained glass, a rose, a flèche',
+    length: 36, bay: 5, nave: 10.7, aisle: 0, buttress: 2, vault: 20.5, aisleHeight: 7, transeptBay: 3, transeptBays: 1, transeptArm: 0,
+    towers: 0, towerHeight: 0, spires: [], crossing: 'fleche', crossingHeight: 0, crossingSpire: 33, rose: 9,
+  },
+  kings_college_chapel: {
+    name: 'kings_college_chapel', title: 'King\'s College Chapel', place: 'Cambridge', built: '1446-1515', kind: 'civic', category: 'chapel',
+    description: 'a long single vessel under the largest fan vault, a turret at each corner',
+    length: 88, bay: 7.3, nave: 12.2, aisle: 0, buttress: 3, vault: 24.4, aisleHeight: 8, transeptBay: 6, transeptBays: 1, transeptArm: 0,
+    towers: 0, towerHeight: 0, spires: [], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 0, east: 'flat',
+    sideTowers: [{ at: 0, side: 'n', size: 4, height: 44, spire: 0 }, { at: 0, side: 's', size: 4, height: 44, spire: 0 },
+      { at: 84, side: 'n', size: 4, height: 44, spire: 0 }, { at: 84, side: 's', size: 4, height: 44, spire: 0 }],
+  },
+  rosslyn_chapel: {
+    name: 'rosslyn_chapel', title: 'Rosslyn Chapel', place: 'Roslin', built: '1456-1484', kind: 'civic', category: 'chapel',
+    description: 'a small aisled collegiate chapel, every surface carved',
+    length: 21, bay: 3.5, nave: 5, aisle: 2.2, buttress: 1.5, vault: 12.8, aisleHeight: 6, transeptBay: 2, transeptBays: 1, transeptArm: 0,
+    towers: 0, towerHeight: 0, spires: [], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 0, east: 'flat',
+  },
+  st_georges_chapel: {
+    name: 'st_georges_chapel', title: 'St George\'s Chapel', place: 'Windsor Castle', built: '1475-1528', kind: 'civic', category: 'chapel',
+    description: 'the Garter chapel: a Perpendicular church in little, aisled, with short transepts and a lierne vault',
+    length: 70.7, bay: 5, nave: 10, aisle: 5, buttress: 2, vault: 20, aisleHeight: 10, transeptBay: 7, transeptBays: 1, transeptArm: 4,
+    towers: 0, towerHeight: 0, spires: [], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 0, east: 'flat',
+  },
+  eton_college_chapel: {
+    name: 'eton_college_chapel', title: 'Eton College Chapel', place: 'Eton', built: '1441-1482', kind: 'civic', category: 'chapel',
+    description: 'the choir of a church never finished: one tall vessel of great windows between buttresses',
+    length: 53, bay: 6, nave: 12, aisle: 0, buttress: 3, vault: 25, aisleHeight: 8, transeptBay: 5, transeptBays: 1, transeptArm: 0,
+    towers: 0, towerHeight: 0, spires: [], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 0, east: 'flat',
+  },
+  // Bell towers
+  bruges_belfry: belfry('bruges_belfry', 'the Belfry of Bruges', 'Bruges', '1240-1487', 'a square brick belfry over the market, an octagonal lantern stage on top', 16, 50, 3, { side: 10, height: 30 }),
+  giotto_campanile: belfry('giotto_campanile', 'Giotto\'s Campanile', 'Florence', '1334-1359', 'a square marble bell tower, straight to a flat top', 14.45, 84.7, 0),
+  st_marks_campanile: belfry('st_marks_campanile', 'St Mark\'s Campanile', 'Venice', '1514 (rebuilt 1912)', 'a plain square brick shaft, an open belfry and a green pyramid spire', 12, 61, 30, { side: 9, height: 8 }),
+  ghent_belfry: belfry('ghent_belfry', 'the Belfry of Ghent', 'Ghent', '1313-1380', 'a tall square belfry with corner turrets under a slender spire', 15.6, 55, 36),
+  st_rumbolds_tower: belfry('st_rumbolds_tower', 'St Rumbold\'s Tower', 'Mechelen', '1452-1520', 'a vast square tower meant for a spire, left with a flat top', 24, 77, 0, { side: 17, height: 20 }),
+};
+
+/** The civic tier's blocks (civic.ts takes only what a village can get): smooth stone for the andesite floor, cobblestone
+ *  for the tuff, the village wood (drawn as oak) for the deepslate roof, plain panes for the stained glass, fences for
+ *  bars. */
+export const CIVIC_BLOCK = (block: string): string => {
+  const m = /^([a-z_]+)(\[.*\])?$/.exec(block);
+  if (!m) return block;
+  const [, name, st = ''] = m;
+  if (name === 'polished_andesite') return 'smooth_stone';
+  if (name === 'tuff_bricks') return 'cobblestone';
+  if (name === 'deepslate_tiles' || name === 'cut_copper') return 'oak_planks';
+  if (name === 'deepslate_tile_stairs' || name === 'cut_copper_stairs') return `oak_stairs${st}`;
+  if (name === 'deepslate_tile_slab' || name === 'cut_copper_slab') return `oak_slab${st}`;
+  if (name.endsWith('_stained_glass_pane')) return 'glass_pane';
+  if (name === 'iron_bars') return 'oak_fence';
+  return block;
+};
+
+/** GOTHIC_CIVIC for the civic tier (civic.ts reads gothicGen's CIVIC_SOURCE): small jobs, the village's blocks. */
+export const CIVIC_SOURCE: CivicSource = {
+  family: 'gothic',
+  entries: Object.values(GOTHIC_CIVIC).map((p) => ({ id: p.name, title: p.title!, kind: p.category!, age: 'stone', description: p.description, place: p.place!, built: p.built! })),
+  draw: (id, scale) => generateCathedral(GOTHIC_CIVIC[id], scale, { jobMin: 150, jobMax: 450, blocks: CIVIC_BLOCK }),
+};
+
 /** The materials (the default palette, the user's 10-25: stone bricks toned with andesite and tuff, a deepslate roof). */
 const M = {
   floor: 'polished_andesite', wall: 'stone_bricks', pier: 'stone_bricks', rib: 'polished_andesite', vault: 'stone_bricks',
@@ -313,6 +470,8 @@ export interface GothicOpts {
   /** #162 tier 3, chain C (with `detail`): the geode's accents, calcite round the west portals and in a string course across
    *  the west front at the aisles' height, amethyst at the roses' hubs and on the apse altar (off: the cells as before). */
   accents?: boolean;
+  /** Each block swapped before the bill is made (the civic tier's: blocks a village can get; CIVIC_BLOCK). */
+  blocks?: (block: string) => string;
 }
 
 /** The item a block costs: its name without states (stained panes, tiles and bricks are items of their own). */
@@ -323,22 +482,26 @@ const STEP4: Array<[number, number, string]> = [[0, -1, 'north'], [1, 0, 'east']
 
 /** Draw a preset at 1:scale. `opts.jobMin`/`jobMax` set the job size (300/800); `opts.detail` the tier-2 palette. */
 export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOpts = {}): Cathedral {
+  if (p.form === 'tower') return generateBelfry(p, scale, opts);
   const detail = !!opts.detail, accents = detail && !!opts.accents;
   const colours = opts.colours?.length ? opts.colours : DETAIL_COLOURS;
   const s = (m: number, min = 1) => Math.max(min, Math.round(m / scale));
   const odd = (n: number) => (n % 2 ? n : n + 1);
   const pitch = s(p.bay, 3);
   const nave = odd(s(p.nave, 3));
-  const aisle = s(p.aisle, 2);
+  // (aisle 0: a single vessel, a chapel's: its walls are the outer walls, its apse has no ambulatory)
+  const aisle = p.aisle ? s(p.aisle, 2) : 0;
   const butW = s(p.buttress, 1);
   const Hv = s(p.vault, 7);
   const Ha = Math.min(s(p.aisleHeight, 3), Hv - 4);
   const arm = p.transeptArm ? s(p.transeptArm, 1) : 0;
   const k = (nave - 1) / 2;
   const flat = p.east === 'flat';
-  const rI = k + 1, rO = rI + aisle + 1;
+  const rI = k + 1, rO = rI + (aisle ? aisle + 1 : 0);
   // (a flat east end: the length is all nave and choir)
-  const bays = Math.max(4, Math.floor((s(p.length, 20) - (flat ? 0 : rO) - 1) / pitch));
+  // (a civic building may be short: three bays at least, not a cathedral's four)
+  const civic = p.kind === 'civic';
+  const bays = Math.max(civic ? 3 : 4, Math.floor((s(p.length, civic ? 8 : 20) - (flat ? 0 : rO) - 1) / pitch));
   const xe = bays * pitch;
   const tb = Math.min(Math.max(1, Math.round(p.transeptBay * p.bay / scale / pitch)), bays - p.transeptBays - 1);
   const xt0 = tb * pitch, xt1 = (tb + p.transeptBays) * pitch;
@@ -350,8 +513,9 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
   });
   // z: [margin][aisle wall][aisle][pier line][nave][pier line][aisle][aisle wall][margin]; the margin holds buttresses
   // and the transept arms (and side towers)
-  const zOff = Math.max(butW, arm, ...sides.map((t) => t.sz + t.past));
-  const zA = zOff, zP = zA + aisle + 1, zP2 = zP + nave + 1, zA2 = zP2 + aisle + 1;
+  const cs = p.cloister ? s(p.cloister.size, 6) : 0;
+  const zOff = Math.max(butW, arm, ...sides.map((t) => t.sz + t.past), cs);
+  const zA = zOff, zP = aisle ? zA + aisle + 1 : zA, zP2 = zP + nave + 1, zA2 = aisle ? zP2 + aisle + 1 : zP2;
   const D = zA2 + zOff + 1;
   const zc = (D - 1) / 2;
   // Radiating chapels: discs of low cells round the ambulatory, centred just outside it
@@ -586,6 +750,32 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
     }
   }
 
+  // The cloister: a square against the aisle wall west of the transept, its outer wall with a door in the west side, a
+  // walk round it under a flat roof, an arcade of posts onto the garth (the box cleared of buttresses first)
+  if (cs) {
+    const south = p.cloister!.side === 's', w = Math.max(1, s(4)), hW = Math.max(3, s(4.5, 3));
+    const cx1 = Math.max(cs - 1, xt0 - 1), cx0 = Math.max(0, cx1 - cs + 1);
+    const cz0 = south ? zA2 + 1 : zA - cs, cz1 = south ? zA2 + cs : zA - 1;
+    // (e: the rows in from the outer edge; the church side's first row is the walk, its wall the aisle's)
+    const e = (x: number, z: number) => Math.min(x - cx0, cx1 - x, south ? cz1 - z : z - cz0, (south ? z - cz0 : cz1 - z) + 1);
+    const zm = Math.round((cz0 + cz1) / 2);
+    for (let x = cx0; x <= cx1; x++)
+      for (let z = cz0; z <= cz1; z++) {
+        for (const kk of [...cells.keys()]) if (kk.startsWith(`${x},`) && kk.endsWith(`,${z}`) && Number(kk.split(',')[1]) > 0) clear(x, Number(kk.split(',')[1]), z);
+        set(x, 0, z, M.floor, 1);
+        const d = e(x, z);
+        if (d === 0 && !(x === cx0 && (z === zm || z === zm + 1)))
+          for (let y = 1; y <= hW; y++) set(x, y, z, y === 1 ? M.tone : M.wall, 2);
+        if (d === w + 1) {
+          for (let y = 1; y < hW; y++) if ((x + z) % 2 === 0) set(x, y, z, M.post, 3);
+          set(x, hW, z, M.wall, 3);
+        }
+        if (d <= w + 1) set(x, hW + 1, z, M.slab, 5);
+      }
+    // (a floored path from the door to the grid's west edge, the passage through the west range)
+    for (let x = 0; x < cx0; x++) for (const z of [zm, zm + 1]) set(x, 0, z, M.floor, 1);
+  }
+
   // 5. Vaults and roofs
   for (let x = 0; x < W; x++)
     for (let z = 0; z < D; z++) {
@@ -659,23 +849,7 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
     if (detail && foot) for (let x = x0 + 1; x < x1; x++) for (let z = z0 + 1; z < z1; z++) set(x, belfry - 1, z, M.slab + '[type=top]', 6);
     if (spire > 0) drawSpire(cxT, czT, (Math.min(x1 - x0, z1 - z0)) / 2, y1, spire);
   };
-  const drawSpire = (cx: number, cz: number, r0: number, y0: number, h: number) => {
-    for (let i = 0; i < h; i++) {
-      const lattice = p.openwork && i % 3 !== 0 && i < h - 2;
-      const r = r0 * (1 - i / h);
-      const inO = (x: number, z: number) => Math.abs(x - cx) <= r && Math.abs(z - cz) <= r && Math.abs(x - cx) + Math.abs(z - cz) <= r * 1.42;
-      let any = false;
-      for (let x = Math.floor(cx - r0); x <= Math.ceil(cx + r0); x++)
-        for (let z = Math.floor(cz - r0); z <= Math.ceil(cz + r0); z++)
-          if (inO(x, z) && STEP4.some(([dx, dz]) => !inO(x + dx, z + dz))) {
-            any = true;
-            if (!lattice) set(x, y0 + i, z, M.wall, 8);
-            else if ((x + z + i) % 2 === 0) set(x, y0 + i, z, M.post, 8);
-          }
-      if (!any) { set(Math.round(cx), y0 + i, Math.round(cz), M.post, 8); }
-    }
-    set(Math.round(cx), y0 + h, Math.round(cz), M.post, 8);
-  };
+  const drawSpire = (cx: number, cz: number, r0: number, y0: number, h: number) => spire(set, cx, cz, r0, y0, h, !!p.openwork);
   towerBoxes.forEach((bx, i) => {
     shellTower(bx, 1, towerH, s(p.spires[i] ?? 0, 0), true);
     // At the foot: the west portal, an arch to the aisle (east face) and one to the nave (inner face)
@@ -695,6 +869,8 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
     for (let x = bx[0]; x <= bx[1]; x++) for (let z = z0; z <= z1; z++) set(x, 0, z, M.floor, 1);
     shellTower(bx, 1, Math.max(s(t.height), Hv + 4), s(t.spire, 0), true);
     portal(Math.round((bx[0] + bx[1]) / 2), north ? z0 : z1, true, 0, Math.max(3, Math.min(ph, Ha)));
+    // (a floored path from the door to the grid's edge when a wider margin, a cloister's, leaves one between)
+    for (let z = north ? 0 : z1 + 1; z < (north ? z0 : D); z++) set(Math.round((bx[0] + bx[1]) / 2), 0, z, M.floor, 1);
   }
 
   // (accents: a calcite string course across the west front at the aisles' height)
@@ -783,8 +959,72 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
   return finish(p, scale, cells, stageOf, W, D, opts, furnish ? GOTHIC_STAGES_DETAIL : GOTHIC_STAGES);
 }
 
+/** A spire: an octagon (a square with its corners cut) narrowing to a post, solid or openwork (Cologne's: solid bands
+ *  every third course, a lattice of posts between). */
+function spire(set: (x: number, y: number, z: number, b: string, st: number) => void, cx: number, cz: number, r0: number, y0: number, h: number, openwork: boolean) {
+  for (let i = 0; i < h; i++) {
+    const lattice = openwork && i % 3 !== 0 && i < h - 2;
+    const r = r0 * (1 - i / h);
+    const inO = (x: number, z: number) => Math.abs(x - cx) <= r && Math.abs(z - cz) <= r && Math.abs(x - cx) + Math.abs(z - cz) <= r * 1.42;
+    let any = false;
+    for (let x = Math.floor(cx - r0); x <= Math.ceil(cx + r0); x++)
+      for (let z = Math.floor(cz - r0); z <= Math.ceil(cz + r0); z++)
+        if (inO(x, z) && STEP4.some(([dx, dz]) => !inO(x + dx, z + dz))) {
+          any = true;
+          if (!lattice) set(x, y0 + i, z, M.wall, 8);
+          else if ((x + z + i) % 2 === 0) set(x, y0 + i, z, M.post, 8);
+        }
+    if (!any) { set(Math.round(cx), y0 + i, Math.round(cz), M.post, 8); }
+  }
+  set(Math.round(cx), y0 + h, Math.round(cz), M.post, 8);
+}
+
+/** A free-standing bell tower (form 'tower'): a square shell (`nave` its side) with floors every storey, a door in the
+ *  west face, belfry openings, a parapet; a narrower top stage (`upper`) and a spire (`spires[0]`) when given. */
+function generateBelfry(p: GothicPreset, scale: number, opts: GothicOpts): Cathedral {
+  const s = (m: number, min = 1) => Math.max(min, Math.round(m / scale));
+  const cells = new Map<string, string>(), stageOf = new Map<string, number>();
+  const set = (x: number, y: number, z: number, b: string, st: number) => { cells.set(key(x, y, z), b); stageOf.set(key(x, y, z), st); };
+  const clear = (x: number, y: number, z: number) => { cells.delete(key(x, y, z)); stageOf.delete(key(x, y, z)); };
+  const n = Math.max(5, s(p.nave, 5)), H = Math.max(8, s(p.towerHeight, 8)), storey = Math.max(4, s(8, 4));
+  // A square stage from y0 to y1 (the parapet above y1), side m from (o, o)
+  const stage = (o: number, m: number, y0: number, y1: number, ground: boolean) => {
+    const c = o + (m - 1) / 2, belfry = y1 - Math.max(3, Math.round((y1 - y0) * 0.25));
+    for (let x = o; x < o + m; x++)
+      for (let z = o; z < o + m; z++) {
+        const edge = x === o || x === o + m - 1 || z === o || z === o + m - 1;
+        if (ground) set(x, 0, z, M.floor, 1);
+        if (!edge) {
+          for (let y = y0 + storey; y < y1 - 1; y += storey) set(x, y, z, `${M.slab}[type=top]`, 6);
+          set(x, y1 - 1, z, `${M.slab}[type=top]`, 6);
+          continue;
+        }
+        for (let y = y0; y < y1; y++) set(x, y, z, y === 1 ? M.tone : M.wall, y <= 4 ? 2 : 6);
+        const corner = (x === o || x === o + m - 1) && (z === o || z === o + m - 1);
+        if (corner || (x + z) % 2 === 0) set(x, y1, z, M.post, 8);
+        const off = x === o || x === o + m - 1 ? Math.abs(z - c) : Math.abs(x - c);
+        if (!corner && off >= (m >= 7 ? 1 : 0) && off <= (m - 1) / 2 - 1) for (let y = belfry; y < y1 - 2; y++) clear(x, y, z);
+      }
+  };
+  stage(0, n, 1, H, true);
+  const c = (n - 1) / 2;
+  for (const dz of n % 2 ? [0] : [-0.5, 0.5]) for (let y = 1; y <= 3; y++) clear(0, y, Math.round(c + dz));
+  let top = H, r0 = (n - 1) / 2;
+  if (p.upper) {
+    const m = Math.max(3, Math.min(n - 2, s(p.upper.side, 3))), o = Math.round((n - m) / 2);
+    if ((n - m) % 2) set(o + m, H, o + m, M.wall, 6);
+    top = H + Math.max(3, s(p.upper.height, 3));
+    stage(o, m, H, top, false);
+    r0 = (m - 1) / 2;
+  }
+  const sp = s(p.spires[0] ?? 0, 0);
+  if (sp) spire(set, c, c, r0, top, sp, !!p.openwork);
+  return finish(p, scale, cells, stageOf, n, n, opts, GOTHIC_STAGES);
+}
+
 function finish(p: GothicPreset, scale: number, cells: Map<string, string>, stageOf: Map<string, number>, W: number, D: number,
   opts: GothicOpts, stageNames: readonly string[]): Cathedral {
+  if (opts.blocks) for (const [kk, b] of cells) cells.set(kk, opts.blocks(b));
   let H = 0;
   for (const kk of cells.keys()) H = Math.max(H, Number(kk.split(',')[1]) + 1);
   const blocks = [...new Set(cells.values())].sort();
