@@ -1,0 +1,33 @@
+diff --git a/node_modules/minecraft-protocol/src/transforms/framing.js b/node_modules/minecraft-protocol/src/transforms/framing.js
+index 5dbadad..891e77e 100644
+--- a/node_modules/minecraft-protocol/src/transforms/framing.js
++++ b/node_modules/minecraft-protocol/src/transforms/framing.js
+@@ -48,8 +48,17 @@ class Splitter extends Transform {
+     let offset = 0
+     let value, size
+     let stop = false
++    // MCAISandbox: a chunk ending on a frame's end left readVarInt reading past it, which threw a PartialReadError (an
++    // Error with its stack captured) for nearly every TCP chunk: ~10% of the agent server's busy time with 25 bots. A
++    // varint is whole once a byte without the high bit is in the buffer; read one only then (readVarInt gives up as
++    // partial after 10 bytes with the high bit too, so the result is the same)
++    const whole = (at) => {
++      for (let i = at; i < this.buffer.length && i < at + 10; i++) if ((this.buffer[i] & 0x80) === 0) return true
++      return false
++    }
+     try {
+-      ({ value, size } = readVarInt(this.buffer, offset))
++      if (whole(offset)) ({ value, size } = readVarInt(this.buffer, offset))
++      else stop = true
+     } catch (e) {
+       if (!(e.partialReadError)) {
+         throw e
+@@ -59,7 +68,8 @@ class Splitter extends Transform {
+       while (this.buffer.length >= offset + size + value) {
+         try {
+           this.push(this.buffer.slice(offset + size, offset + size + value))
+-          offset += size + value;
++          offset += size + value
++          if (!whole(offset)) break;
+           ({ value, size } = readVarInt(this.buffer, offset))
+         } catch (e) {
+           if (e.partialReadError) {

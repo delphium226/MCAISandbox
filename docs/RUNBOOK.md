@@ -543,7 +543,9 @@ reset_site.py on a locked world only warns. CLI: `scripts/goal_map.mts catalogue
   passes over buildings and the mine; for fresh preparations, #136).
   Since E.1 (2026-10-11): `scale_probe25.py AGENT_LOG` (25 bots of mixed work; `LEVELS`, `WORK`), `pf_share.mts` (the
   pathfinder's shared allowance offline), `human_line.cjs NAME PORT "TEXT"` (a plain player's chat line, for chat
-  routing), `cdp_profile.cjs`/`profile_callers.cjs` (CPU profile of a running agent server, lesson 125), and
+  routing), `cdp_profile.cjs`/`profile_callers.cjs` (CPU profile of a running agent server, lesson 125),
+  `cdp_stalls.cjs WS SECONDS OUT [MIN_MS]` (a 10 ms timer put into the running server through its inspector: the loop
+  delay's true p99, p99.9 and max, and with a profile what ran in each stall; OUT `-` for the timer alone, lesson 179), and
   `scripts/stage_runs.py NAME:WORKERS ...` (staged runs in a row on minevale3 with a reset before each; detach it and
   arm a watcher, lesson 122).
   To see the panel without a browser:

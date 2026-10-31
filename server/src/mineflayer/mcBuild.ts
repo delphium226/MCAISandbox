@@ -33,7 +33,7 @@ import type { McSkill } from './mcSkills';
 import { Materials, WOODS, chargedItem, describeWork, gatherTasks, label, woodName, woodPart, type Counts } from './mcMaterials';
 import { STORAGE_SKILLS, forgiveDebt, holdingStorageTask, ownTools, partsForFuel, refreshStorage, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS, STATION_REACH, holdVillageFurnace, placeStation, recordStation, stationNear, stationSpot, stationsReady, villageStation, villageStationCell } from './mcSurvival';
-import { ContentionError, at, checkAbort, goals, nearestBlocks, num, onVillageGround, reach, sleep, standableY, stateAt, str, syncInventory, unmoved, walk } from './mcUtil';
+import { ContentionError, at, checkAbort, goals, nearestBlocks, num, onVillageGround, reach, sleep, standableY, stateAt, str, syncInventory, unmoved, walk, withColumnCache } from './mcUtil';
 import { atlasSites } from './mcSiteAtlas';
 import { taskCalls } from '../taskBrain';
 import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TOOL, TREE_LOG, waterloggedEmpty } from './mcBlocks';
@@ -1326,7 +1326,7 @@ async function surveyGround(a: BotAgent, cx: number, cz: number, r: number, take
     return b ? surfaceAt(b, x, z, yHint) : null;
   };
   let t = Date.now();
-  for (let j = 0; j < n; j++) {
+  const row = (j: number) => {
     for (let i = 0; i < n; i++) {
       const k = j * n + i, x = x0 + i, z = z0 + j;
       if (taken.some((q) => x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2)) {
@@ -1345,8 +1345,12 @@ async function surveyGround(a: BotAgent, cx: number, cz: number, r: number, take
       if (c.liquid || (noGroundWet && c.block === 'air')) kind[k] = 2;
       else if (!NATURAL_GROUND.has(c.block)) built[k] = 1;
     }
-    // Several bots share one event loop (F16): let the others run between rows
-    if (Date.now() - t > 20) {
+  };
+  for (let j = 0; j < n; j++) {
+    withColumnCache(a, () => row(j));
+    // Several bots share one event loop (F16): let the others run between rows (8 ms: at 20, the survey's turns were a
+    // quarter of the loop's stalls over 60 ms with 25 bots, looplag 10-31)
+    if (Date.now() - t > 8) {
       await new Promise((res) => setImmediate(res));
       if (signal) checkAbort(signal);
       t = Date.now();

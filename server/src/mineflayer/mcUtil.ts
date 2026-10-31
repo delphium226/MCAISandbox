@@ -592,6 +592,24 @@ export function stateAt(a: BotAgent, x: number, y: number, z: number): number {
   return col.getBlockStateId(cellQ);
 }
 
+/**
+ * Run a synchronous read of many cells (stateAt) with the last column kept, as nearestBlocks does: find_site's survey
+ * spent a quarter of its time finding the column again for every cell. Nothing may await inside `read` (a column can
+ * be unloaded between turns).
+ */
+export function withColumnCache<T>(a: BotAgent, read: () => T): T {
+  if (scanning) return read();
+  scanning = a;
+  lastCol = null;
+  lastCx = lastCz = NaN;
+  try {
+    return read();
+  } finally {
+    scanning = null;
+    lastCol = null;
+  }
+}
+
 /** Whether a block touches air or another see-through block that is not liquid (can be seen and reached without digging). */
 export function exposedAt(a: BotAgent, x: number, y: number, z: number): boolean {
   const { open } = tables(a);
@@ -644,9 +662,10 @@ export function wetOver(a: BotAgent, p: Vec3): boolean {
 /** Whether water or lava lies beside a block (on any of its four sides; an unloaded side counts as wet). */
 export function wetSide(a: BotAgent, p: Vec3): boolean {
   const { wet } = tables(a);
-  const w = (x: number, z: number) => { const s = stateAt(a, x, p.y, z); return s < 0 || wet[s] === 1; };
-  return w(p.x - 1, p.z) || w(p.x + 1, p.z) || w(p.x, p.z - 1) || w(p.x, p.z + 1);
+  // (no closure per call: searches' filters call this per match)
+  return wetCell(a, wet, p.x - 1, p.y, p.z) || wetCell(a, wet, p.x + 1, p.y, p.z) || wetCell(a, wet, p.x, p.y, p.z - 1) || wetCell(a, wet, p.x, p.y, p.z + 1);
 }
+const wetCell = (a: BotAgent, wet: ArrayLike<number>, x: number, y: number, z: number) => { const s = stateAt(a, x, y, z); return s < 0 || wet[s] === 1; };
 
 /**
  * Up to `count` blocks of `ids` within `maxDistance` of the bot (from its floored position, as findBlocks measures),

@@ -1,0 +1,20 @@
+diff --git a/node_modules/prismarine-physics/index.js b/node_modules/prismarine-physics/index.js
+index d95ce7f..c665983 100644
+--- a/node_modules/prismarine-physics/index.js
++++ b/node_modules/prismarine-physics/index.js
+@@ -800,9 +800,14 @@ function getEnchantmentLevel (mcData, enchantmentName, enchantments) {
+   return 0
+ }
+ 
++// MCAISandbox: minecraft-data's lookup builds a Version on every call (its cache is keyed by what that gives), and a
++// PlayerState is made for every bot every tick: ~2% of the agent server's busy time with 25 bots
++const mcDataByVersion = new Map()
++
+ class PlayerState {
+   constructor (bot, control) {
+-    const mcData = require('minecraft-data')(bot.version)
++    let mcData = mcDataByVersion.get(bot.version)
++    if (!mcData) mcDataByVersion.set(bot.version, (mcData = require('minecraft-data')(bot.version)))
+     const nbt = require('prismarine-nbt')
+ 
+     // Input / Outputs

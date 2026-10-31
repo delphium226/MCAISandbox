@@ -36,7 +36,7 @@ import { combatCounts } from './mcCombat';
 // GET /api/perf's figures (E.1: [lag] shows only stalls over 2 s): the event loop's delay, sampled every 10 ms and started
 // over every minute, reported over that minute and the one before it (a stall recorded just before a restart would be
 // lost, and the figures read 0 right after one), and world.tick()'s duration over the last minute (index.ts records each)
-const LOOP_RES = 10;
+const LOOP_RES = 10, LOOP_P99_MIN = 1000;
 const loopDelay = monitorEventLoopDelay({ resolution: LOOP_RES });
 loopDelay.enable();
 // (the minute before, in ns; count 0 before the first restart)
@@ -60,10 +60,13 @@ function perf(w: MineflayerWorld) {
   const now = Date.now(), round = (ms: number) => Math.round(ms * 10) / 10;
   // (each sample is the time between two checks, so the 10 ms interval itself is taken off: 0 is a loop never late)
   const loop = (ns: number) => round(Math.max(0, ns / 1e6 - LOOP_RES));
-  // (p99 and max the higher of the two minutes; p50 the current one's, or the minute before's while it has no samples)
-  const cur = loopDelay.count ? { p50: loopDelay.percentile(50), p99: loopDelay.percentile(99), max: loopDelay.max } : null;
+  // (p99 and max the higher of the two minutes; p50 the current one's, or the minute before's while it has no samples.
+  // The current minute's p99 counts once it has LOOP_P99_MIN samples: just after a restart its p99 of a few samples was
+  // its worst stall, and the 25-bot probe, reading every 2 s, reported that as the p99: 176-188 ms where a timer in the
+  // process measured 46, looplag 10-31)
+  const cur = loopDelay.count ? { count: loopDelay.count, p50: loopDelay.percentile(50), p99: loopDelay.percentile(99), max: loopDelay.max } : null;
   const prev = loopPrev.count ? loopPrev : null;
-  const pick = (k: 'p99' | 'max') => Math.max(cur?.[k] ?? 0, prev?.[k] ?? 0);
+  const pick = (k: 'p99' | 'max') => k === 'p99' && cur && prev && cur.count < LOOP_P99_MIN ? prev.p99 : Math.max(cur?.[k] ?? 0, prev?.[k] ?? 0);
   const ticks: number[] = [];
   for (let i = 0; i < Math.min(tickN, tickMs.length); i++) if (tickAt[i] >= now - 60_000) ticks.push(tickMs[i]);
   ticks.sort((p, q) => p - q);

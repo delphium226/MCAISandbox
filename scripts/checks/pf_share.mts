@@ -135,10 +135,10 @@ ok(base.every((b) => b.status === 'success'), 'every baseline search finds its g
 
 /**
  * Calls `onTick` as Mineflayer's physics does: a timer every 50 / scale ms, with as many ticks as the time since the last
- * one holds (two when the timer fires late; Windows timers fire on ~15.6 ms steps). Ends when onTick returns true or after
- * `ms` of wall time.
+ * one holds (two when the timer fires late; Windows timers fire on ~15.6 ms steps); `k` counts the ticks in one callback
+ * from 0. Ends when onTick returns true or after `ms` of wall time.
  */
-function physicsTicks(scale: number, ms: number, onTick: () => boolean): Promise<void> {
+function physicsTicks(scale: number, ms: number, onTick: (k: number) => boolean): Promise<void> {
   const step = 50 / scale;
   return new Promise((done) => {
     const t0 = performance.now();
@@ -147,9 +147,9 @@ function physicsTicks(scale: number, ms: number, onTick: () => boolean): Promise
       const now = performance.now();
       acc += now - last;
       last = now;
-      while (acc >= step) {
+      for (let k = 0; acc >= step; k++) {
         acc -= step;
-        if (onTick() || performance.now() - t0 > ms) {
+        if (onTick(k) || performance.now() - t0 > ms) {
           clearInterval(timer);
           done();
           return;
@@ -160,21 +160,29 @@ function physicsTicks(scale: number, ms: number, onTick: () => boolean): Promise
 }
 
 // --- 1 and 2: searches whose demand fits get their full tickTimeout every tick (full false: a demand over the allowance,
-// shared evenly)
+// shared evenly). A tick in one callback past the search's own cap (AStar.ownCap: two ticks, three at 2x; check 8) is
+// not counted: the catch-up the harness's own load brings with three searches at 1x (45 ms of every 50)
 async function fits(scale: number, tickTimeouts: number[], full = true) {
   AStar.configureShare({ tickMs: TICK_MS });
   const before = AStar.shareStats();
   const runs = tickTimeouts.map((tt, i) => {
     const { start, goal } = longSpec(i);
-    return { a: new AStar(start, moves, goal, 1e9, tt), tt, calls: 0, full: 0, ms: 0, worst: Infinity };
+    return { a: new AStar(start, moves, goal, 1e9, tt), tt, calls: 0, full: 0, ms: 0, worst: Infinity, turn: 0, past: 0 };
   });
   const t0 = performance.now();
-  await physicsTicks(scale, 600, () => {
+  await physicsTicks(scale, 600, (k) => {
     for (const r of runs) {
+      if (k === 0) r.turn = 0;
       const s = performance.now();
       const res = r.a.compute(true);
       const e = performance.now() - s;
+      const over = r.turn + r.tt > AStar.ownCap(r.tt);
+      r.turn += e;
       if (res.status !== 'partial') continue;
+      if (over) {
+        r.past++;
+        continue;
+      }
       r.calls++;
       r.ms += e;
       if (!res.refused && e >= r.tt) r.full++;
@@ -187,7 +195,7 @@ async function fits(scale: number, tickTimeouts: number[], full = true) {
   const refused = stats.refused - before.refused;
   say(`${runs.length} search${runs.length > 1 ? 'es' : ''} at ${scale}x (tickTimeout ${tickTimeouts.join(', ')} ms, a tick every ${50 / scale} ms): `
     + runs.map((r) => `${r.calls} calls, ${r.full} full, ${(r.ms / r.calls).toFixed(2)} ms a call (least ${r.worst.toFixed(2)}), ${(r.ms / wall * 50).toFixed(1)} ms a 50 ms window`).join('; ')
-    + `; ${refused} refused; demand estimated ${stats.demandMs.toFixed(1)} ms of ${stats.allowanceMs}`);
+    + `; ${refused} refused; ${runs.reduce((a, r) => a + r.past, 0)} catch-up ticks past the own cap; demand estimated ${stats.demandMs.toFixed(1)} ms of ${stats.allowanceMs}`);
   if (full) {
     ok(refused === 0, `${runs.length} at ${scale}x: none refused (${refused})`);
     runs.forEach((r, i) => ok(r.calls >= 10 && r.full === r.calls, `${runs.length} at ${scale}x: search ${i} got its full ${r.tt} ms on every call (${r.full}/${r.calls})`));
@@ -445,6 +453,32 @@ await shared(2);
   const longest = base.reduce((m, b, i) => (b.ms > base[m].ms ? i : m), 0);
   const d = new AStar(searchSpec(longest).start, moves, searchSpec(longest).goal, 1e9, 1e9);
   ok(pathKey(d.compute(true).path) === base[longest].key, 'with the share off, compute(true) is the plain search');
+}
+
+// --- 8 (looplag, 10-31): a search's ticks back to back in one timer callback get two slices (three at 2x) in that turn,
+// not four; after a stall (200 ms since its last turn), one; the next turn on time gets its full slice again (a search
+// alone, so the share does not cut it and only its own cap binds)
+{
+  AStar.configureShare({ tickMs: TICK_MS });
+  for (const scale of [1, 2]) {
+    const tt = 15 / scale;
+    const c = new AStar(longSpec(2).start, moves, longSpec(2).goal, 1e9, tt);
+    const turn = () => { let ms = 0; for (let i = 0; i < 4; i++) { const t = performance.now(); c.compute(true); ms += performance.now() - t; } return ms; };
+    c.compute(true);
+    await sleep(40);
+    const most = AStar.ownCap(tt);
+    const onTime = turn();
+    say(`at ${scale}x: 4 calls in one turn on time searched ${onTime.toFixed(1)} ms`);
+    ok(onTime >= most - 2 && onTime <= most + 0.5, `at ${scale}x 4 calls in a turn on time search ${most} ms (four full slices: ${(4 * tt).toFixed(0)})`);
+    await sleep(200); // the stall
+    const after = turn();
+    say(`at ${scale}x: 4 calls in one turn after a 200 ms stall searched ${after.toFixed(1)} ms`);
+    ok(after >= tt - 0.5 && after <= tt + 1.5, `at ${scale}x a turn after a stall searches one slice (${tt} ms)`);
+    await sleep(40);
+    const t = performance.now(); c.compute(true);
+    ok(performance.now() - t >= tt - 0.5, `at ${scale}x the next turn's tick gets its full ${tt} ms again`);
+    AStar.forget(c);
+  }
 }
 
 say(`${checks - failures}/${checks} checks passed`);

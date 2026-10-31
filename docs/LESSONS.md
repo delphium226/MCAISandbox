@@ -698,3 +698,14 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    full chest returned the first stack and "...", so a command deposit read a full chest as nearly empty and a staged
    emptying took 0 of 33 torches. Read a container one element at a time (`Items[i]` until "Found no elements"), and
    count what moved on the server after every write (`execute if items` sums, or the per-slot read), never from the reply.
+179. **Check the meter before chasing the number** (looplag, F348): `/api/perf`'s loop p99 took the current minute's
+   p99 from its first few samples after each reset, so one stall read as the p99: the 25-bot probe reported 176-188 ms
+   where a 10 ms timer put into the same process measured 32-45 ms (p99.9 51-102). The current minute now counts once it
+   holds 1,000 samples; `scripts/checks/cdp_stalls.cjs` measures the true spread and, with a profile, what ran in each
+   stall. Judge the loop by p99.9 and max as well, over several runs: one run's search load varied 3-5x.
+180. **A stall that feeds itself: physics catch-up calls the path search again** (looplag, F348): after a stall
+   Mineflayer's physics runs up to 4 ticks per bot back to back, and the pathfinder searched its 15 ms on each, so three
+   searches the share never cuts took ~180 ms in one timer callback, the next stall (85% of the stalls over 100 ms; up to
+   46 over 200 ms in 4 minutes). A search now gets two slices in one turn of the loop (three at 2x), one after a stall.
+   Look at what a library does per tick, not per call, under catch-up. And libraries pay for errors: protodef threw a
+   PartialReadError (stack captured) for nearly every TCP chunk, 10% of the busy time.

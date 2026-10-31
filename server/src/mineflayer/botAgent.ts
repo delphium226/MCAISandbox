@@ -54,6 +54,9 @@ const PLAYER_HALF_WIDTH = 1229 / 4096; // 0.300048828125
  */
 const MOVE_FAILED = /stuck at|no path|timed out at/;
 
+/** Whether x, z lies in a box's x/z span (the pathfinder's exclusion costs, called per searched cell). */
+const onBox = (q: { x1: number; z1: number; x2: number; z2: number }, x: number, z: number) => x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2;
+
 /**
  * What the bot's physics did during one walk (walkOnce sets it, the physicsTick listener counts), for the `[stuck]` log
  * line: a snapshot of the controls at the stuck moment says nothing, the pathfinder clears them every 3.5 s (F145).
@@ -308,11 +311,14 @@ export class BotAgent implements WorldAgent {
       // The pathfinder counts opening a door as placing a block: without dirt it went to -1 blocks left and its "none
       // left" checks stopped holding
       const forward = m.getMoveForward.bind(m);
+      // (no closures made per call in these hooks: tsx names each one it makes, and the searches call them per node)
       m.getMoveForward = (node, dir, neighbors) => {
         const n = neighbors.length;
         forward(node, dir, neighbors);
-        for (const mv of neighbors.slice(n) as unknown as Array<{ remainingBlocks: number; toPlace: Array<{ useOne?: boolean }> }>)
-          mv.remainingBlocks += mv.toPlace.filter((t) => t.useOne).length;
+        for (let i = n; i < neighbors.length; i++) {
+          const mv = neighbors[i] as unknown as { remainingBlocks: number; toPlace: Array<{ useOne?: boolean }> };
+          for (const t of mv.toPlace) if (t.useOne) mv.remainingBlocks++;
+        }
       };
       // Its door click does not look whether the door is open: a second bot following a first would shut it again
       const activate = this.bot.activateBlock.bind(this.bot);
@@ -324,7 +330,12 @@ export class BotAgent implements WorldAgent {
       // Never dig into any village's ground on the way somewhere: a cobblestone gatherer standing on a prepared plot dug
       // a shaft from its surface to the stone 5 blocks under it, beside the storage hut (Hutvale1, 2026-09-29)
       (m as unknown as { exclusionAreasBreak: Array<(b: { position: { x: number; y: number; z: number } }) => number> }).exclusionAreasBreak = [
-        (b) => (b.position && this.protectedGround().some((q) => b.position.x >= q.x1 && b.position.x <= q.x2 && b.position.z >= q.z1 && b.position.z <= q.z2 && b.position.y >= q.y && (q.y2 === undefined || b.position.y <= q.y2)) ? 100 : 0),
+        (b) => {
+          if (!b.position) return 0;
+          const { x, y, z } = b.position;
+          for (const q of this.protectedGround()) if (onBox(q, x, z) && y >= q.y && (q.y2 === undefined || y <= q.y2)) return 100;
+          return 0;
+        },
         // (#181: nor a block with water under it: the pathfinder's flow check looks above and beside only, and a hole into
         // a water pocket under the lake shore drowned two members in train 14's D)
         (b) => (b.position && wetAt(this, new Vec3(b.position.x, b.position.y - 1, b.position.z)) ? 100 : 0),
@@ -332,7 +343,12 @@ export class BotAgent implements WorldAgent {
       // ...nor build on it: a builder walking to its stand spot pillared up with dirt in front of the mining hut's doorway
       // and sealed the mine (Minevale19, 10-04). Placing there costs too much for any path to take it
       (m as unknown as { exclusionAreasPlace: Array<(b: { position: { x: number; y: number; z: number } }) => number> }).exclusionAreasPlace = [
-        (b) => (b.position && this.protectedGround().some((q) => b.position.x >= q.x1 && b.position.x <= q.x2 && b.position.z >= q.z1 && b.position.z <= q.z2 && b.position.y >= q.y && (q.y2 === undefined || b.position.y <= q.y2 + 1)) ? 1000 : 0),
+        (b) => {
+          if (!b.position) return 0;
+          const { x, y, z } = b.position;
+          for (const q of this.protectedGround()) if (onBox(q, x, z) && y >= q.y && (q.y2 === undefined || y <= q.y2 + 1)) return 1000;
+          return 0;
+        },
       ];
       // ...nor step onto a village's wheat field (the farm's review, 10-08): the cost is the moving body's (feet and head
       // cells, from the channel's water up to head height over the farmland), and over 100 drops the move, so no path
@@ -344,8 +360,10 @@ export class BotAgent implements WorldAgent {
           // pathfinder's tick and took the whole agent server down on a scout's walk home, Minevale33, F188)
           if (!b.position) return 0;
           const p = this.bot.entity?.position;
-          const on = (q: { x1: number; z1: number; x2: number; z2: number }, x: number, z: number) => x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2;
-          return this.farmGround().some((q) => on(q, b.position.x, b.position.z) && b.position.y >= q.y && b.position.y <= q.y + 2 && !(p && on(q, Math.floor(p.x), Math.floor(p.z)))) ? 1000 : 0;
+          const { x, y, z } = b.position;
+          for (const q of this.farmGround())
+            if (onBox(q, x, z) && y >= q.y && y <= q.y + 2 && !(p && onBox(q, Math.floor(p.x), Math.floor(p.z)))) return 1000;
+          return 0;
         },
       ];
       // MC_GEODE_GUARD (#133): no path digs a geode's shell or steps into its hollow (mcGeode.ts); a bot already inside
@@ -375,9 +393,10 @@ export class BotAgent implements WorldAgent {
       const diagonal = m.getMoveDiagonal.bind(m);
       m.getMoveDiagonal = (node, dir, neighbors) => {
         // The typings say Vec3; the pathfinder passes its path node (which has x, y, z)
-        const block = (dx: number, dy: number, dz: number) => m.getBlock(node as unknown as Parameters<typeof m.getBlock>[0], dx, dy, dz);
-        const y = block(dir.x, 0, dir.z).physical ? 1 : 0;
-        for (const [dx, dz] of [[0, dir.z], [dir.x, 0]]) if (block(dx, y, dz).physical || block(dx, y + 1, dz).physical) return;
+        const at = node as unknown as Parameters<typeof m.getBlock>[0];
+        const y = m.getBlock(at, dir.x, 0, dir.z).physical ? 1 : 0;
+        if (m.getBlock(at, 0, y, dir.z).physical || m.getBlock(at, 0, y + 1, dir.z).physical) return;
+        if (m.getBlock(at, dir.x, y, 0).physical || m.getBlock(at, dir.x, y + 1, 0).physical) return;
         diagonal(node, dir, neighbors);
       };
       this.movements = m;

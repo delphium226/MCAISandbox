@@ -70,10 +70,10 @@ index b38bd30..68266aa 100644
        if (!block) {
          resetPath('no_scaffolding_blocks')
 diff --git a/node_modules/mineflayer-pathfinder/lib/astar.js b/node_modules/mineflayer-pathfinder/lib/astar.js
-index e7a82cb..cd6d86b 100644
+index e7a82cb..fa06838 100644
 --- a/node_modules/mineflayer-pathfinder/lib/astar.js
 +++ b/node_modules/mineflayer-pathfinder/lib/astar.js
-@@ -21,15 +21,154 @@ class PathNode {
+@@ -21,15 +21,178 @@ class PathNode {
    }
  }
  
@@ -136,7 +136,8 @@ index e7a82cb..cd6d86b 100644
 +  owed: new Map(), // refused search -> when it was last refused
 +  served: 0,
 +  refused: 0,
-+  firsts: 0
++  firsts: 0,
++  catchups: 0 // continued calls passed over: the search had had its own cap (ownLeft, below)
 +}
 +
 +function configureShare ({ tickMs, free } = {}) {
@@ -220,6 +221,29 @@ index e7a82cb..cd6d86b 100644
 +  ctx.shareLost = status === 'partial' && !first ? Math.max(0, 1 - Math.max(0, slice) / ctx.tickTimeout) : 0
 +}
 +
++// MCAISandbox (looplag, 10-31): what a continued search may still spend in this turn of the event loop. After a stall
++// mineflayer's physics catches up with up to 4 ticks per bot, back to back in one timer callback, and each called the
++// search again: in 25-bot runs 85% of the loop's stalls over 100 ms was 3-4 searches searching (one up to 69 ms in a
++// stall), which was itself the next stall. In one turn a search now gets at most two of its tickTimeouts, and at least
++// OWN_CAP (three at 2x), and a ms for the overshoot (a slice ends after the node that passes it), so ticks on time, and
++// the two at once (three at 2x) that Windows' 15.6 ms timer steps bring now and then, get their full slices as before.
++// After a stall (over OWN_STALL ms since the search's last turn, which no timer step makes) the turn gets one slice: two
++// still made stalls of 100-150 ms with two searches catching up. The turn ends with the callback: its first call queues
++// a microtask that clears it (Node runs microtasks between timer callbacks, never inside one)
++const OWN_CAP = 22.5
++const OWN_STALL = 80
++const ownCap = (ctx) => Math.max(2 * ctx.tickTimeout, OWN_CAP) + 1
++function ownLeft (ctx, now) {
++  if (!ctx.ownTurn) {
++    ctx.ownTurn = true
++    ctx.ownSpent = 0
++    ctx.ownCapNow = ctx.ownLast !== undefined && now - ctx.ownLast > OWN_STALL ? ctx.tickTimeout + 1 : ownCap(ctx)
++    ctx.ownLast = now
++    queueMicrotask(() => { ctx.ownTurn = false })
++  }
++  return ctx.ownCapNow - ctx.ownSpent
++}
++
 +// a search dropped (the pathfinder's resetPath, or a new search in its place) or finished stops asking
 +function forget (ctx) {
 +  share.owed.delete(ctx)
@@ -229,7 +253,7 @@ index e7a82cb..cd6d86b 100644
  class AStar {
    constructor (start, movements, goal, timeout, tickTimeout = 40, searchRadius = -1) {
      this.startTime = performance.now()
-@@ -38,6 +177,13 @@ class AStar {
+@@ -38,6 +201,19 @@ class AStar {
      this.goal = goal
      this.timeout = timeout
      this.tickTimeout = tickTimeout
@@ -240,10 +264,16 @@ index e7a82cb..cd6d86b 100644
 +    this.shareLast = undefined
 +    this.shareLost = 0
 +    this.shareServed = this.startTime
++    // (looplag) ms its continued calls searched in this turn of the event loop, whether one is under way, the turn's cap,
++    // and when its last turn began (ownLeft)
++    this.ownSpent = 0
++    this.ownTurn = false
++    this.ownCapNow = 0
++    this.ownLast = undefined
  
      this.closedDataSet = new Set()
      this.openHeap = new Heap()
-@@ -64,13 +210,54 @@ class AStar {
+@@ -64,13 +240,67 @@ class AStar {
      }
    }
  
@@ -272,6 +302,16 @@ index e7a82cb..cd6d86b 100644
 +  compute (shared = false) {
      const computeStartTime = performance.now()
 +    const charged = shared !== false && share.allowance !== Infinity
++    // (a catch-up tick's call once the search has had its own cap: nothing expanded and nothing charged, the bot walking
++    // on along the path it has, as for a refused call; above)
++    let own = Infinity
++    if (shared === true) {
++      own = ownLeft(this, computeStartTime)
++      if (own < MIN_SLICE) {
++        share.catchups++
++        return this.refusedResult()
++      }
++    }
 +    if (charged) {
 +      prune(computeStartTime)
 +      shareStart(this, computeStartTime)
@@ -282,9 +322,12 @@ index e7a82cb..cd6d86b 100644
 +      result = this.makeResult('timeout', this.bestNode)
 +    } else {
 +      if (charged && shared === true) slice = shareSlice(this)
++      slice = Math.min(slice, own)
 +      result = slice > 0 ? this.expand(computeStartTime, slice) : this.refusedResult() // (refused: nothing left)
 +    }
-+    if (charged) shareSpent(this, computeStartTime, performance.now() - computeStartTime, slice, result.status, shared === 'first')
++    const ms = performance.now() - computeStartTime
++    if (shared === true) this.ownSpent += ms
++    if (charged) shareSpent(this, computeStartTime, ms, slice, result.status, shared === 'first')
 +    return result
 +  }
 +
@@ -301,12 +344,13 @@ index e7a82cb..cd6d86b 100644
          return this.makeResult('timeout', this.bestNode)
        }
        const node = this.openHeap.pop()
-@@ -122,4 +309,25 @@ class AStar {
+@@ -122,4 +352,27 @@ class AStar {
    }
  }
  
 +// MCAISandbox (E.1): the share's settings (for checks), forgetting a dropped search, and counts
 +AStar.configureShare = configureShare
++AStar.ownCap = (tickTimeout) => ownCap({ tickTimeout }) // (looplag: for checks)
 +AStar.forget = forget
 +AStar.shareStats = () => {
 +  const now = performance.now()
@@ -322,7 +366,8 @@ index e7a82cb..cd6d86b 100644
 +    owed: share.owed.size,
 +    served: share.served,
 +    refused: share.refused,
-+    firsts: share.firsts
++    firsts: share.firsts,
++    catchups: share.catchups
 +  }
 +}
 +

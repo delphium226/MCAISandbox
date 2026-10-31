@@ -2517,3 +2517,16 @@ CLAUDE.md when a phase ends.
     "right where you asked" survived on a street 10-95 blocks off (#192). #182's retry worked, but the first give-up
     waited 30 min in both arms although 8 starts were clear (#191). #181 had nothing to show in peaceful.
   - $1.39 + $1.46, [lag] 0 / 0. Report: runs/2026-10-31/train15/report.md.
+- F348 (10-31, looplag, Support) **The 25-bot loop p99 of 176 ms was mostly the meter; the real stalls were path
+  searches fed by physics catch-up.** `scale_probe25.py` at 25 on world 3, 1x, 13 runs:
+  - `/api/perf` took the current minute's p99 from a few samples after each reset. A 10 ms timer in the process
+    (`cdp_stalls.cjs`) measured the old code at p99 32.5-44.9 ms (p99.9 51-102, max 84-167). Fixed (1,000 samples).
+  - After a stall, physics' up to 4 catch-up ticks per bot each called the A* search (15 ms) again; 3 searches are
+    never cut, so ~180 ms in one callback made the next stall: 85% of stalls over 100 ms was search, and without a cap
+    46 stalls over 200 ms came in 4 minutes. Now two slices a turn (three at 2x), one after a stall (the pathfinder patch).
+  - CPU cut: protodef's PartialReadError per TCP chunk (10% of busy), minecraft-data per physics tick (2%), find_site's
+    column lookups per cell (6%), closures per call in the pathfinder hooks.
+  - Final: true p99 27.9-36.3 ms, p99.9 45-47, max 57-77, no stall over 100 ms in 4 runs (one hostile at night: 31.5 /
+    63, mobs cost nothing visible). The search load varies 4-5x between runs; the final runs were light (12-21 s of A*
+    in 4 min). The probe's max of 230-280 ms is from outside the window (spawns or the start of work), not measured.
+    Report: runs/2026-10-31/looplag/report.md.
