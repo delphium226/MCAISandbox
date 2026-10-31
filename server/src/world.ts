@@ -370,6 +370,8 @@ export interface ChoiceContext {
   monument?: string;
   /** #117 (MC_PROMPT_SELF): the member's own state and its unmet basic needs ("You: no house of your own yet; ..."). */
   self?: string;
+  /** #181 (damage on): the member's death in the last 30 minutes ("you drowned at -1682,59,-3 2 min ago ..."). */
+  harm?: string;
   /** #117 (MC_PROMPT_SELF): what is short and what is made for nothing yet. */
   scarcity?: string;
 }

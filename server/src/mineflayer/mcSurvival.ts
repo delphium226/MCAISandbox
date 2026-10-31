@@ -14,6 +14,7 @@ import { STORAGE_SKILLS, hutY, partBurn, storageContents, withdrawItems } from '
 import type { McSkill } from './mcSkills';
 import { timeScale } from './mcRules';
 import { teleportHome } from './mcRescue';
+import { nearTrap } from './mcHazard';
 import { FARM_TRIP_RANGE, SCOUT_RANGE, STATION_NAMES, STATIONS_TASK, VILLAGE_RANGE, villageHome, type StationName, type Village } from '../village';
 import {
   ContentionError, abortable, at, checkAbort, countItem, exposedAt, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, openAt, reach, resolveItem,
@@ -868,7 +869,9 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
       const q = p.offset(dx, 0, dz);
       return !wetAt(a, q) || /^(air|cave_air)$/.test(a.bot.blockAt(q.offset(0, 1, 0))?.name ?? '');
     });
-    const dry = (p: Vec3) => !wetOver(a, p) && (!wetSide(a, p) || (exposedAt(a, p.x, p.y, p.z) && surfaceOnly(p)));
+    // (#181: nor over water, nor by a recent trap: a 1x1 hole dug from the lake shore's grass into a water pocket under it
+    // drowned two members in train 14's D)
+    const dry = (p: Vec3) => !wetOver(a, p) && !wetAt(a, p.offset(0, -1, 0)) && !nearTrap(p) && (!wetSide(a, p) || (exposedAt(a, p.x, p.y, p.z) && surfaceOnly(p)));
     // Only from home y - 16 up, as `near` takes them (the search skips the sections below)
     const ys = homeY === undefined ? undefined : { min: homeY - 16 };
     const tPick = performance.now();

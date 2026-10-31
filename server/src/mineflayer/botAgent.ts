@@ -13,12 +13,12 @@ import { preparedAt } from '../village';
 import type { MineflayerWorld } from './mcWorld';
 import { MC_SKILLS } from './mcSkills';
 import { attack } from './mcSurvival';
-import { ContentionError, at, goals, walk } from './mcUtil';
+import { ContentionError, at, goals, walk, wetAt } from './mcUtil';
 import { mineAreas } from './mcMine';
-import { home, rescue, swimUp, teleportHome } from './mcRescue';
+import { home, outOfWater, rescue, swimUp, teleportHome } from './mcRescue';
 import { timeScale } from './mcRules';
 import { takesDamage } from '../worldMode';
-import { causeFromState, deathCauseOf, hazardOf, safeCellNear, type DeathCause, type Hazard } from './mcHazard';
+import { causeFromState, deathCauseOf, hazardOf, noteTrap, safeCellNear, trappedUnderWater, type DeathCause, type Hazard } from './mcHazard';
 import { isPaused } from '../runClock';
 import { WALK_DIG } from './mcBlocks';
 import { GEODE_GROWTH, GEODE_GUARD, GEODE_LINING, geodeBreakCost, geodeStepCost, stateIds } from './mcGeode';
@@ -123,6 +123,8 @@ export class BotAgent implements WorldAgent {
   private spawnSet = '';
   private spawnCheckedAt = 0;
   private hazardEnded = 0;
+  /** #181: the recent swim-ups (a third within a minute and 3 blocks means trapped). */
+  private airUps: Array<{ p: Vec3; t: number }> = [];
   private deathTimes: number[] = [];
   /** The current walk's physics tally (mcUtil walkOnce), or null. */
   walkTally: WalkTally | null = null;
@@ -324,6 +326,9 @@ export class BotAgent implements WorldAgent {
       // a shaft from its surface to the stone 5 blocks under it, beside the storage hut (Hutvale1, 2026-09-29)
       (m as unknown as { exclusionAreasBreak: Array<(b: { position: { x: number; y: number; z: number } }) => number> }).exclusionAreasBreak = [
         (b) => (b.position && this.protectedGround().some((q) => b.position.x >= q.x1 && b.position.x <= q.x2 && b.position.z >= q.z1 && b.position.z <= q.z2 && b.position.y >= q.y && (q.y2 === undefined || b.position.y <= q.y2)) ? 100 : 0),
+        // (#181: nor a block with water under it: the pathfinder's flow check looks above and beside only, and a hole into
+        // a water pocket under the lake shore drowned two members in train 14's D)
+        (b) => (b.position && wetAt(this, new Vec3(b.position.x, b.position.y - 1, b.position.z)) ? 100 : 0),
       ];
       // ...nor build on it: a builder walking to its stand spot pillared up with dirt in front of the mining hut's doorway
       // and sealed the mine (Minevale19, 10-04). Placing there costs too much for any path to take it
@@ -681,10 +686,15 @@ export class BotAgent implements WorldAgent {
 
   /** Out of the water's depth, the fire or the lava, in the reflex's slot; then the interrupted action resumes. */
   private hazardReflex(hz: Hazard) {
+    const from = this.bot.entity.position.clone();
+    if (hz === 'air') {
+      const now = Date.now();
+      this.airUps = [...this.airUps.filter((u) => now - u.t < 60000 && u.p.distanceTo(from) < 3), { p: from, t: now }];
+      if (trappedUnderWater(this.airUps, this.bot.health ?? 20)) return this.trappedReflex(from);
+    }
     this.interrupt();
     const ac = new AbortController();
     this.reflex = ac;
-    const from = this.bot.entity.position.clone();
     const out = async (): Promise<string> => {
       if (hz === 'air') {
         await swimUp(this, ac.signal);
@@ -719,6 +729,44 @@ export class BotAgent implements WorldAgent {
   }
 
   /**
+   * #181: trapped under water (swim-ups that lead back down, or health falling): out of it (mcRescue's outOfWater: a walk
+   * to dry ground, else a teleport home), the place kept off by gathering, and the interrupted action dropped rather than
+   * resumed, since it led there: its failure tells the chooser.
+   */
+  private trappedReflex(from: Vec3) {
+    this.airUps = [];
+    const cur = this.current?.status;
+    if (this.current) this.current.abort.abort();
+    this.current = null;
+    this.halt();
+    const ac = new AbortController();
+    this.reflex = ac;
+    noteTrap(from);
+    const health = Math.round(this.bot.health ?? 0);
+    const stats = ((this.memory.rescues ??= {}) as Record<string, number | string>);
+    outOfWater(this, ac.signal).then(
+      (r) => {
+        stats[`water-${r.how}`] = Number(stats[`water-${r.how}`] ?? 0) + 1;
+        stats.last = `${new Date().toISOString().slice(11, 19)} water-${r.how}: ${r.text}`;
+        console.log(`[rescue] ${this.name} trapped under water at ${at(from)} (health ${health}): ${r.how}: ${r.text}`);
+        this.pushEvent('system', `Rescue: you were trapped under water at ${at(from)}; ${r.text}. Keep away from that water.`);
+      },
+      (e: Error) => e.message !== 'cancelled' && console.log(`[rescue] ${this.name} trapped under water at ${at(from)}: ${e.message}`),
+    ).finally(() => {
+      if (this.reflex === ac) this.reflex = null;
+      this.hazardEnded = Date.now();
+      this.halt();
+      if (cur) {
+        const why = `trapped under water at ${at(from)} and rescued; the action is dropped (it led there)`;
+        Object.assign(cur, { state: 'failed', message: why, endedAt: Date.now() });
+        this.history.push(cur);
+        if (this.history.length > 100) this.history.shift();
+        this.pushEvent('action_failed', `${cur.type} failed: ${why}`, { action: cur.id, type: cur.type, args: cur.args, message: why });
+      }
+    });
+  }
+
+  /**
    * A death (survival stage (a)): a `[death]` line with its cause, counted in memory (`deaths`), and the brain told. The bot
    * respawns at its spawnpoint (home, keepSpawnpoint) with its things (keep_inventory); one that woke elsewhere walks home.
    */
@@ -730,6 +778,9 @@ export class BotAgent implements WorldAgent {
     const deaths = ((this.memory.deaths ??= {}) as Record<string, number>);
     deaths[cause] = (deaths[cause] ?? 0) + 1;
     const place = where ? at(where) : 'somewhere';
+    // (#181: the last death, for a choosing member's next choices; mcWorld remembers it once, MC_MEMORY)
+    this.memory.lastDeath = { cause, place, t };
+    this.airUps = [];
     console.log(`[death] ${this.name} ${cause} at ${place}${heard ? ` ("${heard.text}")` : ' (no death message: guessed)'}`);
     // (a third death in 3 minutes: home itself kills (lava at the spawnpoint in a probe: 10 deaths in a row), so no walk or
     // teleport back there)

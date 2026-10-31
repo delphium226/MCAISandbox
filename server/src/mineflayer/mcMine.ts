@@ -1171,7 +1171,16 @@ const IRON_TRIES = 5;
 const IRON_AGE_TRIES = 8, IRON_RETRY_MS = 30 * 60000;
 /** A level's MC_IRON_AGE retry: when a level finished with no way down may be tried again, and the stairs given up
  *  before this round (`abandoned` keeps them all, so no start is tried twice; each round has IRON_AGE_TRIES). */
-type IronRetry = IronLevel & { retryAt?: number; triesFrom?: number };
+type IronRetry = IronLevel & { retryAt?: number; triesFrom?: number; noStart?: boolean };
+/** #182: the wait before a first iron start that found no cell is looked for again (a cobblestone tunnel turning at the
+ *  bottom step held every side for a minute in train 14's D, and the level was closed for good). */
+const IRON_START_RETRY_MS = 5 * 60000;
+/** A start's wait over (#182's no-start, any iron age; MC_IRON_AGE's no-way-down retry). */
+function retryDue(i: IronRetry, now: number): boolean {
+  // (a village saved closed by the old no-start, train 14's D: due at once)
+  if (i.finished === 'no clear way down beside the deepest level' && !i.steps && !i.legs.length && !i.noStart) Object.assign(i, { noStart: true, retryAt: 0 });
+  return i.retryAt !== undefined && i.retryAt <= now && (IRON_AGE || !!i.noStart);
+}
 /** Stairs starts tried this round. */
 const triesNow = (i: IronLevel) => (i.abandoned?.length ?? 0) - ((i as IronRetry).triesFrom ?? 0);
 const triesMax = () => (IRON_AGE ? IRON_AGE_TRIES : IRON_TRIES);
@@ -1182,14 +1191,14 @@ const triesMax = () => (IRON_AGE ? IRON_AGE_TRIES : IRON_TRIES);
  */
 export function ironDone(m: Mine | undefined, now = Date.now()): boolean {
   const i = m?.iron as IronRetry | undefined;
-  return !!i?.finished && !(IRON_AGE && i.retryAt !== undefined && i.retryAt <= now) && !shaftDue(m, now);
+  return !!i?.finished && !retryDue(i, now) && !shaftDue(m, now);
 }
 
 /** Whether the current level is finished for now, a new shaft due or not (the deep level's question: a shaft opened from
  *  it is not deep). */
 function levelDone(m: Mine | undefined, now = Date.now()): boolean {
   const i = m?.iron as IronRetry | undefined;
-  return !!i?.finished && !(IRON_AGE && i.retryAt !== undefined && i.retryAt <= now);
+  return !!i?.finished && !retryDue(i, now);
 }
 
 /** MC_IRON_AGE: a level finished with no way down whose retry time has come is open again, with a fresh round of starts. */
@@ -2392,11 +2401,14 @@ function nextIronLeg(a: BotAgent, v: Village, i: IronLevel): MineLeg | null {
  *  stone, before its tunnels take every side of the bottom step: the staged M_on's 25 miners had, and it had none). */
 export function layIronStart(v: Village, m: Mine, reg: { note: (v: Village, s: string) => void; save: () => void }): IronLevel {
   const s = ironStart(m);
-  m.iron = s ? { x: s.x, z: s.z, y: s.y, dir: s.dir, steps: 0, legs: [], dug: 0, got: {} } : { x: 0, z: 0, y: 0, dir: m.dir, steps: 0, legs: [], dug: 0, got: {}, finished: 'no clear way down beside the deepest level' };
+  // (#182: none found is looked for again in IRON_START_RETRY_MS, not the level closed for good: ironTrip lays it anew)
+  const none: IronRetry = { x: 0, z: 0, y: 0, dir: m.dir, steps: 0, legs: [], dug: 0, got: {}, finished: 'no clear way down beside the deepest level yet', noStart: true, retryAt: Date.now() + IRON_START_RETRY_MS };
+  m.iron = s ? { x: s.x, z: s.z, y: s.y, dir: s.dir, steps: 0, legs: [], dug: 0, got: {} } : none;
   // (the cobblestone mine never turns there: its tunnel would run into the iron stairs)
   const first = m.legs?.find((l) => s && l.x === s.x && l.z === s.z && l.y === s.y);
   if (s?.side && first) first.turned = (first.turned ?? 0) | s.side;
-  reg.note(v, s ? `the iron stairs start at ${s.x},${s.y},${s.z} on the mine's deepest level, going ${compass(s.dir)}` : 'no way down to the iron level beside the mine');
+  if (!s) console.log(`[mine] ${v.name}: no iron stairs start is clear beside the deepest level; looked for again in ${IRON_START_RETRY_MS / 60000} minutes`);
+  reg.note(v, s ? `the iron stairs start at ${s.x},${s.y},${s.z} on the mine's deepest level, going ${compass(s.dir)}` : `no way down to the iron level beside the mine yet (looked for again in ${IRON_START_RETRY_MS / 60000} minutes)`);
   reg.save();
   return m.iron;
 }
@@ -2413,7 +2425,7 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
   if (!m || m.level === undefined) return 'the village has no mine at a level yet';
   upgradeMine(m);
   const reg = a.world.villages;
-  if (!m.iron) m.iron = layIronStart(v, m, reg);
+  if (!m.iron || ((m.iron as IronRetry).noStart && retryDue(m.iron as IronRetry, Date.now()))) m.iron = layIronStart(v, m, reg);
   ironRetry(v, m, m.iron, reg);
   // (a worked-out mine: a new shaft, laid by this trip, which digs its stairs)
   let opened = '';

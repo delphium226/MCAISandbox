@@ -8,6 +8,8 @@ after phase goes (the village complete, growth on, members without a house).
 
 Usage: MCAI_API=http://127.0.0.1:8770/api python scripts/checks/talk_place.py VILLAGE [--at X,Z] [--minutes 30] [--from NAME]
        [--follow RID] (with --at: follow a request already posted, from step 3)
+       [--promise MEMBER] (#183: after the house request, ask MEMBER for torches, as train 14's D did: every status answer
+       about the house must then carry the house's fact, not the torch promise's)
 Ends with a TALK PLACE line: OK when the street lies within 32 blocks of the place asked and no answer claimed a build the
 facts did not show.
 """
@@ -21,6 +23,8 @@ import time
 import urllib.request
 
 API = os.environ.get("MCAI_API", "http://127.0.0.1:8770/api").rstrip("/")
+# (#183: a model's claim of the very place asked, which code drops when its facts put the street further off)
+PLACE_CLAIM = re.compile(r"\b(right|just|exactly) (where you (asked|wanted|marked|said|pointed|stood)|here|there|on the spot)\b", re.I)
 CLAIMS = re.compile(r"(being built|under way|underway|rising|going up|right where|under construction|we('re| are) building|builders are)", re.I)
 
 
@@ -74,6 +78,7 @@ def main():
     ap.add_argument("--minutes", type=float, default=30)
     ap.add_argument("--from", dest="who", default="SausageOfDoom4")
     ap.add_argument("--follow")
+    ap.add_argument("--promise")
     a = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
     t0 = time.time()
@@ -112,6 +117,12 @@ def main():
         return 1
     if "right here" in (r1.get("answer") or "").lower() and "as near" not in (r1.get("answer") or ""):
         bad.append("r1 promised 'right here' without code's place")
+    if PLACE_CLAIM.search((r1.get("answer") or "").split(" - ", 1)[0]) and "as near here" in (r1.get("answer") or ""):
+        bad.append(f"r1 kept a place claim in front of 'as near here as there is room': {r1.get('answer')}")
+    if a.promise:
+        out = post("/say", {"from": a.who, "to": a.promise, "text": f"{a.promise}, could you make some torches for me?", "pos": {"x": x, "y": 70, "z": z}})
+        p = answer(out.get("request"), a.village) if out.get("request") else None
+        print("torches ->", p and p.get("status"), p and p.get("answer"), flush=True)
     out = post("/say", {"from": a.who, "to": a.village, "text": "where?", "pos": {"x": x, "y": 70, "z": z}})
     q = answer(out.get("request"), a.village) if out.get("request") else None
     print("where? ->", q and q.get("answer"), flush=True)
@@ -119,6 +130,20 @@ def main():
     if q and CLAIMS.search(q.get("say") or "") and "being built" not in (q.get("answer") or "").split(" - ", 1)[-1]:
         bad.append(f"'where?' claimed a build the facts did not show: {q.get('answer')}")
     return follow(a, rid, x, z, h, t0, bad)
+
+
+def house_fact(q, bad, what):
+    """#183: a house question's answer carries the house's fact (not another request's), and no place claim the facts
+    put further than 15 blocks off."""
+    ans = (q or {}).get("answer") or ""
+    if not q or q.get("kind") != "chat":
+        return
+    facts = ans.split(" - ", 1)[-1] if " - " in ans else ""
+    if "house" not in facts and "street" not in facts:
+        bad.append(f"'{what}' carried another request's fact: {ans}")
+    m = re.search(r"~(\d+)(?:-\d+)? blocks from the place asked", facts)
+    if m and int(m.group(1)) > 15 and PLACE_CLAIM.search(ans.split(" - ", 1)[0]):
+        bad.append(f"'{what}' kept a place claim the facts deny: {ans}")
 
 
 def follow(a, rid, x, z, h, t0, bad):
@@ -136,6 +161,7 @@ def follow(a, rid, x, z, h, t0, bad):
                 out = post("/say", {"from": a.who, "to": a.village, "text": "how's my house coming along?", "pos": {"x": x, "y": 70, "z": z}})
                 q = answer(out.get("request"), a.village) if out.get("request") else None
                 print("how's it going? ->", q and q.get("answer"), flush=True)
+                house_fact(q, bad, "how's it going?")
                 asked_mid = True
         time.sleep(15)
     r = request(rid, a.village)
@@ -158,6 +184,11 @@ def follow(a, rid, x, z, h, t0, bad):
     out = post("/say", {"from": a.who, "to": a.village, "text": "what happened to the house I asked for?", "pos": {"x": x, "y": 70, "z": z}})
     q = answer(out.get("request"), a.village) if out.get("request") else None
     print("what happened? ->", q and q.get("answer"), flush=True)
+    house_fact(q, bad, "what happened?")
+    out = post("/say", {"from": a.who, "to": a.village, "text": "where is my house?", "pos": {"x": x, "y": 70, "z": z}})
+    q = answer(out.get("request"), a.village) if out.get("request") else None
+    print("where is my house? ->", q and q.get("answer"), flush=True)
+    house_fact(q, bad, "where is my house?")
     print(f"TALK PLACE {'OK' if not bad else 'FAIL: ' + '; '.join(bad)}", flush=True)
     return 0 if not bad else 1
 

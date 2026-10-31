@@ -5,7 +5,7 @@
 // no "being built"; mid-build: neither "not started" nor "finished"), with no place the facts do not give.
 // Run: node node_modules/tsx/dist/cli.mjs scripts/bench/requestbench.mts [model] [times] (default gpt-oss:120b-cloud,
 // 6 times; N for the count). ONLY=regex picks cases; PEEK=1 prints the raw tool calls.
-import { offerWorks, parseRespond, talkSystem, talkTool, talkUser, workWords, type TalkCtx, type WorkOffer } from '../../server/src/playerTalk';
+import { checkPlaceClaim, offerWorks, parseRespond, talkSystem, talkTool, talkUser, workWords, type TalkCtx, type WorkOffer } from '../../server/src/playerTalk';
 import { chat, header, PEEK, REPEAT, Tally } from './benchUtil.mts';
 
 const MODEL = process.argv[2] ?? 'gpt-oss:120b-cloud';
@@ -34,6 +34,12 @@ const histWait = [`20 min ago to Mayor: "${R1}" -> accepted, not started yet: th
 const statusWait = [`r1, ${WHAT} (asked 20 min ago): accepted, not started yet: the street is laid out when growth is free; building rests 6 more min after a failed layout; asked here (west of the village, ~40 blocks)`];
 const histMid = [`20 min ago to Mayor: "${R1}" -> being built (${WHAT} here)`];
 const statusMid = [`r1, ${WHAT} (asked 20 min ago): being built, 2 of 4 built; west of the village, ~45 blocks, ~10 blocks from the place asked`];
+// (#183: train 14's D, a finished street ~30-65 blocks off the place asked and a torch promise kept after it; the code fact
+// a status answer carries is the house's, and a place claim in the model's words is dropped against it)
+const HOUSE_FACT = `${WHAT} (asked 45 min ago): finished 7 min ago; north-west of the village, ~35 blocks, 4 buildings ~30-65 blocks from the place asked`;
+const histTwo = [`45 min ago to Mayor: "${R1}" -> finished 7 min ago (${WHAT} here)`, '15 min ago to Ada: "Ada, could you make some torches?" -> done 7 min ago (Make torches)'];
+const statusTwo = [`r1, ${HOUSE_FACT}`, 'r2, Make torches (asked 15 min ago): done 7 min ago'];
+const PLACE_WORDS = /\b(right|just|exactly) (where you (asked|wanted|marked|said|pointed|stood)|here|there|on the spot)\b/i;
 const CLAIMS = /(being built|under way|underway|rising|going up|right where|under construction|we('re| are) building|builders are|(is|are) being (built|raised|put up))/i;
 
 type R = ReturnType<typeof parseRespond>;
@@ -50,6 +56,8 @@ const CASES: Array<[string, 'mayor' | 'member', string, (r: R) => boolean]> = [
     (r) => r?.kind === 'chat' && !!r.say && !CLAIMS.test(r.say)],
   ['mayor: how is it going, mid-build (#179)', 'mayor', mayor(["how's my house coming along?"], { history: histMid, status: statusMid, state: [...state, 'a street of houses is being built'] }),
     (r) => r?.kind === 'chat' && !!r.say && !/(not (yet )?started|hasn't started|haven't started|finished|complete[ds]?\b|all built)/i.test(r.say)],
+  ['mayor: where is my house? two requests (#183)', 'mayor', mayor(['where is my house?'], { history: histTwo, status: statusTwo, state: [...state, 'no street is being built'] }),
+    (r) => r?.kind === 'chat' && !!r.say && !/(torch|being built|not (yet )?started)/i.test(r.say) && !PLACE_WORDS.test(checkPlaceClaim(r.say, HOUSE_FACT))],
   ['member: logs (promise)', 'member', member(['Ada, can you get me some logs?']), (r) => r?.kind === 'promise' && r.option === 'gather:logs'],
   ['member: bake bread (promise)', 'member', member(['Ada, we are hungry, could you bake some bread']), (r) => r?.kind === 'promise' && r.option === 'make:bread'],
   ['member: a church (forward)', 'member', member(['Ada, can the village build a church?']), (r) => r?.kind === 'forward'],

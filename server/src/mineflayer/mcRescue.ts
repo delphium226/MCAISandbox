@@ -11,6 +11,7 @@ import { timeScale } from './mcRules';
 // Blocks the climb may dig through: natural terrain only, never anything built
 import { RESCUE_DIGGABLE as DIGGABLE } from './mcBlocks';
 import { inIronLevel } from './mcMine';
+import { safeCellNear } from './mcHazard';
 
 /** Carried blocks it may pillar with (dirt and plain stone first; never planks, logs or glass). */
 const PILLAR = ['dirt', 'coarse_dirt', 'sand', 'red_sand', 'netherrack', 'andesite', 'diorite', 'granite', 'tuff', 'stone', 'cobblestone', 'cobbled_deepslate'];
@@ -33,6 +34,29 @@ export async function swimUp(a: BotAgent, signal: AbortSignal) {
   } finally {
     bot.clearControlStates();
   }
+}
+
+/**
+ * #181: out of water a member is trapped in (mcHazard's trappedUnderWater): to the nearest dry cell within 8 blocks while
+ * health allows a short walk (up to 8 s), else, or when that walk leaves it in the water, a teleport home. Train 14's D
+ * pit was a water pocket under the lake shore, opened from above by a 1x1 hole: swimming up reached the hole's air and no
+ * further, so the teleport is what usually gets it out.
+ */
+export async function outOfWater(a: BotAgent, signal: AbortSignal): Promise<{ how: 'walked' | 'teleported' | 'failed'; text: string }> {
+  const bot = a.bot;
+  bot.pathfinder.stop();
+  bot.clearControlStates();
+  const c = (bot.health ?? 20) > 6 ? safeCellNear(a, 8) : null;
+  if (c) {
+    try {
+      await walk(a, new goals.GoalBlock(c.x, c.y, c.z), 'out of the water', signal, 8000);
+    } catch (e) {
+      if ((e as Error).message === 'cancelled') throw e;
+    }
+    if (!inWater(a)) return { how: 'walked', text: `walked out of the water to ${at(bot.entity.position)}` };
+  }
+  const t = await teleportHome(a, signal);
+  return t ? { how: 'teleported', text: `${c ? 'could not walk out of the water' : 'no dry ground within reach'}: ${t}` } : { how: 'failed', text: 'trapped under water with no home to go to' };
 }
 
 /** On any village's protected ground (plots and their margins, buildings, the mine): no shaft is dug out of it. */

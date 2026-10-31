@@ -283,6 +283,8 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
   if (ctx.character?.trim()) lines.push(ctx.character.trim());
   // (#117, MC_PROMPT_SELF: the member's own state and unmet basic needs)
   if (ctx.self?.trim()) lines.push(ctx.self.trim());
+  // (#181: a death lately, one fact line)
+  if (ctx.harm?.trim()) lines.push(`You lately: ${ctx.harm.trim()}.`);
   if (ctx.pattern?.trim()) lines.push(ctx.pattern.trim());
   if (ctx.role?.trim()) lines.push(ctx.role.trim());
   if (ctx.skill?.trim()) lines.push(ctx.skill.trim());

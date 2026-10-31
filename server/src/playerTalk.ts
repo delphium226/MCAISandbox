@@ -194,8 +194,36 @@ export function statusFact(r: PlayerRequest, now: number, progress: ReqProgress)
  * ledger and the world (`progress`): the talk prompt's "their requests now" and a status answer's facts.
  */
 export function statusLines(village: string, from: string, now: number, progress: (r: PlayerRequest) => ReqProgress, n = 3): string[] {
-  return requestsOf(village).filter((r) => same(r.from, from) && (r.kind === 'build' || r.kind === 'promise') && (!r.closed || now - r.closed < 60 * 60000))
-    .slice(-n).map((r) => statusFact(r, now, progress(r)));
+  return statusRequests(village, from, now).slice(-n).map((r) => statusFact(r, now, progress(r)));
+}
+const statusRequests = (village: string, from: string, now: number) =>
+  requestsOf(village).filter((r) => same(r.from, from) && (r.kind === 'build' || r.kind === 'promise') && (!r.closed || now - r.closed < 60 * 60000));
+
+const HOUSE_WORDS = /\b(house|houses|home|homes|street|cottage|place to live)\b/i;
+const QUIET_WORDS = new Set(['what', 'where', 'when', 'happened', 'with', 'about', 'coming', 'along', 'going', 'done', 'ready', 'finished', 'built', 'yet', 'status', 'progress', 'news', 'the', 'my', 'our', 'your', 'how', 'is', 'are', 'was', 'it', 'that', 'this', 'did', 'will', 'any', 'asked', 'for', 'you', 'please', 'mayor']);
+/**
+ * #183: the request a status question asks about, as its fact line: the one its words name (house words for a street of
+ * houses, else the most words shared with what was asked), else the newest build, else the newest request. Train 14's D
+ * answered "where is my house?" with a torch promise's fact: it took the latest request. Null when there is none.
+ */
+export function statusFor(village: string, from: string, now: number, progress: (r: PlayerRequest) => ReqProgress, question: string): string | null {
+  const rs = statusRequests(village, from, now);
+  if (!rs.length) return null;
+  const words = new Set((question.toLowerCase().match(/[a-z]+/g) ?? []).filter((w) => w.length >= 3 && !QUIET_WORDS.has(w)).map((w) => w.replace(/e?s$/, '')));
+  const score = (r: PlayerRequest) => {
+    const about = `${r.what ?? ''} ${r.optionName ?? ''} ${r.piece ? workWords(r.piece) : ''} ${r.text}`;
+    const house = HOUSE_WORDS.test(question) && (r.piece === 'houses' || HOUSE_WORDS.test(`${r.what ?? ''} ${r.text}`)) ? 10 : 0;
+    const shared = new Set((about.toLowerCase().match(/[a-z]+/g) ?? []).map((w) => w.replace(/e?s$/, '')).filter((w) => words.has(w))).size;
+    return house + shared;
+  };
+  // (the newest wins a tie: requests are kept oldest first)
+  let best = rs.at(-1)!, top = 0;
+  for (const r of rs) {
+    const sc = score(r);
+    if (sc >= top && sc > 0) [best, top] = [r, sc];
+  }
+  if (!top) best = rs.filter((r) => r.kind === 'build').at(-1) ?? best;
+  return statusFact(best, now, progress(best));
 }
 
 /** A line asking how a request goes ("where?", "what happened to the house", "is it done yet"). */
@@ -389,8 +417,31 @@ export function parseRespond(reply: { calls?: Array<{ name: string; input: Recor
   return text ? { kind: 'chat', say: text } : null;
 }
 
-/** The one line said back: the model's words, then code's facts after a dash. */
+/** A model's claim that a building stands (or will) at the very place asked. */
+// (T1's "right on the spot you requested": the words after the spot go too)
+const PLACE_CLAIM = /,?\s*\b(?:right|just|exactly) (?:where you|(?:on|at) the (?:very )?(?:spot|place)(?: you)?|here|there)(?: (?:asked|requested|wanted|marked|said|pointed|stood|chose)(?: (?:for )?(?:it|them))?)?\b/gi;
+/** How close code's facts put the building to the place asked: the nearest "~N blocks from the place asked"; null when
+ *  the facts say nothing of it. */
+function nearestToPlace(facts: string): number | null {
+  const m = /~(\d+)(?:-\d+)? blocks from the place asked/.exec(facts);
+  if (m) return Number(m[1]);
+  return /near here as there is room|asked here|place asked/.test(facts) ? Infinity : null;
+}
+/**
+ * #183: the model's "right where you asked" / "right here" dropped when code's facts in the same line put the building
+ * more than 15 blocks from the place asked, or give no distance yet ("as near here as there is room"): train 14's C said
+ * "right where you asked for it" in front of "~30-65 blocks from the place asked".
+ */
+export function checkPlaceClaim(say: string, facts?: string): string {
+  const near = facts ? nearestToPlace(facts) : null;
+  if (near === null || near <= 15 || say.search(PLACE_CLAIM) < 0) return say;
+  return say.replace(PLACE_CLAIM, '').replace(/\s+([.!?,])/g, '$1').replace(/\s{2,}/g, ' ').trim();
+}
+
+/** The one line said back: the model's words (a place claim the facts do not bear out dropped), then code's facts after a
+ *  dash. */
 export function answerLine(say: string, facts?: string): string {
+  say = checkPlaceClaim(say, facts);
   const s = say.replace(/[\s.!]+$/, '');
   if (!facts) return say.slice(0, 220);
   return `${s ? `${s} - ` : ''}${facts}`.slice(0, 240);

@@ -97,7 +97,8 @@ import { GEN_HOMES, PLAIN_CHOICE, characterChoice, describeStyle, familyKey, fit
 import { HOME_DESIGN, castDesign, castProgram, characterOf, designNote, inHoldout, villageForms, type DesignContext, type DesignResult, type ProgramResult } from '../homeDesign';
 import { generateDesign } from '../buildingGen';
 import { applyWrites } from '../memory';
-import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, etaMinutes, historyLines, initTalk, isStatusQuestion, matchWork, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, statusLines, talkSystem, talkTool, talkUser, updateRequest, workWords, type PlayerRequest, type ReqProgress, type Respond, type WorkOffer } from '../playerTalk';
+import { deathMemory, deathWords, type DeathCause } from './mcHazard';
+import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, etaMinutes, historyLines, initTalk, isStatusQuestion, matchWork, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, statusFor, statusLines, talkSystem, talkTool, talkUser, updateRequest, workWords, type PlayerRequest, type ReqProgress, type Respond, type WorkOffer } from '../playerTalk';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
@@ -5890,6 +5891,15 @@ export class MineflayerWorld implements WorldAdapter {
       if (nw.length) ctx.news = nw;
       if (an.length) ctx.answers = an;
     }
+    // (#181: a death in the last 30 minutes, one fact line in the choices; remembered once, MC_MEMORY)
+    const died = a.memory.lastDeath as { cause: DeathCause; place: string; t: number; kept?: boolean } | undefined;
+    if (died && facts.t - died.t < 30 * 60000) {
+      ctx.harm = deathWords(died, facts.t);
+      if (MEMORY.on && !died.kept) {
+        died.kept = true;
+        applyWrites(v.name, a.name, { remember: deathMemory(died) }, 'world', facts.t);
+      }
+    }
     // (G7, MC_TALK: a promise to a person in the inbox)
     if (PLAYER_TALK.on) {
       const pl = promiseLines(v.name, a.name, facts.t);
@@ -6271,8 +6281,9 @@ export class MineflayerWorld implements WorldAdapter {
     if (p.kind === 'chat') {
       // (#179: a question about the person's requests gets code's facts after the model's line: train 13's Mayor said
       // "being built right where you marked" while nothing was)
-      const facts = isStatusQuestion(r.text) ? this.talkStatus(v, r.from, now) : [];
-      const line = facts.length ? answerLine(p.say, facts.at(-1)!.replace(/^r\d+, /, '')) : p.say;
+      // (#183: the request the question names, not the latest: a torch promise's fact answered "where is my house?")
+      const fact = isStatusQuestion(r.text) ? statusFor(v.name, r.from, now, (q) => this.talkProgress(v, q, now), r.text) : null;
+      const line = fact ? answerLine(p.say, fact.replace(/^r\d+, /, '')) : p.say;
       updateRequest(r.id, { kind: 'chat', status: 'chat', say: p.say, answer: line, closed: now });
       if (line) this.talkSay(a.name, line);
       return;
@@ -7199,7 +7210,8 @@ export class MineflayerWorld implements WorldAdapter {
       const triesAll = m.ironTries && m.ironLastTry && now - m.ironLastTry.at > 60 * 60000 ? {} : m.ironTries ?? {};
       const t = (triesAll as Record<string, number>)[stage] ?? 0, last = m.ironLastTry;
       if (made.includes('iron_pickaxe') && buckets >= (cows ? 3 : 1)) reasons.iron = 'tools made';
-      else if (stage === 'dig' && m.iron?.finished) reasons.iron = 'iron level finished';
+      // (#182: ironDone, not `finished`: a first start that found no cell is looked for again after its wait)
+      else if (stage === 'dig' && m.iron && ironDone(m, now)) reasons.iron = 'iron level finished';
       else if (t >= 3 || (last?.stage === stage && now - last.at < 10 * 60000)) reasons.iron = 'backing off';
       else
         add({

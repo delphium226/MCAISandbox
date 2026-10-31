@@ -85,3 +85,40 @@ export function safeCellNear(a: BotAgent, r = 4): Vec3 | null {
       }
   return best;
 }
+
+/**
+ * #181: whether a member under water is trapped rather than short of breath: a third swim-up within a minute and 3 blocks
+ * of the others (each refills a little air and leads back down), or health at 10 or less. Train 14's D: Xavier and Uma
+ * swam up every 10-20 s for 5 minutes in a water pocket under the lake shore, from 20 health to death. `ups` is the
+ * member's recent swim-ups, this one included.
+ */
+export function trappedUnderWater(ups: Array<{ p: { x: number; y: number; z: number }; t: number }>, health: number): boolean {
+  return ups.length >= 3 || health <= 10;
+}
+
+/** #181: where members were trapped under water lately (gathering keeps off them for TRAP_MS). */
+const traps: Array<{ x: number; y: number; z: number; t: number }> = [];
+const TRAP_MS = 30 * 60000;
+export function noteTrap(p: { x: number; y: number; z: number }, now = Date.now()) {
+  traps.push({ x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z), t: now });
+  while (traps.length && now - traps[0].t > TRAP_MS) traps.shift();
+}
+/** Within `r` blocks of a recent trap. */
+export function nearTrap(p: { x: number; y: number; z: number }, r = 4, now = Date.now()): boolean {
+  return traps.some((q) => now - q.t < TRAP_MS && Math.abs(q.x - p.x) <= r && Math.abs(q.z - p.z) <= r && Math.abs(q.y - p.y) <= r + 2);
+}
+
+/** #181: a death in words for the member's next choices ("you drowned at -1682,59,-3 2 min ago"). */
+const DIED: Record<DeathCause, string> = {
+  fall: 'you fell to your death', drowning: 'you drowned', lava: 'you burned in lava', fire: 'you burned to death',
+  suffocation: 'you suffocated in a wall', starvation: 'you starved', mob: 'you were killed by a mob', other: 'you died',
+};
+export function deathWords(d: { cause: DeathCause; place: string; t: number }, now: number): string {
+  const m = Math.max(1, Math.round((now - d.t) / 60000));
+  return `${DIED[d.cause] ?? 'you died'} at ${d.place} ${m} min ago and woke at home with your things; keep away from that place`;
+}
+/** The same death as the member's own memory line ("I drowned at -1682,59,-3; I keep away from there"). */
+export function deathMemory(d: { cause: DeathCause; place: string }): string {
+  return `${(DIED[d.cause] ?? 'you died').replace(/^you were/, 'I was').replace(/^you/, 'I')} at ${d.place}; I keep away from there`;
+}
+
