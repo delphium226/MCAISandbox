@@ -34,38 +34,31 @@ each phase's goal and design, and links to its issues; it no longer carries chec
 
 ## Next session starts with
 
-(updated 2026-10-27 ~21:30 by the planning session that took over at 15:20; **paused for the evening**, the user's; the
-strategy is `docs/STRATEGY.md`; the day's log is `runs/2026-10-27/planning/state.md`)
+(updated 2026-10-31 ~17:30 by the planning session; the user: "make your own decisions and continue progressing";
+the strategy is `docs/STRATEGY.md`; the logs are `runs/2026-10-27/planning/state.md` and
+`runs/2026-10-31/planning/briefs.md`)
 
-- **How work runs:** the planning session owns STRATEGY.md and this handover, briefs work sessions and checks their
-  reports. Rules: the context rule, the test train, pushes to `private` without asking, the planning session decides
-  routine steps itself. The user (10-27): ignore the Claude weekly plan limit. Always give LAN addresses
-  (192.168.1.84) beside 127.0.0.1. Sessions the planning session starts report to it automatically: never give them
-  another session's id to report to. Over Remote Control the app refuses to start sessions: ask for a desktop message.
-- **Done 10-27 afternoon/evening (all pushed):** tier 3 chains B+C (026739d, copper re-roof live; geode cutter not yet
-  seen working); houses round 2 (b335ca3, MC_BIG_HOUSES on); **test train 7** (9793cf8, F326-F328; F330 corrects
-  F328's "0 laws"); **#133** trapped members (ddc40db, fdfb986: walk-out + 8-min backstop; deep climb-outs still slow,
-  issue open); **#164 rules and customs**: spec (runs/2026-10-27/i164/spec.md), the user's answers (ff4712f), step 1
-  measure (ba1cbc7), step 2 lines + backing + repeal (9cc2f9f, cbd51f2), resultsbench (9c59bd9), customs.ts world-free
-  half (12f7f4c), all flags off.
-- **Decisions 10-27 (the user's):** monument on by default once stage 7's dyes have a supply or stand-in; more/bigger
-  greens for small works on pad villages (pads and outward stay on); #164 gives choices stakes, rules and customs first;
-  claims enforced, customs no reward + dusk gathering, words-only norms + farm-plot claims, backing by failures, a pilot
-  train (~$3) before replicates.
-- **In flight at the pause:** dyes-greens (local_42c31de7; brief runs/2026-10-27/planning/brief_dyes_greens.md) was told
-  to stop safely, commit only offline-clean work, flip the monument default only if D2 passed, and write
-  `runs/2026-10-27/dyes_greens/resume.md`. Its edits (dyeBed, furnish, mcDyeBed, mcWorld, monument, settings) were
-  uncommitted at 21:30: **read its resume note and check `git status` first.** Seen live: stage 7 passed with the dye
-  fix; 3-4 new 21x21 greens laid out; stage 9 held on lanterns (no iron), D2 drops them after 4 failed chores.
-- **#164 finding:** prompt lines alone do not move laws (words-only line: norms 98% -> 92% yes; results lines: typed
-  share 28/21/19%, no repeals). The world steps carry the test.
-- **All test worlds stopped and saved.** Standing: furnished Notre-Dame 1:3 (world 2); checkpoints mon_conwy_1_3,
-  mon_salisbury_1_3, mon_cologne_1_3, tier3_d3, t7_a_mon_stage7, t7_c_greens_full.
-- **Next:** (1) finish dyes-greens (D2 result, the monument default, the greens flag ready); (2) #164 spec steps 3-5
-  once mcWorld is free: claim/report types in the world, the farm-plot claim, the custom option and seed API, the
-  scripted council for F1 (handover: runs/2026-10-27/i164/handover.md, spec section 4); (3) test train 8: the pilot
-  R1/R0/F1 with the greens flag; (4) #168 iron-stairs lock, #133's code-driven stair, decorations, cobblestone-mine
-  tunnels, the geode cutter live.
+- **How work runs:** unchanged (the planning session briefs and checks work sessions; the context rule; the test
+  train; pushes to `private` without asking; LAN addresses beside 127.0.0.1). **New flags default on** (10-30);
+  survival modes are the exception (peaceful stays the default).
+- **Done 10-30/31 (all pushed):** trains 13-14 (F342-F344); #180/#179 (157036d); #181-#183 (6a3afc3); wants tuning
+  `MC_WANTS_TUNE` (f90833b, sim only so far); goal experiment "get rich" (74729be, F346); string from cobwebs
+  `MC_STRING` (12a62af, #178); survival (a) damage (3c4ed75) and (b) easy, nights, real hunger (9fb86d3 + e945aa3);
+  40 more monuments (ec1753f); the civic tier `MC_CIVIC`, 80 real buildings between houses and the monument
+  (13e1641, 9fb86d3, 8691210, 5759577); the gallery world `scripts/gallery.mts` (813b5e5; mc/gallery, port 25571,
+  stopped).
+- **Decisions 10-31** (DECISIONS a39e559): house design stays character; civic picks steered to variety; train 15's
+  scope.
+- **In flight:**
+  - survival (c) hostile mobs (local_9a7819d4): pair passed (5 deaths in 5 nights, +8% model calls), load probe done,
+    commit and `runs/2026-10-31/survival/report_c.md` to come;
+  - civic tier (local_e8d3e8dc): third staged run, then the variety steer and its report;
+  - small fixes #187 beds/wool, #188 lava, #186, #168/#169 (local_49b15eca; worlds 1-2);
+  - test train 15 (local_27959a30; brief runs/2026-10-31/planning/brief_train15.md; waits for survival (c)'s commit
+    and the civic report, then worlds 4-5).
+- **Next:** check those reports; then survival (d) (defence as works: walls, lights, guards) once (c) is judged; the
+  wants tuning village-wide if train 15 shows the busy gap closed; #164 steps 3-5; the street-placement leftover of
+  #179 (streets land 33-37 blocks from the place asked).
 
 ## Earlier phases
 
