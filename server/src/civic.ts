@@ -231,12 +231,20 @@ export function civicDone(v: Village, now: number): CivicBuilt {
   return c;
 }
 
-/** The kiln, lodge and quarries the last civic building left, for a new record (taken once). */
-export function civicKit(v: Village): Record<string, unknown> {
+/** The kiln, lodge and quarries the last civic building left, for a new record (taken once). With `furnaces` (the new
+ *  record's kilnSize), a kiln smaller than that is left behind with its lodge, so the record builds its own (#190: the
+ *  cathedral took the market hall's kiln of 4 and every tend of it failed; its own was 15). */
+export function civicKit(v: Village, furnaces?: number): Record<string, unknown> {
   const last = [...civicsOf(v)].reverse().find((c) => c.kit);
   if (!last) return {};
   const kit = last.kit!;
   delete last.kit;
+  const kiln = kit.kiln as { furnaces?: unknown[] } | undefined;
+  if (furnaces && kiln && (kiln.furnaces?.length ?? 0) < furnaces) {
+    console.log(`[civic] ${v.name}: the ${kiln.furnaces?.length ?? 0}-furnace kiln and its lodge are left behind: the new record wants ${furnaces}`);
+    delete kit.kiln;
+    delete kit.lodge;
+  }
   return kit;
 }
 

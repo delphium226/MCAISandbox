@@ -1184,6 +1184,15 @@ function retryDue(i: IronRetry, now: number): boolean {
 /** Stairs starts tried this round. */
 const triesNow = (i: IronLevel) => (i.abandoned?.length ?? 0) - ((i as IronRetry).triesFrom ?? 0);
 const triesMax = () => (IRON_AGE ? IRON_AGE_TRIES : IRON_TRIES);
+/** #191: the wait before a level with no way down is tried again: IRON_START_RETRY_MS when no other start was found
+ *  though tries were left (train 15: the first give-up at +0.4 found none, the retry at +30.6 found 8; the bot's view
+ *  of the land then is likely the cause), twice a level, else IRON_RETRY_MS. */
+function retryWait(i: IronLevel): number {
+  const r = i as IronRetry & { quickRetries?: number };
+  if (triesNow(i) >= triesMax() || (r.quickRetries ?? 0) >= 2) return IRON_RETRY_MS;
+  r.quickRetries = (r.quickRetries ?? 0) + 1;
+  return IRON_START_RETRY_MS;
+}
 
 /**
  * Whether the iron level is finished for now (mcWorld's menus): `finished`, unless (MC_IRON_AGE) it ended with no way
@@ -1943,13 +1952,14 @@ export function giveUpIronStairs(a: BotAgent, v: Village, m: Mine, i: IronLevel,
   if ((i as DeepLeg).diamond && reopenLanding(reg, v, m, i)) return `${why}; no other deep stairs start is clear: the landing above is dug as a level until the next try`;
   i.finished = short(`no way down: ${why}`);
   // (MC_IRON_AGE: tried again after a back-off, not ended for good)
+  const wait = IRON_AGE ? retryWait(i) : 0;
   if (IRON_AGE) {
-    (i as IronRetry).retryAt = Date.now() + IRON_RETRY_MS;
-    console.log(`[mine] ${v.name}: iron stairs start ${from} given up: ${short(why)}; no other start is clear (${triesNow(i)} tried): the level waits ${IRON_RETRY_MS / 60000} minutes`);
+    (i as IronRetry).retryAt = Date.now() + wait;
+    console.log(`[mine] ${v.name}: iron stairs start ${from} given up: ${short(why)}; no other start is clear (${triesNow(i)} tried): the level waits ${wait / 60000} minutes`);
   }
-  reg.note(v, `the iron stairs could not be reached (${why}) and no other start is clear; no way down${IRON_AGE ? ` (tried again in ${IRON_RETRY_MS / 60000} minutes)` : ''}`);
+  reg.note(v, `the iron stairs could not be reached (${why}) and no other start is clear; no way down${IRON_AGE ? ` (tried again in ${wait / 60000} minutes)` : ''}`);
   reg.save();
-  return `${why}; no other start is clear: the iron level is finished${IRON_AGE ? ` for ${IRON_RETRY_MS / 60000} minutes` : ''}`;
+  return `${why}; no other start is clear: the iron level is finished${IRON_AGE ? ` for ${wait / 60000} minutes` : ''}`;
 }
 
 /**
@@ -2005,8 +2015,9 @@ async function digIronStairs(a: BotAgent, v: Village, m: Mine, i: IronLevel, sig
     i.finished = short(`no way down: ${why}`);
     // (MC_IRON_AGE, #113: tried again after a back-off, not ended for good)
     if (IRON_AGE) {
-      (i as IronRetry).retryAt = Date.now() + IRON_RETRY_MS;
-      console.log(`[mine] ${v.name}: iron stairs start ${i.x},${i.y},${i.z} given up: ${short(why)}; no other start is clear (${triesNow(i)} tried): the level waits ${IRON_RETRY_MS / 60000} minutes`);
+      const wait = retryWait(i);
+      (i as IronRetry).retryAt = Date.now() + wait;
+      console.log(`[mine] ${v.name}: iron stairs start ${i.x},${i.y},${i.z} given up: ${short(why)}; no other start is clear (${triesNow(i)} tried): the level waits ${wait / 60000} minutes`);
     }
     reg.note(v, `the iron stairs stopped at ${i.steps} steps: ${why}; no way down`);
     reg.save();

@@ -420,11 +420,12 @@ export function parseRespond(reply: { calls?: Array<{ name: string; input: Recor
 /** A model's claim that a building stands (or will) at the very place asked. */
 // (T1's "right on the spot you requested": the words after the spot go too)
 const PLACE_CLAIM = /,?\s*\b(?:right|just|exactly) (?:where you|(?:on|at) the (?:very )?(?:spot|place)(?: you)?|here|there)(?: (?:asked|requested|wanted|marked|said|pointed|stood|chose)(?: (?:for )?(?:it|them))?)?\b/gi;
-/** How close code's facts put the building to the place asked: the nearest "~N blocks from the place asked"; null when
- *  the facts say nothing of it. */
-function nearestToPlace(facts: string): number | null {
-  const m = /~(\d+)(?:-\d+)? blocks from the place asked/.exec(facts);
-  if (m) return Number(m[1]);
+/** How close code's facts put the building to the place asked: "~N blocks from the place asked", or a range's far end
+ *  (#192: a street's nearest house at 10 kept the claim though the house used is not known and four of five stood
+ *  further, ~10-95); null when the facts say nothing of it. */
+function farthestFromPlace(facts: string): number | null {
+  const m = /~(\d+)(?:-(\d+))? blocks from the place asked/.exec(facts);
+  if (m) return Number(m[2] ?? m[1]);
   return /near here as there is room|asked here|place asked/.test(facts) ? Infinity : null;
 }
 /**
@@ -433,7 +434,7 @@ function nearestToPlace(facts: string): number | null {
  * "right where you asked for it" in front of "~30-65 blocks from the place asked".
  */
 export function checkPlaceClaim(say: string, facts?: string): string {
-  const near = facts ? nearestToPlace(facts) : null;
+  const near = facts ? farthestFromPlace(facts) : null;
   if (near === null || near <= 15 || say.search(PLACE_CLAIM) < 0) return say;
   return say.replace(PLACE_CLAIM, '').replace(/\s+([.!?,])/g, '$1').replace(/\s{2,}/g, ' ').trim();
 }

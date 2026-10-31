@@ -286,30 +286,43 @@ async function tendKiln(a: BotAgent, args: Record<string, unknown>, signal: Abor
     const block = a.bot.blockAt(pos);
     if (block?.name !== 'furnace') { notes.push(`no furnace at ${f.x},${f.y},${f.z}`); continue; }
     const fw = await abortable(a.bot.openFurnace(block), signal);
+    // (#190: a step the window refuses, Mineflayer's "destination full", is noted and the furnace's other steps still run:
+    // a cold furnace with a full input slot made every tend throw at its load, before the refuel that would have lit it)
+    const step = async (what: string, run: () => Promise<unknown>) => {
+      try {
+        await run();
+        return true;
+      } catch (e) {
+        if (signal.aborted || (e as Error).message === 'cancelled') throw e;
+        notes.push(`${what} at ${f.x},${f.y},${f.z} refused (${String((e as Error).message).slice(0, 40)})`);
+        return false;
+      }
+    };
     try {
       const out = fw.outputItem();
-      if (out) {
+      if (out) await step(`taking ${out.count} ${out.name}`, async () => {
         const t = await fw.takeOutput();
         const n = t?.count ?? out.count;
         taken[out.name] = (taken[out.name] ?? 0) + n;
         unloadFurnace(f, n);
-      }
+      });
       // (what the furnace really holds: the record follows it, lesson 29; what it lost is the yard's again to want)
       const inp = fw.inputItem();
       unloadFurnace(f, f.n);
       if (inp && KILN_SMELTS[inp.name]) loadFurnace(f, inp.name, inp.count, Date.now(), scale);
       for (const p of mine) {
         const id = itemId(a, p.input)!;
-        const n = Math.min(p.n, countItem(a, id));
+        // (the slot's real room, not the record's: a cold furnace's input never cooked down)
+        const n = Math.min(p.n, countItem(a, id), SLOT - (fw.inputItem()?.count ?? 0));
         if (n <= 0) continue;
         if (fw.inputItem() && fw.inputItem()!.name !== p.input) { notes.push(`${f.x},${f.y},${f.z} still on ${fw.inputItem()!.name}`); continue; }
-        await fw.putInput(id, null, n);
+        if (!(await step(`loading ${n} ${p.input}`, () => fw.putInput(id, null, n)))) continue;
         loadFurnace(f, p.input, n, Date.now(), scale);
         loaded[p.input] = (loaded[p.input] ?? 0) + n;
         m.yard[p.input] = Math.max(0, (m.yard[p.input] ?? 0) - n);
         if (!m.yard[p.input]) delete m.yard[p.input];
       }
-      await topUp(fw, f);
+      await step('fuel', () => topUp(fw, f));
     } finally {
       fw.close();
     }

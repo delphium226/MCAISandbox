@@ -139,7 +139,7 @@ const UNDER_MS = 8 * 60000;
 const UNDER_IDLE = new Set(['wait', 'experiment']);
 /** #140 (F324): minutes (game time) a village leaves a bed flower it ran out of out of new mixes. */
 const FLOWER_OUT_MIN = 60;
-import { kilnHolds, kilnLanes, kilnLine } from '../kiln';
+import { kilnHolds, kilnLanes, kilnLine, kilnSize } from '../kiln';
 import { quarryLine } from '../quarry';
 
 /** Brains that only use the world interface (the scripted ones in brains.ts are sandbox-only). */
@@ -4237,7 +4237,8 @@ export class MineflayerWorld implements WorldAdapter {
         v.monument = newMonumentPicked(this.catalogWoodOf(v), now, pick.pick, pick.by, pick.why);
       } else v.monument = newMonument(this.catalogWoodOf(v), now);
       // (MC_CIVIC: the kiln, lodge and quarries the civic buildings left)
-      if (CIVIC.on) Object.assign(v.monument, civicKit(v));
+      // (#190: a kiln smaller than this record's own is left behind)
+      if (CIVIC.on) Object.assign(v.monument, civicKit(v, kilnSize(this.materials.plan(monumentPlan(v.monument).bill, {}).fuel.smelts)));
       // (M2, #145: the glass colours the flowers near the village give, chosen once; M3: the architect's when it chose)
       if (MONUMENT.glazing && v.monument.palette === 'full') {
         // (#162, MC_DYE_BED: the dye census, tall flowers and out to 144)
@@ -4295,7 +4296,7 @@ export class MineflayerWorld implements WorldAdapter {
     const o = options.find((x) => x.id === pick.id) ?? codePick(options);
     const rec = newCivic(o.id, o.scale, this.catalogWoodOf(v), now);
     rec.arch = { by: pick.by, reason: pick.reason, ...(pick.id ? {} : { fallback: pick.reason }) };
-    Object.assign(rec, civicKit(v));
+    Object.assign(rec, civicKit(v, kilnSize(this.materials.plan(monumentPlan(rec).bill, {}).fuel.smelts)));
     v.monument = rec;
     this.villages.save();
     const text = `The village begins ${o.title}, ${aKind(o.kind)} (1:${o.scale}): ${o.blocks} blocks in ${o.jobs} parts${pick.id ? `, chosen by ${pick.by}` : ''}`;
