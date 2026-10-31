@@ -114,7 +114,7 @@ import { cutWork, cutterOn } from './mcCutter';
 import { bedBuilding, dyeBedOn } from './mcDyeBed';
 import { DYE_BED, DYE_FLOWERS, DYE_REACH, TALL_FLOWERS, dyeRecipes, makeableColours, windowColours } from '../dyeBed';
 import { DETAIL_COLOURS } from '../gothicGen';
-import { CIVIC, CIVIC_KEEP, civicOptions, civicsStanding, civicDone, civicKit, codePick, CIVIC_SYSTEM, CIVIC_TOOL, CIVIC_SITE_FAILS, checkCivic, civicPrompt, civicLine, type CivicOption } from '../civic';
+import { CIVIC, CIVIC_KEEP, aKind, civicOptions, civicsStanding, civicDone, civicKit, codePick, CIVIC_SYSTEM, CIVIC_TOOL, CIVIC_SITE_FAILS, checkCivic, civicPrompt, civicLine, type CivicOption } from '../civic';
 import { newCivic, monumentType } from '../monument';
 import { stoneStandIn, DEEP_BLOCKS, deepStandIn, GEM_STAND, DYE_FAILS, DYE_WAIT_MIN, dyeStandIn, dyeStood, furnishLeaveOut, leftOutItems, refurnishOn, COPPER_ROOF, COPPER_BLOCKS, copperFrom, copperOn, copperReached, copperStandIn, reroofReturns } from '../monument';
 import { DEEP_KEEP, deepenForStone, setKeepCopper } from './mcMine';
@@ -4215,7 +4215,7 @@ export class MineflayerWorld implements WorldAdapter {
     if (CIVIC.on && v.monument && monumentType(v.monument) === 'civic' && (v.monument.state === 'built' || (v.monument.state === 'site' && (v.monument.fails ?? 0) >= CIVIC_SITE_FAILS))) {
       const c = civicDone(v, now);
       this.villages.save();
-      const text = c.skipped ? `The village gives up ${presetWords(c.preset)}: ${c.skipped}` : `The village finished ${presetWords(c.preset)} (a ${c.kind}, ${c.blocks} blocks)`;
+      const text = c.skipped ? `The village gives up ${presetWords(c.preset)}: ${c.skipped}` : `The village finished ${presetWords(c.preset)} (${aKind(c.kind)}, ${c.blocks} blocks)`;
       if (M3.news) this.monumentNews(v, text, 'Mayor');
       else this.villages.note(v, text);
       console.log(`[civic] ${v.name}: ${text}; ${civicLine(v)}`);
@@ -4298,7 +4298,7 @@ export class MineflayerWorld implements WorldAdapter {
     Object.assign(rec, civicKit(v));
     v.monument = rec;
     this.villages.save();
-    const text = `The village begins ${o.title}, a ${o.kind} (1:${o.scale}): ${o.blocks} blocks in ${o.jobs} parts${pick.id ? `, chosen by ${pick.by}` : ''}`;
+    const text = `The village begins ${o.title}, ${aKind(o.kind)} (1:${o.scale}): ${o.blocks} blocks in ${o.jobs} parts${pick.id ? `, chosen by ${pick.by}` : ''}`;
     if (M3.news) this.monumentNews(v, text, pick.id ? pick.by : 'Mayor');
     else this.villages.note(v, text);
     console.log(`[civic] ${v.name}: begun: ${monumentLine(rec)} (by ${pick.by}: ${pick.reason}; offered ${options.map((x) => `${x.id} 1:${x.scale} ${x.blocks}`).join(', ')})`);

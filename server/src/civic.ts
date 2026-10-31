@@ -159,11 +159,14 @@ export function civicOptions(v: Village, ironReached: boolean, n = CIVIC_LIST, o
     const d = c.design;
     out.push({
       id: e.id, title: e.title, kind: e.kind, age: e.age, scale, width: d.width, depth: d.depth, height: d.height, blocks: d.blocks, jobs: c.jobs.length,
-      line: `- ${e.id}: ${e.title} (${e.place}, ${e.built}), a ${e.kind}: ${e.description}. At 1:${scale}: ${d.width}x${d.depth}, ${d.height} high, ${d.blocks} blocks in ${c.jobs.length} parts; ${e.age === 'timber' ? 'timber (logs and planks)' : 'stone (cobblestone, stone bricks, glass)'}.`,
+      line: `- ${e.id}: ${e.title} (${e.place}, ${e.built}), ${aKind(e.kind)}: ${e.description}. At 1:${scale}: ${d.width}x${d.depth}, ${d.height} high, ${d.blocks} blocks in ${c.jobs.length} parts; ${e.age === 'timber' ? 'timber (logs and planks)' : 'stone (cobblestone, stone bricks, glass)'}.`,
     });
   }
   return out;
 }
+
+/** A kind with its article ("an almshouse", "a mill"). */
+export const aKind = (kind: string) => `${/^[aeiou]/i.test(kind) ? 'an' : 'a'} ${kind}`;
 
 /** Code's pick: the first option (the kinds not built yet come first). */
 export const codePick = (options: CivicOption[]) => options[0];

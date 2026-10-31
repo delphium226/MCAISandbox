@@ -39,7 +39,7 @@ import { KILN, kilnHolds } from './kiln';
 import { CUTTER, needsCutting, type CutStep, type CutterRecord } from './cutter';
 import type { DyeBed } from './dyeBed';
 import { FURNISH_STAGE, furnishKindOf, furnishKinds, furnishOn, furnishTrade, type FurnishKind } from './furnish';
-import { civicEntries, civicEntry, drawCivic } from './civic';
+import { aKind, civicEntries, civicEntry, drawCivic } from './civic';
 
 export { KILN };
 export const MONUMENT = {
@@ -860,7 +860,7 @@ export function stageParts(m: Monument): { stage: number; built: number; of: num
 export function progressLine(m: Monument, now: number, dayMs: number, member?: string): string {
   const c = monumentPlan(m), n = m3(m);
   const blocks = c.jobs.filter((j, i) => m.done.includes(i) && j.reroof === undefined && j.refurnish === undefined).reduce((t, j) => t + j.blocks, 0);
-  const head = monumentType(m) === 'civic' ? `The village's public building: ${cathedralName(m)}, a ${monumentNoun(m)} (at 1:${m.scale})` : `The village's monument: ${cathedralName(m)} (${presetWords(m.preset)} at 1:${m.scale})`;
+  const head = monumentType(m) === 'civic' ? `The village's public building: ${cathedralName(m)}, ${aKind(monumentNoun(m))} (at 1:${m.scale})` : `The village's monument: ${cathedralName(m)} (${presetWords(m.preset)} at 1:${m.scale})`;
   let what: string;
   if (m.state === 'built') {
     const fs = furnishStage(m), p = fs && currentStage(m) === fs ? stageParts(m) : null;
