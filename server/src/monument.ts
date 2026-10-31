@@ -520,7 +520,8 @@ export function kilnWants(m: Monument, plan: PlanOf): Record<string, number> {
     if (s.do !== 'smelt' || !s.input) continue;
     const input = rawName(m, s.input);
     // (#162 tier 3, chain B: raw copper for the copper roof's ingots)
-    if (input !== 'cobblestone' && input !== 'sand' && input !== 'raw_copper') continue;
+    // (MC_CIVIC: stone into smooth stone, the civic stone kinds' pads)
+    if (input !== 'cobblestone' && input !== 'sand' && input !== 'raw_copper' && input !== 'stone') continue;
     const n = Math.min(s.runs, Math.floor(m.yard[input] ?? 0) - (out[input] ?? 0));
     if (n > 0) out[input] = (out[input] ?? 0) + n;
   }
