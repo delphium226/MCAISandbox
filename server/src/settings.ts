@@ -101,6 +101,8 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'Barter between members (with MC_OWN).' },
   { name: 'MC_BARTER_LAPSE_MIN', type: 'number', default: '10', group: 'economy', live: false, read: 'barter.ts',
     describe: 'Minutes an unanswered barter offer stays up.' },
+  { name: 'MC_BED_WOOL', type: 'flag', default: 'on', group: 'needs', live: false, read: 'bedWool.ts',
+    describe: '#187: the members\' beds from the village\'s own sheep while any owned house lacks one: the forge makes shears before its pickaxe and bucket when nobody has a pair, leading sheep into a pen ranks first, and wild sheep are sheared by one member at a time, backed off 4 minutes after a shearing came back short. Off: the old order.' },
   { name: 'MC_BIG_HOUSES', type: 'string', default: 'both', group: 'building', live: false, values: ['off', 'long', 'both', 'x15'], read: 'designs.ts',
     describe: "#141: members' own houses bigger: long (+2 on the longer wall), both (+2 on each wall: 7x5 to 9x7, interior x2.1, wood +50%; the user's pick) or x15 (walls x1.5); the house and landmark budgets and the box cap rise with it." },
   { name: 'MC_BLOCK_MIN', type: 'number', default: '6', group: 'choices', live: false, read: 'mineflayer/mcWorld.ts',
@@ -557,9 +559,13 @@ export const SETTINGS: readonly Setting[] = [
     describe: '#75: public works may repeat a piece once the unbuilt ones run out (off by default, s43).' },
   { name: 'MC_WORK_BLOCKS', type: 'flag', default: 'off', group: 'choices', live: false, read: 'choose.ts, mineflayer/mcWorld.ts',
     describe: 'MC_WORK_BLOCKS: model decisions paced through the hour (modelCallsLastHour), at most PACE_BURST at a time.' },
-  { name: 'MC_WORLD_MODE', type: 'string', default: 'peaceful', group: 'server', live: false, values: ['peaceful', 'damage', 'easy', 'normal'],
+  { name: 'MC_WORLD_MODE', type: 'string', default: 'peaceful', group: 'server', live: false, values: ['peaceful', 'damage', 'easy', 'hostile', 'normal'],
     read: 'worldMode.ts, choose.ts, memory.ts, mineflayer/mcRules.ts, mineflayer/botAgent.ts, mineflayer/mcUtil.ts',
-    describe: 'The world\'s survival stage (worldMode.ts; peaceful by default, the user\'s 10-30): damage turns on falls, drowning and fire (still peaceful, always day; spawnpoints at the storage, air and fire reflexes, a drop limit of 4); easy is stage (b): easy difficulty, real hunger (the appetite reads the game food bar; an eating reflex), nights one sleeper in a bed ends (players_sleeping_percentage 1), the after-burn reflex and safe spawnpoints, no monsters; normal adds monsters (the stage (c) rules). keep_inventory stays on.' },
+    describe: 'The world\'s survival stage (worldMode.ts; peaceful by default, the user\'s 10-30): damage turns on falls, drowning and fire (still peaceful, always day; spawnpoints at the storage, air and fire reflexes, a drop limit of 4); easy is stage (b): easy difficulty, real hunger (the appetite reads the game food bar; an eating reflex), nights one sleeper in a bed ends (players_sleeping_percentage 1), the after-burn reflex and safe spawnpoints, no monsters; hostile is stage (c): easy plus monsters at night and in the dark, mob griefing off, the combat reflex (MC_COMBAT), swords and armour (MC_ARMS) and mob drops obtainable; normal is hostile on normal difficulty. keep_inventory stays on.' },
+  { name: 'MC_COMBAT', type: 'flag', default: 'on', group: 'server', live: false, read: 'mineflayer/mcCombat.ts',
+    describe: 'Survival stage (c), with monsters only (MC_WORLD_MODE=hostile or normal): the combat reflex (flee creepers, fight back armed, run to the storage hut for a sword unarmed, defend a member within 8 blocks, eat when hurt; direct-steer melee); off: the old self-defence reflex.' },
+  { name: 'MC_ARMS', type: 'flag', default: 'on', group: 'server', live: false, read: 'mineflayer/mcCombat.ts, mineflayer/mcWorld.ts',
+    describe: 'Survival stage (c), with monsters only: swords and armour are workshop goods (stone swords for half the members) and members take one of each from storage (near it, or anywhere at night).' },
 ];
 
 const BY_NAME = new Map(SETTINGS.map((s) => [s.name, s]));

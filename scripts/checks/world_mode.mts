@@ -37,7 +37,7 @@ if (process.env.MODE_CHILD) {
     spawn_monsters: 'false', spawn_phantoms: 'false', spawn_patrols: 'false', spawn_wardens: 'false', fire_spread_radius_around_player: '0', advance_time: 'false' };
   const p = MODES.peaceful, d = MODES.damage;
   ok(p.difficulty === 'peaceful' && !p.damage && !p.mobs && Object.entries(OLD).every(([k, v]) => p.rules[k] === v) && p.rules.mob_griefing === 'true'
-    && Object.keys(p.rules).length === 13 && p.rules.players_sleeping_percentage === '100', 'peaceful: the 11 rules as before, plus mob_griefing and players_sleeping_percentage at vanilla\'s true and 100');
+    && Object.keys(p.rules).length === 14 && p.rules.players_sleeping_percentage === '100' && p.rules.pvp === 'true', 'peaceful: the 11 rules as before, plus mob_griefing, players_sleeping_percentage and pvp at vanilla\'s true, 100 and true');
   ok(p.summary.startsWith('peaceful, no damage, keep_inventory, always day'), 'peaceful: the status line as before (the scripts\' and the hook\'s)');
   const changed = Object.keys(d.rules).filter((k) => d.rules[k] !== p.rules[k]).sort();
   ok(d.difficulty === 'peaceful' && d.damage && !d.mobs && changed.join() === 'drowning_damage,fall_damage,fire_damage'
@@ -49,6 +49,11 @@ if (process.env.MODE_CHILD) {
     'keep_inventory on, phantoms and patrols off in every mode (the user\'s 10-30)');
   ok(MODES.easy.difficulty === 'easy' && MODES.easy.rules.spawn_monsters === 'false' && MODES.easy.rules.advance_time === 'true', 'easy: stage (b): no monsters, day and night');
   ok(MODES.normal.mobs && MODES.normal.rules.spawn_monsters === 'true' && MODES.normal.rules.mob_griefing === 'false', 'normal: monsters, mob griefing off');
+  // Stage (c): hostile is easy with monsters, no griefing and no pvp (a sword's sweep hit a member); pvp off only with monsters
+  const h = MODES.hostile, hc = Object.keys(h.rules).filter((k) => h.rules[k] !== MODES.easy.rules[k]).sort();
+  ok(h.difficulty === 'easy' && h.mobs && h.hunger && h.nights && hc.join() === 'mob_griefing,pvp,spawn_monsters', `hostile: easy plus monsters, griefing and pvp off (${hc.join(', ')})`);
+  ok(WORLD_MODES.every((m) => (MODES[m].rules.pvp === 'false') === MODES[m].mobs), 'pvp off exactly where monsters come');
+  ok(parseMode('hostile') === 'hostile', 'parseMode: hostile');
   // Stage (b): one sleeper skips the night where nights fall; hunger real off peaceful difficulty
   ok(WORLD_MODES.every((m) => MODES[m].rules.players_sleeping_percentage === (MODES[m].nights ? '1' : '100') && (MODES[m].rules.advance_time === 'true') === MODES[m].nights),
     'players_sleeping_percentage 1 exactly where nights fall (easy, normal), 100 elsewhere');

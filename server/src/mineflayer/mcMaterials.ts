@@ -14,6 +14,7 @@ import type { Design } from '../village';
 import { hasJar, itemTag, listEntries, readJson, vanillaJar } from '../vanillaData';
 import { rawSetting } from '../settings';
 import { STRING } from '../supply';
+import { modeSpec } from '../worldMode';
 
 type Registry = ReturnType<typeof minecraftData>;
 export type Counts = Record<string, number>;
@@ -80,6 +81,20 @@ export const UNOBTAINABLE: Record<string, string> = {
 };
 // (#178, MC_STRING: string from cobwebs; still never planned to gather, only taken from stock)
 if (STRING) UNOBTAINABLE.string = 'from cobwebs underground: the string trip (a sword breaks them)';
+
+/**
+ * Survival stage (c) (spec_c.md 6): in a world with monsters (MC_WORLD_MODE=hostile or normal) their drops are obtainable:
+ * the validators accept them (`mobDropObtainable`), and a kill's pickups go into storage. The planner still never plans to
+ * gather them (they stay priced as UNOBTAINABLE, with the words below): only stock is used, as #178's string.
+ */
+export const MOB_DROPS: Record<string, string> = {
+  rotten_flesh: 'dropped by zombies at night (kills by members bring it in)', bone: 'dropped by skeletons at night (kills by members bring it in)',
+  string: 'dropped by spiders at night (kills by members bring it in)', spider_eye: 'dropped by spiders at night (kills by members bring it in)',
+  gunpowder: 'dropped by creepers, which explode: rarely brought in', ender_pearl: 'dropped by endermen at night (kills by members bring it in)',
+};
+if (modeSpec().mobs) for (const [n, why] of Object.entries(MOB_DROPS)) UNOBTAINABLE[n] = why;
+/** A mob drop in a world with monsters: obtainable (from stock, by kills), though never planned to gather. */
+export const mobDropObtainable = (item: string): boolean => modeSpec().mobs && item in MOB_DROPS;
 
 export const WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak', 'bamboo', 'crimson', 'warped'];
 /** A wooden item: its wood kind and part ("acacia", "planks"). */

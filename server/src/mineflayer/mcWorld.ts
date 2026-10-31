@@ -23,9 +23,9 @@ import { collectFilter, collectTargets, exposed, villageStationCell } from './mc
 import { at, nearestBlocks, onVillageGround, stateAt } from './mcUtil';
 import { teleportHome, underHome } from './mcRescue';
 import { annexBusy, growBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, storeBusy, surfaceAt, wheatKeep, writeBoard } from './mcBuild';
-import { ironDone, ironStairsHeld, mineAreas, mineGives, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
+import { ironDone, ironLevelFull, ironStairsHeld, mineAreas, mineGives, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PEN_KINDS, PEN_ORDER, PEN_VARIETY, SLOT_KINDS, SLOT_ORDER, penCap, penLure, penPlan, penSlotFit, penWords, worksFurnaces } from '../farmSlots';
-import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, ROD_GOOD, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
+import { ARMS_GOODS, FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, ROD_GOOD, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
 import { PROMPT_SELF, UNUSED_GOOD, UNUSED_TAG, ambitionGap, feedKinds, needsLine as basicNeedsLine, scarcityLine, selfLine, type HouseFacts, type SelfFacts } from '../promptSelf';
@@ -33,7 +33,7 @@ import { BAN_MEMBER, CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, basicOf, build
 import { Palette, reserved, type Dropped } from '../palette';
 import { workerNumber } from '../agentNames';
 import { KIND_PHRASE, TEMPERAMENT_MODE, activeKinds, kindWeights, optionWeight, personaOf, temperament, vectorOf } from '../temperament';
-import { GOALS_ON, GOAL_PIN, ensureGoals, goalLine, goalName, goalScore, goalWeight, goalsOf, noteEnd as goalNoteEnd, goalPlanOf, serves, specOf, topCraft, type Goals, type OptionFacts } from '../goals';
+import { GOALS_ON, GOAL_PIN, ensureGoals, goalLine, goalName, goalScore, goalWeight, goalsOf, noteEnd as goalNoteEnd, goalPlanOf, goalWordsDue, serves, specOf, topCraft, type Goals, type OptionFacts } from '../goals';
 import { IRON_AGE, IRON_MINERS, LADDER, LETTERS, RUNG_DEFS, VW, chooseRung, feedsStage, ladderOf, lettersCounts, lettersCurrent, lettersReached, LETTERS_BOOKS, noteLadder, openRungBallot, progressLine, rungOptions, rungPreview, stageTag, type Counter as LadderCounter, type LadderNews } from '../ladder';
 import type { RungId } from '../wanted';
 import type { ChronicleEntry } from '../social';
@@ -47,7 +47,7 @@ import type { AgentBrain } from '../world';
 import type { Area, Design, Initiative, Monument, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
 import { PART_RE, freeSpots, storageContents, storageFlow, storageGross, storageSlots, storageStrays } from './mcStorage';
-import { HOME_BASICS, basicsCost, basicsFacts, basicsLeft, basicsOf, freeDecorSlots, houseDecorOf, sheepPlace, woolInHand, type BasicsCells } from './mcHome';
+import { HOME_BASICS, basicsCost, basicsFacts, basicsLeft, basicsOf, bedsOwed, freeDecorSlots, houseDecorOf, sheepPlace, woolInHand, type BasicsCells } from './mcHome';
 import { HOUSE_DECOR, decorPicks, decorWants } from '../houseDecor';
 import { contractOf, deliveriesOf, deliveryWords, earmarked, levyOwed, levySweep, markAtEnd, reconcilePay, startPay, storeByCommand, type PayWorld } from './mcPay';
 import { PAY, payOf } from '../pay';
@@ -100,7 +100,8 @@ import { applyWrites } from '../memory';
 import { deathMemory, deathWords, type DeathCause } from './mcHazard';
 import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, etaMinutes, historyLines, initTalk, isStatusQuestion, matchWork, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, statusFor, statusLines, talkSystem, talkTool, talkUser, updateRequest, workWords, type PlayerRequest, type ReqProgress, type Respond, type WorkOffer } from '../playerTalk';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
-import { nightTick } from './mcSurvivalB';
+import { isNight, nightTick } from './mcSurvivalB';
+import { armTick, armsOn, combatCounts } from './mcCombat';
 import { nightsFall, realHunger, worldMode } from '../worldMode';
 import { APPETITE, FOOD_POINTS, appetiteOn, barLevel, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
@@ -117,6 +118,7 @@ import { CIVIC, CIVIC_KEEP, civicOptions, civicsStanding, civicDone, civicKit, c
 import { newCivic, monumentType } from '../monument';
 import { stoneStandIn, DEEP_BLOCKS, deepStandIn, GEM_STAND, DYE_FAILS, DYE_WAIT_MIN, dyeStandIn, dyeStood, furnishLeaveOut, leftOutItems, refurnishOn, COPPER_ROOF, COPPER_BLOCKS, copperFrom, copperOn, copperReached, copperStandIn, reroofReturns } from '../monument';
 import { DEEP_KEEP, deepenForStone, setKeepCopper } from './mcMine';
+import { BED_WOOL, WILD_SHEAR_KEY, noteWildShear, penOrder, shearsFirst, wildShearWait } from '../bedWool';
 import { DIAMONDS_ON, PICK_DIAMONDS, deepChain, deepDigBlocked, deepDigWords, deepenForDiamonds, diamondCounts, diamondForgeNeed, hasIronPick, ironFirstFact } from './mcDiamond';
 import { MORE_MINES, moreMinesDue } from '../mineSite';
 /** #162: minutes (game time) a stage waits for a quarried stone before the rest stands in as another. */
@@ -801,10 +803,12 @@ export class MineflayerWorld implements WorldAdapter {
       const wood = this.catalogWoodOf(v);
       goods = [...goods.filter((g) => !LETTERS_GOODS.some((q) => q.item === g.item)), ...LETTERS_GOODS.map((g) => (g.item === 'book' ? g : { ...g, wood }))];
     }
-    // (s43's innovation: the goods of the techniques the village unlocked, in place of a good of the same item)
-    if (!INNOVATE) return goods;
     // (#178, MC_STRING: fishing rods from the string trip's string)
     if (STRING && !goods.some((g) => g.item === ROD_GOOD.item)) goods = [...goods, ROD_GOOD];
+    // (survival (c), MC_ARMS: swords and armour where monsters come, in place of a good of the same item)
+    if (armsOn()) goods = [...goods.filter((g) => !ARMS_GOODS.some((q) => q.item === g.item)), ...ARMS_GOODS];
+    // (s43's innovation: the goods of the techniques the village unlocked, in place of a good of the same item)
+    if (!INNOVATE) return goods;
     const tech = techGoods(v);
     return tech.length ? [...goods.filter((g) => !tech.some((t) => t.item === g.item)), ...tech] : goods;
   }
@@ -1179,12 +1183,15 @@ export class MineflayerWorld implements WorldAdapter {
     const monumentBusy = MONUMENT.on && !!v.monument && v.monument.state !== 'site' && (v.monument.state !== 'built' || furnishStage(v.monument) > 0 && currentStage(v.monument) === furnishStage(v.monument));
     // (#168: the stairs one digger at a time; train 7 refused 29, 67 and 23 trips for them, each a member's chore)
     const stairsBy = ironStairsHeld(v.name, a.name, m, now);
+    // (#169: the trip places ironGate counts, a monument deep-level trip's among them)
+    const full = ironLevelFull(v.name, a.name, now);
     // (#22, MC_DIAMOND_AGE: a finished level is laid deeper while the village wants diamonds, so the dig stays offered; no
     // world test from here, the browsing member may be far from the mine: the stairs test the ground as they go)
     if (DIAMONDS_ON && ironDone(m, now)) deepenForDiamonds(this.villages, v, undefined, now);
     const pickless = deepDigBlocked(v, hasIronPick(a), store), deep = deepDigWords(v, store), first = ironFirstFact(v);
     if (ironDone(m, now)) why.push('iron level finished');
     else if (stairsBy) why.push(`the iron stairs being dug by ${stairsBy}`);
+    else if (full) why.push(`${numberWord(full.length)} miners on the iron level (${full.join(', ')})`);
     else if (monumentBusy && raw + ingots >= IRON_MONUMENT_ENOUGH && !deep) why.push(`iron enough while the monument is built (${raw + ingots} stored)`);
     else if (slot === undefined) why.push('every leg busy');
     else if (backing('dig')) why.push('digging backs off');
@@ -1263,6 +1270,13 @@ export class MineflayerWorld implements WorldAdapter {
       if (asker) return { tool: t, for: asker, why: 'asked for one', asked: true };
     }
     const members = [...this.agents.values()].filter((b) => b.village()?.name === v.name && b.memory.villageRole !== 'mayor');
+    // (#187, MC_BED_WOOL: houses without beds and no pair of shears in the village: shears first, 2 ingots)
+    if (BED_WOOL.on && !given.some((g) => g.item === 'shears')) {
+      const held = (storageContents(v).shears ?? 0) + [...this.agents.values()].filter((b) => b.village()?.name === v.name)
+        .reduce((n, b) => n + (b.bot?.inventory?.items().filter((i) => i.name === 'shears').reduce((t, i) => t + i.count, 0) ?? 0), 0);
+      const owed = bedsOwed(v, (id) => this.decorParts(v).find((q) => q.structure.id === id)?.basics);
+      if (shearsFirst(owed, held)) return { tool: 'shears', why: `${owed} house${owed === 1 ? '' : 's'} without a bed and no shears for the wool` };
+    }
     // (#22, MC_DIAMOND_AGE: a deep miner whose iron pickaxe wore out gets another: the rung's trips need one, and a deep
     // level's 1,000-odd blocks wear out four)
     if (DIAMONDS_ON && deepChain(v.mine))
@@ -1433,6 +1447,8 @@ export class MineflayerWorld implements WorldAdapter {
 
   private baseTarget(v: Village, g: MakeGood): number {
     if (g.rung === 'letters') return this.lettersTarget(v, g.item);
+    // (survival (c): stone swords for half the members; the rest as the table)
+    if (g.arms) return !armsOn() ? 0 : g.item === 'stone_sword' ? Math.max(2, Math.ceil(this.growMembers(v).length / 2)) : g.target;
     // (food, s30's D13: bread two a member, pies one for two, where the village keeps an appetite; none otherwise)
     // (s39 tier 1, MC_NEED_WORKS: three and one a member while the food flow is short)
     if (g.food) return !appetiteOn(v) ? 0 : foodTarget(g.item === 'bread' ? 'bread' : 'pumpkin_pie', this.growMembers(v).length, NEED_WORKS && !!v.foodFlow?.short);
@@ -2250,6 +2266,12 @@ export class MineflayerWorld implements WorldAdapter {
       nightTick(this.agents.values(), (a) => a.village());
     } catch (e) {
       console.error('[night] check failed:', e);
+    }
+    try {
+      const t = [...this.agents.values()].find((a) => typeof a.bot.time?.timeOfDay === 'number')?.bot.time.timeOfDay;
+      armTick(this.agents.values(), isNight(t));
+    } catch (e) {
+      console.error('[combat] arming check failed:', e);
     }
     this.utilTick();
     try {
@@ -6793,10 +6815,13 @@ export class MineflayerWorld implements WorldAdapter {
         else if (left.includes('bed')) {
           const shears = inv('shears') > 0 || (store.shears ?? 0) > 0;
           const sheep = sheepPlace(a, v);
+          const wait = wildShearWait(v.name, now);
           if (typeof sheep === 'string') reasons.own ??= `no wool for your bed: ${sheep}`;
+          else if (wait) reasons.own ??= `no wool for your bed now: ${wait}`;
+          else if (BED_WOOL.on && excluded([`${WILD_SHEAR_KEY}=`], busy)) reasons.own ??= 'no wool for your bed now: another member is shearing the sheep near the village';
           else if (!shears && (store.iron_ingot ?? 0) < 2 && (store.raw_iron ?? 0) < 2) reasons.own ??= 'no wool for your bed and no shears or 2 iron for a pair';
           else add({
-            id: 'own:shear', kind: 'own', key: me, holds: [], excludes: [`${me}=`], name: 'Shear wool for your bed', rank: 8, basic: true,
+            id: 'own:shear', kind: 'own', key: me, holds: BED_WOOL.on ? [WILD_SHEAR_KEY] : [], excludes: [`${me}=`, ...(BED_WOOL.on ? [`${WILD_SHEAR_KEY}=`] : [])], name: 'Shear wool for your bed', rank: 8, basic: true,
             ...(PROMPT_SELF ? { basicNeed: 'a bed' } : {}),
             at: { x: sheep.x, z: sheep.z },
             facts: `your ${words(st.kind)} has no bed and storage has no wool; 3 wool from the sheep at ${sheep.x},${sheep.z}${shears ? '' : ', shears made from 2 iron first'}; ${dist(sheep.x, sheep.z)}`,
@@ -7215,7 +7240,9 @@ export class MineflayerWorld implements WorldAdapter {
     else if (excluded(penEx, busy)) reasons.pen = 'busy';
     else {
       const slots = (lay0.slots ?? []).map((slot, jj) => ({ slot, j: jj + 1 })).filter(({ slot }) => slot.annex);
-      for (const [p, kind] of PEN_ORDER.entries()) {
+      // (#187, MC_BED_WOOL: sheep first while houses lack beds)
+      const kinds = BED_WOOL.on ? penOrder(PEN_ORDER, bedsOwed(v, (id) => this.decorParts(v).find((q) => q.structure.id === id)?.basics)) : PEN_ORDER;
+      for (const [p, kind] of kinds.entries()) {
         if (slots.some(({ slot }) => slot.kind === kind && (slot.pen?.animals ?? 0) >= 2)) continue;
         // (a lure storage holds; seeds also come from the grass. #139: a pig's carrots, potatoes or beetroot)
         const lure = penLure(kind, store);
@@ -8143,6 +8170,8 @@ export class MineflayerWorld implements WorldAdapter {
             }
             const n = Array.from({ length: DEEP_LANES }, (_, i) => i + 1).find((i) => !busy.has(`monument:deep:${i}`));
             if (!n || (this.monumentBack.get(`${v.name}:deep`) ?? 0) > now) continue;
+            // (#168, #169: a deep-level or copper trip is an iron trip: not while ironGate would refuse it)
+            if (IRON_AGE && (ironLevelFull(v.name, a.name, now) || ironStairsHeld(v.name, a.name, v.mine, now))) continue;
             const key = `monument:deep:${n}`;
             add({
               id: 'monument:deep', kind: 'monument', key, excludes: [`${key}=`], rank: 160,
@@ -8237,6 +8266,8 @@ export class MineflayerWorld implements WorldAdapter {
             }
             const n = Array.from({ length: COPPER_LANES }, (_, i) => i + 1).find((i) => !busy.has(`monument:copper:${i}`));
             if (!n || (this.monumentBack.get(`${v.name}:deep`) ?? 0) > now) continue;
+            // (#168, #169: a deep-level or copper trip is an iron trip: not while ironGate would refuse it)
+            if (IRON_AGE && (ironLevelFull(v.name, a.name, now) || ironStairsHeld(v.name, a.name, v.mine, now))) continue;
             const key = `monument:copper:${n}`;
             add({
               id: 'monument:copper', kind: 'monument', key, excludes: [`${key}=`], rank: 160,
@@ -8692,12 +8723,8 @@ export class MineflayerWorld implements WorldAdapter {
     const before = goalsOf(v)?.drawnFor;
     // (the start screen: a typed goal's unmatched words to the proposals store once per plan, kept on the village; #186:
     // not in goalPlanOf's fresh callback, which an earlier specOf takes silently)
-    const plan = goalPlanOf(v);
-    const vp = v as Village & { goalWordsSent?: string };
-    if (plan && PROPOSALS_ON && vp.goalWordsSent !== plan.hash && this.proposalCtx(v.name)) {
-      vp.goalWordsSent = plan.hash;
-      for (const [m, s] of Object.entries(plan.specs)) for (const w of s.unmatched) this.wantProposal(v.name, m, w, `words of my life goal "${s.text}" with no lever`, clockOf(v.name, Date.now())?.day ?? 0, 'goal');
-    }
+    if (PROPOSALS_ON) for (const w of goalWordsDue(v, () => !!this.proposalCtx(v.name)))
+      this.wantProposal(v.name, w.member, w.words, `words of my life goal "${w.text}" with no lever`, clockOf(v.name, Date.now())?.day ?? 0, 'goal');
     const g = ensureGoals(v, members, Date.now());
     // (MC_GOAL_PIN: each typed goal a kept line in its member's memory)
     if (GOAL_PIN) for (const m of members) {
@@ -9592,7 +9619,8 @@ export class MineflayerWorld implements WorldAdapter {
             worker.enqueue('shear_for_bed', { chore: true }),
             worker.enqueue('home_basics', { chore: true }),
           ];
-          this.setChore(v, worker, opt.key, ids, 'shear wool for your bed', undefined, meta, opt.holds, opt);
+          // (#187: a shearing that came back short backs the village's wild shearing off while the wool grows)
+          this.setChore(v, worker, opt.key, ids, 'shear wool for your bed', (why) => noteWildShear(v.name, /of 3 wool|no shearable sheep/.test(why)), meta, opt.holds, opt);
           console.log(`[home] ${v.name}: ${worker.name} goes to shear wool for its bed${d.make ? ' (shears made first)' : ''}`);
           return;
         }

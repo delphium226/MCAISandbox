@@ -6,15 +6,17 @@
  *  - peaceful: no hostile mobs, no damage, always day (the base premise);
  *  - damage: stage (a): falls, drowning and fire (lava too) hurt; still peaceful difficulty, always day;
  *  - easy: stage (b)'s rules: easy difficulty (hunger real, starvation stops at 10 hp), no monsters, day and night;
- *  - normal: stage (c)'s rules on normal difficulty: monsters at night and in the dark, mob griefing off.
+ *  - hostile: stage (c) (runs/2026-10-31/survival/spec_c.md): easy's rules plus monsters at night and in the dark, mob
+ *    griefing off; the combat reflex, arms and mob drops (mcCombat.ts);
+ *  - normal: hostile on normal difficulty (the harder step after it).
  * keep_inventory stays on in every mode (the user's, 10-30). Stage (b) (runs/2026-10-31/survival/spec_b.md) gives easy and
  * normal real hunger (appetite.ts reads vanilla's bar, an eating reflex) and nights one sleeper ends (mcSurvivalB.ts);
  * the fighting reflex's extensions are stage (c).
  */
 import { rawSetting } from './settings';
 
-export type WorldMode = 'peaceful' | 'damage' | 'easy' | 'normal';
-export const WORLD_MODES: readonly WorldMode[] = ['peaceful', 'damage', 'easy', 'normal'];
+export type WorldMode = 'peaceful' | 'damage' | 'easy' | 'hostile' | 'normal';
+export const WORLD_MODES: readonly WorldMode[] = ['peaceful', 'damage', 'easy', 'hostile', 'normal'];
 
 export interface ModeSpec {
   difficulty: 'peaceful' | 'easy' | 'normal';
@@ -51,6 +53,8 @@ const BASE: Record<string, string> = {
   mob_griefing: 'true',
   // (vanilla's 100; 1 with nights, so one sleeper of 25 skips the night: the user's 10-30)
   players_sleeping_percentage: '100',
+  // (vanilla's true; false with monsters: a sword's sweep hit a member beside the zombie, the stage (c) pair)
+  pvp: 'true',
 };
 const HURTS = { fall_damage: 'true', drowning_damage: 'true', fire_damage: 'true' };
 const NIGHTS = { advance_time: 'true', players_sleeping_percentage: '1' };
@@ -61,7 +65,9 @@ export const MODES: Record<WorldMode, ModeSpec> = {
     summary: 'peaceful, damage on (falls, drowning, fire), keep_inventory, always day (MC_WORLD_MODE=damage)' },
   easy: { difficulty: 'easy', rules: { ...BASE, ...HURTS, ...NIGHTS }, damage: true, mobs: false, hunger: true, nights: true,
     summary: 'easy, damage and hunger on, no monsters, keep_inventory, day and night (one sleeper skips it) (MC_WORLD_MODE=easy)' },
-  normal: { difficulty: 'normal', rules: { ...BASE, ...HURTS, ...NIGHTS, spawn_monsters: 'true', mob_griefing: 'false' }, damage: true, mobs: true, hunger: true, nights: true,
+  hostile: { difficulty: 'easy', rules: { ...BASE, ...HURTS, ...NIGHTS, spawn_monsters: 'true', mob_griefing: 'false', pvp: 'false' }, damage: true, mobs: true, hunger: true, nights: true,
+    summary: 'easy, damage and hunger on, monsters, no mob griefing, keep_inventory, day and night (one sleeper skips it) (MC_WORLD_MODE=hostile)' },
+  normal: { difficulty: 'normal', rules: { ...BASE, ...HURTS, ...NIGHTS, spawn_monsters: 'true', mob_griefing: 'false', pvp: 'false' }, damage: true, mobs: true, hunger: true, nights: true,
     summary: 'normal, damage and hunger on, monsters, no mob griefing, keep_inventory, day and night (one sleeper skips it) (MC_WORLD_MODE=normal)' },
 };
 
@@ -101,5 +107,6 @@ export function harmLine(mode: WorldMode = worldMode()): string {
     ? 'you live in a Minecraft world where monsters come out at night and in the dark, and falls, deep water, fire and lava hurt; '
     : 'you live in a Minecraft world with no monsters, but falls, deep water, fire and lava hurt; ')
     + 'a member who dies wakes at the village storage with their things and walks back to work.'
+    + (m.mobs ? ' A member with a sword fights back; one without runs to the storage hut, where swords are kept.' : '')
     + (m.hunger ? ' You get hungry and must eat (a starving member weakens), and nights fall; one member asleep in a bed ends the night for all.' : '');
 }

@@ -29,7 +29,9 @@ export interface MakeGood { item: string; target: number; batch: number; unit: n
   carve?: true;
   /** G8's rung goods (#21): made for the ladder's current rung, targets from its stages (the world's makeTarget), never a
    *  merchant order. */
-  rung?: 'letters' }
+  rung?: 'letters';
+  /** Survival (c)'s arms (MC_ARMS, mob modes only): targets from the members (the world's makeTarget), 0 elsewhere. */
+  arms?: true }
 
 /**
  * #21 (MC_LETTERS): the age of letters' goods, while letters is the current rung (spec 9 S4): books for the library (cane
@@ -58,6 +60,20 @@ export const MAKE_GOODS: MakeGood[] = [
   { item: 'stone_bricks', target: 32, batch: 16, unit: 4, words: 'stone bricks', forWhat: 'a stone brick stock for later buildings and the works' },
   { item: 'composter', target: 1, batch: 1, unit: 1, words: 'composters', forWhat: 'turns crops into bone meal (white dye, growth) once placed (later)', variant: 'slabs' },
   { item: 'ladder', target: 12, batch: 6, unit: 3, words: 'ladders', forWhat: 'ladders for the deep mine (later)' },
+];
+
+/**
+ * Survival stage (c) (spec runs/2026-10-31/survival/spec_c.md 5): swords and armour, made only in a world with monsters
+ * (MC_WORLD_MODE=hostile or normal, MC_ARMS; the world adds them to a village's goods and sets the targets: the stone
+ * sword half the members, the rest as here). Iron goods may take iron ingots, which make keeps back otherwise.
+ */
+const NIGHT_FACT = 'zombies and skeletons come at night on unlit ground: a member with a sword fights back, one without runs to the storage hut';
+export const ARMS_GOODS: MakeGood[] = [
+  { item: 'stone_sword', target: 0, batch: 2, unit: 1, words: 'stone swords', forWhat: `${NIGHT_FACT}; members take one from storage at dusk`, arms: true },
+  { item: 'iron_sword', target: 2, batch: 1, unit: 1, words: 'iron swords', forWhat: `${NIGHT_FACT}; an iron sword kills a zombie in 3 hits, a stone one in 4`, allow: ['iron_ingot'], arms: true },
+  { item: 'leather_chestplate', target: 2, batch: 1, unit: 1, words: 'leather tunics', forWhat: 'armour takes hits for its wearer; members put it on at dusk', arms: true },
+  { item: 'iron_helmet', target: 1, batch: 1, unit: 1, words: 'iron helmets', forWhat: 'armour takes hits for its wearer; members put it on at dusk', allow: ['iron_ingot'], arms: true },
+  { item: 'iron_chestplate', target: 1, batch: 1, unit: 1, words: 'iron chestplates', forWhat: 'armour takes hits for its wearer (iron the most); members put it on at dusk', allow: ['iron_ingot'], arms: true },
 ];
 
 /**

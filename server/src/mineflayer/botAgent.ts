@@ -17,9 +17,10 @@ import { ContentionError, at, goals, walk, wetAt } from './mcUtil';
 import { mineAreas } from './mcMine';
 import { home, outOfWater, rescue, swimUp, teleportHome } from './mcRescue';
 import { timeScale } from './mcRules';
-import { takesDamage } from '../worldMode';
+import { modeSpec, takesDamage } from '../worldMode';
+import { HOSTILE, combatTick, fightsMobs, mayWake } from './mcCombat';
 import { spawnCellFor, survivalB } from './mcSurvivalB';
-import { causeFromState, deathCauseOf, hazardOf, noteTrap, safeCellNear, trappedUnderWater, type DeathCause, type Hazard } from './mcHazard';
+import { causeFromState, deathCauseOf, hazardOf, lavaStep, noteTrap, safeCellNear, trappedUnderWater, type DeathCause, type Hazard } from './mcHazard';
 import { isPaused } from '../runClock';
 import { WALK_DIG } from './mcBlocks';
 import { GEODE_GROWTH, GEODE_GUARD, GEODE_LINING, geodeBreakCost, geodeStepCost, stateIds } from './mcGeode';
@@ -52,9 +53,6 @@ const PLAYER_HALF_WIDTH = 1229 / 4096; // 0.300048828125
  * the action got nowhere: a gatherer next to a tall tree, after a long walk, was "rescued" before that check.
  */
 const MOVE_FAILED = /stuck at|no path|timed out at/;
-
-/** Mobs the self-defence reflex fights (creepers are fled from instead). */
-const HOSTILE = new Set(['zombie', 'husk', 'drowned', 'zombie_villager', 'skeleton', 'stray', 'bogged', 'spider', 'cave_spider', 'witch', 'pillager', 'vindicator', 'slime', 'silverfish', 'phantom', 'creaking']);
 
 /**
  * What the bot's physics did during one walk (walkOnce sets it, the physicsTick listener counts), for the `[stuck]` log
@@ -410,7 +408,8 @@ export class BotAgent implements WorldAgent {
         // Damage informs the brain; it wakes the model only when nothing handles it: low health with no reflex running
         // (a death wakes it on its own event). Every hit used to wake it (the survival research's 3)
         const health = Math.round(bot.health);
-        const urgent = bot.health > 0 && bot.health <= 6 && !this.reflex;
+        // (survival (c): with monsters, at most once per 3 minutes per member: a night attack is no wake storm)
+        const urgent = bot.health > 0 && bot.health <= 6 && !this.reflex && (!modeSpec().mobs || mayWake(this.name));
         this.pushEvent('damage', `took ${Math.round(this.lastHealth - bot.health)} damage (health ${health})`, { health, urgent });
       }
       this.lastHealth = bot.health;
@@ -613,7 +612,9 @@ export class BotAgent implements WorldAgent {
     if (isPaused()) return;
     this.brain?.tick?.(this);
     if (takesDamage()) this.survival();
-    this.selfDefence();
+    // (survival (c), mcCombat.ts: the stage's reflex with monsters; the old one otherwise and with MC_COMBAT=off)
+    if (fightsMobs()) combatTick(this);
+    else this.selfDefence();
     if (this.reflex || this.current || !this.queue.length) return;
     const status = this.queue.shift()!;
     const run: Running = { status, abort: new AbortController(), from: this.bot.entity.position.clone() };
@@ -666,9 +667,10 @@ export class BotAgent implements WorldAgent {
     // (stage (b): the after-burn and the eating reflex, mcSurvivalB.ts; it keeps its own watch on fire and health, and
     // starts nothing while a reflex runs)
     survivalB(this);
-    if (this.reflex || now - this.hazardEnded < 1500) return;
+    if (this.reflex) return;
     const hz = hazardOf(this);
-    if (hz) this.hazardReflex(hz);
+    // (#188: lava at once, not after the 1.5 s pause: it kills from full health in ~2.5 s)
+    if (hz && (hz === 'lava' || now - this.hazardEnded >= 1500)) this.hazardReflex(hz);
   }
 
   /** A reflex is running (stage (b)'s night tick and reflexes ask before starting one). */
@@ -736,12 +738,19 @@ export class BotAgent implements WorldAgent {
     this.interrupt();
     const ac = new AbortController();
     this.reflex = ac;
+    // (#188: logged as it starts: a bot that dies in it left no line)
+    if (hz !== 'air') console.log(`[hazard] ${this.name} ${hz} at ${at(from)}: stepping out (health ${Math.round(this.bot.health ?? 0)})`);
     const out = async (): Promise<string> => {
       if (hz === 'air') {
         await swimUp(this, ac.signal);
         return 'swam up for air';
       }
       const c = safeCellNear(this);
+      // (#188: out of lava by steering, at most 2 s; the pathfinder's 5 s walk outlasted the bot)
+      if (hz === 'lava') {
+        if (await lavaStep(this, c, ac.signal)) return `stepped out of the lava${c ? ` toward ${at(c)}` : ''}`;
+        return 'still in lava after the step';
+      }
       if (c) {
         try {
           await walk(this, new goals.GoalBlock(c.x, c.y, c.z), `out of the ${hz}`, ac.signal, 5000);

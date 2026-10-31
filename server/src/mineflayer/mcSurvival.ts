@@ -13,6 +13,7 @@ import { quarryFeeds, quarryFor } from './mcQuarry';
 import { STORAGE_SKILLS, hutY, partBurn, storageContents, withdrawItems } from './mcStorage';
 import type { McSkill } from './mcSkills';
 import { timeScale } from './mcRules';
+import { melee } from './mcCombat';
 import { teleportHome } from './mcRescue';
 import { nearTrap } from './mcHazard';
 import { FARM_TRIP_RANGE, SCOUT_RANGE, STATION_NAMES, STATIONS_TASK, VILLAGE_RANGE, villageHome, type StationName, type Village } from '../village';
@@ -1920,7 +1921,6 @@ async function eat(a: BotAgent, args: Record<string, unknown>, signal: AbortSign
   return `ate ${food.name} (food ${Math.round(bot.food)}/20)`;
 }
 
-const WEAPONS = ['netherite_sword', 'diamond_sword', 'iron_sword', 'stone_sword', 'golden_sword', 'wooden_sword', 'netherite_axe', 'diamond_axe', 'iron_axe', 'stone_axe', 'wooden_axe'];
 
 export async function attack(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const bot = a.bot;
@@ -1938,29 +1938,10 @@ export async function attack(a: BotAgent, args: Record<string, unknown>, signal:
       : `no ${args.kind} within 32 blocks`);
   const what = target.name ?? target.username ?? 'target';
   if (what === 'creeper') throw new Error('do not fight creepers up close: they explode; move away from it instead');
-  const weapon = WEAPONS.map((w) => bot.inventory.items().find((it) => it.name === w)).find(Boolean);
-  if (weapon) await bot.equip(weapon, 'hand');
-  bot.pathfinder.setMovements(a.moves());
-  bot.pathfinder.setGoal(new goals.GoalFollow(target, 2), true);
-  const t0 = Date.now();
-  let hits = 0;
-  try {
-    while (bot.entities[target.id] && target.isValid !== false) {
-      checkAbort(signal);
-      if (Date.now() - t0 > 60000) throw new Error(`the ${what} is still alive after a minute (${hits} hits)`);
-      const d = target.position.distanceTo(bot.entity.position);
-      if (d > 40) throw new Error(`the ${what} got away`);
-      if (d < 3.2) {
-        await bot.lookAt(target.position.offset(0, (target.height ?? 1.6) * 0.8, 0), true);
-        bot.attack(target);
-        hits++;
-      }
-      await sleep(650, signal); // attack cooldown
-    }
-  } finally {
-    bot.pathfinder.setGoal(null);
-  }
-  return `killed the ${what} (${hits} hits)`;
+  // (survival (c): one melee for the skill and the reflex, mcCombat.ts: direct steering within 5 blocks, the weapon's cooldown)
+  const r = await melee(a, target, signal, { capMs: 60000 });
+  if (!r.killed) throw new Error(r.text);
+  return r.text;
 }
 
 // ---------------------------------------------------------------------------------------------

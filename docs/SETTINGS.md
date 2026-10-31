@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-264 settings.
+267 settings.
 
 ## Game speed
 
@@ -282,6 +282,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_APPETITE` | string | (unset) | yes |  | Appetite: off, or the food points drained a busy game-hour (18 typical). |
 | `MC_APPETITE_IDLE` | number | `0.25` |  |  | The share of the appetite drain while idle. |
 | `MC_APPETITE_START` | number | `20` |  |  | Food points a member starts with (0-20). |
+| `MC_BED_WOOL` | flag | `on` |  |  | #187: the members' beds from the village's own sheep while any owned house lacks one: the forge makes shears before its pickaxe and bucket when nobody has a pair, leading sheep into a pen ranks first, and wild sheep are sheared by one member at a time, backed off 4 minutes after a shearing came back short. Off: the old order. |
 | `MC_FIELD_RIPE` | number | `0.5` |  |  | The share of a wheat field's grown plants that must be ripe (and 4 at least) before it is offered for harvest; 0.5 gives about 1.5x the harvest options and a tenth more wheat (train 9c's supply gaps). |
 | `MC_FLOWER_WANTS` | flag | `on` |  |  | The flower picking activity is offered for a flower whose dye a good under its keep takes (lilac for magenta dye), counted by that flower's own stock, and picks it. |
 | `MC_HOME_BASICS` | flag | `on` |  |  | MC_HOME_BASICS: on by default since 10-24 (the user's, after test train 1); off turns it off. |
@@ -303,6 +304,8 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_AGENTS` | number | `0` |  |  | The sandbox: autonomous worker agents spawned at start. |
 | `MC_API_HOST` | string | `127.0.0.1` |  |  | The agent server's API address (0.0.0.0 for the LAN). |
 | `MC_API_PORT` | number | `8766` |  |  | The agent server's API and panel port. |
+| `MC_ARMS` | flag | `on` |  |  | Survival stage (c), with monsters only: swords and armour are workshop goods (stone swords for half the members) and members take one of each from storage (near it, or anywhere at night). |
+| `MC_COMBAT` | flag | `on` |  |  | Survival stage (c), with monsters only (MC_WORLD_MODE=hostile or normal): the combat reflex (flee creepers, fight back armed, run to the storage hut for a sword unarmed, defend a member within 8 blocks, eat when hurt; direct-steer melee); off: the old self-defence reflex. |
 | `MC_HOST` | string | `127.0.0.1` |  |  | The Minecraft server Mineflayer connects to. |
 | `MC_PORT` | number | `25565` |  |  | The Minecraft server port Mineflayer connects to; in the sandbox, its game server's port (default 8765). |
 | `MC_PVP` | string | `true` |  |  | The sandbox: true lets players hurt each other. |
@@ -313,7 +316,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_VERSION` | string | `26.1` |  |  | The Minecraft version Mineflayer speaks. |
 | `MC_VIEW_DISTANCE` | number | `10` |  |  | The sandbox: the players' view distance in chunks. |
 | `MC_WORLD` | string | `world` |  |  | The sandbox: the world's folder name under server/worlds. |
-| `MC_WORLD_MODE` | string | `peaceful` |  |  | The world's survival stage (worldMode.ts; peaceful by default, the user's 10-30): damage turns on falls, drowning and fire (still peaceful, always day; spawnpoints at the storage, air and fire reflexes, a drop limit of 4); easy is stage (b): easy difficulty, real hunger (the appetite reads the game food bar; an eating reflex), nights one sleeper in a bed ends (players_sleeping_percentage 1), the after-burn reflex and safe spawnpoints, no monsters; normal adds monsters (the stage (c) rules). keep_inventory stays on. |
+| `MC_WORLD_MODE` | string | `peaceful` |  |  | The world's survival stage (worldMode.ts; peaceful by default, the user's 10-30): damage turns on falls, drowning and fire (still peaceful, always day; spawnpoints at the storage, air and fire reflexes, a drop limit of 4); easy is stage (b): easy difficulty, real hunger (the appetite reads the game food bar; an eating reflex), nights one sleeper in a bed ends (players_sleeping_percentage 1), the after-burn reflex and safe spawnpoints, no monsters; hostile is stage (c): easy plus monsters at night and in the dark, mob griefing off, the combat reflex (MC_COMBAT), swords and armour (MC_ARMS) and mob drops obtainable; normal is hostile on normal difficulty. keep_inventory stays on. |
 | `MCAI_ACTS_LOG` | string | (unset) |  |  | Where the acts log goes (default: beside the choice log). |
 | `MCAI_CHOICE_LOG` | string | (unset) |  |  | Where the choice log (choices.jsonl) goes. |
 | `MCAI_ROOT` | string | (unset) |  |  | The repository root the server reads and writes under (a code snapshot sets it to the repo). |

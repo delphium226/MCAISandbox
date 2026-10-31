@@ -31,6 +31,7 @@ import { pause, resume, runState } from '../runClock';
 import { SETTING_CHANGES, rawSetting, setSetting, settingsNow } from '../settings';
 import { RULES, addLaw, boardSigns, enact, liveClaims, liveReports } from '../rules';
 import { CUSTOMS, CUSTOM_IDS, seed as seedCustom, seeds, type CustomId } from '../customs';
+import { combatCounts } from './mcCombat';
 
 // GET /api/perf's figures (E.1: [lag] shows only stalls over 2 s): the event loop's delay, sampled every 10 ms and started
 // over every minute, reported over that minute and the one before it (a stall recorded just before a restart would be
@@ -260,7 +261,9 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
   if (parts[1] === 'status') {
     return sendJson(res, 200, { world: 'minecraft', version: w.version, server: `${w.host}:${w.port}`, ticks: w.ticks, worldRules: w.worldRules, grow: GROW.on,
       // (s30's food step: the appetite's numbers, rate 0 when off, and the neighbourhood fields)
-      growFarms: GROW_FARMS, appetite: { rate: APPETITE.rate, idle: APPETITE.idle, start: APPETITE.start }, agents: [...w.agents.values()].map((a) => a.name) });
+      growFarms: GROW_FARMS, appetite: { rate: APPETITE.rate, idle: APPETITE.idle, start: APPETITE.start },
+      // (survival (c): the combat reflex's counts, mcCombat.ts)
+      combat: combatCounts, agents: [...w.agents.values()].map((a) => a.name) });
   }
   // The shared atlas: chunk summaries around a village's home, a point or the first agent (?village= | ?x=&z=, radius=)
   if (parts[1] === 'atlas') {
