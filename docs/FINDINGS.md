@@ -2465,3 +2465,23 @@ CLAUDE.md when a phase ends.
   **Food:** 0% hungry, fish 201 / 203, own-rod uses 6 / 17 with storage cleared of rods.
   **The rest:** [lag] 0 / 0, [stuck] 190 / 105; $1.28 / $1.34.
   Report: runs/2026-10-30/train14/report.md.
+- F345 (10-31, wants, G2) **Pursuits stalled by a clock artefact, and the wants' busy cost was the outlet's rest; the
+  tuning (MC_WANTS_TUNE, f90833b) removes both, but a work-limited village gains no total busy.** From trains 13-14's
+  four pilot runs (`runs/2026-10-31/wants/causes.txt`):
+  - **The stall clock:** 40 of 68 on-members' stalls (74 of 95 shadow) ended about one village day after a night
+    choice. "Stalled" compared day numbers, and a night choice crosses two of them in a day.
+  - **Other causes:** 37 stalls had steps that never moved the measure (wealth's own emeralds: 16). 24 had no step on any
+    menu (research and wealth offered without their options). Failed steps: 1.
+  - **Busy:** every outlet, asks included, ended in 2 minutes at the green. Hour-2 rest was 14-20 minutes a member
+    against off-members' 6, more than the busy gap.
+  - **The tuning:**
+    - stalls by time, with done steps counting;
+    - research and wealth candidates only with their option seen;
+    - no-path and 3-failure drops, re-planned the next night;
+    - rest only when chosen, 1 minute.
+  - **Simulator** (new `--stub-models`, 3 seeds a side):
+    - on-members' hour-2 busy 36-38% -> 42-46%, rest 20 -> 5 minutes, no stalls inside 25 minutes (12-15 before);
+    - the 24 workers' total is unchanged (48-49% against 48-51%): off-members lose what on-members gain.
+  - **Staged pair on world 5 (2x):** stall life 12-14 -> 21-22 wall minutes (1.2 -> 2+ village days), stalls 25 -> 7,
+    9 no-path drops.
+  - The 9.3 primary and persistence need the next model-driven train. Report: runs/2026-10-31/wants/report.md.
