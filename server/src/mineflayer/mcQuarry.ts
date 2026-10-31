@@ -35,7 +35,9 @@ export function quarryFeeds(v: Village | undefined, item: string): boolean {
   const m = v?.monument;
   // (#165: a dug-out pit is followed by a new one while the monument still wants cobblestone: Cologne 1:3's 27x27 pit gave
   // 2,395 of the ~5,000 it was sized for, 25 rows cut by caves and water, and the towers waited 19 minutes on the mine)
-  return QUARRY.on && MONUMENT.on && item === 'cobblestone' && !!m?.site?.prepared && (m.quarryBackoff ?? 0) <= Date.now();
+  // (MC_CIVIC: never for a civic building: a pit sized from its small bill dug only soil, 400 dirt and no stone, in the
+  // staged run; its cobblestone comes from storage and the village mine)
+  return QUARRY.on && MONUMENT.on && item === 'cobblestone' && !!m?.site?.prepared && (m as { type?: string }).type !== 'civic' && (m.quarryBackoff ?? 0) <= Date.now();
 }
 
 /** The cobblestone the cathedral still wants in all (the whole plan's raw bill less its yard): the pit's size. */

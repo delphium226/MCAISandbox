@@ -113,7 +113,7 @@ import { cutWork, cutterOn } from './mcCutter';
 import { bedBuilding, dyeBedOn } from './mcDyeBed';
 import { DYE_BED, DYE_FLOWERS, DYE_REACH, TALL_FLOWERS, dyeRecipes, makeableColours, windowColours } from '../dyeBed';
 import { DETAIL_COLOURS } from '../gothicGen';
-import { CIVIC, civicOptions, civicsStanding, civicDone, civicKit, codePick, CIVIC_SYSTEM, CIVIC_TOOL, CIVIC_SITE_FAILS, checkCivic, civicPrompt, civicLine, type CivicOption } from '../civic';
+import { CIVIC, CIVIC_KEEP, civicOptions, civicsStanding, civicDone, civicKit, codePick, CIVIC_SYSTEM, CIVIC_TOOL, CIVIC_SITE_FAILS, checkCivic, civicPrompt, civicLine, type CivicOption } from '../civic';
 import { newCivic, monumentType } from '../monument';
 import { stoneStandIn, DEEP_BLOCKS, deepStandIn, GEM_STAND, DYE_FAILS, DYE_WAIT_MIN, dyeStandIn, dyeStood, furnishLeaveOut, leftOutItems, refurnishOn, COPPER_ROOF, COPPER_BLOCKS, copperFrom, copperOn, copperReached, copperStandIn, reroofReturns } from '../monument';
 import { DEEP_KEEP, deepenForStone, setKeepCopper } from './mcMine';
@@ -8048,6 +8048,17 @@ export class MineflayerWorld implements WorldAdapter {
         // (#162 tier 3, chain B: the iron mine keeps the copper ore it meets while the roof wants raw copper)
         if (COPPER_ROOF.on) setKeepCopper(!!m3(m).copper && (wants.raw_copper ?? 0) > 0);
         for (const [item, q] of Object.entries(wants)) {
+          // (MC_CIVIC: a civic building takes what storage holds first, CIVIC_KEEP of each left for the village's chores;
+          // its bill is small, and the staged run's mill waited on a quarry for cobblestone storage held)
+          if (monumentType(m) === 'civic') {
+            const k = Math.min(q, Math.floor((storageContents(v)[item] ?? 0) - (m.yard[item] ?? 0) - CIVIC_KEEP));
+            if (k > 0) {
+              m.yard[item] = (m.yard[item] ?? 0) + k;
+              this.villages.save();
+              console.log(`[civic] ${v.name}: ${k} ${item} in storage claimed for the ${N}'s yard`);
+              if (k >= q) continue;
+            }
+          }
           // (#162, MC_DYE_BED: a dye the stage wants, made by the dyer: up to 8 a chore, 2 at once)
           if (/_dye$/.test(item) && dyeBedOn(v)) {
             // (train 7: a colour the dyers cannot make (DYE_FAILS chores failed, or wanted DYE_WAIT_MIN) stands in as plain

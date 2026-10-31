@@ -42,6 +42,8 @@ export function setCivic(s: Partial<typeof CIVIC>): void { Object.assign(CIVIC, 
 /** The options on the chooser's list, and the scales tried (1:N). */
 export const CIVIC_LIST = 6;
 export const CIVIC_SCALES = [1, 2, 3, 4];
+/** What a civic building leaves in storage of each item when it claims storage's stock for its yard. */
+export const CIVIC_KEEP = 32;
 /** A civic site that failed this often is given up and another building chosen. */
 export const CIVIC_SITE_FAILS = 3;
 
