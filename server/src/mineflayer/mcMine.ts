@@ -1858,9 +1858,7 @@ export function ironGate(village: string, name: string, i: IronLevel, until: num
   const now = Date.now();
   const trips = ironTrips.get(village) ?? new Map<string, number>();
   ironTrips.set(village, trips);
-  for (const [n, t] of trips) if (t <= now) trips.delete(n);
-  const others = [...trips.keys()].filter((n) => n !== name).length;
-  if (others >= IRON_MINERS) return `${['no', 'one', 'two', 'three', 'four'][IRON_MINERS] ?? IRON_MINERS} miners are on the iron level already; try again later`;
+  if (ironLevelFull(village, name, now)) return `${['no', 'one', 'two', 'three', 'four'][IRON_MINERS] ?? IRON_MINERS} miners are on the iron level already; try again later`;
   if (i.level === undefined) {
     const s = ironStairs.get(village);
     // (MC_IRON_STAIRS2: a second miner digs the second lane while its lock is free)
@@ -1870,6 +1868,26 @@ export function ironGate(village: string, name: string, i: IronLevel, until: num
   }
   trips.set(name, until + HOLD_MS);
   return null;
+}
+
+/**
+ * #169: the miners other than `name` holding the iron level's trip places, when they fill all IRON_MINERS (ironGate's
+ * count), else null. The menus read it too: the monument's deep-level chores run iron trips without an irondig slot, so
+ * train 7 offered a free slot while ironGate refused 13 and 20 trips.
+ */
+export function ironLevelFull(village: string, name: string, now = Date.now()): string[] | null {
+  const trips = ironTrips.get(village);
+  if (!trips) return null;
+  for (const [n, t] of trips) if (t <= now) trips.delete(n);
+  const others = [...trips.keys()].filter((n) => n !== name);
+  return others.length >= IRON_MINERS ? others : null;
+}
+
+/** A trip place taken by hand (scripts/checks/iron_menu_unit.mts). */
+export function holdIronTrip(village: string, name: string, until: number) {
+  const trips = ironTrips.get(village) ?? new Map<string, number>();
+  ironTrips.set(village, trips);
+  trips.set(name, until);
 }
 
 /** MC_IRON_AGE: the iron stairs taken by a miner standing at their start; false when another has them. */

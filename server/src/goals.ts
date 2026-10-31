@@ -127,6 +127,19 @@ export function goalPlanOf(v: Village, fresh?: (p: GoalPlan) => void): GoalPlan 
   return x.goalPlan;
 }
 
+/**
+ * #186: a typed plan's unmatched words, each with its member and text, once per plan hash (kept on the village as
+ * `goalWordsSent`), whoever put the plan on the village: specOf and the goal lines apply it without goalPlanOf's `fresh`
+ * callback. Empty when they were sent, there is no plan, or `ready()` is false (no proposals store yet: asked again later).
+ */
+export function goalWordsDue(v: Village, ready: () => boolean): Array<{ member: string; text: string; words: string }> {
+  const plan = goalPlanOf(v);
+  const x = v as Village & { goalWordsSent?: string };
+  if (!plan || x.goalWordsSent === plan.hash || !ready()) return [];
+  x.goalWordsSent = plan.hash;
+  return Object.entries(plan.specs).flatMap(([member, s]) => s.unmatched.map((words) => ({ member, text: s.text, words })));
+}
+
 /** A member's typed goal, if the run has one for it. */
 export const specOf = (v: Village, name: string): GoalSpec | undefined => (GOALS_ON ? goalPlanOf(v)?.specs[name] : undefined);
 

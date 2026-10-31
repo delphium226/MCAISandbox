@@ -111,5 +111,21 @@ G.setGoalPlan(plan);
   ok(drawnC[0]?.template === 'research', `a drawn goal's template (${drawnC[0]?.template})`);
 }
 
+// 7. #186: the unmatched words once per plan, even when specOf put the plan on the village first (no `fresh` callback)
+{
+  G.setGoalPlan(plan);
+  const v = village();
+  G.specOf(v, 'Mayor');
+  ok(!!G.goalPlanOf(v), 'specOf applied the plan');
+  ok(G.goalWordsDue(v, () => false).length === 0, 'no words before the proposals store is ready');
+  const due = G.goalWordsDue(v, () => true);
+  ok(due.length === 1 && due[0].member === workerName(2) && due[0].words === 'steal from each other', `the words after specOf (${JSON.stringify(due)})`);
+  ok(G.goalWordsDue(v, () => true).length === 0, 'sent once');
+  const again = G.parsePlan({ ...raw, hash: 'h3' })!;
+  G.setGoalPlan(again);
+  ok(G.goalWordsDue(v, () => true).length === 1, 'sent again for a new plan');
+  G.setGoalPlan(null);
+}
+
 console.log(`goal_plan: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

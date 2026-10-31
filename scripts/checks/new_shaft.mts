@@ -113,5 +113,23 @@ const cols = (i: IronLevel) => Array.from({ length: i.steps }, (_, k) => `${i.x 
   MM.releaseIronClaims('A', 'Ada');
 }
 
+// #169: the trip places as the menus see them are the ones ironGate counts, whatever chore took them (a monument
+// deep-level trip holds no irondig slot)
+{
+  const m = fresh();
+  m.iron!.level = 10;
+  const until = Date.now() + 5 * 60000;
+  ok(MM.ironLevelFull('B', 'Dev') === null, 'no trips: room');
+  for (const n of ['Ada', 'Ben']) ok(MM.ironGate('B', n, m.iron!, until) === null, `${n}'s trip goes down`);
+  MM.holdIronTrip('B', 'Cleo', until);
+  ok(JSON.stringify(MM.ironLevelFull('B', 'Dev')) === '["Ada","Ben","Cleo"]', `three on the level: full for Dev (${MM.ironLevelFull('B', 'Dev')})`);
+  ok(/three miners/.test(MM.ironGate('B', 'Dev', m.iron!, until) ?? ''), 'and ironGate refuses Dev');
+  ok(MM.ironLevelFull('B', 'Ada') === null && MM.ironGate('B', 'Ada', m.iron!, until) === null, 'a miner already down is not counted against itself');
+  ok(MM.ironLevelFull('B', 'Dev', until + 6 * 60000) === null, 'lapsed places free');
+  MM.releaseIronClaims('B', 'Cleo');
+  ok(MM.ironLevelFull('B', 'Dev') === null && MM.ironGate('B', 'Dev', m.iron!, until) === null, 'a released place: Dev goes down');
+  for (const n of ['Ada', 'Ben', 'Dev']) MM.releaseIronClaims('B', n);
+}
+
 console.log(`${failures ? 'FAILED' : 'ok'}: new_shaft ${checks - failures}/${checks}`);
 if (failures) process.exit(1);
