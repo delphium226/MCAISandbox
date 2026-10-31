@@ -124,21 +124,21 @@ export function survivalB(a: BotAgent): void {
   // (the fire and air reflexes are botAgent's: nothing here while one runs or the member stands in the fire)
   if (inHot || a.inReflex() || hazardOf(a)) return;
   // The after-burn: out of the fire or lava but still burning (the flag, or hurt within 2 s of being in or beside it):
-  // into water within 6 blocks, else to a safe cell away from the fire
+  // into water within 16 blocks, else to a safe cell away from the fire while one is beside it
   const wet = (bot.entity as unknown as { isInWater?: boolean }).isInWater;
   if (!wet && now - t.burnAt > 4000 && (onFireFlag(a) || (now - t.fireAt < 10000 && now - t.hurtAt < 2000))) {
     t.burnAt = now;
     // (#189: vanilla puts a burning member out only in water or rain, and after lava it burns ~8-15 s, a heart a second:
-    // Gus left the lava at 7 health with no water within 6 and burned to death. So water within 16, nearest first; else a
-    // carried water bucket poured at the feet and taken up again; else, out of the fire's reach, nothing here, so the
-    // eating reflex below can heal it: a walk "away from the fire" then only spent the seconds)
+    // Gus left the lava at 7 health with no water within 6 and burned to death. So water within 16, nearest first; else,
+    // out of the fire's reach, nothing here, so the eating reflex below can heal it: a walk "away from the fire" then only
+    // spent the seconds. A carried water bucket poured at the feet was tried live and left no water: Mineflayer's use of it
+    // emptied the bucket and placed nothing, three times)
     const w = waterNear(a, 16);
-    const bucket = w ? undefined : bot.inventory.items().find((i) => i.name === 'water_bucket');
-    const c = w || bucket || !hotBeside(a, feet) ? null : safeCellNear(a);
-    if (w || bucket || c) {
-      console.log(`[hazard] ${a.name} burning at ${at(feet)} (health ${Math.round(hp)}): ${w ? `to the water at ${at(w)}` : bucket ? 'pouring its water bucket' : `away from the fire to ${at(c!)}`}`);
+    const c = w || !hotBeside(a, feet) ? null : safeCellNear(a);
+    if (!w && !c) console.log(`[hazard] ${a.name} burning at ${at(feet)} (health ${Math.round(hp)}): no water within 16 blocks; it burns out (eating if it can)`);
+    if (w || c) {
+      console.log(`[hazard] ${a.name} burning at ${at(feet)} (health ${Math.round(hp)}): ${w ? `to the water at ${at(w)}` : `away from the fire to ${at(c!)}`}`);
       a.runReflex('burning', async (signal) => {
-        if (bucket) return pourOut(a, signal);
         const to = (w ?? c)!;
         await walk(a, new goals.GoalBlock(to.x, to.y, to.z), w ? 'into the water' : 'away from the fire', signal, w ? 8000 : 5000);
         return w ? `into the water at ${at(to)}` : `away from the fire to ${at(to)}`;
@@ -167,33 +167,6 @@ function hotBeside(a: BotAgent, feet: Vec3): boolean {
   if (HOT.has(name(a, feet.offset(0, -1, 0)))) return true;
   for (const dy of [0, 1]) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) if (HOT.has(name(a, feet.offset(dx, dy, dz)))) return true;
   return false;
-}
-
-/** #189: a carried water bucket poured at the feet (looking straight down: the source lands in the member's own cell,
- *  which puts it out) and the source taken up again a moment later, so no water is left on the village's ground. */
-async function pourOut(a: BotAgent, signal: AbortSignal): Promise<string> {
-  const bot = a.bot;
-  const full = bot.inventory.items().find((i) => i.name === 'water_bucket');
-  if (!full) throw new Error('no water bucket carried');
-  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-  await bot.equip(full, 'hand');
-  // (on the ground first: the reflex can start mid-step, and from the air the water lands below the feet; the live
-  // probe's three pours were all "nothing" at a feet cell read in the air)
-  for (let i = 0; i < 10 && !bot.entity.onGround && !signal.aborted; i++) await wait(100);
-  await bot.look(bot.entity.yaw, -Math.PI / 2, true);
-  bot.activateItem();
-  await wait(600);
-  const feet = bot.entity.position.floored();
-  const cell = [feet, feet.offset(0, -1, 0), feet.offset(0, 1, 0)].find((p) => name(a, p) === 'water');
-  const empty = bot.inventory.items().find((i) => i.name === 'bucket');
-  if (cell && empty) {
-    await bot.equip(empty, 'hand');
-    await bot.lookAt(cell.offset(0.5, 0.5, 0.5), true);
-    bot.activateItem();
-    await wait(300);
-  }
-  const left = cell && name(a, cell) === 'water';
-  return cell ? `poured its water bucket at ${at(cell)}${left ? ' (the water left there)' : ' and took it up again'}` : `its water bucket poured nothing at ${at(feet)}${empty ? ' (the bucket is empty)' : ''}`;
 }
 
 /** The nearest water to stand in within r blocks (feet in it, head in water or air), or null. */
