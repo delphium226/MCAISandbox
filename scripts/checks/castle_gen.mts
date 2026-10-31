@@ -1,10 +1,11 @@
 /**
  * The castle generator checked offline (the monument's second type, #153; server/src/castleGen.ts; no server), as
- * gothic_gen.mts checks the cathedral's: every preset at 1:4, 1:3 and 1:2 (and Conwy at 1:1), generated, validated as the
- * architect's designs are (Minecraft's blocks and states, sizes unlimited, no door rule: its gates are open passages),
- * and checked:
+ * gothic_gen.mts checks the cathedral's: every preset at 1:4 and 1:3 (Conwy and the White Tower also at 1:2, Conwy at
+ * 1:1), generated, validated as the architect's designs are (Minecraft's blocks and states, sizes unlimited, no door rule:
+ * its gates are open passages), and checked:
  * - the bill: designBill equals the generator's; Conwy's blocks in a range (1:2 4-12k, the note's estimate ~6-9k; 1:4
- *   1-4k), its parts all there (8 drum towers, 3 gates with 2 portcullises, a hall roof, battlements);
+ *   1-4k), its parts all there (8 drum towers, 3 gates with 2 portcullises, a hall roof, battlements); every preset at 1:3
+ *   holds 0.5-60k blocks, is at most 250 wide, stands as high as its tallest tower and roof, and has each hall it names;
  * - the stages and jobs: the stages (only those the preset has parts for, in the castle's order) and the jobs each sum
  *   to the whole bill, every cell in exactly one job, jobs at most 800 blocks and (but a stage's last) at least 300, and
  *   a sample of jobDesign holding just its job's cells;
@@ -109,8 +110,8 @@ if (out) fs.mkdirSync(out, { recursive: true });
 let failures = 0;
 const fail = (msg: string) => { failures++; console.log(`  FAIL ${msg}`); };
 const cases: Array<[string, number]> = [];
-for (const name of Object.keys(CASTLE_PRESETS)) cases.push([name, 4], [name, 3], [name, 2]);
-cases.push(['conwy', 1]);
+for (const name of Object.keys(CASTLE_PRESETS)) cases.push([name, 4], [name, 3]);
+cases.push(['conwy', 2], ['white_tower', 2], ['conwy', 1]);
 for (const [name, scale] of cases) {
   const t0 = Date.now();
   const c = generateCastle(CASTLE_PRESETS[name], scale);
@@ -136,6 +137,14 @@ for (const [name, scale] of cases) {
     const zc = Math.floor((d.depth - 1) / 2);
     const gate = [zc, zc + 1].some((z) => d.layers[0][z][0] !== '.' && d.layers[1][z][0] === '.' && d.layers[2][z][0] === '.');
     if (!gate) fail(`no opening at x = 0 by z ${zc}`);
+  }
+  if (scale === 3) {
+    const P = CASTLE_PRESETS[name];
+    if (total < 500 || total > 60000) fail(`${total} blocks at 1:3, outside 0.5-60k`);
+    if (d.width > 250 || d.depth > 250) fail(`${d.width}x${d.depth} at 1:3, wider than 250`);
+    const want = Math.round(Math.max(P.keep?.h ?? 0, ...P.towers.map((t) => t.h + (t.roof ?? 0)), P.wallHeight) / scale) - 2;
+    if (d.height < want) fail(`${d.height} high at 1:3, its tallest part wants ${want}`);
+    if (P.halls.length && !c.stageNames.includes('halls and roofs')) fail('no hall drawn');
   }
   if (c.stages.reduce((t, n) => t + n, 0) !== total) fail('stages do not sum to the design');
   if (c.jobs.reduce((t, j) => t + j.blocks, 0) !== total || c.cellJob.size !== total) fail('jobs do not sum to the design');

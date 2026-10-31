@@ -1,10 +1,11 @@
 /**
  * The Gothic cathedral generator checked offline (the monument, M0; server/src/gothicGen.ts; no server): every preset at
- * 1:4 and 1:2 (and Notre-Dame at 1:1, Cologne at 1:3, its live scale), generated, validated as the architect's designs are (validateDesign with
+ * 1:4 and 1:3 (the first four also at 1:2, Notre-Dame at 1:1), generated, validated as the architect's designs are (validateDesign with
  * Minecraft's blocks and states, sizes unlimited, no door rule: its portals are open arches), and checked:
  * - the bill: designBill (what a build charges) equals the generator's, and Notre-Dame's blocks fall in a range: 1:2
  *   6-22k (the report's shell estimate was ~12.5k, its detailed one ~20k; the generator's one-block walls and hollow
- *   towers came to ~8k), 1:4 a church of 2-6k;
+ *   towers came to ~8k), 1:4 a church of 2-6k; every preset at 1:3 holds 2-60k blocks, is at most 250 wide, and stands as
+ *   high as its tallest tower and spire (the parts were drawn);
  * - the stages and jobs: the eight stages and the jobs each sum to the whole bill, every cell in exactly one job, jobs
  *   at most 800 blocks and (but a stage's last) at least 300, and every job's jobDesign holding just its cells;
  * - every roof stair faces uphill (the cell on its facing side is higher or holds a block at its layer, the one behind
@@ -114,8 +115,9 @@ if (out) fs.mkdirSync(out, { recursive: true });
 let failures = 0;
 const fail = (msg: string) => { failures++; console.log(`  FAIL ${msg}`); };
 const cases: Array<[string, number]> = [];
-for (const name of Object.keys(GOTHIC_PRESETS)) cases.push([name, 4], [name, 2]);
-cases.push(['notre_dame', 1], ['cologne', 3]);
+for (const name of Object.keys(GOTHIC_PRESETS)) cases.push([name, 4], [name, 3]);
+for (const name of ['notre_dame', 'salisbury', 'chartres', 'cologne']) cases.push([name, 2]);
+cases.push(['notre_dame', 1]);
 for (const [name, scale] of cases) {
   const t0 = Date.now();
   const c = generateCathedral(GOTHIC_PRESETS[name], scale, { detail: DETAIL });
@@ -150,6 +152,14 @@ for (const [name, scale] of cases) {
   for (const k of new Set([...Object.keys(bill), ...Object.keys(c.bill)])) if ((bill[k] ?? 0) !== (c.bill[k] ?? 0)) fail(`bill ${k}: designBill ${bill[k]} vs ${c.bill[k]}`);
   if (name === 'notre_dame' && scale === 2 && (total < 6000 || total > 22000)) fail(`Notre-Dame 1:2 has ${total} blocks, outside 6-22k`);
   if (name === 'notre_dame' && scale === 4 && (total < 2000 || total > 6000)) fail(`Notre-Dame 1:4 has ${total} blocks, outside 2-6k`);
+  if (scale === 3) {
+    const P = GOTHIC_PRESETS[name];
+    if (total < 2000 || total > 60000) fail(`${total} blocks at 1:3, outside 2-60k`);
+    if (d.width > 250 || d.depth > 250) fail(`${d.width}x${d.depth} at 1:3, wider than 250`);
+    const tops = [P.towers ? P.towerHeight + Math.max(0, ...P.spires) : 0, P.crossing === 'tower' ? P.crossingHeight + P.crossingSpire : 0, ...(P.sideTowers ?? []).map((t) => t.height + t.spire)];
+    const want = Math.round(Math.max(P.vault, ...tops) / scale) - 2;
+    if (d.height < want) fail(`${d.height} high at 1:3, its tallest part wants ${want}`);
+  }
   if (c.stages.reduce((t, n) => t + n, 0) !== total) fail('stages do not sum to the design');
   if (c.jobs.reduce((t, j) => t + j.blocks, 0) !== total || c.cellJob.size !== total) fail('jobs do not sum to the design');
   c.jobs.forEach((j, i) => {

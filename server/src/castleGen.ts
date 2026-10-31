@@ -5,9 +5,10 @@
  * wall segments between tower centres (solid, a wall-walk with a parapet and merlons on the outer face), gatehouses (an
  * open passage through a wall with a raised portcullis, and a barbican in front: a walled forecourt with corner turrets),
  * halls against a curtain (a stone shell with windows and a timber roof whose stairs face uphill) and a square keep (the
- * White Tower's: pilaster buttresses, corner turrets, timber floors, windows). Presets give a real castle's measures in
- * metres (1 m = 1 block at 1:1; approximate, from the standard histories); the scale divides them, with minimums that
- * keep every passage walkable. Code draws every cell, so the bill is exact (lesson 1).
+ * White Tower's: pilaster buttresses, corner turrets, timber floors, windows). A tower may be square and may carry a conical
+ * roof instead of battlements; a wall may have its own height and thickness (a concentric castle's low outer ring) and end
+ * at a plain corner with no tower. Presets give a real castle's measures in metres (1 m = 1 block at 1:1; approximate,
+ * from the standard histories); the scale divides them, with minimums that keep every passage walkable. Code draws every cell, so the bill is exact (lesson 1).
  *
  * The plan's long axis runs west to east (x), its main gate in the west at x = 0 and the middle of z, as the cathedral's
  * west portal (monument.ts' site search puts that door toward the village). The output is gothicGen's Cathedral shape
@@ -21,9 +22,13 @@ import type { Design } from './village';
 export interface CastleTower {
   /** Centre in metres in the plan (x west to east, z north to south). */
   x: number; z: number;
-  /** Diameter and height (metres); a slim watch turret on its top. */
+  /** Diameter and height (metres; d 0: a corner of the curtain with no tower); a slim watch turret on its top. */
   d: number; h: number;
   turret?: boolean;
+  /** A square tower (side d) rather than a drum (Vincennes', Malbork's). */
+  square?: boolean;
+  /** A conical roof (a pyramid on a square tower) this high above the top, in place of the battlements (metres). */
+  roof?: number;
 }
 export interface CastleGate {
   /** The wall it passes through: between the centres of towers a and b. */
@@ -39,8 +44,9 @@ export interface CastlePreset {
   wallHeight: number;
   wallThick: number;
   towers: CastleTower[];
-  /** Curtain segments, by tower index: the ring and any cross-walls. */
-  walls: Array<[number, number]>;
+  /** Curtain segments, by tower index: the ring and any cross-walls; a third and fourth number give that segment its own
+   *  height and thickness (metres: a concentric castle's low outer ring). */
+  walls: Array<[number, number] | [number, number, number, number]>;
   gates: CastleGate[];
   /** Halls against a curtain, metres: the box they stand in (one side on the curtain) and their wall height. */
   halls: Array<{ x0: number; x1: number; z0: number; z1: number; h: number }>;
@@ -54,6 +60,21 @@ export interface CastlePreset {
 /** The towers of a rectangle of 2 x n drum towers (north row then south row). */
 const rowTowers = (xs: number[], width: number, d: number, h: number, turret: (i: number) => boolean): CastleTower[] =>
   [0, width].flatMap((z) => xs.map((x, i) => ({ x, z, d, h, turret: turret(i) })));
+/** A tower at (x, z), d across, h high. */
+const T = (x: number, z: number, d: number, h: number, more: Partial<CastleTower> = {}): CastleTower => ({ x, z, d, h, ...more });
+/** Walls round towers from..from+n-1 in order, closing the ring (a height and thickness each when given). */
+const loop = (from: number, n: number, ht?: [number, number]): CastlePreset['walls'] =>
+  Array.from({ length: n }, (_, i) => (ht ? [from + i, from + ((i + 1) % n), ...ht] : [from + i, from + ((i + 1) % n)]));
+/** n towers round an ellipse (centre and semi-axes, metres), clockwise from just north of its west point; the first and
+ *  last stand either side of the west point at least 26 m apart, room for a gate between them at every scale. */
+const ellipseTowers = (cx: number, cz: number, a: number, b: number, n: number, d: number, h: number, more: Partial<CastleTower> = {}): CastleTower[] => {
+  const t0 = Math.max(Math.PI / n, Math.asin(Math.min(1, 13 / b)));
+  const r1 = (v: number) => Math.round(v * 10) / 10;
+  return Array.from({ length: n }, (_, i) => {
+    const t = t0 + (i * (2 * Math.PI - 2 * t0)) / (n - 1);
+    return T(r1(cx - a * Math.cos(t)), r1(cz - b * Math.sin(t)), d, h, more);
+  });
+};
 
 export const CASTLE_PRESETS: Record<string, CastlePreset> = {
   conwy: {
@@ -77,6 +98,275 @@ export const CASTLE_PRESETS: Record<string, CastlePreset> = {
     description: 'The White Tower of London: a square Norman keep with pilaster buttresses and corner turrets, one round',
     wallHeight: 0, wallThick: 0, towers: [], walls: [], gates: [], halls: [],
     keep: { x: 0, z: 0, w: 36, d: 32, h: 27, t: 4, round: 'ne' },
+    gateWidth: 3, gateHeight: 5,
+  },
+  // The presets below are turned so their main gate faces west (x = 0), as the site search wants; the measures are the
+  // sources' (runs/2026-10-31/monuments40/report.md), the plans drawn from them with round numbers
+  caernarfon: {
+    name: 'caernarfon',
+    description: 'Caernarfon: a long hourglass of great polygonal towers, the Eagle Tower at its end, a twin-towered gate in the middle of one side',
+    // ~150 x 44 m, two wards split at the waist by the King's Gate; curtain ~18 m, 4.5 m thick; the Queen's Gate at x = 0
+    wallHeight: 18, wallThick: 4.5,
+    towers: [T(0, 10, 10, 20), T(16, 0, 12, 22), T(58, 8, 11, 22), T(82, 8, 11, 22), T(114, 0, 12, 22), T(150, 22, 18, 28, { turret: true }),
+      T(118, 44, 13, 24), T(82, 42, 14, 24), T(50, 40, 11, 20), T(22, 44, 11, 20), T(0, 34, 10, 20)],
+    walls: [...loop(0, 11), [3, 7]],
+    gates: [{ a: 10, b: 0, portcullis: true, barbican: 0 }, { a: 2, b: 3, portcullis: true, barbican: 0 }, { a: 3, b: 7, portcullis: false, barbican: 0 }],
+    halls: [{ x0: 88, x1: 118, z0: 30, z1: 44, h: 10 }],
+    gateWidth: 3, gateHeight: 5,
+  },
+  harlech: {
+    name: 'harlech',
+    description: 'Harlech: a concentric square, four drum towers and a great twin-towered gatehouse inside a low outer wall',
+    // inner ward ~52 x 48 m, curtain 12 m and 3 m thick, gatehouse towers 24 m apart; the outer wall 8 m high, drawn 20 m
+    // out (the real outer ward is ~10 m, too narrow beside 1:4's towers) with its small towers left out
+    wallHeight: 12, wallThick: 3,
+    towers: [T(0, 0, 10, 16, { turret: true }), T(52, 0, 10, 15, { turret: true }), T(52, 48, 10, 13), T(0, 48, 10, 13), T(0, 36, 11, 20), T(0, 12, 11, 20),
+      T(-20, -20, 0, 0), T(72, -20, 0, 0), T(72, 68, 0, 0), T(-20, 68, 0, 0)],
+    walls: [...loop(0, 6), ...loop(6, 4, [8, 1.5])],
+    gates: [{ a: 4, b: 5, portcullis: true, barbican: 0 }, { a: 9, b: 6, portcullis: true, barbican: 12 }],
+    halls: [{ x0: 12, x1: 40, z0: 0, z1: 12, h: 8 }],
+    gateWidth: 3, gateHeight: 5,
+  },
+  beaumaris: {
+    name: 'beaumaris',
+    description: 'Beaumaris: the perfect concentric castle, a square inner ward with two great gatehouses inside a ring of twelve towers',
+    // inner ward 60 x 54 m, curtain 11 m and 4.8 m thick, six towers and two twin-D gatehouses; outer ward 18 m wide,
+    // its curtain 8 m high and 1.5 m thick with 6 towers (12 real: at 1:4 the rest would wall the outer ward into
+    // pockets) and the gates in line with the inner ones (the real ones are offset)
+    wallHeight: 11, wallThick: 4.8,
+    towers: [T(0, 0, 12, 15), T(30, 0, 10, 15), T(60, 0, 12, 15), T(60, 15, 11, 18, { turret: true }), T(60, 39, 11, 18, { turret: true }),
+      T(60, 54, 12, 15), T(30, 54, 10, 15), T(0, 54, 12, 15), T(0, 39, 11, 18, { turret: true }), T(0, 15, 11, 18, { turret: true }),
+      T(-19, -19, 8, 10), T(30, -19, 5, 9), T(79, -19, 8, 10), T(79, 73, 5, 9), T(30, 73, 5, 9), T(-19, 73, 5, 9)],
+    walls: [...loop(0, 10), ...loop(10, 6, [8, 1.5])],
+    gates: [{ a: 8, b: 9, portcullis: true, barbican: 0 }, { a: 3, b: 4, portcullis: true, barbican: 0 },
+      { a: 15, b: 10, portcullis: true, barbican: 10 }, { a: 12, b: 13, portcullis: false, barbican: 0 }],
+    halls: [],
+    gateWidth: 3, gateHeight: 5,
+  },
+  edinburgh: {
+    name: 'edinburgh',
+    description: 'Edinburgh: batteries round the crag top, the Half Moon Battery by the gate, a Portcullis Gate to Crown Square and its Great Hall',
+    // ~220 x 85 m along the summit (the rock left out); the Great Hall 29 x 12.5 m on the south side of Crown Square
+    wallHeight: 10, wallThick: 3,
+    towers: [T(0, 28, 8, 14), T(40, 0, 10, 12), T(120, 5, 10, 12), T(170, 0, 8, 12), T(220, 30, 10, 14), T(190, 80, 10, 14), T(120, 85, 10, 12),
+      T(60, 80, 24, 20), T(0, 52, 8, 14)],
+    walls: [...loop(0, 9), [2, 6]],
+    gates: [{ a: 8, b: 0, portcullis: true, barbican: 0 }, { a: 2, b: 6, portcullis: true, barbican: 0 }],
+    halls: [{ x0: 140, x1: 175, z0: 66, z1: 84, h: 12 }],
+    gateWidth: 3, gateHeight: 5,
+  },
+  windsor: {
+    name: 'windsor',
+    description: 'Windsor: three wards in a line, the Round Tower in the middle, St George\'s Chapel below and the state apartments above',
+    // ~470 x 110 m; the Round Tower 31 m across and 30 m high (its motte left out), the Curfew Tower under a cone
+    wallHeight: 12, wallThick: 2.5,
+    towers: [T(0, 10, 10, 18, { roof: 10 }), T(170, 0, 10, 16), T(260, 0, 10, 16), T(470, 0, 12, 20), T(470, 110, 12, 20), T(260, 110, 10, 16),
+      T(170, 105, 10, 16), T(85, 105, 10, 16), T(0, 90, 10, 16), T(0, 62, 8, 14), T(0, 38, 8, 14), T(215, 55, 31, 30)],
+    walls: [...loop(0, 11), [1, 6], [2, 5]],
+    gates: [{ a: 9, b: 10, portcullis: true, barbican: 0 }, { a: 1, b: 6, portcullis: false, barbican: 0 }, { a: 2, b: 5, portcullis: true, barbican: 0 }],
+    halls: [{ x0: 30, x1: 100, z0: 0, z1: 22, h: 18 }, { x0: 275, x1: 455, z0: 0, z1: 25, h: 20 }],
+    gateWidth: 3, gateHeight: 5,
+  },
+  dover: {
+    name: 'dover',
+    description: 'Dover: Henry II\'s great square keep in an inner bailey of square towers, inside the first concentric outer wall',
+    // keep ~30 m square, 25 m high, walls 6.4 m; inner bailey ~90 x 70 m with 12 square towers (14 real); the outer wall
+    // drawn 40 m out (the real one runs ~400 m), 10 m high
+    wallHeight: 12, wallThick: 3,
+    towers: [T(0, 0, 8, 16, { square: true }), T(30, 0, 8, 16, { square: true }), T(60, 0, 8, 16, { square: true }), T(90, 0, 8, 16, { square: true }),
+      T(90, 23, 8, 16, { square: true }), T(90, 47, 8, 16, { square: true }), T(90, 70, 8, 16, { square: true }), T(60, 70, 8, 16, { square: true }),
+      T(30, 70, 8, 16, { square: true }), T(0, 70, 8, 16, { square: true }), T(0, 47, 8, 16, { square: true }), T(0, 23, 8, 16, { square: true }),
+      T(-45, -40, 9, 12), T(45, -40, 9, 12), T(135, -40, 9, 12), T(135, 35, 9, 12), T(135, 110, 9, 12), T(45, 110, 9, 12), T(-45, 110, 9, 12),
+      T(-45, 47, 9, 12), T(-45, 23, 9, 12)],
+    walls: [...loop(0, 12), ...loop(12, 9, [10, 2.5])],
+    gates: [{ a: 10, b: 11, portcullis: true, barbican: 0 }, { a: 4, b: 5, portcullis: true, barbican: 0 }, { a: 19, b: 20, portcullis: true, barbican: 12 }],
+    halls: [],
+    keep: { x: 30, z: 20, w: 30, d: 30, h: 25, t: 6.4 },
+    gateWidth: 3, gateHeight: 5,
+  },
+  bodiam: {
+    name: 'bodiam',
+    description: 'Bodiam: a moated quadrangle, round towers at the corners, square ones between, a twin-towered gatehouse and its barbican',
+    // ~60 x 50 m, corner towers 9.4 m across and 18 m high, curtain 12 m and 2.1 m thick; the hall's range along the side
+    // whose middle tower is left out (no room for both at 1:3), the moat left out
+    wallHeight: 12, wallThick: 2.1,
+    towers: [T(0, 0, 9.4, 18), T(60, 0, 9.4, 18), T(60, 25, 7, 18, { square: true }), T(60, 50, 9.4, 18),
+      T(30, 50, 7, 18, { square: true }), T(0, 50, 9.4, 18), T(0, 37, 8, 20, { square: true }), T(0, 13, 8, 20, { square: true })],
+    walls: loop(0, 8),
+    gates: [{ a: 6, b: 7, portcullis: true, barbican: 10 }],
+    halls: [{ x0: 8, x1: 52, z0: 0, z1: 12, h: 10 }],
+    gateWidth: 3, gateHeight: 5,
+  },
+  vincennes: {
+    name: 'vincennes',
+    description: 'Vincennes: a vast rectangle of nine square towers round the tallest keep in Europe, 52 m, in its own walled square',
+    // 330 x 175 m, towers 42 m high as built (most later cut down); the keep 16.5 m square, 52 m, walls 3.3 m, in a
+    // 50 m square enceinte 11.5 m high (its corner turrets left out); the Sainte-Chapelle as a hall
+    wallHeight: 15, wallThick: 3,
+    towers: [T(0, 0, 12, 42, { square: true }), T(110, 0, 12, 42, { square: true }), T(220, 0, 12, 42, { square: true }), T(330, 0, 12, 42, { square: true }),
+      T(330, 87.5, 12, 42, { square: true }), T(330, 175, 12, 42, { square: true }), T(220, 175, 12, 42, { square: true }),
+      T(110, 175, 12, 42, { square: true }), T(0, 175, 12, 42, { square: true }),
+      T(20, 62, 0, 0), T(70, 62, 0, 0), T(70, 112, 0, 0), T(20, 112, 0, 0)],
+    walls: [...loop(0, 9), ...loop(9, 4, [11.5, 1.1])],
+    gates: [{ a: 8, b: 0, portcullis: true, barbican: 0 }, { a: 12, b: 9, portcullis: true, barbican: 0 }],
+    halls: [{ x0: 150, x1: 190, z0: 0, z1: 18, h: 20 }],
+    keep: { x: 37, z: 79, w: 16.5, d: 16.5, h: 52, t: 3.3, round: 'ne' },
+    gateWidth: 3, gateHeight: 5,
+  },
+  carcassonne: {
+    name: 'carcassonne',
+    description: 'Carcassonne: a walled city, two rings of towers under slate cones, the Château Comtal behind the inner gate',
+    // the Cité ~500 x 250 m: the outer ring (18 towers here, 19 real) 10 m high, the inner (16 here, 26 real) 11 m; the
+    // Château Comtal ~80 x 40 m as a keep
+    wallHeight: 11, wallThick: 2.5,
+    towers: [...ellipseTowers(250, 125, 250, 122, 18, 8, 13, { roof: 5 }), ...ellipseTowers(250, 125, 225, 100, 16, 7, 14, { roof: 6 })],
+    walls: [...loop(0, 18, [10, 2]), ...loop(18, 16)],
+    gates: [{ a: 17, b: 0, portcullis: true, barbican: 15 }, { a: 33, b: 18, portcullis: true, barbican: 0 }],
+    halls: [],
+    keep: { x: 60, z: 105, w: 80, d: 40, h: 20, t: 3 },
+    gateWidth: 3, gateHeight: 5,
+  },
+  chateau_gaillard: {
+    name: 'chateau_gaillard',
+    description: 'Château Gaillard: three wards in a chain along a spur, Richard the Lionheart\'s round keep at the far end',
+    // 200 x 80 m: the outer work, the middle ward and the inner ward, split by ditches (bridged here by gates); the keep
+    // ~17 m across (8 m inside) and 18 m high; the chapel as a hall
+    wallHeight: 10, wallThick: 3,
+    towers: [T(0, 28, 8, 12), T(30, 8, 12, 16), T(55, 10, 8, 12), T(140, 5, 10, 14), T(200, 25, 8, 12), T(200, 55, 8, 12), T(140, 75, 10, 14),
+      T(55, 70, 8, 12), T(30, 72, 12, 16), T(0, 52, 8, 12), T(160, 40, 17, 18)],
+    walls: [...loop(0, 10), [2, 7], [3, 6]],
+    gates: [{ a: 9, b: 0, portcullis: true, barbican: 0 }, { a: 2, b: 7, portcullis: false, barbican: 0 }, { a: 3, b: 6, portcullis: true, barbican: 0 }],
+    halls: [{ x0: 70, x1: 95, z0: 58, z1: 72, h: 8 }],
+    gateWidth: 3, gateHeight: 5,
+  },
+  krak_des_chevaliers: {
+    name: 'krak_des_chevaliers',
+    description: 'Krak des Chevaliers: the crusaders\' concentric castle, tall inner towers above a low outer ring, the knights\' hall within',
+    // ~300 x 140 m: the outer ring of 12 round towers, 9 m high; the inner ward's 8 towers ~10 m across over walls 18 m
+    // high (the glacis left out); the Gothic hall 27 x 7.5 m
+    wallHeight: 18, wallThick: 3.5,
+    towers: [...ellipseTowers(150, 70, 145, 68, 12, 8, 14), ...ellipseTowers(150, 70, 95, 45, 8, 10, 24)],
+    walls: [...loop(0, 12, [9, 3]), ...loop(12, 8)],
+    gates: [{ a: 11, b: 0, portcullis: true, barbican: 0 }, { a: 19, b: 12, portcullis: true, barbican: 0 }],
+    halls: [{ x0: 120, x1: 150, z0: 24, z1: 36, h: 10 }],
+    gateWidth: 3, gateHeight: 5,
+  },
+  malbork: {
+    name: 'malbork',
+    description: 'Malbork: the Teutonic Order\'s brick fortress, the closed square of the High Castle beyond the Middle Castle\'s ward',
+    // the High Castle 61 x 51 m round a court (a keep with 10 m wings, 25 m high), the Middle Castle's ward ~110 x 80 m
+    // (~110 x 96 m; the real bailey ~80 x 100) with the Great Refectory and the Grand Master's Palace; the Lower Castle, the main tower and the brick left out
+    wallHeight: 12, wallThick: 2,
+    towers: [T(0, 0, 8, 20, { square: true }), T(60, 0, 8, 20, { square: true }), T(110, 0, 8, 20, { square: true }), T(180, 0, 8, 20, { square: true }),
+      T(180, 96, 8, 20, { square: true }), T(110, 96, 8, 20, { square: true }), T(60, 96, 8, 20, { square: true }), T(0, 96, 8, 20, { square: true }),
+      T(0, 60, 8, 20, { square: true }), T(0, 36, 8, 20, { square: true })],
+    walls: loop(0, 10),
+    gates: [{ a: 8, b: 9, portcullis: true, barbican: 12 }],
+    halls: [{ x0: 15, x1: 45, z0: 0, z1: 15, h: 14 }, { x0: 15, x1: 55, z0: 81, z1: 96, h: 18 }],
+    keep: { x: 120, z: 22.5, w: 61, d: 51, h: 25, t: 10 },
+    gateWidth: 3, gateHeight: 5,
+  },
+  alcazar_segovia: {
+    name: 'alcazar_segovia',
+    description: 'Alcázar of Segovia: a ship-shaped castle on a rock prow, slate cones on its towers, the tower of John II at the gate',
+    // ~150 x 50 m; the tower of John II ~20 x 16 m, 33 m high as a keep; turrets under cones (the rock and moat left out)
+    wallHeight: 12, wallThick: 2.5,
+    towers: [T(0, 13, 6, 14, { roof: 6 }), T(60, 0, 6, 16, { roof: 7 }), T(110, 5, 7, 20, { roof: 8 }), T(150, 25, 8, 18, { roof: 8 }),
+      T(110, 45, 7, 20, { roof: 8 }), T(60, 50, 6, 16, { roof: 7 }), T(0, 37, 6, 14, { roof: 6 })],
+    walls: loop(0, 7),
+    gates: [{ a: 6, b: 0, portcullis: true, barbican: 0 }],
+    halls: [{ x0: 65, x1: 105, z0: 2, z1: 14, h: 14 }],
+    keep: { x: 25, z: 17, w: 20, d: 16, h: 33, t: 3, round: 'ne' },
+    gateWidth: 3, gateHeight: 5,
+  },
+  hohenzollern: {
+    name: 'hohenzollern',
+    description: 'Hohenzollern: a neo-Gothic palace on a hilltop inside a ring of bastions and tall spired towers',
+    // the core ~70 x 20 m (narrowed to leave the ward a way round), 24 m high, as a keep; the bastion ring ~160 x 76 m,
+    // four of its eight towers tall under spires (the palace's towers moved out to the ring)
+    wallHeight: 10, wallThick: 3,
+    towers: ellipseTowers(75, 25, 80, 38, 8, 14, 12).map((t, i) => ([2, 3, 5, 6].includes(i) ? { ...t, d: 8, h: 30, roof: 12 } : t)),
+    walls: loop(0, 8),
+    gates: [{ a: 7, b: 0, portcullis: true, barbican: 10 }],
+    halls: [],
+    keep: { x: 40, z: 15, w: 70, d: 20, h: 24, t: 3 },
+    gateWidth: 3, gateHeight: 5,
+  },
+  bran: {
+    name: 'bran',
+    description: 'Bran: a small tall castle round a courtyard on a rock, four unlike towers under pointed roofs',
+    // ~40 x 35 m (est.), the ranges ~16 m high, towers 20-26 m (the rock left out)
+    wallHeight: 16, wallThick: 3,
+    towers: [T(0, 0, 8, 24, { roof: 8 }), T(40, 4, 10, 26, { square: true, roof: 10 }), T(38, 35, 9, 22, { roof: 8 }), T(0, 35, 8, 20, { square: true, roof: 6 })],
+    walls: loop(0, 4),
+    gates: [{ a: 3, b: 0, portcullis: true, barbican: 0 }],
+    halls: [],
+    gateWidth: 3, gateHeight: 5,
+  },
+  eltz: {
+    name: 'eltz',
+    description: 'Eltz: eight tall residential towers under pointed roofs, crowded round an oval courtyard',
+    // ~80 x 48 m (est., widened for a courtyard between 1:4's towers), the houses 30-40 m high: square towers 35 m under roofs, the ranges between 25 m
+    wallHeight: 25, wallThick: 4,
+    towers: ellipseTowers(40, 24, 40, 24, 8, 10, 35, { square: true, roof: 10 }),
+    walls: loop(0, 8),
+    gates: [{ a: 7, b: 0, portcullis: false, barbican: 0 }],
+    halls: [],
+    gateWidth: 3, gateHeight: 5,
+  },
+  castel_del_monte: {
+    name: 'castel_del_monte',
+    description: 'Castel del Monte: Frederick II\'s pure octagon, a tower at each corner round an octagonal court',
+    // sides 16.5 m (the gate side widened for a gate at every scale), walls 25 m high and 3 m thick, the corner towers
+    // 7.9 m across (octagonal, drawn round) and 26 m high
+    wallHeight: 25, wallThick: 3,
+    towers: ellipseTowers(21.6, 21.6, 21.6, 21.6, 8, 7.9, 26),
+    walls: loop(0, 8),
+    gates: [{ a: 7, b: 0, portcullis: false, barbican: 0 }],
+    halls: [],
+    gateWidth: 3, gateHeight: 5,
+  },
+  spis: {
+    name: 'spis',
+    description: 'Spiš: a hill of terraced wards, the round keep and palace on the summit, Jiskra\'s round fort in the lower court',
+    // ~290 x 140 m: the lower court, the middle court ~100 x 60 m and the upper castle, each behind a gate; the round
+    // keep ~20 m across (the hill and cliffs left out)
+    wallHeight: 10, wallThick: 3,
+    towers: [T(0, 63, 8, 14), T(0, 87, 8, 14), T(60, 10, 10, 14), T(130, 20, 8, 12), T(180, 40, 8, 12), T(230, 45, 8, 14), T(290, 60, 10, 16),
+      T(290, 95, 10, 16), T(230, 100, 8, 14), T(180, 100, 8, 12), T(130, 130, 8, 12), T(60, 140, 10, 14), T(262, 72, 20, 25), T(65, 75, 17, 12)],
+    walls: [[0, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 9], [9, 10], [10, 11], [11, 1], [1, 0], [3, 10], [5, 8]],
+    gates: [{ a: 1, b: 0, portcullis: true, barbican: 10 }, { a: 3, b: 10, portcullis: false, barbican: 0 }, { a: 5, b: 8, portcullis: true, barbican: 0 }],
+    halls: [{ x0: 238, x1: 285, z0: 86, z1: 100, h: 12 }],
+    gateWidth: 3, gateHeight: 5,
+  },
+  prague_castle: {
+    name: 'prague_castle',
+    description: 'Prague Castle: a long walled ridge of courtyards and palaces, Vladislav Hall, round and square towers at the east end',
+    // 570 x 128 m; Vladislav Hall 62 x 16 x 13 m; Mihulka and Daliborka round, the White and Black Towers square; the palace
+    // wings as halls (St Vitus is its own cathedral preset)
+    wallHeight: 10, wallThick: 2,
+    towers: [T(0, 52, 8, 14, { square: true }), T(0, 76, 8, 14, { square: true }), T(150, 0, 10, 20, { square: true }), T(300, 0, 12, 20),
+      T(450, 10, 10, 20, { square: true }), T(570, 30, 12, 20), T(570, 100, 12, 22, { square: true }), T(450, 128, 10, 18, { square: true }),
+      T(300, 128, 10, 16, { square: true }), T(150, 128, 10, 16, { square: true }), T(0, 0, 10, 16, { square: true }), T(0, 128, 10, 16, { square: true })],
+    walls: [[10, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 9], [9, 11], [11, 1], [1, 0], [0, 10], [2, 9], [3, 8]],
+    gates: [{ a: 1, b: 0, portcullis: true, barbican: 0 }, { a: 2, b: 9, portcullis: false, barbican: 0 }, { a: 3, b: 8, portcullis: false, barbican: 0 }],
+    halls: [{ x0: 15, x1: 140, z0: 0, z1: 20, h: 18 }, { x0: 15, x1: 140, z0: 108, z1: 128, h: 18 }, { x0: 320, x1: 390, z0: 108, z1: 128, h: 14 }],
+    gateWidth: 3, gateHeight: 5,
+  },
+  kenilworth: {
+    name: 'kenilworth',
+    description: 'Kenilworth: a red sandstone palace-castle, the Norman keep and John of Gaunt\'s great hall in a wide outer bailey',
+    // the outer bailey ~200 x 150 m behind Mortimer's Tower (the mere left out); the inner court ~70 x 70 m; the keep
+    // 25 x 20 m, 30 m high, walls 5 m
+    wallHeight: 10, wallThick: 4,
+    towers: [T(0, 63, 8, 12, { square: true }), T(0, 87, 8, 12, { square: true }), T(0, 0, 8, 10), T(100, 0, 8, 10), T(200, 0, 8, 10), T(200, 150, 8, 10),
+      T(100, 150, 8, 10), T(0, 150, 8, 10),
+      T(90, 40, 10, 20, { square: true }), T(160, 40, 8, 18, { square: true }), T(160, 75, 8, 18, { square: true }), T(128, 110, 8, 18, { square: true }),
+      T(90, 110, 8, 18, { square: true })],
+    walls: [[2, 3, 8, 2], [3, 4, 8, 2], [4, 5, 8, 2], [5, 6, 8, 2], [6, 7, 8, 2], [7, 1, 8, 2], [1, 0, 8, 2], [0, 2, 8, 2], ...loop(8, 5)],
+    gates: [{ a: 1, b: 0, portcullis: true, barbican: 12 }, { a: 12, b: 8, portcullis: true, barbican: 0 }],
+    halls: [{ x0: 95, x1: 150, z0: 40, z1: 55, h: 14 }],
+    keep: { x: 135, z: 88, w: 25, d: 20, h: 30, t: 5 },
     gateWidth: 3, gateHeight: 5,
   },
 };
@@ -105,9 +395,13 @@ export function generateCastle(p: CastlePreset, scale: number, opts: { jobMin?: 
   // (the curtain stands above its passages, their portcullis row and a lintel; towers above the curtain)
   const wallH = p.walls.length ? Math.max(s(p.wallHeight), gateH + 2) : 0;
   const thick = s(p.wallThick, 1);
+  const segH = p.walls.map((w) => (w.length > 2 ? Math.max(s(w[2]!), gateH + 2) : wallH));
+  const segT = p.walls.map((w) => (w.length > 3 ? s(w[3]!, 1) : thick));
+  const maxT = Math.max(thick, ...segT);
   const towers = p.towers.map((t) => {
-    const d = s(t.d, 5);
-    return { cx: Math.round(t.x / scale), cz: Math.round(t.z / scale), r: d / 2, t: d >= 8 ? 2 : 1, h: Math.max(s(t.h), wallH + 3), turret: !!t.turret };
+    const d = t.d ? s(t.d, 5) : 0;
+    return { cx: Math.round(t.x / scale), cz: Math.round(t.z / scale), r: d / 2, t: d >= 8 ? 2 : 1, h: Math.max(s(t.h), wallH + 3), turret: !!t.turret,
+      square: !!t.square, roof: t.roof ? s(t.roof, 3) : 0 };
   });
   const barbs = p.gates.map((g) => (g.barbican ? s(g.barbican, 3) : 0));
   const keep = p.keep && { x0: Math.round(p.keep.x / scale), z0: Math.round(p.keep.z / scale), w: s(p.keep.w, 7), d: s(p.keep.d, 7), h: s(p.keep.h, 8), t: s(p.keep.t, 1), round: p.keep.round };
@@ -124,12 +418,13 @@ export function generateCastle(p: CastlePreset, scale: number, opts: { jobMin?: 
   // 2D masks (plan cells): curtain, tower discs, keep, barbicans
   const mask = new Map<string, 'wall' | 'tower' | 'keep' | 'barb'>();
   const k2 = (x: number, z: number) => `${x},${z}`;
-  const wallCells: Array<{ x: number; z: number; seg: number; along: number }> = [];
+  const wallCells: Array<{ x: number; z: number; seg: number; along: number; h: number; t: number }> = [];
+  const wallTop = new Map<string, number>();
 
   // Curtain segments: the cells whose centre lies within the wall's thickness of the line between two tower centres (a
   // ring listed clockwise, west to east along the north)
   p.walls.forEach(([ia, ib], seg) => {
-    const A = towers[ia], B = towers[ib];
+    const A = towers[ia], B = towers[ib], thick = segT[seg];
     const dx = B.cx - A.cx, dz = B.cz - A.cz, len = Math.hypot(dx, dz);
     const ux = dx / len, uz = dz / len;
     for (let x = Math.min(A.cx, B.cx) - thick; x <= Math.max(A.cx, B.cx) + thick; x++)
@@ -139,12 +434,13 @@ export function generateCastle(p: CastlePreset, scale: number, opts: { jobMin?: 
         // (the ring runs clockwise, so +across is inward: the wall thickens into the ward and the towers, centred on its
         // outer face, stand out from it as Conwy's do)
         if (along < 0 || along > len || across < -thick / 2 + 0.01 || across >= thick / 2 + 0.01) continue;
-        if (!mask.has(k2(x, z))) { mask.set(k2(x, z), 'wall'); wallCells.push({ x, z, seg, along }); }
+        if (!mask.has(k2(x, z))) { mask.set(k2(x, z), 'wall'); wallCells.push({ x, z, seg, along, h: segH[seg], t: thick }); wallTop.set(k2(x, z), segH[seg]); }
       }
   });
-  const inDisc = (t: (typeof towers)[number], x: number, z: number, dr = 0) => Math.hypot(x - t.cx, z - t.cz) <= t.r + dr;
+  const inDisc = (t: (typeof towers)[number], x: number, z: number, dr = 0) =>
+    (t.square ? Math.max(Math.abs(x - t.cx), Math.abs(z - t.cz)) : Math.hypot(x - t.cx, z - t.cz)) <= t.r + dr;
   for (const t of towers)
-    for (let x = Math.floor(t.cx - t.r); x <= Math.ceil(t.cx + t.r); x++)
+    if (t.r) for (let x = Math.floor(t.cx - t.r); x <= Math.ceil(t.cx + t.r); x++)
       for (let z = Math.floor(t.cz - t.r); z <= Math.ceil(t.cz + t.r); z++) if (inDisc(t, x, z)) mask.set(k2(x, z), 'tower');
   if (keep) for (let x = keep.x0; x < keep.x0 + keep.w; x++) for (let z = keep.z0; z < keep.z0 + keep.d; z++) mask.set(k2(x, z), 'keep');
 
@@ -202,7 +498,7 @@ export function generateCastle(p: CastlePreset, scale: number, opts: { jobMin?: 
   // 3. Curtain walls: solid to the wall-walk, a plinth course at the foot
   for (const c of wallCells) {
     if (mask.get(k2(c.x, c.z)) !== 'wall') continue;
-    for (let y = 1; y <= wallH; y++) set(c.x, y, c.z, y === 1 ? M.plinth : M.wall, S.walls);
+    for (let y = 1; y <= c.h; y++) set(c.x, y, c.z, y === 1 ? M.plinth : M.wall, S.walls);
   }
   // The wall-walk's battlements: a parapet on the outer face and merlons on every other cell above it (at one block thick,
   // the merlons stand on the wall itself)
@@ -210,13 +506,14 @@ export function generateCastle(p: CastlePreset, scale: number, opts: { jobMin?: 
   const outerFace = (x: number, z: number) => STEP4.some(([dx, dz]) => isOut(x + dx, z + dz));
   for (const c of wallCells) {
     if (mask.get(k2(c.x, c.z)) !== 'wall' || !outerFace(c.x, c.z)) continue;
-    if (thick > 1) set(c.x, wallH + 1, c.z, M.wall, S.top);
-    if ((c.x + c.z) % 2 === 0) set(c.x, wallH + (thick > 1 ? 2 : 1), c.z, M.wall, S.top);
+    if (c.t > 1) set(c.x, c.h + 1, c.z, M.wall, S.top);
+    if ((c.x + c.z) % 2 === 0) set(c.x, c.h + (c.t > 1 ? 2 : 1), c.z, M.wall, S.top);
   }
 
   // 4. Drum towers: the disc's ring from the floor to the top, the inside cleared, timber floors at the wall-walk and
   // halfway up, a top of slabs; doors to the ward and to the wall-walk; slits in the outer face; battlements
   towers.forEach((t) => {
+    if (!t.r) return;
     const ring = (x: number, z: number) => inDisc(t, x, z) && !inDisc(t, x, z, -t.t);
     const xs: number[] = [], zs: number[] = [];
     for (let x = Math.floor(t.cx - t.r); x <= Math.ceil(t.cx + t.r); x++) xs.push(x);
@@ -252,9 +549,9 @@ export function generateCastle(p: CastlePreset, scale: number, opts: { jobMin?: 
     for (const x of xs)
       for (const z of zs) {
         if (!ring(x, z)) continue;
-        if (STEP4.some(([dx, dz]) => mask.get(k2(x + dx, z + dz)) === 'wall' && get(x + dx, wallH, z + dz))) {
-          clear(x, wallH + 1, z); clear(x, wallH + 2, z);
-        }
+        const top = STEP4.map(([dx, dz]) => (mask.get(k2(x + dx, z + dz)) === 'wall' ? wallTop.get(k2(x + dx, z + dz))! : -1))
+          .find((h, i) => h >= 0 && get(x + STEP4[i][0], h, z + STEP4[i][1]));
+        if (top !== undefined) { clear(x, top + 1, z); clear(x, top + 2, z); }
       }
     // Arrow slits: two high, on the outer face, every third cell round, one at each storey above the ground's
     for (const x of xs)
@@ -264,6 +561,20 @@ export function generateCastle(p: CastlePreset, scale: number, opts: { jobMin?: 
         if (a % 3) continue;
         for (const base of [3, ...floors.map((f) => f + 2)]) if (base + 1 < t.h && base + 1 < (floors.find((f) => f > base) ?? t.h)) { clear(x, base, z); clear(x, base + 1, z); }
       }
+    // A conical roof (a pyramid on a square tower) from the top's rim, in place of the battlements and turret
+    if (t.roof) {
+      for (let i = 0; i < t.roof; i++) {
+        const r = (t.r + 0.5) * (1 - i / t.roof);
+        const inR = (x: number, z: number) => (t.square ? Math.max(Math.abs(x - t.cx), Math.abs(z - t.cz)) : Math.hypot(x - t.cx, z - t.cz)) <= r;
+        let any = false;
+        for (const x of xs)
+          for (const z of zs)
+            if (inR(x, z) && STEP4.some(([dx, dz]) => !inR(x + dx, z + dz))) { set(x, t.h + 1 + i, z, M.timber, S.top); any = true; }
+        if (!any) set(Math.round(t.cx), t.h + 1 + i, Math.round(t.cz), M.timber, S.top);
+      }
+      set(Math.round(t.cx), t.h + 1 + t.roof, Math.round(t.cz), M.post, S.top);
+      return;
+    }
     // Battlements on the outer ring, and a watch turret on the side toward the ward
     for (const x of xs)
       for (const z of zs) {
@@ -290,7 +601,7 @@ export function generateCastle(p: CastlePreset, scale: number, opts: { jobMin?: 
     for (let o = lo; o <= hi; o++) {
       const along = alongZ ? mz + o : mx + o;
       for (const c of wallCells) {
-        if ((alongZ ? c.z : c.x) !== along || mask.get(k2(c.x, c.z)) !== 'wall' || (alongZ ? Math.abs(c.x - mx) : Math.abs(c.z - mz)) > thick) continue;
+        if ((alongZ ? c.z : c.x) !== along || mask.get(k2(c.x, c.z)) !== 'wall' || (alongZ ? Math.abs(c.x - mx) : Math.abs(c.z - mz)) > maxT) continue;
         for (let y = 1; y <= gateH; y++) clear(c.x, y, c.z);
         // (the lintel's row carries the gatehouse's stage, the portcullis hangs in it on the outer face)
         set(c.x, gateH + 1, c.z, g.portcullis && outerFace(c.x, c.z) ? M.bars : M.wall, S.gates);

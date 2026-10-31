@@ -2,9 +2,9 @@
  * A Gothic cathedral drawn by code (the monument, M0; runs/2026-10-25/monument/report.md, route B): a split grammar of
  * parametrised parts (west front with towers, portals and a rose; nave bays with aisles, arcade, triforium, clerestory,
  * buttresses and flyers; a crossing with nothing, a flèche or a tower and spire; transept arms; an apse with its
- * ambulatory), each a function of the scale, the bay pitch, the vault height and the materials. Presets give a real
- * cathedral's measures in metres (1 m = 1 block at 1:1); the scale divides them. Code draws every cell, so the bill is
- * exact (lesson 1); a model chooses only the preset and its parameters.
+ * ambulatory, or a flat east end; towers beside the body), each a function of the scale, the bay pitch, the vault height
+ * and the materials. Presets give a real cathedral's measures in metres (1 m = 1 block at 1:1); the scale divides them.
+ * Code draws every cell, so the bill is exact (lesson 1); a model chooses only the preset and its parameters.
  *
  * The plan is worked out on a 2D mask first (outside, low: aisles and ambulatory, high: nave, choir, transept, apse),
  * whose edges become walls: a high cell beside a low one is an arcade (piers, arches, triforium, clerestory), a high or
@@ -48,12 +48,19 @@ export interface GothicPreset {
   crossingSpire: number;
   /** The west rose's diameter; transept ends get one of the same size when they are wide enough. */
   rose: number;
+  /** False: the roses only at the transept ends (England's, under a west window of lancets). */
+  westRose?: boolean;
   /** Five aisles (Cologne): `aisle` is then both aisles of a side, split by a row of piers, under a lean-to half as steep. */
   aisles?: 3 | 5;
   /** Radiating chapels round the apse's ambulatory (0: none). */
   chapels?: number;
   /** Openwork spires (Cologne's): solid bands every third course, a lattice of posts between. */
   openwork?: boolean;
+  /** The east end: a rounded apse with its ambulatory (the default) or a flat gable with a great window (England's). */
+  east?: 'apse' | 'flat';
+  /** Towers beside the body (Vienna's south tower, Seville's Giralda): the west face's distance from the west front, the
+   *  side, the side's length, the height and a spire above it (metres); a door in the outer face. */
+  sideTowers?: Array<{ at: number; side: 'n' | 's'; size: number; height: number; spire: number }>;
 }
 
 export const GOTHIC_PRESETS: Record<string, GothicPreset> = {
@@ -81,6 +88,147 @@ export const GOTHIC_PRESETS: Record<string, GothicPreset> = {
     transeptBay: 9, transeptBays: 2, transeptArm: 20,
     towers: 2, towerHeight: 95, spires: [62, 62], crossing: 'fleche', crossingHeight: 0, crossingSpire: 45, rose: 0,
     aisles: 5, chapels: 7, openwork: true,
+  },
+  amiens: {
+    name: 'amiens', description: 'Amiens: the largest French cathedral, a 42 m vault on slender piers, a flèche of 112 m, seven chapels',
+    length: 145, bay: 9, nave: 14.6, aisle: 8.65, buttress: 5, vault: 42.3, aisleHeight: 19.7,
+    transeptBay: 6, transeptBays: 2, transeptArm: 19,
+    towers: 2, towerHeight: 65, spires: [0, 0], crossing: 'fleche', crossingHeight: 0, crossingSpire: 56, rose: 11,
+    chapels: 7,
+  },
+  reims: {
+    name: 'reims', description: 'Reims: the coronation church, a west front of statues round a 12 m rose, two 81 m towers built for spires',
+    length: 149, bay: 7.5, nave: 14.65, aisle: 8.7, buttress: 5, vault: 38, aisleHeight: 16.5,
+    transeptBay: 10, transeptBays: 2, transeptArm: 14.5,
+    towers: 2, towerHeight: 81.5, spires: [0, 0], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 12.5,
+    chapels: 5,
+  },
+  beauvais: {
+    name: 'beauvais', description: 'Beauvais: the highest Gothic vault ever built, 48 m, over a choir and transept alone (the nave was never built)',
+    length: 72.5, bay: 9, nave: 16, aisle: 9, buttress: 6, vault: 48.5, aisleHeight: 21,
+    transeptBay: 1, transeptBays: 2, transeptArm: 10,
+    towers: 0, towerHeight: 0, spires: [], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 11,
+    chapels: 7,
+  },
+  bourges: {
+    name: 'bourges', description: 'Bourges: no transept, five stepped aisles under one unbroken vault, a double ambulatory with five small chapels',
+    length: 125, bay: 6, nave: 15, aisle: 13.2, buttress: 5, vault: 37.15, aisleHeight: 21.3,
+    transeptBay: 9, transeptBays: 2, transeptArm: 0,
+    towers: 2, towerHeight: 65, spires: [0, 0], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 9,
+    aisles: 5, chapels: 5,
+  },
+  westminster: {
+    name: 'westminster', description: 'Westminster Abbey: the tallest English vault, Hawksmoor\'s twin west towers, a French chevet of chapels',
+    length: 130, bay: 5.5, nave: 10, aisle: 7.9, buttress: 4, vault: 31, aisleHeight: 12,
+    transeptBay: 11, transeptBays: 2, transeptArm: 18,
+    towers: 2, towerHeight: 68.7, spires: [0, 0], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 10, westRose: false,
+    chapels: 5,
+  },
+  york: {
+    name: 'york', description: 'York Minster: the widest Gothic nave in England, a great crossing tower, a flat east end with the largest medieval window',
+    length: 160, bay: 10, nave: 15, aisle: 8.3, buttress: 4, vault: 30.2, aisleHeight: 14,
+    transeptBay: 8, transeptBays: 2, transeptArm: 18,
+    towers: 2, towerHeight: 60, spires: [0, 0], crossing: 'tower', crossingHeight: 72, crossingSpire: 0, rose: 7, westRose: false,
+    east: 'flat',
+  },
+  lincoln: {
+    name: 'lincoln', description: 'Lincoln: an 83 m crossing tower (once under the tallest spire in the world), two transept roses, a square east end',
+    length: 147, bay: 11, nave: 11.6, aisle: 6.4, buttress: 4, vault: 25, aisleHeight: 13,
+    transeptBay: 7, transeptBays: 2, transeptArm: 21.7,
+    towers: 2, towerHeight: 61, spires: [0, 0], crossing: 'tower', crossingHeight: 82.6, crossingSpire: 0, rose: 7.5, westRose: false,
+    east: 'flat',
+  },
+  canterbury: {
+    name: 'canterbury', description: 'Canterbury: Bell Harry over the crossing, a Perpendicular nave, twin west towers, the round Corona at the east',
+    length: 160, bay: 7, nave: 11, aisle: 5.3, buttress: 4, vault: 24.4, aisleHeight: 13,
+    transeptBay: 8, transeptBays: 2, transeptArm: 8,
+    towers: 2, towerHeight: 47, spires: [0, 0], crossing: 'tower', crossingHeight: 72, crossingSpire: 0, rose: 0,
+    chapels: 1,
+  },
+  wells: {
+    name: 'wells', description: 'Wells: a screen front of statues between low towers, a crossing tower braced by scissor arches, a square east end',
+    length: 126.5, bay: 4.9, nave: 10, aisle: 7.5, buttress: 3, vault: 20.4, aisleHeight: 10,
+    transeptBay: 10, transeptBays: 2, transeptArm: 10,
+    towers: 2, towerHeight: 38, spires: [0, 0], crossing: 'tower', crossingHeight: 55, crossingSpire: 0, rose: 0,
+    east: 'flat',
+  },
+  ely: {
+    name: 'ely', description: 'Ely: a long Romanesque nave, one great west tower and the timber Octagon lantern over the crossing',
+    length: 163.7, bay: 6.2, nave: 10, aisle: 6.9, buttress: 3, vault: 21.9, aisleHeight: 11,
+    transeptBay: 12, transeptBays: 2, transeptArm: 15,
+    towers: 1, towerHeight: 66, spires: [0], crossing: 'tower', crossingHeight: 52, crossingSpire: 0, rose: 0,
+    east: 'flat',
+  },
+  milan: {
+    name: 'milan', description: 'Milan: five aisles of white marble under a forest of pinnacles, a crossing spire with the gilded Madonnina at 108 m',
+    length: 158.5, bay: 9.6, nave: 19, aisle: 19, buttress: 4, vault: 45, aisleHeight: 30,
+    transeptBay: 9, transeptBays: 2, transeptArm: 13.5,
+    towers: 0, towerHeight: 0, spires: [], crossing: 'tower', crossingHeight: 68, crossingSpire: 40.5, rose: 0,
+    aisles: 5,
+  },
+  seville: {
+    name: 'seville', description: 'Seville: the largest Gothic church, five aisles in a square-ended block, the Giralda minaret-belfry beside it',
+    length: 116, bay: 13, nave: 16, aisle: 22, buttress: 4, vault: 36, aisleHeight: 26,
+    transeptBay: 5, transeptBays: 1, transeptArm: 0,
+    towers: 0, towerHeight: 0, spires: [], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 0,
+    aisles: 5, east: 'flat', sideTowers: [{ at: 102, side: 'n', size: 13.6, height: 70, spire: 34.5 }],
+  },
+  burgos: {
+    name: 'burgos', description: 'Burgos: twin openwork spires by Juan de Colonia, a star-vaulted crossing lantern and a ring of great chapels',
+    length: 106, bay: 7, nave: 11, aisle: 7.5, buttress: 4, vault: 25, aisleHeight: 13,
+    transeptBay: 7, transeptBays: 2, transeptArm: 16.5,
+    towers: 2, towerHeight: 58, spires: [30, 30], crossing: 'tower', crossingHeight: 54, crossingSpire: 0, rose: 6,
+    chapels: 3, openwork: true,
+  },
+  leon: {
+    name: 'leon', description: 'León: Pulchra Leonina, walls nearly all glass (1,800 m² of medieval windows) round a French chevet',
+    length: 90, bay: 7, nave: 13, aisle: 8, buttress: 4, vault: 30, aisleHeight: 15,
+    transeptBay: 7, transeptBays: 2, transeptArm: 6,
+    towers: 2, towerHeight: 45, spires: [20, 23], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 8,
+    chapels: 5,
+  },
+  toledo: {
+    name: 'toledo', description: 'Toledo: five aisles round a double ambulatory, one tall north-west tower and spire of 92 m',
+    length: 120, bay: 8, nave: 15, aisle: 14, buttress: 4, vault: 44.5, aisleHeight: 25,
+    transeptBay: 8, transeptBays: 2, transeptArm: 3,
+    towers: 2, towerHeight: 60, spires: [32, 0], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 6,
+    aisles: 5, chapels: 7,
+  },
+  ulm: {
+    name: 'ulm', description: 'Ulm Minster: the tallest church spire in the world, 161.5 m and openwork, on a single west tower',
+    length: 123.5, bay: 8, nave: 15, aisle: 17, buttress: 4, vault: 41.6, aisleHeight: 20.5,
+    transeptBay: 9, transeptBays: 1, transeptArm: 0,
+    towers: 1, towerHeight: 86, spires: [75.5], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 0,
+    aisles: 5, openwork: true,
+    sideTowers: [{ at: 94, side: 'n', size: 8, height: 60, spire: 26 }, { at: 94, side: 's', size: 8, height: 60, spire: 26 }],
+  },
+  strasbourg: {
+    name: 'strasbourg', description: 'Strasbourg: a lacework west front round a 13.6 m rose, one north spire of 142 m, for centuries the tallest building',
+    length: 112, bay: 8, nave: 16, aisle: 8, buttress: 4, vault: 32, aisleHeight: 19,
+    transeptBay: 9, transeptBays: 2, transeptArm: 8,
+    towers: 2, towerHeight: 66, spires: [76, 0], crossing: 'tower', crossingHeight: 58, crossingSpire: 0, rose: 13.6,
+    openwork: true,
+  },
+  st_vitus: {
+    name: 'st_vitus', description: 'St. Vitus, Prague: Parler\'s choir ringed with chapels, the great south tower and twin neo-Gothic west spires',
+    length: 124, bay: 8, nave: 13, aisle: 6, buttress: 4, vault: 33.2, aisleHeight: 18,
+    transeptBay: 8, transeptBays: 2, transeptArm: 6,
+    towers: 2, towerHeight: 50, spires: [32, 32], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 10.4,
+    chapels: 5, sideTowers: [{ at: 49, side: 's', size: 15, height: 66, spire: 30.6 }],
+  },
+  st_stephen: {
+    name: 'st_stephen', description: 'St. Stephen\'s, Vienna: a hall church under a steep tiled roof, the 136 m south tower (the Steffl) beside the nave',
+    length: 108.7, bay: 9, nave: 12, aisle: 10, buttress: 3, vault: 28, aisleHeight: 22.4,
+    transeptBay: 6, transeptBays: 1, transeptArm: 0,
+    towers: 2, towerHeight: 66, spires: [0, 0], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 0,
+    sideTowers: [{ at: 58, side: 's', size: 13, height: 70, spire: 66.4 }, { at: 58, side: 'n', size: 13, height: 68.3, spire: 0 }],
+  },
+  lichfield: {
+    name: 'lichfield', description: 'Lichfield: the only medieval English cathedral with three spires (the Ladies of the Vale)',
+    length: 112.8, bay: 5.3, nave: 9, aisle: 5.9, buttress: 3, vault: 17.4, aisleHeight: 9,
+    transeptBay: 8, transeptBays: 2, transeptArm: 12,
+    towers: 2, towerHeight: 30, spires: [28, 28], crossing: 'tower', crossingHeight: 38, crossingSpire: 39, rose: 0,
+    east: 'flat',
   },
 };
 
@@ -187,25 +335,33 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
   const Ha = Math.min(s(p.aisleHeight, 3), Hv - 4);
   const arm = p.transeptArm ? s(p.transeptArm, 1) : 0;
   const k = (nave - 1) / 2;
+  const flat = p.east === 'flat';
+  const rI = k + 1, rO = rI + aisle + 1;
+  // (a flat east end: the length is all nave and choir)
+  const bays = Math.max(4, Math.floor((s(p.length, 20) - (flat ? 0 : rO) - 1) / pitch));
+  const xe = bays * pitch;
+  const tb = Math.min(Math.max(1, Math.round(p.transeptBay * p.bay / scale / pitch)), bays - p.transeptBays - 1);
+  const xt0 = tb * pitch, xt1 = (tb + p.transeptBays) * pitch;
+  // Side towers: a square box against the aisle wall (beyond a transept arm it stands beside)
+  const sides = (p.sideTowers ?? []).map((t) => {
+    const sz = s(t.size, 5), x0 = Math.min(Math.max(0, s(t.at, 0)), xe - sz);
+    const past = arm > 0 && x0 <= xt1 && x0 + sz - 1 >= xt0 ? arm : 0;
+    return { ...t, sz, x0, past };
+  });
   // z: [margin][aisle wall][aisle][pier line][nave][pier line][aisle][aisle wall][margin]; the margin holds buttresses
-  // and the transept arms
-  const zOff = Math.max(butW, arm);
+  // and the transept arms (and side towers)
+  const zOff = Math.max(butW, arm, ...sides.map((t) => t.sz + t.past));
   const zA = zOff, zP = zA + aisle + 1, zP2 = zP + nave + 1, zA2 = zP2 + aisle + 1;
   const D = zA2 + zOff + 1;
   const zc = (D - 1) / 2;
-  const rI = k + 1, rO = rI + aisle + 1;
-  const bays = Math.max(4, Math.floor((s(p.length, 20) - rO - 1) / pitch));
-  const xe = bays * pitch;
   // Radiating chapels: discs of low cells round the ambulatory, centred just outside it
-  const nCh = p.chapels ?? 0;
+  const nCh = flat ? 0 : p.chapels ?? 0;
   const rCh = nCh ? Math.max(1.5, (Math.PI * rO / nCh) * 0.45) : 0;
   const chapelAt = Array.from({ length: nCh }, (_, i) => {
     const a = -Math.PI / 2 + Math.PI * (i + 0.5) / nCh;
     return [xe + Math.cos(a) * (rO + rCh * 0.5), (zA + zA2) / 2 + Math.sin(a) * (rO + rCh * 0.5)];
   });
-  const W = xe + rO + Math.max(butW, nCh ? Math.ceil(rCh * 1.5 + 1) : 0) + 2;
-  const tb = Math.min(Math.max(1, Math.round(p.transeptBay * p.bay / scale / pitch)), bays - p.transeptBays - 1);
-  const xt0 = tb * pitch, xt1 = (tb + p.transeptBays) * pitch;
+  const W = flat ? xe + butW + 2 : xe + rO + Math.max(butW, nCh ? Math.ceil(rCh * 1.5 + 1) : 0) + 2;
   const zN = zA - arm, zS = zA2 + arm;
   const towerH = p.towers ? Math.max(s(p.towerHeight), Hv + 4) : 0;
   const tS = zP - (zA - butW) + 1; // a west tower's side: buttress, aisle wall, aisle, pier line
@@ -216,7 +372,7 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
   for (let x = 0; x < W; x++)
     for (let z = 0; z < D; z++) {
       if (x <= xe && z >= zA && z <= zA2) plan[x][z] = z >= zP && z <= zP2 ? 2 : 1;
-      else if (x > xe && apseD(x, z) < rO + 0.5) plan[x][z] = apseD(x, z) < rI + 0.5 ? 2 : 1;
+      else if (!flat && x > xe && apseD(x, z) < rO + 0.5) plan[x][z] = apseD(x, z) < rI + 0.5 ? 2 : 1;
       if (arm && x >= xt0 && x <= xt1 && z >= zN && z <= zS) plan[x][z] = 2;
       if (!plan[x][z] && x > xe && chapelAt.some(([u, v]) => Math.hypot(x - u, z - v) < rCh + 0.5)) plan[x][z] = 1;
     }
@@ -225,8 +381,8 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
   const inTower = (x: number, z: number) =>
     p.towers === 2 ? x < tS && ((z >= zA - butW && z <= zP) || (z >= zP2 && z <= zA2 + butW))
     : p.towers === 1 ? x < tS && z >= zP - 1 && z <= zP2 + 1 : false;
-  // Gable ends: the west front's high wall and the transept arms' end walls
-  const gable = (x: number, z: number) => at(x, z) === 2 && ((x === 0) || (arm > 0 && (z === zN || z === zS) && x >= xt0 && x <= xt1));
+  // Gable ends: the west front's high wall and the transept arms' end walls (and a flat east end's)
+  const gable = (x: number, z: number) => at(x, z) === 2 && ((x === 0) || (flat && x === xe) || (arm > 0 && (z === zN || z === zS) && x >= xt0 && x <= xt1));
 
   const cells = new Map<string, string>();
   const stageOf = new Map<string, number>();
@@ -310,7 +466,8 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
         const top = gable(x, z) ? Math.max(roofHigh(x, z) - 1, screen) : Hv;
         for (let y = 1; y <= top; y++) set(x, y, z, y === 1 ? M.tone : M.wall, y <= Ha ? (outer ? 2 : 3) : 4);
         if (outer) {
-          if (w && !gable(x, z)) for (let y = 2; y <= Hv - 3 - (w === 1 ? 1 : 0); y++) set(x, y, z, glassAt(y, x, t, false), 7);
+          // (a flat east end's gable holds the great east window)
+          if (w && (!gable(x, z) || (flat && x === xe))) for (let y = 2; y <= Hv - 3 - (w === 1 ? 1 : 0); y++) set(x, y, z, glassAt(y, x, t, false), 7);
         } else if (w || winCol(t) === 0 && ((t % pitch) + pitch) % pitch !== 0) {
           // Arcade: pointed arches below, a triforium band, the clerestory above the aisle roof
           for (let y = 1; y <= arcH - (w === 1 ? 1 : 0); y++) clear(x, y, z);
@@ -361,7 +518,7 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
     const cx = Math.round((xt0 + xt1) / 2);
     portal(cx, zN, true, pw, ph); portal(cx, zS, true, pw, ph);
   }
-  portal(xe + rO, zc, false, 0, Math.min(Ha, 3));
+  if (!flat) portal(xe + rO, zc, false, 0, Math.min(Ha, 3));
 
   // detail: each arcade pier's capital (chiselled, at the arches' height) and the arches' shoulders (upside-down stairs at
   // the top of an opening beside a pier, their backs to it), where the opening stays two high
@@ -396,7 +553,7 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
   };
   const roseR = Math.max(1, Math.min(k, Math.floor(s(p.rose || p.nave * 0.6) / 2)));
   const roseY = Math.min(Hv - roseR - 1, Math.max(ph + roseR + 2, Math.round(Hv * 0.62)));
-  if (p.rose) rose(0, zc, false, roseY, roseR);
+  if (p.rose && p.westRose !== false) rose(0, zc, false, roseY, roseR);
   // The gallery: a parapet of posts along the screen's top
   if (p.towers === 2) for (let z = zP + 1; z < zP2; z++) set(0, Math.max(roofHigh(0, z) - 1, Math.round(towerH * 0.65)) + 1, z, M.post, 8);
   if (p.rose && arm && xt1 - xt0 - 1 >= 2 * roseR + 1) {
@@ -525,10 +682,20 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
     const [x0, x1, z0, z1] = bx, cz = Math.round((z0 + z1) / 2), cx = Math.round((x0 + x1) / 2);
     const h = Math.max(3, Math.min(ph, Ha));
     portal(x0, cz, false, pw, ph);
-    portal(x1, Math.round(z0 > zc ? (zP2 + zA2) / 2 : (zA + zP) / 2), false, Math.min(pw, 1), h);
+    // (a single tower's east arch opens into the nave)
+    portal(x1, p.towers === 1 ? Math.round(zc) : Math.round(z0 > zc ? (zP2 + zA2) / 2 : (zA + zP) / 2), false, Math.min(pw, 1), h);
     if (p.towers === 2) portal(cx, z0 < zc ? z1 : z0, true, Math.min(pw, 1), h);
     else portal(cx, z0, true, 0, h), portal(cx, z1, true, 0, h);
   });
+  // Side towers: floored, a shell from the ground as the west towers', a door in the outer face
+  for (const t of sides) {
+    const north = t.side === 'n';
+    const z0 = north ? (t.past ? zN : zA) - t.sz : (t.past ? zS : zA2) + 1, z1 = z0 + t.sz - 1;
+    const bx: [number, number, number, number] = [t.x0, t.x0 + t.sz - 1, z0, z1];
+    for (let x = bx[0]; x <= bx[1]; x++) for (let z = z0; z <= z1; z++) set(x, 0, z, M.floor, 1);
+    shellTower(bx, 1, Math.max(s(t.height), Hv + 4), s(t.spire, 0), true);
+    portal(Math.round((bx[0] + bx[1]) / 2), north ? z0 : z1, true, 0, Math.max(3, Math.min(ph, Ha)));
+  }
 
   // (accents: a calcite string course across the west front at the aisles' height)
   if (accents)
@@ -582,7 +749,7 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
       }
     }
     if (nave >= 7 && kind('candles')) {
-      const ax = xe + Math.max(1, Math.floor(rI / 2));
+      const ax = flat ? xe - 2 : xe + Math.max(1, Math.floor(rI / 2));
       if ([-1, 0, 1].every((o) => isHigh(ax, zr + o) && !hWall(ax, zr + o) && empty(ax, 1, zr + o))) {
         for (const o of [-1, 0, 1]) set(ax, 1, zr + o, accents ? GEM.amethyst : T2.altar, 9);
         for (const o of [-1, 1]) set(ax, 2, zr + o, T2.candle, 9);
@@ -599,6 +766,18 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
         if (!into || y < 3 || !has(x, y, z) || !empty(x + into[0], y, z + into[1])) continue;
         set(x + into[0], y, z + into[1], `${banners[nb++ % banners.length]}_wall_banner[facing=${into[2]}]`, 9);
       }
+  }
+
+  // A roof stair in a saddle (small chapels, a tower's foot): nothing higher before it, or roof behind it above, is a full
+  // tile, so every stair left faces uphill
+  for (const [kk, b] of [...cells]) {
+    const m = /^(\w+_stairs)\[facing=(\w+),half=bottom\]$/.exec(b);
+    if (!m || (m[1] !== M.tileStair && m[1] !== COPPER.tileStair)) continue;
+    const [x, y, z] = kk.split(',').map(Number);
+    const [dx, dz] = STEP4.find((st) => st[2] === m[2])!;
+    const behind = cells.get(key(x - dx, y + 1, z - dz));
+    if (!has(x + dx, y, z + dz) && !has(x + dx, y + 1, z + dz) || (behind && /tile/.test(behind) && behind !== M.tileSlab))
+      cells.set(kk, m[1] === COPPER.tileStair ? COPPER.tile : M.tile);
   }
 
   return finish(p, scale, cells, stageOf, W, D, opts, furnish ? GOTHIC_STAGES_DETAIL : GOTHIC_STAGES);
