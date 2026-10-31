@@ -83,6 +83,8 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'The share of a wheat field\'s grown plants that must be ripe (and 4 at least) before it is offered for harvest; 0.5 gives about 1.5x the harvest options and a tenth more wheat (train 9c\'s supply gaps).' },
   { name: 'MC_OWN_ROD', type: 'flag', default: 'on', group: 'needs', live: false, requires: ['MC_OWN'], read: 'supply.ts',
     describe: 'A member whose own chest holds a fishing rod may go fishing with it while storage has none to spare (out of its chest at its door, back after).' },
+  { name: 'MC_STRING', type: 'flag', default: 'on', group: 'needs', live: false, read: 'supply.ts',
+    describe: 'String from cobwebs (#178): the gather_string activity digs down to cobwebs (old mineshafts) and breaks them with a sword, and the workshop makes fishing rods from the string, so a village fishes without the merchant.' },
   { name: 'MC_FLOWER_WANTS', type: 'flag', default: 'on', group: 'needs', live: false, read: 'supply.ts',
     describe: 'The flower picking activity is offered for a flower whose dye a good under its keep takes (lilac for magenta dye), counted by that flower\'s own stock, and picks it.' },
   { name: 'MC_APPETITE_IDLE', type: 'number', default: '0.25', group: 'needs', live: false, read: 'appetite.ts',

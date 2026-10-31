@@ -8,6 +8,7 @@
 import type minecraftData from 'minecraft-data';
 import type { Counts, MaterialPlan } from './mcMaterials';
 import { rawSetting } from '../settings';
+import { STRING } from '../supply';
 
 type Registry = ReturnType<typeof minecraftData>;
 
@@ -46,7 +47,7 @@ export const LETTERS_GOODS: MakeGood[] = [
 export const MAKE_GOODS: MakeGood[] = [
   { item: 'stone_pickaxe', target: 4, batch: 4, unit: 1, words: 'stone pickaxes', forWhat: 'a miner without a pickaxe takes a stone one from storage instead of the village\'s cobblestone' },
   { item: 'stone_hoe', target: 2, batch: 2, unit: 1, words: 'stone hoes', forWhat: 'a farm start or the field\'s tilling takes a hoe from storage instead of making one' },
-  { item: 'wooden_sword', target: 2, batch: 2, unit: 1, words: 'wooden swords', forWhat: 'a sword is what takes string from cobwebs (the string trip comes later)' },
+  { item: 'wooden_sword', target: 2, batch: 2, unit: 1, words: 'wooden swords', forWhat: STRING ? 'a sword is what takes string from cobwebs on the string trip' : 'a sword is what takes string from cobwebs (the string trip comes later)' },
   { item: 'charcoal', target: 8, batch: 8, unit: 1, words: 'charcoal', forWhat: 'furnace fuel, 8 smelts each (planks burn otherwise), and torches' },
   { item: 'torch', target: 32, batch: 16, unit: 4, words: 'torches', forWhat: 'light for the mine and the houses later; the street lamps are lit already' },
   { item: 'glass', target: 16, batch: 8, unit: 1, words: 'glass', forWhat: 'windows for later buildings' },
@@ -58,6 +59,12 @@ export const MAKE_GOODS: MakeGood[] = [
   { item: 'composter', target: 1, batch: 1, unit: 1, words: 'composters', forWhat: 'turns crops into bone meal (white dye, growth) once placed (later)', variant: 'slabs' },
   { item: 'ladder', target: 12, batch: 6, unit: 3, words: 'ladders', forWhat: 'ladders for the deep mine (later)' },
 ];
+
+/**
+ * #178 (MC_STRING): fishing rods from the string trip's string, beside MAKE_GOODS (whose goods take only easy materials:
+ * this one is made only while storage holds the string; the world adds it to a village's goods).
+ */
+export const ROD_GOOD: MakeGood = { item: 'fishing_rod', target: 3, batch: 1, unit: 1, words: 'fishing rods', forWhat: 'a fishing trip takes a rod from storage (two string from cobwebs and three sticks); rods wear out' };
 
 /**
  * Food goods (s30's food step, D13): made only in a village with an appetite (the world's makeTarget: bread two a member,

@@ -11,6 +11,7 @@ import { rawSetting } from './settings';
 import { CUTTER } from './cutter';
 import { DYE_BED } from './dyeBed';
 import { FURNISH } from './furnish';
+import { STRING } from './supply';
 
 /** On by default since s42 (Stg2: purchases only of what the village uses); MC_MERCHANT=off turns it off. */
 export const MERCHANT_ON = (rawSetting('MC_MERCHANT') ?? 'on') === 'on';
@@ -95,7 +96,8 @@ export const SOLD = new Set(SELLS.map((o) => o.item));
 
 /** Whether an item can be had here: not unobtainable, or sold by the merchant while it trades (F1). */
 export function obtainableHere(item: string, unobtainable: Record<string, string>): boolean {
-  return !unobtainable[item] || (MERCHANT_ON && SOLD.has(item));
+  // (#178, MC_STRING: string from cobwebs)
+  return !unobtainable[item] || (MERCHANT_ON && SOLD.has(item)) || (item === 'string' && STRING);
 }
 
 /** An offer's value in emeralds for one item (what one unit is worth at this price). */

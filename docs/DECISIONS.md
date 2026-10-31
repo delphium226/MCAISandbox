@@ -977,3 +977,13 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   through stage (c); nights skipped by sleep once members have beds; easy difficulty first; mob griefing off until
   walls and repairs exist; opt-in (`MC_WORLD=peaceful` by default, an exception to the flags-on rule because it changes
   the base premise); melee only at first. First step: stage (a), damage on, still peaceful.
+- 10-31 (rod session, #178, brief runs/2026-10-31/planning/briefs.md 3) **The peaceful world's string comes from cobwebs,
+  broken with a sword** (`MC_STRING`, on). Measured on the test world (runs/2026-10-31/rod/report.md): 1,499 cobwebs in
+  0.64 km2 (44 within 128 blocks of minevale3, in mineshafts ~30 down), 121 dungeon chests (~3.4 string each, deeper),
+  no tripwire; no villager sells string (fishermen and fletchers buy it); fishing junk gives string 0.45% of catches and
+  needs a rod; cats' gifts need tamed cats and beds. Cobwebs are the cheapest honest source: the amethyst trip
+  (`digDownSkill`) reused with a scout that passes over targets whose way down meets water, lava, gravel, sand,
+  dripstone or a cave (27 of the 29 clusters near the village were blocked), a drop into the web's own cave, walks to the
+  next webs there, and a teleport to the surface spot when the climb back fails (as the iron level's, 10-08). Fishing
+  rods are a workshop good made only from stored string (two string, three sticks). The merchant still sells rods
+  when on.

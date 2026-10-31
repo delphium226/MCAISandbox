@@ -13,6 +13,7 @@ import type minecraftData from 'minecraft-data';
 import type { Design } from '../village';
 import { hasJar, itemTag, listEntries, readJson, vanillaJar } from '../vanillaData';
 import { rawSetting } from '../settings';
+import { STRING } from '../supply';
 
 type Registry = ReturnType<typeof minecraftData>;
 export type Counts = Record<string, number>;
@@ -77,6 +78,8 @@ export const UNOBTAINABLE: Record<string, string> = {
   bone: 'dropped by skeletons (none in peaceful)', slime_ball: 'dropped by slimes (none in peaceful)', ender_pearl: 'dropped by endermen (none in peaceful)',
   spider_eye: 'dropped by spiders (none in peaceful)', rotten_flesh: 'dropped by zombies (none in peaceful)',
 };
+// (#178, MC_STRING: string from cobwebs; still never planned to gather, only taken from stock)
+if (STRING) UNOBTAINABLE.string = 'from cobwebs underground: the string trip (a sword breaks them)';
 
 export const WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak', 'bamboo', 'crimson', 'warped'];
 /** A wooden item: its wood kind and part ("acacia", "planks"). */

@@ -26,5 +26,12 @@ export const OWN_ROD = /^(on|1|true)$/i.test(rawSetting('MC_OWN_ROD') ?? 'on');
  */
 export const FLOWER_WANTS = /^(on|1|true)$/i.test(rawSetting('MC_FLOWER_WANTS') ?? 'on');
 
+/**
+ * MC_STRING=on (#178): the peaceful world's string comes from cobwebs (old mineshafts; a sword breaks one into a string):
+ * the gather_string activity (foundry/cobweb.ts, server/library/string.json) and fishing rods in the workshop (two string,
+ * three sticks). Without it, and with the merchant off, no rod or string exists and nobody fishes (train 12, F341).
+ */
+export const STRING = /^(on|1|true)$/i.test(rawSetting('MC_STRING') ?? 'on');
+
 /** A wanted flower's own keep under MC_FLOWER_WANTS: picked while storage holds fewer. */
 export const FLOWER_KEEP = 8;

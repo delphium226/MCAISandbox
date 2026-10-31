@@ -1,0 +1,20 @@
+{
+  "id": "lib:string",
+  "name": "Gather string from cobwebs underground",
+  "skill": "gather_string",
+  "count": {
+    "arg": "count",
+    "max": 8
+  },
+  "needs": {
+    "stone_pickaxe": 2,
+    "wooden_sword": 1
+  },
+  "gives": [
+    {
+      "item": "string"
+    }
+  ],
+  "keep": 6,
+  "effect": "string for fishing rods (two each): rods for the fishing trips that feed the village"
+}

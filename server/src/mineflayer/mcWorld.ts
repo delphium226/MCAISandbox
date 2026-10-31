@@ -25,7 +25,7 @@ import { teleportHome, underHome } from './mcRescue';
 import { annexBusy, growBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, storeBusy, surfaceAt, wheatKeep, writeBoard } from './mcBuild';
 import { ironDone, ironStairsHeld, mineAreas, mineGives, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PEN_KINDS, PEN_ORDER, PEN_VARIETY, SLOT_KINDS, SLOT_ORDER, penCap, penLure, penPlan, penSlotFit, penWords, worksFurnaces } from '../farmSlots';
-import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
+import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, ROD_GOOD, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
 import { PROMPT_SELF, UNUSED_GOOD, UNUSED_TAG, ambitionGap, feedKinds, needsLine as basicNeedsLine, scarcityLine, selfLine, type HouseFacts, type SelfFacts } from '../promptSelf';
@@ -89,7 +89,7 @@ import { codeNews, tellMember } from '../acts';
 import { RULES, boardSigns, breaks, contributeOwed, inClass, rulesInForce, claimHeld, claimRule, contributeTag, duties, levyRate, noteBlocked, noteClaimWait, noteCompliance, notePuts, noteReportUsed, noteTakes, pendReport, pendingReport, postClaim, postReport, reportFor, reportRule, rulesLine, setZoneVillages, skipReport, zoneBoxes, type ClaimWork, type Report } from '../rules';
 import { CUSTOMS, CUSTOM_IDS, TEMPLATES, customFacts, didOn, noteDid, noteExposed, offered as customOffered, seedLine, type CustomId } from '../customs';
 import { lapsePending, levyLeft, pendShare, pendingOf, settlePending } from '../own';
-import { FIELD_RIPE, FLOWER_KEEP, FLOWER_WANTS, OWN_ROD } from '../supply';
+import { FIELD_RIPE, FLOWER_KEEP, FLOWER_WANTS, OWN_ROD, STRING } from '../supply';
 import { councilLine, needBoost, noteNeedOffer, noteNeedStatus, setCouncilStore, withInfluence } from '../council';
 import { CHARACTER, characterAny, characterFactor, characterRunBegin, goalFromValues, helpWeight, hexacoOf, hexacoWeights, identityLine, initCharacter, moodLine, moodWeight, needsLine, noteDecision, noteLines, noteRest, noteWork, requestWeight, restWeight, sample as characterSample, temperamentWords, think, valuesLine } from '../character';
 import { HOUSE_UNITS, HOUSE_UNITS_LARGE, LANDMARK_UNITS, MAX_SMELTS, VANILLA_ALL, WOOD_VARIANTS, baseName, houseBudget, isLandmark, isVanillaPieceName, validateDesign } from '../designs';
@@ -799,6 +799,8 @@ export class MineflayerWorld implements WorldAdapter {
     }
     // (s43's innovation: the goods of the techniques the village unlocked, in place of a good of the same item)
     if (!INNOVATE) return goods;
+    // (#178, MC_STRING: fishing rods from the string trip's string)
+    if (STRING && !goods.some((g) => g.item === ROD_GOOD.item)) goods = [...goods, ROD_GOOD];
     const tech = techGoods(v);
     return tech.length ? [...goods.filter((g) => !tech.some((t) => t.item === g.item)), ...tech] : goods;
   }

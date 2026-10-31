@@ -524,7 +524,9 @@ reset_site.py on a locked world only warns. CLI: `scripts/goal_map.mts catalogue
   pickaxe, `PICKAXE_WAIT=0` makes him make his own) and `atlas_ores.py VILLAGE` (the atlas's exposed ores against the
   blocks; spawn an idle Gus at the mine first so its chunks are loaded). Run the relevant one after changing find_site,
   layout.ts, smelting, the atlas, felling or the mine. No server needed: `region_blocks.py X Y Z [X2 Y2 Z2]` reads
-  blocks from the saved region files (only chunks already saved: unloaded or after `python mc/rcon.py stop`), and
+  blocks from the saved region files (only chunks already saved: unloaded or after `python mc/rcon.py stop`),
+  `string_trip.py [X Z]` (#178: Gus runs gather_string near minevale3's mineshaft without a sword, then with one: at least
+  2 string and back on the surface; on the test world with `MCAI_API` and `MC_SERVER_DIR`), and
   `hilly_land.py [DROP]` lists fresh land beside a drop from the atlas. Staged runs with felling need `MCAI_STALL_MIN=5` (a 30-cobblestone task with a pickaxe to make takes over
   3 minutes; since the huts, use 8); `stage_village.py` ignores soft "cannot be gathered here" failures.
   `fresh_land.py [MIN_DISTANCE]` lists fresh land from the atlas, away from every village (no server needed);

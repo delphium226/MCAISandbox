@@ -11,6 +11,8 @@ import { FOUNDRY as flowers } from './flowers';
 import { FOUNDRY as honeycomb } from './honeycomb';
 import { FOUNDRY as wool } from './wool';
 import { FOUNDRY as amethyst } from './amethyst';
+import { FOUNDRY as cobweb } from './cobweb';
+import { STRING } from '../../supply';
 
 export const FOUNDRY_SKILLS: FoundrySkill[] = [
   fish,
@@ -19,4 +21,6 @@ export const FOUNDRY_SKILLS: FoundrySkill[] = [
   honeycomb,
   wool,
   amethyst,
+  // (#178, MC_STRING: string from cobwebs; off, the skill and its spec are left out)
+  ...(STRING ? [cobweb] : []),
 ].map(locked);

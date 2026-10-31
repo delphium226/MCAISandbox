@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-258 settings.
+259 settings.
 
 ## Game speed
 
@@ -288,6 +288,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_NEED_WORKS` | flag | `on` |  |  | MC_NEED_WORKS: on (the default since s40, 10-19) or off (0, false). |
 | `MC_NEEDS` | string | (unset) | yes |  | N.1's needs (spec_needs_v2): off; show (measured, logged, on the API and panel); on (also on the menus). |
 | `MC_OWN_ROD` | flag | `on` |  | `MC_OWN` | A member whose own chest holds a fishing rod may go fishing with it while storage has none to spare (out of its chest at its door, back after). |
+| `MC_STRING` | flag | `on` |  |  | String from cobwebs (#178): the gather_string activity digs down to cobwebs (old mineshafts) and breaks them with a sword, and the workshop makes fishing rods from the string, so a village fishes without the merchant. |
 
 ## Server and run
 
