@@ -2500,3 +2500,20 @@ CLAUDE.md when a phase ends.
   - No law named wealth in either arm. Busy 89 / 90%, $1.15 / $1.11.
   - Bugs, fixed: #184 (an iron tool asked for by name was refused), #185, #186 (unmatched goal words never reached
     proposals; not yet seen live). Report: runs/2026-10-31/goals/report.md.
+- F347 (10-31, train15, G8/G2/G7) **Train 15: the civic tier's first building handed the cathedral a kiln too small
+  for it; the wants tuning ended stalls but weakened the step's pull.** N (MC_CIVIC, MC_WANTS_TUNE, MC_STRING on)
+  against O (off); `t12_pad_open`, 25 members, 1x, 120 min after, peaceful, code 3cdca2c:
+  - **Civic:** the Mayor picked the smallest of 6 (Pembridge Market Hall, 166 blocks), built in 4 min. Its 4-furnace
+    kiln passed to the 3,587-block cathedral (O's own kiln: 15). Every tend from +23.6 failed `destination full` (63),
+    and the cathedral stayed at 1 of 16 jobs to the end; O's was finished at +114 (#190). N's busy 83% against 90%,
+    61-65% in the last 20 min. Houses and initiatives did not slow (25 / 25, 109 / 101). With MC_CIVIC_FIRST=1 a
+    village gets one civic building before the monument.
+  - **Wants tuning:** on-members' stalls 19 -> 3 with 6 dropped and re-planned, green rest 162 -> 21 member-min. The
+    hour-2 busy gap was absent in both arms (59/60, 63/64), so the busy effect is not shown. The 9.3 primary was the
+    weakest yet: take share 41% (1.7x) on against 48% off, and family persistence 2/15. One pair: judge it again.
+  - **String:** 4 model-chosen trips (2 brought 6 string; 2 found no cobweb), 3 rods made; the own-rod fixture made the
+    chain unnecessary.
+  - **Fixes:** #183's request matching held (house answers carried the house's fact with a torch promise open), but
+    "right where you asked" survived on a street 10-95 blocks off (#192). #182's retry worked, but the first give-up
+    waited 30 min in both arms although 8 starts were clear (#191). #181 had nothing to show in peaceful.
+  - $1.39 + $1.46, [lag] 0 / 0. Report: runs/2026-10-31/train15/report.md.
