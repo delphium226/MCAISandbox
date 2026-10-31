@@ -4256,7 +4256,7 @@ export class MineflayerWorld implements WorldAdapter {
     if (iron && civicsStanding(v) >= CIVIC.first) return false;
     const last = (v as { civics?: Array<{ built?: number; at: number }> }).civics?.at(-1);
     if (last && now - (last.built ?? last.at) < (CIVIC.gap * 60000) / timeScale()) return true;
-    const options = civicOptions(v, iron);
+    const options = civicOptions(v, iron, undefined, [...this.villages.villages.values()]);
     if (!options.length) return false;
     let pick: { id: string | null; by: string; reason: string };
     if (CIVIC.choose === 'model') {

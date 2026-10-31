@@ -131,13 +131,19 @@ export function civicAges(v: Village, ironReached: boolean): Array<'timber' | 's
 export interface CivicOption { id: string; title: string; kind: string; age: 'timber' | 'stone'; scale: number; width: number; depth: number; height: number; blocks: number; jobs: number; line: string }
 
 /**
- * The short list (pure but for the drawing's cache): the entries of the open ages not built or given up here, each at its
- * scale, the kinds the village has not built first, at most two of a kind, CIVIC_LIST in all; the order within a rank is
- * the village's own (a hash of its name and the count built), so villages do not all get the same list.
+ * The short list (pure but for the drawing's cache): the entries of the open ages not built or given up here, and not
+ * any other village's most recent civic building (planning's DECISIONS a39e559: the Mayor took Pembridge first in all
+ * three staged runs), each at its scale, the kinds the village has not built first, at most two of a kind, CIVIC_LIST in
+ * all; the order within a rank is the village's own (a hash of its name and the count built), so villages differ.
  */
-export function civicOptions(v: Village, ironReached: boolean, n = CIVIC_LIST): CivicOption[] {
+export function civicOptions(v: Village, ironReached: boolean, n = CIVIC_LIST, others: Village[] = []): CivicOption[] {
   const ages = civicAges(v, ironReached), had = civicsOf(v);
   const done = new Set(had.map((c) => c.preset)), kinds = new Set(had.filter((c) => !c.skipped).map((c) => c.kind));
+  for (const o of others) {
+    if (o === v) continue;
+    const last = civicsOf(o).filter((c) => !c.skipped).at(-1);
+    if (last) done.add(last.preset);
+  }
   const seed = `${v.name}|${had.length}`;
   const hash = (s: string) => { let h = 2166136261; for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return h >>> 0; };
   const pool = civicEntries().filter((e) => ages.includes(e.age) && !done.has(e.id))
@@ -198,9 +204,9 @@ export function checkCivic(input: Record<string, unknown> | undefined, options: 
 
 /** Whether the monument (the iron age's) may begin: always with the tier off; with it on once none is under way and
  *  MC_CIVIC_FIRST stand, or no civic building is left to choose. */
-export function monumentMayBegin(v: Village, ironReached: boolean): boolean {
+export function monumentMayBegin(v: Village, ironReached: boolean, others: Village[] = []): boolean {
   if (!CIVIC.on) return true;
-  return civicsStanding(v) >= CIVIC.first || !civicOptions(v, ironReached, 1).length;
+  return civicsStanding(v) >= CIVIC.first || !civicOptions(v, ironReached, 1, others).length;
 }
 
 /** The civic record leaves the monument's place (MC_CIVIC): built, or given up when its site failed; listed in the

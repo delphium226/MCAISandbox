@@ -80,5 +80,20 @@ if (early.length < 4 || later.length < 4) fail('a short list under 4');
 const byKind = new Map<string, number>();
 for (const o of later) byKind.set(o.kind, (byKind.get(o.kind) ?? 0) + 1);
 if ([...byKind.values()].some((n) => n > 2)) fail('more than two of a kind on a list');
+// Variety (DECISIONS a39e559): a building this village built, and another village's most recent one, are off its list;
+// kinds it has not built come first
+{
+  const pick = early[0], second = early[1];
+  const built = { ...v(false), civics: [{ preset: pick.id, kind: pick.kind, scale: pick.scale, at: 0, built: 1, blocks: pick.blocks }] } as unknown as Village;
+  const again = civicOptions(built, false);
+  if (again.some((o) => o.id === pick.id)) fail(`a building the village built (${pick.id}) is on its list again`);
+  const firstOld = again.findIndex((o) => o.kind === pick.kind), lastNew = again.map((o) => o.kind !== pick.kind).lastIndexOf(true);
+  if (firstOld >= 0 && firstOld < lastNew) fail(`a kind the village built (${pick.kind}) comes before a kind it has not`);
+  const other = { ...v(false), name: 'Othervale', civics: [{ preset: second.id, kind: second.kind, scale: second.scale, at: 0, built: 1, blocks: second.blocks }, { preset: pick.id, kind: pick.kind, scale: pick.scale, at: 0, built: 2, blocks: pick.blocks }] } as unknown as Village;
+  const withOther = civicOptions(v(false), false, undefined, [other]);
+  if (withOther.some((o) => o.id === pick.id)) fail(`another village's most recent building (${pick.id}) is on the list`);
+  if (!civicOptions(v(false), false, 20, [other]).some((o) => o.id === second.id)) fail(`another village's older building (${second.id}) is left off the list`);
+  console.log(`variety: after ${pick.id} the list starts ${again.slice(0, 3).map((o) => o.id).join(', ')}; beside Othervale (last ${pick.id}): ${withOther.slice(0, 3).map((o) => o.id).join(', ')}`);
+}
 console.log(fails ? `civic_gen: ${fails} FAILED` : 'civic_gen: ok');
 process.exit(fails ? 1 : 0);
