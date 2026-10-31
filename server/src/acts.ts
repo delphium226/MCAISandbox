@@ -445,7 +445,9 @@ function itemOf(w: ActsWorld, raw: string | undefined): What | undefined {
   // (gpt-oss names blocks: "birch_log", "oak logs", "wood")
   if (/(^|_|\s)(logs?|wood)$/i.test(raw.trim()) && w.items.has('gather:logs')) raw = 'gather:logs';
   const f = fold(raw);
-  for (const [option, words] of w.items) if (fold(option) === f || fold(words) === f || fold(option.split(':')[1] ?? '') === f || fold(words).replace(/s$/, '') === f.replace(/s$/, ''))
+  // (#184: an iron tool asked by its name, "shears" against iron:forge:shears, "an iron tool: shears")
+  for (const [option, words] of w.items) if (fold(option) === f || fold(words) === f || fold(option.split(':')[1] ?? '') === f || fold(option.split(':').at(-1) ?? '') === f
+    || fold(words.replace(/^an iron tool:\s*/, '')) === f || fold(words).replace(/s$/, '') === f.replace(/s$/, ''))
     return { kind: 'item', option, words: `${option.startsWith('make:') ? 'make' : 'gather'} ${words}` };
   // (#107's fix, MC_ACT_FIXES: a bare tool word, "axe" or "an axe", is the best make option of that tool: Long4's 28
   // refused requests for "axe" while make:wooden_axe was on offer)

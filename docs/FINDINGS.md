@@ -2485,3 +2485,18 @@ CLAUDE.md when a phase ends.
   - **Staged pair on world 5 (2x):** stall life 12-14 -> 21-22 wall minutes (1.2 -> 2+ village days), stalls 25 -> 7,
     9 no-path drops.
   - The 9.3 primary and persistence need the next model-driven train. Report: runs/2026-10-31/wants/report.md.
+- F346 (10-31, goals, G2) **A typed village goal ("get rich") moved what members aimed at and said, not what they
+  had.** G (typed: the Mayor's text and 24 mapped takes, 23 to wealth) against N (drawn); `t12_pad_open`, 25 members,
+  1x, 90 min after; first look at the goal levers live:
+  - The goal reached every prompt: the choice goal line, the identity line, and the planner's recall as a kept line
+    (offline check, 25 of 25).
+  - **Aim:** wealth pursuits 40 of 50 against 7 of 54; reasons naming the goal 10% against 5%; own choices +25%,
+    public works -23% (66 against 86), helps -13%. Merchant sales 6 against 3, though wealth's `serves()` does not tag
+    them: the words did that.
+  - **Trade tried, no sellers:** 30 offers of emeralds for cooked cod, 29 lapsed (N: 0). The lapses drove the emerald's
+    barter factor to 0.25.
+  - **Holdings:** 55 against 50 emeralds, the same goods. The wealth measure priced the emerald by that factor, so G's
+    goal lines read poorer (chests worth 368 against 901; 1028 with the fix, #185).
+  - No law named wealth in either arm. Busy 89 / 90%, $1.15 / $1.11.
+  - Bugs, fixed: #184 (an iron tool asked for by name was refused), #185, #186 (unmatched goal words never reached
+    proposals; not yet seen live). Report: runs/2026-10-31/goals/report.md.

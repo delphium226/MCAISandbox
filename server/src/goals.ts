@@ -7,7 +7,7 @@
  * ends and applies the weights; the simulator runs it.
  */
 import fs from 'node:fs';
-import { price, boardOf } from './barter';
+import { price, boardOf, baseValue } from './barter';
 import { fnv1a } from './choose';
 import { OWN } from './own';
 import { SMALL_WORKS } from './smallWorks';
@@ -251,7 +251,8 @@ export function progress(v: Village, name: string, goal: Goal): { value: number;
     case 'wealth': {
       const own = v.homes?.[name]?.chest?.items ?? {};
       const b = boardOf(v);
-      const worth = Math.round(Object.entries(own).reduce((t, [k, q]) => t + price(b, k) * q, 0));
+      // (#185: the emerald is the money, worth its base value whatever the board's offers did to its factor)
+      const worth = Math.round(Object.entries(own).reduce((t, [k, q]) => t + (k === 'emerald' ? baseValue(k) : price(b, k)) * q, 0));
       return { value: worth, text: `${own.emerald ?? 0} emeralds; your own chest worth ${worth}` };
     }
     case 'invention': {

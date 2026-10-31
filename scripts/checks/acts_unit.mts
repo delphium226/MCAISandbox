@@ -174,6 +174,13 @@ ok(d.includes('offer'), `"help" read as an offer (${d})`);
 st().since.Dev = 5;
 d = acts.handle(V, 'Dev', { act: 'request', act_to: 'Ben', act_item: 'birch_log' }, chosen('make:torch', 'di'), world(), T + 3 * MIN);
 ok(d.includes('request') && acts.openRequests(V, 'gather:logs') >= 1, `"birch_log" read as logs, an open request counted (${d})`);
+// (#184: an iron tool asked by its name is the forge option)
+const forge = () => ({ ...world(), items: new Map([...world().items, ['iron:forge:shears', 'an iron tool: shears'], ['iron:forge:iron_pickaxe', 'an iron tool: iron pickaxe']]) });
+for (const [i, it] of ['shears', 'iron pickaxe'].entries()) {
+  st().since.Ben = 5;
+  d = acts.handle(V, 'Ben', { act: 'request', act_to: 'anyone', act_item: it }, chosen('make:torch', `bf${i}`), forge(), T + (3 + i) * MIN);
+  ok(d.includes('request'), `"${it}" read as the forge option (${d})`);
+}
 st().since.Clara = 5;
 acts.handle(V, 'Clara', { act: 'offer', act_to: 'Dev' }, chosen('make:torch', 'cm'), world(), T + 4 * MIN);
 const cm = st().commitments.find((c) => c.from === 'Clara' && c.to === 'Dev')!;

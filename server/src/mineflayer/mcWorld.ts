@@ -8573,10 +8573,14 @@ export class MineflayerWorld implements WorldAdapter {
   goalsFor(v: Village): Goals {
     const members = [...this.agents.values()].filter((b) => b.village() === v).map((b) => ({ name: b.name, t: vectorOf(b.name) }));
     const before = goalsOf(v)?.drawnFor;
-    // (the start screen: a typed goal's unmatched words to the proposals store once, when the plan is put on the village)
-    goalPlanOf(v, (p) => {
-      if (PROPOSALS_ON) for (const [m, s] of Object.entries(p.specs)) for (const w of s.unmatched) this.wantProposal(v.name, m, w, `words of my life goal "${s.text}" with no lever`, clockOf(v.name, Date.now())?.day ?? 0, 'goal');
-    });
+    // (the start screen: a typed goal's unmatched words to the proposals store once per plan, kept on the village; #186:
+    // not in goalPlanOf's fresh callback, which an earlier specOf takes silently)
+    const plan = goalPlanOf(v);
+    const vp = v as Village & { goalWordsSent?: string };
+    if (plan && PROPOSALS_ON && vp.goalWordsSent !== plan.hash && this.proposalCtx(v.name)) {
+      vp.goalWordsSent = plan.hash;
+      for (const [m, s] of Object.entries(plan.specs)) for (const w of s.unmatched) this.wantProposal(v.name, m, w, `words of my life goal "${s.text}" with no lever`, clockOf(v.name, Date.now())?.day ?? 0, 'goal');
+    }
     const g = ensureGoals(v, members, Date.now());
     // (MC_GOAL_PIN: each typed goal a kept line in its member's memory)
     if (GOAL_PIN) for (const m of members) {
