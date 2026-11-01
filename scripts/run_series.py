@@ -645,6 +645,14 @@ def main():
         print("\nRUN      exit  minutes  stopped", flush=True)
         for r in results:
             print(f"{r['name']:8} {str(r['code']):5} {r['minutes']:7.1f}  {r['stopped']}", flush=True)
+        # (the runs side by side as a page of charts: run_report_html.py; a failure here never fails the series)
+        try:
+            from run_report_html import page
+            logs = [r["log"][:-len(".log")] for r in runs if os.path.exists(r["log"])]
+            if logs:
+                print("report: " + os.path.relpath(page(logs, os.path.join(runs[0]["out"], "report.html")), ROOT), flush=True)
+        except Exception as err:  # noqa: BLE001
+            print(f"report: not written ({err})", flush=True)
     print(f"ALL DONE {time.strftime('%H:%M:%S')}", flush=True)
 
 

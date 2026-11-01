@@ -604,7 +604,11 @@ reset_site.py on a locked world only warns. CLI: `scripts/goal_map.mts catalogue
   with `"replay": "RUN"` (a run of the spec) or a recording's path; the `model_calls` check counts recorded and replayed
   calls. Example: `scripts/series/watch_example.json` (a run, then its replay).
 - **Faster test runs** (2026-10-16): `scripts/run_report.py LOG|DIR/NAME [...]` (one table per run, side by side; the
-  agent log's counts found through reset_NAME.log; `MCAI_REPORT_WIDTH`). `stage_village.py --after-until grow[,idle:N]`
+  agent log's counts found through reset_NAME.log; `MCAI_REPORT_WIDTH`). `scripts/run_report_html.py DIR/NAME [...] [-o
+  OUT]` puts the same runs side by side as a page of charts (busy and chore time by 10 minutes, failed chores, choice
+  families, tokens by bin and call kind from the run's model-call record, loop p99, each member's busy share, survival's
+  deaths; the run_report table below them); run_series.py writes it as `report.html` beside the logs at the end of a
+  series (2026-11-01). `stage_village.py --after-until grow[,idle:N]`
   ends the after phase once every condition holds (grow: no growth layout under way and growth stopped or a house per
   member; idle:N: no member ran an action for N minutes, rare with the workshop and light chores on). The agent server's
   `MC_RANDOM_TICK` (the game rule random_tick_speed, set at every start, 3 unless given): 30 gave Rt30's first harvest at
