@@ -45,7 +45,7 @@ def danger_summary(text):
     if "[death]" in text:
         r["deaths"] = str(sum(1 for l in text.splitlines() if l.startswith("[death]") or "] [death]" in l or l.find("[death] ") >= 0 and " at " in l))
     r["watches / curfew walks"] = f"{text.count(' keeps watch (')} / {text.count(': heads home')}"
-    g = [int(x) for x in re.findall(r"\[light\] \S+ \S+ part=grounds:\d+ placed=(\d+)", text)]
+    g = [int(x) for x in re.findall(r"\[light\] \S+ \S+ part=grounds:[\d,]+ placed=(\d+)", text)]
     r["grounds torches placed"] = str(sum(g))
     return r
 

@@ -717,7 +717,7 @@ export function dangerTick(agents: Iterable<BotAgent>, villages: Iterable<Villag
       const r = Math.hypot(p.x - home.x, p.z - home.z);
       if (r < 48) n48++;
       if (r < 96) n96++;
-      if (!seenMobs.has(id) && beyond(box, p.x, p.z, 0) === 0) d.spawnsIn++;
+      if (!seenMobs.has(id) && beyond(box, p.x, p.z, 0) === 0 && Math.abs(p.y - home.y) <= 8) d.spawnsIn++;
     }
     Object.assign(d, { near48: n48, near96: n96 });
     if (ph !== 'day') Object.assign(d, { peak48: Math.max(d.peak48, n48), peak96: Math.max(d.peak96, n96) });

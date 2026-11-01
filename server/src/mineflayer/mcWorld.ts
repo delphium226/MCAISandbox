@@ -1444,24 +1444,30 @@ export class MineflayerWorld implements WorldAdapter {
         mine.push({ part, label, kind: 'mine', spots, unlit, growing: mineGrowing(m, part) });
       }
     }
-    // Survival (d), MC_GROUNDS_LIGHT (spec 1): each neighbourhood's open ground, a 12-block grid of standing torches off its
-    // structures (and a block round them), streets, pads, green, farm, slots and side plots, 7 clear of its lamps; the
-    // spot's y is the neighbourhood's level, found again on the ground by the placer
+    // Survival (d), MC_GROUNDS_LIGHT (spec 1): the village's open ground, a 12-block grid of standing torches over its built
+    // bounds, off every structure (and a block round it), street, pad, green, farm, slot and side plot, 7 clear of the lamps;
+    // one part per 48-block tile (grown neighbourhoods are single-house pads, so the dark ground lies between them, not in
+    // them: the first pair's 2 spots); the spot's y is the village's level, found again on the ground by the placer
     const grounds: LightPart[] = [];
-    if (groundsLightOn() && v.complete) {
+    const box = groundsLightOn() && v.complete ? builtBounds(v) : null;
+    if (box) {
       const near = (q: Area, x: number, z: number, m = 0) => x >= q.x1 - m && x <= q.x2 + m && z >= q.z1 - m && z <= q.z2 + m;
-      const sides: Area[] = [...(v.storageHut ? [v.storageHut] : []), ...(v.layouts ?? []).flatMap((l) => [l.annex, l.works, l.store, l.farm, ...(l.slots ?? [])].filter((x): x is NonNullable<typeof x> => !!x))];
-      (v.layouts ?? []).forEach((l, i) => {
-        if (l.field) return;
-        const off: Area[] = [...(l.streets ?? []), ...(l.pads ?? []), ...(l.green ? [l.green] : []), ...sides];
-        const open = (x: number, z: number) => near(l, x, z) && !v.structures.some((st) => near(st, x, z, 1)) && !off.some((q) => near(q, x, z));
-        const y = l.y ?? l.pads?.find((q) => q.y !== undefined)?.y ?? v.plots[0]?.y ?? 64;
-        const part = `grounds:${i}`;
-        const spots = groundLightSpots(l, lamps, open).map((q) => ({ x: q.x, y: y + 1, z: q.z, block: 'torch' as const }));
-        if (!spots.length) return;
-        const name = l.name ?? (l.grow ? `neighbourhood ${l.grow}` : 'village centre');
-        grounds.push({ part, label: `open ground of the ${name}`, kind: 'grounds', spots, unlit: unlitOf(part, spots.map((q) => `${q.x},${q.y},${q.z}`)).length, growing: false });
-      });
+      const off: Area[] = [...(v.storageHut ? [v.storageHut] : []), ...(v.layouts ?? []).flatMap((l) => [...(l.streets ?? []), ...(l.pads ?? []), ...(l.green ? [l.green] : []), l.annex, l.works, l.store, l.farm, ...(l.slots ?? [])].filter((x): x is NonNullable<typeof x> => !!x))];
+      const fields = (v.layouts ?? []).filter((l) => l.field);
+      const open = (x: number, z: number) => near(box, x, z) && !fields.some((l) => near(l, x, z)) && !v.structures.some((st) => near(st, x, z, 1)) && !off.some((q) => near(q, x, z));
+      const y = v.layouts?.[0]?.y ?? v.layouts?.[0]?.pads?.find((q) => q.y !== undefined)?.y ?? v.plots[0]?.y ?? 64;
+      const hub = v.storageHut ? { x: (v.storageHut.x1 + v.storageHut.x2) / 2, z: (v.storageHut.z1 + v.storageHut.z2) / 2 } : { x: (box.x1 + box.x2) / 2, z: (box.z1 + box.z2) / 2 };
+      const tiles = new Map<string, LightPart['spots']>();
+      for (const q of groundLightSpots(box, lamps, open)) {
+        const k = `${Math.floor((q.x - box.x1) / 48)},${Math.floor((q.z - box.z1) / 48)}`;
+        tiles.set(k, [...(tiles.get(k) ?? []), { x: q.x, y: y + 1, z: q.z, block: 'torch' }]);
+      }
+      for (const [k, spots] of tiles) {
+        const part = `grounds:${k}`;
+        const cx = spots.reduce((n, q) => n + q.x, 0) / spots.length - hub.x, cz = spots.reduce((n, q) => n + q.z, 0) / spots.length - hub.z;
+        const dir = Math.hypot(cx, cz) < 24 ? 'by the storage hut' : `${cz < -Math.abs(cx) / 2 ? 'north' : cz > Math.abs(cx) / 2 ? 'south' : ''}${Math.abs(cx) > Math.abs(cz) / 2 ? (cx > 0 ? (cz < -Math.abs(cx) / 2 || cz > Math.abs(cx) / 2 ? '-east' : 'east') : (cz < -Math.abs(cx) / 2 || cz > Math.abs(cx) / 2 ? '-west' : 'west')) : ''} of the hut`;
+        grounds.push({ part, label: `open ground ${dir}`, kind: 'grounds', spots, unlit: unlitOf(part, spots.map((q) => `${q.x},${q.y},${q.z}`)).length, growing: false });
+      }
     }
     const parts = [...buildings, ...mine, ...grounds];
     this.lightCache.set(v.name, { sig, quick, parts });
@@ -7521,7 +7527,8 @@ export class MineflayerWorld implements WorldAdapter {
       let spare = facts.spare().torch ?? 0;
       const why: string[] = [];
       const ts = timeScale();
-      // (survival (d): from dusk to dawn the open ground's options go first, spec 1)
+      // (survival (d): from dusk to dawn the open ground's options go first, spec 1; by day ahead of every other part, since
+      // beds end each night after the first in ~10 s: the lighting is done before dark)
       const dark = phaseOf(this.timeOfDay()) !== 'day';
       for (const [r, P] of this.lightParts(v).entries()) {
         if (excluded([`light:${P.part}=`], busy)) {
@@ -7573,7 +7580,7 @@ export class MineflayerWorld implements WorldAdapter {
           effect = `+${n} torches along the ${P.label}: for the look of the tunnels (bots dig in the dark too; no mobs spawn here)`;
         }
         add({
-          id, kind: 'light', key: id, excludes: [`${id}=`], name: theirs ? `Help light ${anon ? 'a member' : theirs}'s house (${P.label})` : owner ? `Light your own house (${P.label})` : `Light the ${P.label}`, rank: P.kind === 'grounds' && dark ? 300 + r : Math.min(899, 860 + r) - (owner && !theirs ? 5 : 0), ...(at ? { at } : {}),
+          id, kind: 'light', key: id, excludes: [`${id}=`], name: theirs ? `Help light ${anon ? 'a member' : theirs}'s house (${P.label})` : owner ? `Light your own house (${P.label})` : `Light the ${P.label}`, rank: P.kind === 'grounds' ? (dark ? 300 + r : 850) : Math.min(899, 860 + r) - (owner && !theirs ? 5 : 0), ...(at ? { at } : {}),
           facts: theirs ? `${anon ? 'a member' : theirs}'s house; ${facts2}` : owner ? `your own house; ${facts2}` : facts2, effect,
         }, { kind: 'light', part: P.part, n, unlit: P.unlit, label: P.label });
         spare -= n;

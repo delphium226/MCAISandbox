@@ -7009,7 +7009,7 @@ async function putUpTorches(a: BotAgent, args: Record<string, unknown>, signal: 
       if (name !== null && !torch(q, name)) done.delete(k);
     }
     const faces = P.kind === 'mine' && v.mine ? mineFacesGoing(v.mine) : [];
-    const targets = P.spots.filter((q) => !done.has(keyOf(q)) && !never.has(keyOf(q)) && !(P.kind === 'mine' && nearMineFace(faces, q))).slice(0, count)
+    const targets: LightPart['spots'] = P.spots.filter((q) => !done.has(keyOf(q)) && !never.has(keyOf(q)) && !(P.kind === 'mine' && nearMineFace(faces, q))).slice(0, count)
       .map((q) => ground(q) ?? q);
     if (!targets.length) throw new ContentionError(`put_up_torches: nothing unlit in the ${P.label} (another lighter was first)`, 'taken', `light:${part}`);
     carried0 = await a.world.rcon.count(a.name, 'torch');
@@ -7028,6 +7028,16 @@ async function putUpTorches(a: BotAgent, args: Record<string, unknown>, signal: 
       }
     }
     if (carried0 + took <= 0) throw new ContentionError('put_up_torches: no torches in storage (another agent took them)', 'taken', 'stock:torch');
+    // 2. Open ground (survival (d)): to the middle of its spots (a tile 48 across, lit from there by command)
+    if (P.kind === 'grounds') {
+      const cx = Math.round(targets.reduce((n, q) => n + q.x, 0) / targets.length), cz = Math.round(targets.reduce((n, q) => n + q.z, 0) / targets.length);
+      walked = 'ok';
+      await walk(a, new goals.GoalNearXZ(cx, cz, 4), `the ${P.label}`, signal, 90000, { scaffold: false }).catch((e: Error) => {
+        if (e.message === 'cancelled' || unmoved(e)) throw e;
+        walked = 'failed';
+      });
+      for (let i = 0; i < targets.length; i++) targets[i] = ground(P.spots.find((q) => keyOf(q) === keyOf(targets[i])) ?? targets[i]) ?? targets[i];
+    }
     // 2. A building: to the stand spot beside its door
     let inside = false;
     if (P.kind === 'building' && P.structure) {

@@ -1,7 +1,7 @@
 /**
  * Survival stage (d)'s lit ground (MC_GROUNDS_LIGHT, spec runs/2026-10-31/survival/spec_d.md 1), offline on stored villages
- * (the pair's checkpoint t12_pad_open and the golden inputs): with monsters each neighbourhood (fields left out) gives one
- * `grounds:N` light part of standing torch spots inside its area, on no street, pad, green, farm, slot or side plot, a block
+ * (the pair's checkpoint t12_pad_open, world 3's grown P1 when there, and the golden inputs): with monsters the built bounds give
+ * `grounds:TX,TZ` light parts (48-block tiles) of standing torch spots inside them, on no field, street, pad, green, farm, slot or side plot, a block
  * clear of every structure, 7 clear of its lamps and of each other; none in peaceful or with the flag off (a child process
  * each, the settings are read at import), so peaceful's light parts are the same as before; the watch loop from them.
  * The spec named light_check.mts for this; it sets its own settings at import, so the grounds have their own check.
@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 type Any = any; // eslint-disable-line @typescript-eslint/no-explicit-any
-const FILES = ['mc/testcheckpoints/t12_pad_open/villages.json', 'runs/2026-10-12/golden_inputs/villages_main.json', 'runs/2026-10-12/golden_inputs/villages_test.json'].filter((f) => fs.existsSync(f));
+const FILES = ['mc/testcheckpoints/t12_pad_open/villages.json', 'mc/testserver3/villages.json', 'runs/2026-10-12/golden_inputs/villages_main.json', 'runs/2026-10-12/golden_inputs/villages_test.json'].filter((f) => fs.existsSync(f));
 
 if (process.env.MODE_CHILD) {
   const { MineflayerWorld } = await import('../../server/src/mineflayer/mcWorld');
@@ -61,9 +61,9 @@ if (process.env.MODE_CHILD) {
     const lamps = (v.layouts ?? []).flatMap((l: Any) => l.lamps ?? []);
     const sides = [v.storageHut, ...(v.layouts ?? []).flatMap((l: Any) => [l.annex, l.works, l.store, l.farm, ...(l.slots ?? [])])].filter(Boolean);
     for (const g of gs) {
-      const l = v.layouts[Number(g.part.split(':')[1])];
-      ok(!l.field, `${r.src} ${g.part}: a neighbourhood, not a field`);
-      const off2 = [...(l.streets ?? []), ...(l.pads ?? []), ...(l.green ? [l.green] : []), ...sides];
+      const ls = v.layouts.filter((l: Any) => !l.field), fields = v.layouts.filter((l: Any) => l.field);
+      const l = { x1: Math.min(...ls.map((q: Any) => q.x1), ...v.structures.map((q: Any) => q.x1)), z1: Math.min(...ls.map((q: Any) => q.z1), ...v.structures.map((q: Any) => q.z1)), x2: Math.max(...ls.map((q: Any) => q.x2), ...v.structures.map((q: Any) => q.x2)), z2: Math.max(...ls.map((q: Any) => q.z2), ...v.structures.map((q: Any) => q.z2)) };
+      const off2 = [...fields, ...v.layouts.flatMap((q: Any) => [...(q.streets ?? []), ...(q.pads ?? []), ...(q.green ? [q.green] : [])]), ...sides];
       for (const s of g.spots) {
         total++;
         const why = !inside(l, s.x, s.z) ? 'outside its area' : v.structures.some((st: Any) => inside(st, s.x, s.z, 1)) ? 'by a structure' : off2.some((q: Any) => inside(q, s.x, s.z)) ? 'on a street, pad or plot'
