@@ -72,6 +72,56 @@ def agents_of(w):
         return []
 
 
+def tail_text(path, size=200_000):
+    if not path or not os.path.exists(path):
+        return ""
+    with open(path, "rb") as f:
+        f.seek(max(0, os.path.getsize(path) - size))
+        return f.read().decode("utf-8", errors="replace")
+
+
+def run_summary(n, w, st, lock, up):
+    """The run a world holds, for the start screen's world cards and the panel's run bar: its name, folder, minute of its
+    length, whether it ended, its report, and (agent server up) busy by 10 minutes, tokens and failed chores from
+    GET /api/timeline. Runs started here (runs/runctl.json) and runs a series holds the world's lock for (trains) alike."""
+    rec = None
+    if lock and lock.get("spec") and lock.get("by") == "series":
+        try:
+            spec = json.load(open(lock["spec"], encoding="utf-8"))
+            r0 = (spec.get("runs") or [{}])[0]
+            out = spec.get("out") or os.path.dirname(lock["spec"])
+            rec = {"by": "series", "name": r0.get("name") or lock.get("name"), "dir": out, "village": r0.get("village"), "args": r0.get("args") or ""}
+        except (OSError, ValueError, KeyError, IndexError):
+            rec = None
+    if rec is None and st.get(str(n)):
+        s = st[str(n)]
+        rec = {"by": "start screen", "name": s.get("name"), "dir": os.path.dirname(s.get("runner", "")), "village": s.get("village"), "args": s.get("args") or ""}
+    if rec is None:
+        return None
+    d = rec["dir"] if os.path.isabs(rec["dir"]) else os.path.join(ROOT, rec["dir"])
+    rec["dir"] = os.path.relpath(d, ROOT).replace("\\", "/")
+    log = tail_text(os.path.join(d, f"{rec['name']}.log"))
+    mins = re.findall(r"^AFTER ([\d.]+)m", log, re.M)
+    rec["minute"] = float(mins[-1]) if mins else None
+    after = re.search(r"--after (\d+)", rec.pop("args"))
+    rec["of"] = int(after.group(1)) if after else None
+    if not rec.get("village"):
+        v = re.search(r"^RESUME village (\w+)", tail_text(os.path.join(d, f"{rec['name']}.log"), 4000), re.M)
+        rec["village"] = v.group(1) if v else None
+    rec["ended"] = not lock and bool(re.search(r"^STOPPED", log, re.M))
+    rep = os.path.join(d, "report.html")
+    rec["report"] = os.path.relpath(rep, ROOT).replace("\\", "/") if os.path.exists(rep) else None
+    if up and rec.get("village"):
+        try:
+            t = S.api(w, f"/timeline?village={urllib.parse.quote(rec['village'])}")
+            rec["busy"] = [b for b in (t.get("busy") or []) if b is not None][-12:]
+            rec["tokens"] = sum(x or 0 for x in t.get("tokens") or [])
+            rec["failed"] = sum(x or 0 for x in t.get("failed") or [])
+        except (OSError, ValueError, AttributeError):
+            pass
+    return rec
+
+
 def status():
     out, st = [], state()
     for key, w in S.WORLDS.items():
@@ -92,6 +142,9 @@ def status():
                 runner = os.path.join(ROOT, st[str(n)]["runner"])
                 if not row["lock"] and os.path.exists(runner) and "ALL DONE" in open(runner, encoding="utf-8", errors="replace").read():
                     row["started"] = {**st[str(n)], "ended": True}
+            row["summary"] = run_summary(n, w, st, row["lock"], row["agentServer"])
+            row["links"] = {"panel": [f"http://127.0.0.1:{w['api']}/panel", f"http://192.168.1.84:{w['api']}/panel"],
+                            "game": [f"127.0.0.1:{w['game']}", f"192.168.1.84:{w['game']}"]}
         out.append(row)
     return out
 
@@ -387,7 +440,9 @@ def past_runs(limit=40):
         except (OSError, ValueError):
             continue
         prof = r.get("profile") or {}
+        rep = os.path.join(os.path.dirname(f), "report.html")
         out.append({"file": os.path.relpath(f, ROOT).replace("\\", "/"), "name": r.get("name"), "started": r.get("started"), "world": r.get("world"),
+                    "report": os.path.relpath(rep, ROOT).replace("\\", "/") if os.path.exists(rep) else None,
                     "kind": prof.get("kind"), "profile": prof.get("name"), "commit": r.get("commit"), "goal_mode": r.get("goal_mode", "drawn"),
                     "site": r.get("site"), "checkpoint": r.get("checkpoint")})
     return out
@@ -430,11 +485,14 @@ def token():
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
-    def reply(self, code, body, ctype="application/json"):
+    def reply(self, code, body, ctype="application/json", cors=False):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Cache-Control", "no-store")
+        if cors:
+            # (read-only status for the panels, served from the agent servers' own ports)
+            self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -454,7 +512,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if p == "/state.mjs":
                 return self.reply(200, open(os.path.join(os.path.dirname(PAGE), "state.mjs"), "rb").read(), "text/javascript; charset=utf-8")
             if p == "/status":
-                return self.reply(200, status())
+                return self.reply(200, status(), cors=True)
+            if p == "/report":
+                # (a series' report.html under runs/, read-only: the journey's look back, on a phone too)
+                f = os.path.realpath(os.path.join(ROOT, (q.get("file") or [""])[0]))
+                if not f.startswith(os.path.realpath(os.path.join(ROOT, "runs")) + os.sep) or not f.endswith(".html") or not os.path.isfile(f):
+                    raise Refused("not a report under runs/")
+                return self.reply(200, open(f, "rb").read(), "text/html; charset=utf-8")
             if p == "/registry":
                 return self.reply(200, registry())
             if p == "/profiles":

@@ -64,6 +64,15 @@
   .startbar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel); border-top: 1px solid var(--line); padding: 8px 16px; display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; z-index: 2; }
   .steps li { margin: 2px 0; } .steps li.done::marker { content: "✓ "; color: var(--good); } .steps li.failed::marker { content: "✗ "; color: var(--bad); }
   a { color: var(--accent); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+  .wcard { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; background: var(--panel-2); min-width: 0; }
+  .wcard .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .wcard .state { font-size: 12px; font-weight: 600; }
+  .state.running { color: var(--accent); } .state.ended { color: var(--good); } .state.free { color: var(--muted); } .state.down { color: var(--muted); }
+  .meter { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; } .meter i { display: block; height: 100%; background: var(--accent); }
+  .spark { display: flex; align-items: flex-end; gap: 2px; height: 26px; } .spark i { width: 6px; border-radius: 2px 2px 0 0; background: var(--accent); }
+  .wcard .links { display: flex; gap: 12px; flex-wrap: wrap; font-size: 13px; }
+  .reports li { margin: 3px 0; }
   @media (max-width: 700px) { .set { grid-template-columns: 1fr; } .lbl { min-width: 0; } }
 </style>
 </head>
@@ -75,6 +84,12 @@
   <span id="tokenBox" hidden><input id="token" type="password" placeholder="launcher token" style="width:150px"> <button id="tokenSave">Use</button></span>
 </header>
 <main>
+  <section>
+    <h2>Worlds</h2>
+    <div id="cards" class="cards"></div>
+    <details id="reportsBox" style="margin-top:10px"><summary class="sub">Reports of past runs</summary><ul id="reports" class="reports sub"></ul></details>
+  </section>
+
   <section>
     <div class="row">
       <span class="lbl">Profile</span>
@@ -214,6 +229,38 @@ function renderWorlds() {
   $('worldPick').innerHTML = rows.map((r) => `<label><input type="radio" name="world" value="${r.n}" ${r.n === world ? 'checked' : ''}> test ${r.n}${r.lock || r.agents ? ' <span class="warn">busy</span>' : ''}</label>`).join('');
   document.querySelectorAll('input[name=world]').forEach((i) => (i.onchange = () => { world = Number(i.value); refreshCheck(); $('start').textContent = `Start on test ${world}`; }));
   $('start').textContent = world ? `Start on test ${world}` : 'Start';
+  renderCards();
+}
+
+// (the journey's home: what each world is doing, with its panel and, once ended, its report)
+const onLan = !['127.0.0.1', 'localhost', '::1'].includes(location.hostname);
+const pick = (pair) => (pair ? pair[onLan ? 1 : 0] : null);
+const reportUrl = (rel) => `/report?file=${encodeURIComponent(rel)}`;
+function renderCards() {
+  const rows = STATUS.filter((r) => r.n !== null);
+  $('cards').innerHTML = rows.map((r) => {
+    const s = r.summary;
+    const running = !!(r.lock || r.agents);
+    const state = running ? 'running' : s && s.ended ? 'ended' : r.paper ? 'free' : 'down';
+    const label = { running: 'running', ended: 'ended', free: 'free', down: 'down' }[state];
+    const pct = s && s.minute != null && s.of ? Math.min(100, Math.round(100 * s.minute / s.of)) : null;
+    const busy = s && s.busy && s.busy.length ? s.busy : null;
+    return `<div class="wcard">
+      <div class="top"><b>World ${r.n}${r.n === 3 ? ' <span class="sub">(foundry)</span>' : ''}</b><span class="state ${state}">${label}</span></div>
+      ${s ? `<div>${esc(s.name)} <span class="sub">· ${esc(s.by)} · ${esc(s.dir)}</span></div>` : `<div class="sub">${r.paper ? 'no run' : 'servers down (a run starts them)'}</div>`}
+      ${pct != null ? `<div class="sub">minute ${s.minute.toFixed(0)} of ${s.of}</div><div class="meter"><i style="width:${pct}%"></i></div>` : ''}
+      ${busy ? `<div class="row" style="margin:0"><span class="spark" title="busy by 10 min: ${busy.map((b) => Math.round(100 * b) + '%').join(', ')}">${busy.map((b) => `<i style="height:${Math.max(2, Math.round(26 * b))}px"></i>`).join('')}</span><span class="sub">busy ${Math.round(100 * busy.at(-1))}% now · ${(s.tokens / 1e6).toFixed(2)}M tokens · ${s.failed} failed chores</span></div>` : ''}
+      <div class="links">${r.agentServer ? `<a href="${esc(pick(r.links.panel))}" target="_blank">Open panel</a>` : ''}${s && s.report ? `<a href="${reportUrl(s.report)}" target="_blank">Open report</a>` : ''}<span class="sub mono">game ${esc(pick(r.links.game))}</span></div>
+    </div>`;
+  }).join('');
+}
+async function renderReports() {
+  const runs = await api('/runs?limit=80');
+  const seen = new Set();
+  const withReport = runs.filter((r) => r.report && !seen.has(r.report) && seen.add(r.report));
+  $('reports').innerHTML = withReport.length
+    ? withReport.map((r) => `<li><a href="${reportUrl(r.report)}" target="_blank">${esc(r.report.replace(/\/report\.html$/, ''))}</a> · ${esc((r.started || '').slice(5, 16))}</li>`).join('')
+    : '<li>No report yet: a series writes report.html beside its logs when it ends (run_report_html.py makes one for older runs).</li>';
 }
 
 function renderGoals() {
@@ -373,7 +420,7 @@ $('start').onclick = async () => {
     follow();
   } catch (e) { alert(`Not started: ${e.message}`); $('start').disabled = false; }
 };
-const linksHtml = (r) => `<div class="row">Panel: ${r.panel.map((u) => `<a href="${esc(u)}" target="_blank">${esc(u)}</a>`).join(' · ')}</div><div class="row">Game: <span class="mono">${r.game.map(esc).join(' · ')}</span></div>`;
+const linksHtml = (r, ready) => `<div class="row">${ready ? `<a class="primary" style="font-weight:600" href="${esc(pick(r.panel))}" target="_blank">Members are in: open the panel →</a>` : 'Panel:'} ${r.panel.map((u) => `<a href="${esc(u)}" target="_blank">${esc(u)}</a>`).join(' · ')}</div><div class="row">Game: <span class="mono">${r.game.map(esc).join(' · ')}</span></div>`;
 let followTimer = null;
 async function follow() {
   clearTimeout(followTimer);
@@ -381,7 +428,7 @@ async function follow() {
     const p = await api(`/start/progress?world=${world}`);
     if (p.ok) {
       $('steps').innerHTML = p.steps.map((s) => `<li class="${s.done ? 'done' : s.failed ? 'failed' : ''}">${esc(s.step)}</li>`).join('');
-      $('links').innerHTML = linksHtml(p);
+      $('links').innerHTML = linksHtml(p, p.steps.some((s) => s.step.startsWith('members spawned') && s.done));
       $('tail').textContent = p.tail.join('\n');
       if (p.steps.at(-1).done) return;
     }
@@ -410,6 +457,7 @@ async function loadLists() {
   $('site').innerHTML = SITES.map((s) => `<option>${esc(s.name)}</option>`).join('');
   $('checkpoint').innerHTML = '<option value=""></option>' + CPS.map((c) => `<option value="${esc(c.name)}">${esc(c.name)} (${esc(c.site)}, ${esc((c.time || '').slice(5, 16))})</option>`).join('');
   $('settingNames').innerHTML = REG.settings.map((s) => `<option value="${s.name}">`).join('');
+  renderReports().catch(() => {});
   const runs = await api('/runs?limit=40');
   $('pastSel').innerHTML = '<option value="">Load a past run…</option>' + runs.map((r) => `<option value="${esc(r.file)}">${esc((r.started || '').slice(5, 16))} ${esc(r.name)} · world ${r.world} · ${esc(r.kind || '?')} · ${esc(r.goal_mode)} · ${esc(r.commit)}</option>`).join('');
   // (?profile=NAME opens that profile)

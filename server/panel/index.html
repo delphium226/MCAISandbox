@@ -287,6 +287,9 @@
   .flexrow > .narrow { flex: 1 1 340px; min-width: 0; }
   .flexrow > .card, .flexrow > .wide > .card { min-width: 0; }
   /* The Overview console (design A): tiles, alerts and projects | the map | society, the member heat table, three charts */
+  .runbar { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; padding: 6px 16px; border-bottom: 1px solid var(--line); font-size: 13px; background: var(--panel); }
+  .runbar .meter { width: 160px; height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; } .runbar .meter i { display: block; height: 100%; background: var(--accent); }
+  .runbar.ended { background: color-mix(in srgb, var(--st-good) 14%, var(--panel)); }
   .oc-h { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin: 0 0 8px; }
   .num { font-variant-numeric: tabular-nums; }
   .oc-tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
@@ -427,6 +430,7 @@
   <span class="sub" id="updated">–</span>
 </header>
 <nav class="l1" id="l1" aria-label="Panel sections"></nav>
+<div id="runbar" class="runbar" hidden></div>
 <main>
   <div id="error"></div>
   <div class="l2" id="l2"></div>
@@ -2392,6 +2396,32 @@ const ocHover = { fam: -1, p99: -1 };
 let ocSort = store.get('panel.ocSort', 'name');
 /** /api/perf every 10 s: an hour of samples kept while the page is open. */
 const perfRing = [];
+// The run bar: which run this world holds, how far it is, and once it ended its report. Read from the start screen's
+// launcher (runctl.py serve, port 8780, GET /status); without the launcher the bar stays hidden.
+const LAUNCHER = `${location.protocol}//${location.hostname}:8780`;
+async function refreshRunBar() {
+  const bar = document.getElementById('runbar');
+  let rows;
+  try {
+    const r = await fetch(`${LAUNCHER}/status`, { cache: 'no-store' });
+    rows = await r.json();
+  } catch { bar.hidden = true; return; }
+  const row = Array.isArray(rows) ? rows.find((x) => String(x.api) === location.port) : null;
+  const s = row && row.summary;
+  const back = `<a href="${LAUNCHER}/" title="The start screen: every world, starting runs, past reports">← Runs</a>`;
+  if (!s) { bar.className = 'runbar'; bar.innerHTML = `${back}<span class="sub">no run recorded on this world</span>`; bar.hidden = false; return; }
+  const report = s.report ? `<a href="${LAUNCHER}/report?file=${encodeURIComponent(s.report)}" target="_blank"><b>Open the report</b></a>` : '';
+  const pct = s.minute != null && s.of ? Math.min(100, Math.round(100 * s.minute / s.of)) : null;
+  const ended = s.ended || (!row.lock && !row.agents);
+  bar.className = ended ? 'runbar ended' : 'runbar';
+  bar.innerHTML = `${back}<span><b>${esc(s.name)}</b> <span class="sub">${esc(s.by)} · ${esc(s.dir)}</span></span>` +
+    (ended
+      ? `<span><b>This run has ended.</b> ${report || '<span class="sub">no report.html yet (a series writes it at its end)</span>'}</span>`
+      : (pct != null ? `<span class="sub">minute ${s.minute.toFixed(0)} of ${s.of}</span><span class="meter" title="${pct}%"><i style="width:${pct}%"></i></span>` : '<span class="sub">running</span>') +
+        `<span class="sub">Stop it from the start screen</span>`);
+  bar.hidden = false;
+}
+
 async function refreshPerf() {
   if (paused || (world && world.kind !== 'minecraft')) return;
   try {
@@ -3245,6 +3275,8 @@ refreshPerf();
 setInterval(refreshPerf, 10000); // the console's loop p99 line: a sample every 10 s, an hour kept
 refreshMaps();
 setInterval(refreshMaps, 2000);
+refreshRunBar();
+setInterval(refreshRunBar, 15000); // the journey: this world's run from the start screen's launcher (8780), its minute, its report
 setTimeout(refreshWorldAtlas, 1500);
 setInterval(refreshWorldAtlas, 30000); // the atlas changes slowly: every 30 s (agents and villages come with the 2 s refresh)
 setInterval(() => { if (lastData && !paused) render(lastData); }, 1000); // keep the "for N s" timers moving

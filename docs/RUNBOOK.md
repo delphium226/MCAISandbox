@@ -19,7 +19,9 @@ holds new chores, choices and model calls, freezes Paper's ticks, and the watch 
 change the settings marked live in docs/SETTINGS.md during a run (logged `[setting] NAME old -> new (by ...)`;
 `run_report.py` lists them); a profile's `"schedule": [{"at_min": 30, "set": {"MC_CHOOSE": "model"}}]` applies them at
 run minutes from the agent server's start, paused time left out.
-**The start screen** (spec runs/2026-10-30/startscreen/spec.md, 10-30): `python scripts/stack.py up launcher` (also in
+**The start screen** (spec runs/2026-10-30/startscreen/spec.md, 10-30; the journey, 11-01: its Worlds cards show every
+test world's run, the start screen's or a series' by its lock, with minute, busy, tokens, the panel and, once ended, the
+report served at `/report?file=runs/...`; each panel's run bar reads `GET /status` back and links "← Runs"): `python scripts/stack.py up launcher` (also in
 `up`/`up all`; `down launcher`) starts `runctl.py serve --lan`: http://127.0.0.1:8780 (the page carries the token) and
 http://192.168.1.84:8780 (type the token in `runs/launcher.token` once; kept in the browser). Pick or edit a profile
 (save to `profiles/local/`, delete to `profiles/local/.deleted/`, load a past run's `NAME.profile.json`), a test world
