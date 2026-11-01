@@ -115,6 +115,9 @@ def scene(case):
     time.sleep(4)  # (a reflex reports after walking over the drops)
     n_left = left(mob)
     out = {"case": case, "secs": round(time.time() - t0), "left": n_left}
+    # (the drops picked up, counted on the server: survival (d)'s hunt found melee kills left them)
+    out["drops"] = {k: int(m.group(1)) for k in ("rotten_flesh", "bone", "arrow", "string")
+                    for m in [re.search(r"found (\d+)", rc(f"clear Gus minecraft:{k} 0"), re.I)] if m}
     for n in (["Gus", "Mayor"] if case == "C" else ["Gus"]):
         refl, deaths = reflexes(n)
         out[n] = {"health": agent(n).get("health"), "min": hp_min[n], "deaths": len(deaths), "reflexes": refl[-4:]}

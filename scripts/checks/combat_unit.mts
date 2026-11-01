@@ -5,6 +5,8 @@
 // and armsOn, and the arms goods. Stage (d) (spec_d.md 0-3): the phase by tick, the built bounds and the distance beyond
 // them, the distance bins, the guards' cap and loop, the reach by role, the deaths' fact, and the three flags by mode.
 // The (d) fixes (#194-#196): when a curfew acts, code's home-by-dusk band and its flag, past the band.
+// Stage (d) spec 4 (MC_HUNT): the hunt's target pick, its reach (the edge, home's height, the curfew's band), its flag by
+// mode, the plan's words for the drops and the hunt goods.
 // Usage: node node_modules/tsx/dist/cli.mjs scripts/checks/combat_unit.mts
 import { execFileSync } from 'node:child_process';
 
@@ -17,6 +19,7 @@ if (process.env.MODE_CHILD) {
     fleshWhy: M.UNOBTAINABLE.rotten_flesh ?? '', glow: M.UNOBTAINABLE.glowstone_dust ?? '',
     armsGoods: W.ARMS_GOODS.map((g) => g.item), armsTagged: W.ARMS_GOODS.every((g) => g.arms), makeHasArms: W.MAKE_GOODS.some((g) => g.arms),
     grounds: C.groundsLightOn(), safety: C.safetyRulesOn(), guards: C.guardsOn(), home: C.homeByDuskOn(),
+    hunt: C.huntOn(), huntPlan: M.HUNT_PLAN, boneWhy: M.UNOBTAINABLE.bone ?? '', huntGoods: W.HUNT_GOODS.map((g) => g.item),
   }));
 } else {
   const { Vec3 } = await import('vec3');
@@ -101,7 +104,8 @@ if (process.env.MODE_CHILD) {
   ok(!peace.fights && !peace.arms && !easy.fights && !easy.arms, 'no reflex or arms without monsters');
   ok(host.fights && host.arms && !off.fights && !off.arms, 'hostile: the reflex and arms on; MC_COMBAT/MC_ARMS=off turn them off');
   ok(!peace.flesh && !easy.flesh && host.flesh && !host.dirt, 'mob drops obtainable only with monsters');
-  ok(/none in peaceful/.test(peace.fleshWhy) && /zombies at night/.test(host.fleshWhy) && peace.glow === host.glow, 'the drop words by mode; Nether items unchanged');
+  // (with the hunt, spec 4, its words; without it, the drops' own)
+  ok(/none in peaceful/.test(peace.fleshWhy) && /night hunt/.test(host.fleshWhy) && /zombies at night/.test(child('hostile', { MC_HUNT: 'off' }).fleshWhy) && peace.glow === host.glow, 'the drop words by mode; Nether items unchanged');
   const dOff = child('hostile', { MC_GROUNDS_LIGHT: 'off', MC_SAFETY_RULES: 'off', MC_GUARDS: 'off' }), noFight = child('hostile', { MC_COMBAT: 'off' });
   ok(!peace.grounds && !peace.safety && !peace.guards && !easy.grounds && !easy.safety && !easy.guards, 'stage (d): nothing without monsters');
   ok(host.grounds && host.safety && host.guards && !dOff.grounds && !dOff.safety && !dOff.guards, 'stage (d): on by default with monsters; each flag off turns it off');
@@ -149,6 +153,27 @@ if (process.env.MODE_CHILD) {
   // #195: once a member a night
   const dn = C.dangerOf('UV');
   ok(!C.watchedTonight('UV', 'Ada') && C.WATCH_HEALTH === 12 && dn.night.at === 0, 'not watched tonight before a watch');
+
+  // Spec 4: the hunt
+  const huntOff = child('hostile', { MC_HUNT: 'off' });
+  ok(!peace.hunt && !easy.hunt && host.hunt && !huntOff.hunt && !noFight.hunt, 'the hunt only with monsters and the combat reflex, on by default, off by its flag');
+  ok(host.huntPlan && !huntOff.huntPlan && !peace.huntPlan && /night hunt/.test(host.boneWhy) && !/night hunt/.test(huntOff.boneWhy) && /none in peaceful/.test(peace.boneWhy), "the plan names the hunt for bone with it on, the old words without");
+  ok(host.huntGoods.includes('fishing_rod') && host.huntGoods.includes('bone_meal'), 'the hunt goods: rods and bone meal');
+  const sp = (id: number, name: string, dist: number, x = 10, z = 10, y = 64) => ({ id, name, dist, x, y, z });
+  const all = () => true;
+  ok(C.huntTarget([sp(1, 'zombie', 3), sp(2, 'skeleton', 20), sp(3, 'spider', 12)], all)?.id === 3, 'the nearest skeleton or spider before a nearer zombie');
+  ok(C.huntTarget([sp(1, 'zombie', 9), sp(2, 'husk', 4)], all)?.id === 2, 'zombies when no prey: the nearest');
+  ok(C.huntTarget([sp(1, 'creeper', 2), sp(2, 'enderman', 3), sp(3, 'witch', 4)], all) === null, 'never a creeper, an enderman or a witch');
+  ok(C.huntTarget([sp(1, 'skeleton', 5, 500, 500)], (m) => m.x < 100) === null, 'none out of reach');
+  ok(C.huntTarget([sp(1, 'skeleton', 5, 500, 500), sp(2, 'zombie', 9)], (m) => m.x < 100)?.id === 2, 'a zombie in reach before prey out of it');
+  const hb2 = { x1: 0, z1: 0, x2: 60, z2: 60 }, home2 = { x: 30, y: 64, z: 30 };
+  ok(C.huntReach(hb2, home2, null, { x: 90, y: 64, z: 30 }) && !C.huntReach(hb2, home2, null, { x: 93, y: 64, z: 30 }), 'the reach: the bounds + 32');
+  ok(!C.huntReach(hb2, home2, null, { x: 30, y: 40, z: 30 }) && C.huntReach(hb2, home2, null, { x: 30, y: 71, z: 30 }), "not a cave mob: within 8 of home's height");
+  ok(!C.huntReach(hb2, home2, { dist: 50, phase: 'night' }, { x: 85, y: 64, z: 30 }) && C.huntReach(hb2, home2, { dist: 64, phase: 'night' }, { x: 85, y: 64, z: 30 }), "never past the curfew's distance");
+  ok(!C.huntReach(hb2, home2, C.homeBand({ layouts: [{ ...hb2, buildings: [] }], structures: [] } as never), { x: 80, y: 64, z: 30 }) && C.huntReach(hb2, home2, C.homeBand({ layouts: [{ ...hb2, buildings: [] }], structures: [] } as never), { x: 75, y: 64, z: 30 }), "home by dusk's band: the bounds + 16");
+  const ring = C.huntRing(hb2);
+  ok(ring.length === 16 && ring.every((q) => C.beyond(hb2, q.x, q.z, 0) > 11 && C.beyond(hb2, q.x, q.z) === 0), "the hunt's ring: 12 outside the bounds, inside home by dusk's 16, a spot every ~24");
+  ok(C.HUNT_HEALTH === 14 && !C.huntedTonight('UV', 'Ada') && C.huntHold() === 0 && C.HUNTED_NOT_BOUGHT.has('string') && C.HUNTED_NOT_BOUGHT.has('bone') && !C.HUNTED_NOT_BOUGHT.has('gunpowder'), 'the hunt starts above 14; no hold with nobody out; gunpowder stays bought');
 
   console.log(fails ? `${fails} FAILED` : 'all passed');
   process.exit(fails ? 1 : 0);

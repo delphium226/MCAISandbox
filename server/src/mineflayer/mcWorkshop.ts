@@ -82,6 +82,12 @@ export const ARMS_GOODS: MakeGood[] = [
  */
 export const ROD_GOOD: MakeGood = { item: 'fishing_rod', target: 3, batch: 1, unit: 1, words: 'fishing rods', forWhat: 'a fishing trip takes a rod from storage (two string from cobwebs and three sticks); rods wear out' };
 
+/** Survival (d) spec 4 (MC_HUNT): goods of the hunt's drops, made only while storage holds them (the world adds them). */
+export const HUNT_GOODS: MakeGood[] = [
+  { ...ROD_GOOD, forWhat: 'a fishing trip takes a rod from storage (two string, from the spiders the night hunt kills, and three sticks); rods wear out' },
+  { item: 'bone_meal', target: 6, batch: 6, unit: 3, words: 'bone meal', forWhat: 'from the bones the night hunt brings in: the dye bed grows its flowers with it, and it makes white dye' },
+];
+
 /**
  * Food goods (s30's food step, D13): made only in a village with an appetite (the world's makeTarget: bread two a member,
  * pies one for two; 0 otherwise), so the workshop's goods, menus and checks stay as they were without it. Kept apart from

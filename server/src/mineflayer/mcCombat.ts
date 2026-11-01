@@ -14,9 +14,11 @@ import type { Village } from '../village';
 import { rawSetting } from '../settings';
 import { modeSpec } from '../worldMode';
 import { timeScale } from './mcRules';
-import { bedOf, packBite, eatOne } from './mcSurvivalB';
+import { bedOf, packBite, eatOne, setNightHold } from './mcSurvivalB';
 import { surfaceAt } from './mcBuild';
-import { storageContents, withdrawItems } from './mcStorage';
+import { STORAGE_SKILLS, storageContents, withdrawItems } from './mcStorage';
+import { noteHunted } from './mcMaterials';
+import { pickUpDrops } from './mcSurvival';
 import { at, checkAbort, goals, sleep, walk } from './mcUtil';
 
 // ---------------------------------------------------------------------------------------------
@@ -188,6 +190,10 @@ function track(a: BotAgent): Track {
     if (isHostile(e.name)) tr.ids.add(e.id);
   });
   bot.on('entityGone', (e: Entity) => {
+    tr.ids.delete(e.id);
+  });
+  // (a dying mob stays a second in the death animation: no new fight against it)
+  bot.on('entityDead', (e: Entity) => {
     tr.ids.delete(e.id);
   });
   bot.on('entityHurt', (e: Entity) => {
@@ -401,7 +407,7 @@ async function steerAway(a: BotAgent, mob: Entity, ms: number, signal: AbortSign
  * a hit below 3 blocks when the weapon's cooldown allows. Ends when the mob is gone (killed), past 24 blocks, after 30 s,
  * at a creeper within 3, or (`giveUpAt`) when health falls to that.
  */
-export async function melee(a: BotAgent, target: Entity, signal: AbortSignal, opts: { giveUpAt?: number; capMs?: number } = {}): Promise<{ text: string; killed: boolean; low?: boolean }> {
+export async function melee(a: BotAgent, target: Entity, signal: AbortSignal, opts: { giveUpAt?: number; capMs?: number } = {}): Promise<{ text: string; killed: boolean; low?: boolean; at?: Vec3 }> {
   const bot = a.bot;
   const what = (target.name ?? target.username ?? 'target').replace(/_/g, ' ');
   await equipArmour(a).catch(() => undefined);
@@ -414,8 +420,15 @@ export async function melee(a: BotAgent, target: Entity, signal: AbortSignal, op
   const t0 = Date.now();
   let following = false, last = 0, hits = 0;
   let lastPos = target.position.clone();
+  // (a kill is the mob's death, not its leaving the bot's view: the hunt's first pairs counted mobs that went out of sight
+  // after 3 hits as kills, and found no drops)
+  let dead = false;
+  const onDead = (e: Entity) => {
+    if (e.id === target.id) dead = true;
+  };
+  bot.on('entityDead', onDead);
   try {
-    while (bot.entities[target.id] && target.isValid !== false) {
+    while (!dead && bot.entities[target.id] && target.isValid !== false) {
       checkAbort(signal);
       lastPos = target.position.clone();
       if (Date.now() - t0 > (opts.capMs ?? 30000)) return { text: `the ${what} is still alive after ${Math.round((opts.capMs ?? 30000) / 1000)} s (${hits} hits)`, killed: false };
@@ -453,16 +466,18 @@ export async function melee(a: BotAgent, target: Entity, signal: AbortSignal, op
       await sleep(50, signal);
     }
   } finally {
+    bot.removeListener('entityDead', onDead);
     bot.pathfinder.setGoal(null);
     bot.clearControlStates();
   }
+  if (!dead) return { text: `lost sight of the ${what} (${hits} hits)`, killed: false };
   const name = target.name ?? 'target';
   combatCounts.kills[name] = (combatCounts.kills[name] ?? 0) + 1;
   // (its drops: walked over when close)
   if (lastPos.distanceTo(bot.entity.position) < 4) await walk(a, new goals.GoalNear(lastPos.x, lastPos.y, lastPos.z, 0.5), 'the drops', signal, 2000).catch((e: Error) => {
     if (e.message === 'cancelled') throw e;
   });
-  return { text: `killed the ${what} (${hits} hits)`, killed: true };
+  return { text: `killed the ${what} (${hits} hits)`, killed: true, at: lastPos };
 }
 
 /** Put on the best armour carried, per slot (armour slots 5-8 are worn). */
@@ -570,6 +585,8 @@ export const groundsLightOn = (): boolean => modeSpec().mobs && flagOn('MC_GROUN
 export const safetyRulesOn = (): boolean => modeSpec().mobs && flagOn('MC_SAFETY_RULES');
 /** Spec 3: the night watch chore. */
 export const guardsOn = (): boolean => fightsMobs() && flagOn('MC_GUARDS');
+/** Spec 4: the hunt at the village edge (drops for storage; members stop buying string and bone). */
+export const huntOn = (): boolean => fightsMobs() && flagOn('MC_HUNT');
 
 export type Box = { x1: number; z1: number; x2: number; z2: number };
 
@@ -681,9 +698,11 @@ export interface Danger {
   watchNights: Record<string, number>;
   /** Hit-to-kill times of the watch's fights inside the bounds (ms), the last 50. */
   killMs: number[];
+  /** The hunt (spec 4): hunt nights by member, kills by mob, drops brought to storage by item, hunters killed on the hunt. */
+  hunt: { nights: Record<string, number>; kills: Record<string, number>; drops: Record<string, number>; deaths: number };
 }
 const dangers = new Map<string, Danger>();
-const newDanger = (): Danger => ({ near48: 0, near96: 0, peak48: 0, peak96: 0, outMin: 0, outMax: 0, deaths: {}, deathsPhase: {}, spawnsIn: 0, chores: {}, night: { out: [], deaths: 0, at: 0 }, watchNights: {}, killMs: [] });
+const newDanger = (): Danger => ({ near48: 0, near96: 0, peak48: 0, peak96: 0, outMin: 0, outMax: 0, deaths: {}, deathsPhase: {}, spawnsIn: 0, chores: {}, night: { out: [], deaths: 0, at: 0 }, watchNights: {}, killMs: [], hunt: { nights: {}, kills: {}, drops: {}, deaths: 0 } });
 export const dangerOf = (village: string): Danger => {
   let d = dangers.get(village);
   if (!d) dangers.set(village, (d = newDanger()));
@@ -705,7 +724,9 @@ export function noteDeath(a: BotAgent, where: Vec3 | undefined): void {
   d.deaths[bin] = (d.deaths[bin] ?? 0) + 1;
   d.deathsPhase[ph] = (d.deathsPhase[ph] ?? 0) + 1;
   if (ph !== 'day') d.night.deaths++;
-  console.log(`[danger] ${v.name}: ${a.name} died ${Math.round(r)} blocks from home (${bin}) at ${ph}`);
+  const hunting = hunters.has(a.name);
+  if (hunting) d.hunt.deaths++;
+  console.log(`[danger] ${v.name}: ${a.name} died ${Math.round(r)} blocks from home (${bin}) at ${ph}${hunting ? ' (on the hunt)' : ''}`);
 }
 
 const seenMobs = new Set<number>();
@@ -775,7 +796,7 @@ export function dangerTick(agents: Iterable<BotAgent>, villages: Iterable<Villag
       const deaths = DIST_BINS.filter((b) => d.deaths[b]).map((b) => `${b} ${d.deaths[b]}`).join(', ') || 'none';
       const chores: Record<string, number> = {};
       for (const m of Object.values(d.chores)) for (const [k, q] of Object.entries(m)) chores[k] = (chores[k] ?? 0) + q;
-      console.log(`[danger] ${v.name} (${ph}): hostiles ${n48} within 48, ${n96} within 96 (night peaks ${d.peak48}/${d.peak96}); out after dark ${d.outMin} member-min (farthest ${d.outMax}); deaths ${deaths}; spawns inside ${d.spawnsIn}; defence min ${Object.entries(chores).map(([k, q]) => `${k} ${q}`).join(', ') || 'none'}; watchers ${Object.keys(d.watchNights).length}`);
+      console.log(`[danger] ${v.name} (${ph}): hostiles ${n48} within 48, ${n96} within 96 (night peaks ${d.peak48}/${d.peak96}); out after dark ${d.outMin} member-min (farthest ${d.outMax}); deaths ${deaths}; spawns inside ${d.spawnsIn}; defence min ${Object.entries(chores).map(([k, q]) => `${k} ${q}`).join(', ') || 'none'}; watchers ${Object.keys(d.watchNights).length}${huntOn() ? `; hunt: ${Object.keys(d.hunt.nights).length} hunters, kills ${Object.entries(d.hunt.kills).map(([k, q]) => `${k} ${q}`).join(', ') || 'none'}, drops ${Object.entries(d.hunt.drops).map(([k, q]) => `${q} ${k}`).join(', ') || 'none'}, hunter deaths ${d.hunt.deaths}` : ''}`);
     }
   }
   for (const id of mobs.keys()) seenMobs.add(id);
@@ -856,6 +877,156 @@ export async function keepWatch(a: BotAgent, spots: Array<{ x: number; z: number
   }
 }
 
+// ---- The hunt (spec 4) ---------------------------------------------------------------------------
+
+/** Prey the hunt seeks (bone and string), and zombies (rotten flesh), taken only when no prey is in reach; creepers never. */
+export const HUNT_PREY = new Set(['skeleton', 'stray', 'bogged', 'spider', 'cave_spider']);
+export const HUNT_ZOMBIES = new Set(['zombie', 'husk', 'zombie_villager', 'drowned']);
+/** What the hunt brings to storage. */
+export const HUNT_DROPS = ['bone', 'string', 'rotten_flesh', 'spider_eye', 'arrow'];
+/** What members stop buying from the merchant while the hunt brings it in (gunpowder stays the merchant's: creepers need a bow). */
+export const HUNTED_NOT_BOUGHT = new Set(['string', 'bone']);
+/** A hunt starts above this health and ends at HUNT_LOW; it reaches the built bounds + HUNT_EDGE. */
+export const HUNT_HEALTH = 14;
+export const HUNT_LOW = 10;
+export const HUNT_EDGE = 32;
+/** The longest hunt (wall minutes at 1x), and the longest the night's sleeper waits for hunters out (mcSurvivalB's hold). */
+export const HUNT_MIN = 4;
+export const huntMs = (): number => (HUNT_MIN * 60000) / Math.max(1, timeScale());
+
+export type Spotted = Seen & { x: number; y: number; z: number };
+/**
+ * Whether a mob at `p` is in the hunt's reach: within the built bounds + `edge`, near home's height (cave mobs are off the
+ * hunt: the watch's walk down the mine killed a guard, #196), and never past the curfew's band while it acts.
+ */
+export function huntReach(bounds: Box, home: { x: number; y: number; z: number }, band: SafetyBand | null, p: { x: number; y: number; z: number }, edge = HUNT_EDGE): boolean {
+  if (beyond(bounds, p.x, p.z, edge) > 0 || Math.abs(p.y - home.y) > 8) return false;
+  return !band || !pastBand(band, home, p.x, p.z);
+}
+/**
+ * The hunt's walk: a ring `margin` outside the built bounds (the dark ground past the lit village, inside home by dusk's
+ * band of 16), a spot every ~`step` blocks round it, in order.
+ */
+export function huntRing(bounds: Box, margin = 12, step = 24): Array<{ x: number; z: number }> {
+  const x1 = bounds.x1 - margin, z1 = bounds.z1 - margin, x2 = bounds.x2 + margin, z2 = bounds.z2 + margin;
+  const out: Array<{ x: number; z: number }> = [];
+  const side = (ax: number, az: number, bx: number, bz: number) => {
+    const n = Math.max(1, Math.round(Math.hypot(bx - ax, bz - az) / step));
+    for (let i = 0; i < n; i++) out.push({ x: Math.round(ax + ((bx - ax) * i) / n), z: Math.round(az + ((bz - az) * i) / n) });
+  };
+  side(x1, z1, x2, z1); side(x2, z1, x2, z2); side(x2, z2, x1, z2); side(x1, z2, x1, z1);
+  return out;
+}
+/** The hunt's target: the nearest skeleton or spider in reach, else the nearest zombie, else none. */
+export function huntTarget(mobs: Spotted[], inReach: (m: Spotted) => boolean): Spotted | null {
+  const ok = mobs.filter(inReach).sort((p, q) => p.dist - q.dist);
+  return ok.find((m) => HUNT_PREY.has(m.name)) ?? ok.find((m) => HUNT_ZOMBIES.has(m.name)) ?? null;
+}
+
+/** Members on the hunt, by name (as `guards`). */
+export const hunters = new Map<string, { village: string; since: number }>();
+const huntedNight = new Map<string, number>();
+/** Whether the member has hunted this night already (once a night, as the watch). */
+export const huntedTonight = (village: string, member: string): boolean => huntedNight.get(`${village}|${member}`) === dangerOf(village).night.at;
+export const huntersOf = (village: string): number => [...hunters.values()].filter((g) => g.village === village).length;
+/** For mcSurvivalB's night: while a hunt is out, how long from nightfall the sleeper waits (0: no hold). */
+export const huntHold = (): number => (hunters.size ? huntMs() : 0);
+
+const dropsCarried = (a: BotAgent): Record<string, number> => {
+  const c = counts(a);
+  return Object.fromEntries(HUNT_DROPS.map((n) => [n, c[n] ?? 0]));
+};
+
+/**
+ * hunt_edge (a chore, not in TOOLS): at night, the nearest skeleton or spider in reach (huntTarget, huntReach), zombies
+ * when none; melee (a give-up at HUNT_LOW), the drops walked over; with none in reach, on round the ring outside the bounds
+ * (huntRing). Ends at dawn, after huntMs, or hurt; then the drops go to storage. The reflex still fights back meanwhile.
+ */
+export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number }>, bounds: Box, bandOf: () => SafetyBand | null, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  const home = v?.storage?.chests[0];
+  if (!v || !home) throw new Error('hunt_edge: not in a village with storage');
+  if (!armedOf(a)) throw new Error('hunt_edge: no weapon (take a sword from storage first)');
+  if ((a.bot.health ?? 20) <= HUNT_HEALTH) throw new Error(`hunt_edge: health ${Math.round(a.bot.health ?? 0)} (a hunt starts above ${HUNT_HEALTH})`);
+  const t0 = Date.now();
+  // (registered here, not at import: mcSurvivalB and this module import each other)
+  setNightHold(huntHold);
+  hunters.set(a.name, { village: v.name, since: t0 });
+  const d = dangerOf(v.name);
+  if (!huntedTonight(v.name, a.name)) {
+    huntedNight.set(`${v.name}|${a.name}`, d.night.at);
+    d.hunt.nights[a.name] = (d.hunt.nights[a.name] ?? 0) + 1;
+  }
+  const before = dropsCarried(a);
+  const kills: Record<string, number> = {};
+  const t = track(a);
+  let ended = 'until dawn', i = Math.floor(Math.random() * Math.max(1, spots.length));
+  const ignore = (e: Error) => {
+    if (e.message === 'cancelled') throw e;
+  };
+  try {
+    while (phaseOf(a.bot.time?.timeOfDay) !== 'day') {
+      checkAbort(signal);
+      if (Date.now() - t0 > huntMs()) { ended = `after ${HUNT_MIN} min`; break; }
+      if ((a.bot.health ?? 20) <= HUNT_LOW) { ended = `hurt (health ${Math.round(a.bot.health ?? 0)})`; break; }
+      const band = bandOf();
+      const seen: Spotted[] = [];
+      for (const m of mobsNear(a, t, a.bot.entity.position, 64)) {
+        const e = a.bot.entities[m.id];
+        if (e) seen.push({ ...m, x: e.position.x, y: e.position.y, z: e.position.z });
+      }
+      const prey = huntTarget(seen, (m) => huntReach(bounds, home, band, m));
+      if (prey) {
+        if (prey.dist > 20) await walk(a, new goals.GoalNear(prey.x, prey.y, prey.z, 4), 'the prey', signal, 30000).catch(ignore);
+        const e = a.bot.entities[prey.id];
+        if (!e || e.isValid === false) continue;
+        const r = await melee(a, e, signal, { giveUpAt: HUNT_LOW });
+        if (r.killed) {
+          kills[prey.name] = (kills[prey.name] ?? 0) + 1;
+          d.hunt.kills[prey.name] = (d.hunt.kills[prey.name] ?? 0) + 1;
+          // (the drops: onto each item near the kill once it can be picked up; melee hits from 3 blocks, and in the first
+          // pair no zombie's flesh was picked up)
+          if (r.at && r.at.distanceTo(a.bot.entity.position) < 12) await pickUpDrops(a, r.at, signal).catch(ignore);
+        }
+        const left = r.at ? Object.values(a.bot.entities).filter((x) => x.name === 'item' && x.position.distanceTo(r.at!) < 6).length : 0;
+        console.log(`[hunt] ${a.name} ${v.name}: ${r.text} (${Math.round(Math.hypot(prey.x - home.x, prey.z - home.z))} blocks from home${r.killed ? `; ${left} items left there` : ''})`);
+        continue;
+      }
+      if (!spots.length) {
+        await sleep(2000, signal);
+        continue;
+      }
+      // (none in reach: on to the next spot of the ring, on its ground, as the watch)
+      const s = spots[i++ % spots.length];
+      const y0 = Math.floor(home.y);
+      const g = surfaceAt(a, s.x, s.z, y0);
+      if (g && (g.liquid || Math.abs(g.y - y0) > 12)) {
+        await sleep(500, signal);
+        continue;
+      }
+      await walk(a, new goals.GoalNear(s.x, (g ? g.y : y0) + 1, s.z, g ? 2 : 4), 'the village edge', signal, 30000).catch(ignore);
+      await sleep(1000, signal);
+    }
+  } finally {
+    hunters.delete(a.name);
+  }
+  const n = Object.values(kills).reduce((x, q) => x + q, 0);
+  const head = `hunted ${Math.round((Date.now() - t0) / 1000)} s at the village edge (${ended}): ${n} kill${n === 1 ? '' : 's'}${n ? ` (${Object.entries(kills).map(([k, q]) => `${k.replace(/_/g, ' ')} ${q}`).join(', ')})` : ''}`;
+  // (the drops to storage, with any carried from before; the hunt's count is what it added to the pack)
+  const got = dropsCarried(a);
+  if (!Object.values(got).some((q) => q > 0)) return `${head}; no drops`;
+  await STORAGE_SKILLS.deposit.run(a, { item: 'bone', also: HUNT_DROPS.join(','), ifAny: true }, signal);
+  const left = dropsCarried(a);
+  const put = HUNT_DROPS.filter((k) => got[k] > left[k]).map((k) => `${got[k] - left[k]} ${k.replace(/_/g, ' ')}`);
+  for (const k of HUNT_DROPS) {
+    const q = Math.min(got[k] - before[k], got[k] - left[k]);
+    if (q <= 0) continue;
+    d.hunt.drops[k] = (d.hunt.drops[k] ?? 0) + q;
+    noteHunted(k, q);
+  }
+  return `${head}; deposited ${put.join(', ') || 'nothing'}`;
+}
+
 /**
  * The curfew's head-home reflex (spec 2): a member past the rule's distance from home in its phase walks home (at most once
  * in 10 minutes a member; the action under way resumes after, and the menu offers nothing past the distance meanwhile).
@@ -892,7 +1063,7 @@ export function curfewTick(agents: Iterable<BotAgent>, bandOf: (v: Village) => S
   }
 }
 
-/** The watch's skill (a chore, not in TOOLS): its loop and the bounds from the world (MineflayerWorld.watchSpots). */
+/** The watch's and the hunt's skills (chores, not in TOOLS): the loop and the bounds from the world (MineflayerWorld.watchSpots). */
 export const COMBAT_SKILLS = {
   keep_watch: {
     async run(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
@@ -900,6 +1071,17 @@ export const COMBAT_SKILLS = {
       const bounds = v ? builtBounds(v) : null;
       if (!v || !bounds) throw new Error('keep_watch: not in a village with buildings');
       return keepWatch(a, a.world.watchSpots(v), bounds, signal);
+    },
+  },
+  hunt_edge: {
+    async run(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+      const v = a.village();
+      const bounds = v ? builtBounds(v) : null;
+      if (!v || !bounds) throw new Error('hunt_edge: not in a village with buildings');
+      return huntEdge(a, huntRing(bounds), bounds, () => {
+        const band = a.world.safetyBand(v);
+        return band && curfewActs(a.bot.time?.timeOfDay, band.phase) ? band : null;
+      }, signal);
     },
   },
 };

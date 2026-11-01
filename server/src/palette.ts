@@ -61,14 +61,14 @@ export function reserved(excludes: string[], busy: Set<string>): boolean {
 const SKILL: Record<ChoiceKind, string> = {
   farm: 'harvest', slot: 'harvest', start: 'plant', annex: 'build', pen: 'build', penwork: 'tend', cake: 'craft', iron: 'mine',
   explore: 'explore', works: 'build', make: 'craft', gather: 'collect', light: 'light', furnish: 'furnish', initiate: 'build',
-  help: 'build', grow: 'build', eat: 'eat', tidy: 'tidy', activity: 'activity', own: 'own', innovate: 'research', rest: 'rest', watch: 'watch',
+  help: 'build', grow: 'build', eat: 'eat', tidy: 'tidy', activity: 'activity', own: 'own', innovate: 'research', rest: 'rest', watch: 'watch', hunt: 'hunt',
   monument: 'build',
 };
 /** The words of each skill in the open prompt's group headings. */
 export const SKILL_WORDS: Record<string, string> = {
   craft: 'craft into storage', collect: 'collect materials', harvest: 'harvest', plant: 'plant', build: 'build and help build',
   tend: 'tend the animals', mine: 'mine and smelt', explore: 'explore', light: 'light', furnish: 'furnish', eat: 'eat',
-  tidy: 'tidy', activity: 'activities', own: 'your own house and goods', research: 'research', rest: 'rest', board: 'the board and customs',
+  tidy: 'tidy', activity: 'activities', own: 'your own house and goods', research: 'research', rest: 'rest', hunt: 'hunt at night', board: 'the board and customs',
 };
 
 /** An entry's skill and arguments, from its kind and id ('make:torch' -> craft {item: torch}; 'farm:2' -> harvest {at: 2}). */

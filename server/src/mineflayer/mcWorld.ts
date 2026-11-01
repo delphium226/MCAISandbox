@@ -25,7 +25,7 @@ import { teleportHome, underHome } from './mcRescue';
 import { annexBusy, growBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, storeBusy, surfaceAt, wheatKeep, writeBoard } from './mcBuild';
 import { ironDone, ironLevelFull, ironStairsHeld, mineAreas, mineGives, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PEN_KINDS, PEN_ORDER, PEN_VARIETY, SLOT_KINDS, SLOT_ORDER, penCap, penLure, penPlan, penSlotFit, penWords, worksFurnaces } from '../farmSlots';
-import { ARMS_GOODS, FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, ROD_GOOD, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
+import { ARMS_GOODS, FOOD_GOODS, HUNT_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, ROD_GOOD, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
 import { PROMPT_SELF, UNUSED_GOOD, UNUSED_TAG, ambitionGap, feedKinds, needsLine as basicNeedsLine, scarcityLine, selfLine, type HouseFacts, type SelfFacts } from '../promptSelf';
@@ -101,7 +101,7 @@ import { deathMemory, deathWords, type DeathCause } from './mcHazard';
 import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, etaMinutes, historyLines, initTalk, isStatusQuestion, matchWork, noRequestLine, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, statusFor, statusLines, talkSystem, talkTool, talkUser, updateRequest, withoutPlace, workWords, type PlayerRequest, type ReqProgress, type Respond, type WorkOffer } from '../playerTalk';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { isNight, nightTick } from './mcSurvivalB';
-import { anyBed, armTick, armsOn, bandWords, builtBounds, combatCounts, curfewActs, curfewTick, dangerOf, dangerTick, deathsFact, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, headingHome, homeBand, homeByDuskOn, isWeapon, pastBand, phaseOf, WATCH_HEALTH, watchedTonight, watchLoop, type SafetyBand } from './mcCombat';
+import { HUNT_HEALTH, HUNTED_NOT_BOUGHT, anyBed, armTick, armsOn, bandWords, builtBounds, combatCounts, curfewActs, curfewTick, dangerOf, dangerTick, deathsFact, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, headingHome, homeBand, homeByDuskOn, hunters, huntersOf, huntedTonight, huntMs, huntOn, isWeapon, pastBand, phaseOf, WATCH_HEALTH, watchedTonight, watchLoop, type SafetyBand } from './mcCombat';
 import { nightsFall, realHunger, worldMode } from '../worldMode';
 import { APPETITE, FOOD_POINTS, appetiteOn, barLevel, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
@@ -814,6 +814,8 @@ export class MineflayerWorld implements WorldAdapter {
     if (STRING && !goods.some((g) => g.item === ROD_GOOD.item)) goods = [...goods, ROD_GOOD];
     // (survival (c), MC_ARMS: swords and armour where monsters come, in place of a good of the same item)
     if (armsOn()) goods = [...goods.filter((g) => !ARMS_GOODS.some((q) => q.item === g.item)), ...ARMS_GOODS];
+    // (survival (d), MC_HUNT: rods and bone meal from the hunt's string and bones, in place of a good of the same item)
+    if (huntOn()) goods = [...goods.filter((g) => !HUNT_GOODS.some((q) => q.item === g.item)), ...HUNT_GOODS];
     // (s43's innovation: the goods of the techniques the village unlocked, in place of a good of the same item)
     if (!INNOVATE) return goods;
     const tech = techGoods(v);
@@ -1347,6 +1349,7 @@ export class MineflayerWorld implements WorldAdapter {
   /** Survival (d): the defence chore a member is on, for the danger count's minutes (watch, home, grounds). */
   private defenceChore(a: BotAgent): string | undefined {
     if (onWatch.has(a.name)) return 'watch';
+    if (hunters.has(a.name)) return 'hunt';
     if (headingHome.has(a.name)) return 'home';
     return /^grounds:/.test(this.chores.get(a.name.toLowerCase())?.choice.light?.part ?? '') ? 'grounds' : undefined;
   }
@@ -4777,7 +4780,8 @@ export class MineflayerWorld implements WorldAdapter {
         if (times >= 1 && (!best || over > best.score)) best = { offer: o, index: i, times, score: over };
       } else {
         // (only what something in the village uses: F259's run bought slime balls and ender pearls for nothing)
-        if (!this.merchantUses(v).has(o.item)) continue;
+        // (survival (d), MC_HUNT: string and bone come from the night hunt instead)
+        if (!this.merchantUses(v).has(o.item) || (huntOn() && HUNTED_NOT_BOUGHT.has(o.item))) continue;
         const short = keepOf(o.item) - (store[o.item] ?? 0);
         const times = Math.min(left, maxTimes, Math.ceil(short / o.n), Math.floor((spare.emerald ?? 0) / o.emeralds));
         if (short > 0 && times >= 1 && (!best || short > best.score)) best = { offer: o, index: i, times, score: short };
@@ -4793,7 +4797,7 @@ export class MineflayerWorld implements WorldAdapter {
   emeraldKeep(v: Village, keepOf: (item: string) => number, store: Counts = storageContents(v)): number {
     let e = 0;
     const uses = this.merchantUses(v);
-    for (const o of OFFERS) if (o.dir === 'sells' && uses.has(o.item)) e += Math.ceil(Math.max(0, keepOf(o.item) - (store[o.item] ?? 0)) / o.n) * o.emeralds;
+    for (const o of OFFERS) if (o.dir === 'sells' && uses.has(o.item) && !(huntOn() && HUNTED_NOT_BOUGHT.has(o.item))) e += Math.ceil(Math.max(0, keepOf(o.item) - (store[o.item] ?? 0)) / o.n) * o.emeralds;
     return Math.max(4, e);
   }
 
@@ -7860,6 +7864,27 @@ export class MineflayerWorld implements WorldAdapter {
         }, { kind: 'watch' });
       }
     }
+    // Survival (d), MC_HUNT (spec 4): the hunt at the village edge, at night, for an armed member above HUNT_HEALTH, one per 6
+    // members (slot keys as the watch's), a member once a night; skeletons and spiders first (bone and string for storage);
+    // from nightfall, not dusk (hunts begun at dusk ended before a monster spawned, the first pair)
+    if (huntOn() && v.complete && v.storage?.chests.length && phaseOf(this.timeOfDay()) === 'night' && !onWatch.has(a.name) && !hunters.has(a.name)
+      && (a.bot.health ?? 20) > HUNT_HEALTH && !huntedTonight(v.name, a.name) && a.bot.inventory.items().some((it) => isWeapon(it.name))) {
+      const members = [...this.agents.values()].filter((x) => x.village()?.name === v.name).length;
+      const cap = guardCap(members);
+      const slots = Array.from({ length: cap }, (_, i) => `hunt:${i + 1}`);
+      const slot = slots.find((k) => !excluded([`${k}=`], busy));
+      if (slot) {
+        const h = dangerOf(v.name).hunt;
+        const kills = Object.values(h.kills).reduce((n, q) => n + q, 0);
+        const st = storageContents(v);
+        const min = Math.max(1, Math.round(huntMs() / 60000));
+        add({
+          id: 'hunt', kind: 'hunt', key: slot, excludes: [`${slot}=`], name: 'Hunt at the village edge', rank: 125,
+          facts: `${huntersOf(v.name)} of ${cap} hunters out; skeletons and spiders first, within 32 blocks of the village, ~${min} min, then the drops to storage (it holds ${st.bone ?? 0} bone, ${st.string ?? 0} string); the hunt has killed ${kills} so far`,
+          effect: 'bone and string for storage (bone meal, fishing rods); the merchant is not asked for them',
+        }, { kind: 'hunt' });
+      }
+    }
 
     // Making into storage (the workshop, D1): each good below its target with a whole batch from spare storage; crafting
     // at the hut (MAKE_PARALLEL at once), smelting at a free furnace each (the works plot's, then the hut's)
@@ -9914,6 +9939,10 @@ export class MineflayerWorld implements WorldAdapter {
         this.setChore(v, worker, opt.key, [worker.enqueue('keep_watch', { chore: true })], 'keep watch tonight', undefined, meta, opt.holds, opt);
         console.log(`[guard] ${v.name}: ${worker.name} keeps watch (${guardsOf(v.name) + 1} on watch)`);
         return;
+      case 'hunt':
+        this.setChore(v, worker, opt.key, [worker.enqueue('hunt_edge', { chore: true })], 'hunt at the village edge', undefined, meta, opt.holds, opt);
+        console.log(`[hunt] ${v.name}: ${worker.name} goes hunting (${huntersOf(v.name) + 1} out)`);
+        return;
       case 'rest':
         this.setChore(v, worker, opt.key, [worker.enqueue('move_to', { x: d.x, y: d.y, z: d.z, range: 3, chore: true }), worker.enqueue('wait', { seconds: Math.max(10, Math.round(120 / timeScale())), chore: true })], 'rest at home', undefined, meta, opt.holds, opt);
         return;
@@ -11355,6 +11384,7 @@ type OptionRun =
   | { kind: 'innovate'; entry: string; chance: number; boost: number }
   | { kind: 'rest'; x: number; y: number; z: number }
   | { kind: 'watch' }
+  | { kind: 'hunt' }
   | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number; needs: Counts; gives: string[]; own?: string[] }
   // (#164: posting one's find on the board; a village custom, its spot and the flower it takes, the tools it returns)
   | { kind: 'board'; what: 'report'; text: string }
@@ -11373,7 +11403,7 @@ const GROW_WAIT_MS = 60000, GROW_STUCK_MS = 10 * 60000;
 /** A growth claim whose holder was idle on no chore, its brain not holding it, this many checks in a row (30 s apart) is
  *  handed back (s30's review, L-3). */
 const GROW_ORPHAN_CHECKS = 4;
-const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish', 'initiate', 'help', 'activity', 'own', 'innovate', 'rest', 'monument', 'watch'];
+const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish', 'initiate', 'help', 'activity', 'own', 'innovate', 'rest', 'monument', 'watch', 'hunt'];
 /** An initiative's next step (s35): gathering a material into storage, or building it once the storage covers the bill. */
 type InitiativeStep = { what: 'gather'; material: Material | 'flowers' | 'saplings' | 'sandstone'; amount: number; block: string; deposit: string; item?: string } | { what: 'build' } | { what: 'prepare' };
 /** A green's side (s36): room for two or three small works with their rings. */

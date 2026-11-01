@@ -96,6 +96,24 @@ if (modeSpec().mobs) for (const [n, why] of Object.entries(MOB_DROPS)) UNOBTAINA
 /** A mob drop in a world with monsters: obtainable (from stock, by kills), though never planned to gather. */
 export const mobDropObtainable = (item: string): boolean => modeSpec().mobs && item in MOB_DROPS;
 
+/**
+ * Survival (d) spec 4 (MC_HUNT, with the combat reflex): the hunt brings bone, string and rotten flesh to storage. The plan
+ * still takes them only from stock (priced as UNOBTAINABLE, never a gathering trip), but its words name the hunt and its
+ * rate so far (`noteHunted`, from mcCombat's hunt).
+ */
+const off = (name: string) => /^(off|0|false|no)$/i.test(rawSetting(name) ?? 'on');
+export const HUNT_PLAN = modeSpec().mobs && !off('MC_COMBAT') && !off('MC_HUNT');
+const hunted = { since: Date.now(), items: {} as Counts };
+export function noteHunted(item: string, n: number): void {
+  hunted.items[item] = (hunted.items[item] ?? 0) + n;
+}
+export function huntWords(item: string): string {
+  const q = hunted.items[item] ?? 0;
+  const hours = Math.max(0.25, (Date.now() - hunted.since) / 3600000);
+  return `brought in by the night hunt at the village edge${q ? ` (${q} so far, ~${Math.round(q / hours)} an hour)` : ''}; from storage only`;
+}
+if (HUNT_PLAN) for (const n of ['bone', 'string', 'rotten_flesh', 'spider_eye']) Object.defineProperty(UNOBTAINABLE, n, { enumerable: true, configurable: true, get: () => huntWords(n) });
+
 export const WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak', 'bamboo', 'crimson', 'warped'];
 /** A wooden item: its wood kind and part ("acacia", "planks"). */
 export const WOOD_ITEM = new RegExp(`^(${WOODS.join('|')})_(planks|log|wood|door|slab|stairs|fence|fence_gate|trapdoor|pressure_plate|button|sign)$`);

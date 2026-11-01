@@ -586,6 +586,8 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'Survival stage (d), with monsters only: the night watch, a dusk chore for armed members (one per 6): walk a loop of the lamps and edge spots until dawn, fight hostiles inside the bounds, defend members within 24 blocks.' },
   { name: 'MC_HOME_BY_DUSK', type: 'flag', default: 'on', group: 'server', live: false, read: 'mineflayer/mcCombat.ts, mineflayer/mcWorld.ts',
     describe: 'Survival (d), #194, with monsters only: while no member has a bed (the night runs its length) and no curfew rule holds, code keeps members home by dusk: from ~50 s before dusk to dawn, options past the built bounds + 16 leave the menu and a member out past them walks home.' },
+  { name: 'MC_HUNT', type: 'flag', default: 'on', group: 'server', live: false, read: 'mineflayer/mcCombat.ts, mineflayer/mcWorld.ts, mineflayer/mcMaterials.ts, mineflayer/mcSurvivalB.ts',
+    describe: 'Survival stage (d) spec 4, with monsters only: the hunt, a night chore for armed members above health 14 (one per 6): skeletons and spiders first, zombies when none, within the built bounds + 32 and never past the curfew\'s band, up to 4 minutes (the night\'s sleeper waits for it), then the drops (bone, string, rotten flesh) to storage. Members stop buying string and bone from the merchant, the plan names the hunt as their source, and the workshop makes bone meal and fishing rods from them.' },
 ];
 
 const BY_NAME = new Map(SETTINGS.map((s) => [s.name, s]));

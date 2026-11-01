@@ -251,6 +251,10 @@ export const nightCounts = () => ({ nights: night.nights, slept: night.slept });
  * bed owner is sent to bed (`sleepIn`, a reflex); one that fails is tried again at most once a night, the next after
  * 20 s. No bed in any village: logged once a night, and the night runs its length.
  */
+/** Survival (d) spec 4 (MC_HUNT): how long from nightfall the sleeper waits while members hunt (mcCombat's huntHold; 0 none). */
+let nightHold: (() => number) | null = null;
+export const setNightHold = (f: () => number): void => { nightHold = f; };
+
 export function nightTick(agents: Iterable<BotAgent>, villageOf: (a: BotAgent) => Village | undefined): void {
   if (!nightsFall()) return;
   const now = Date.now();
@@ -275,6 +279,8 @@ export function nightTick(agents: Iterable<BotAgent>, villageOf: (a: BotAgent) =
     console.log(`[night] dusk (time ${t})`);
   }
   if (all.some((a) => a.bot.isSleeping) || (night.sleeper && all.some((a) => a.name === night.sleeper && a.inReflex())) || now < night.retryAt) return;
+  // (the hunt: the sleeper waits for hunters out, a while from nightfall)
+  if (nightHold && now - night.since < nightHold()) return;
   const cands = all.map((a) => {
     const bed = bedOf(a);
     return bed ? { a, bed, name: a.name, free: !a.inReflex(), dist: a.bot.entity.position.distanceTo(new Vec3(bed.x, bed.y, bed.z)) } : null;

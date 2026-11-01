@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-277 settings.
+278 settings.
 
 ## Game speed
 
@@ -180,6 +180,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_TALK` | flag | `on` |  |  | MC_TALK (G7, #35-#40; on by default, off turns it off): talking with the village. A person's line to the Mayor or a member (in the game, or POST /api/say and the panel's box) becomes a request in a ledger (talk.json, GET /api/requests), answered in one line by one talk call: the Mayor builds a public work where it was asked (placed and timed by code) or refuses with a reason; a member promises a chore, passes a building on to the Mayor or refuses. Off: the line wakes the tiered brain's chat turn as before. |
 | `MC_TALK_DESIGNS` | flag | `on` |  | `MC_TALK` | A person's building request in two tiers (on by default, off turns it off; the user's 11-01): code shortlists the pre-designed buildings (the civic tier's 80) whose kind or name the person's words name and the Mayor picks among them and the vanilla works; a civic pick is built by the civic path where the person asked, one civic building at a time. When nothing listed fits, the Mayor answers design and the architect (MC_TALK_PROGRAM_MODEL) writes the building as a program against the house library, compiled and fitted by code and built as a public work; a failed program gives the listed building the Mayor named nearest. Off: the vanilla works alone, as before. |
 | `MC_TALK_HOLDOUT` | string | (unset) |  |  | Members held out of talk (a holdout experiment). |
+| `MC_TALK_PROGRAM_MODEL` | string | `ollama:qwen3.8:27b` |  | `MC_TALK_DESIGNS` | The architect that writes a requested building nothing pre-designed fits (MC_TALK_DESIGNS): MC_HOME_PROGRAM_MODEL's when unset (qwen3.8 on the pinned local server: start it with scripts/ollama_exec.py and route it with MC_OLLAMA_ROUTES). With it down the Mayor says it cannot design that now and names the nearest pre-designed building. |
 | `MC_VOTE` | string | (unset) |  |  | The neighbourhood style vote: model, predicted or off. |
 | `MC_VOTE_MAX_MS` | number | `240000` |  |  | A vote is tallied once every ballot is in or after this long (abstentions for the rest). |
 | `MCAI_INFLUENCER_NAMES` | string | `Ben,Kai,Sam` |  |  | Experiment 2's influencers, by name (with MCAI_INFLUENCERS). |
@@ -315,6 +316,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_GUARDS` | flag | `on` |  |  | Survival stage (d), with monsters only: the night watch, a dusk chore for armed members (one per 6): walk a loop of the lamps and edge spots until dawn, fight hostiles inside the bounds, defend members within 24 blocks. |
 | `MC_HOME_BY_DUSK` | flag | `on` |  |  | Survival (d), #194, with monsters only: while no member has a bed (the night runs its length) and no curfew rule holds, code keeps members home by dusk: from ~50 s before dusk to dawn, options past the built bounds + 16 leave the menu and a member out past them walks home. |
 | `MC_HOST` | string | `127.0.0.1` |  |  | The Minecraft server Mineflayer connects to. |
+| `MC_HUNT` | flag | `on` |  |  | Survival stage (d) spec 4, with monsters only: the hunt, a night chore for armed members above health 14 (one per 6): skeletons and spiders first, zombies when none, within the built bounds + 32 and never past the curfew's band, up to 4 minutes (the night's sleeper waits for it), then the drops (bone, string, rotten flesh) to storage. Members stop buying string and bone from the merchant, the plan names the hunt as their source, and the workshop makes bone meal and fishing rods from them. |
 | `MC_PORT` | number | `25565` |  |  | The Minecraft server port Mineflayer connects to; in the sandbox, its game server's port (default 8765). |
 | `MC_PVP` | string | `true` |  |  | The sandbox: true lets players hurt each other. |
 | `MC_RCON_TIMEOUT_MS` | number | `15000` |  |  | How long a command's reply may take (E.1): one lost reply used to hold the single chain, and every agent behind it, for good. Long enough for the longest /fill. |

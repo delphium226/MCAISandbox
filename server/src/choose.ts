@@ -947,6 +947,8 @@ export function choreProductive(kind: ChoiceKind | undefined, skill: string, ok:
   if (kind === 'explore') return (known ?? 0) >= 0.1;
   if (kind === 'start' || kind === 'annex' || kind === 'pen' || kind === 'cake' || kind === 'works') return true;
   if (kind === 'gather' || kind === 'activity') return /^deposited [1-9]/.test(message);
+  // (survival (d)'s hunt: a kill)
+  if (kind === 'hunt') return /: [1-9]\d* kills?\b/.test(message);
   const parse = YIELD[skill];
   if (parse) {
     const n = parse(message);
