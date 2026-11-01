@@ -37,6 +37,8 @@ export function isDwelling(name: string): boolean {
   // (a wood variant is its base design's: "plains_small_house_1@spruce", R2)
   const n = baseName(name).toLowerCase();
   if (n === STORAGE_HUT || n === MINING_HUT) return false;
+  // (a building a person asked for and the architect drew, talkDesign.ts: a public work whatever its words)
+  if (n.startsWith('asked_')) return false;
   if (VANILLA_PIECE.test(n)) return /_(small|medium|big)_house_\d+$/.test(n);
   return /house|cottage|home|cabin|dwelling|lodge|hut/.test(n) && !/hall|library|meeting|shop|smith|temple|church|tavern|inn|market|barn|storage|workshop|mine|tower/.test(n);
 }

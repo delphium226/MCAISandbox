@@ -5,8 +5,9 @@
 // no "being built"; mid-build: neither "not started" nor "finished"), with no place the facts do not give.
 // Run: node node_modules/tsx/dist/cli.mjs scripts/bench/requestbench.mts [model] [times] (default gpt-oss:120b-cloud,
 // 6 times; N for the count). ONLY=regex picks cases; PEEK=1 prints the raw tool calls.
-import { checkPlaceClaim, offerWorks, parseRespond, talkSystem, talkTool, talkUser, workWords, type TalkCtx, type WorkOffer } from '../../server/src/playerTalk';
+import { checkPlaceClaim, withoutPlace, offerWorks, parseRespond, talkSystem, talkTool, talkUser, workWords, type TalkCtx, type WorkOffer } from '../../server/src/playerTalk';
 import { chat, header, PEEK, REPEAT, Tally } from './benchUtil.mts';
+import { sampler, shortlist } from '../../server/src/talkDesign';
 
 const MODEL = process.argv[2] ?? 'gpt-oss:120b-cloud';
 const TIMES = process.argv[3] ? Number(process.argv[3]) : REPEAT(6);
@@ -26,6 +27,11 @@ const MENU = [
   { id: 'gather:logs', name: 'Gather logs for the village storage' }, { id: 'gather:cobblestone', name: 'Gather cobblestone' }, { id: 'make:bread', name: 'Bake bread at the hut' },
   { id: 'make:torch', name: 'Make torches' }, { id: 'fish', name: 'Go fishing at the river' }, { id: 'harvest:1', name: 'Harvest the farm' }, { id: 'explore', name: 'Explore the land round the village' },
 ];
+// (MC_TALK_DESIGNS: the shortlist code makes from the line, else the sampler, as talkCall does)
+const designed = (lines: string[], extra: Partial<TalkCtx> = {}) => {
+  const designs = shortlist(lines.map((l) => withoutPlace(l)).join(' '));
+  return mayor(lines, { designs, ...(designs.length ? {} : { otherDesigns: sampler() }), ...extra });
+};
 const member = (lines: string[]) => talkUser({ agent: 'Ada', role: 'member', village: 'Minevale3', persona, from: 'SausageOfDoom4', lines, history: [], state, options: MENU });
 
 // (#179: train 13's r1 as the Mayor's facts gave it then, waiting for growth's back-off, and the same street mid-build)
@@ -58,6 +64,16 @@ const CASES: Array<[string, 'mayor' | 'member', string, (r: R) => boolean]> = [
     (r) => r?.kind === 'chat' && !!r.say && !/(not (yet )?started|hasn't started|haven't started|finished|complete[ds]?\b|all built)/i.test(r.say)],
   ['mayor: where is my house? two requests (#183)', 'mayor', mayor(['where is my house?'], { history: histTwo, status: statusTwo, state: [...state, 'no street is being built'] }),
     (r) => r?.kind === 'chat' && !!r.say && !/(torch|being built|not (yet )?started)/i.test(r.say) && !PLACE_WORDS.test(checkPlaceClaim(r.say, HOUSE_FACT))],
+  // (MC_TALK_DESIGNS: the pre-designed buildings first, a new design when none fits, a refusal naming the nearest)
+  ['designs: windmill by the river', 'mayor', designed(['Mayor, please build a windmill by the river']), (r) => r?.kind === 'build' && shortlist('windmill').some((o) => o.id === r.work) && /river/.test(r.place ?? '')],
+  ['designs: a lighthouse', 'mayor', designed(['build a lighthouse']), (r) => r?.kind === 'build' && shortlist('lighthouse').some((o) => o.id === r.work)],
+  ['designs: a pub', 'mayor', designed(['Mayor, we could do with a pub']), (r) => r?.kind === 'build' && shortlist('inn').some((o) => o.id === r.work)],
+  ['designs: a bakery (design)', 'mayor', designed(['Mayor, please build a bakery by the river']), (r) => r?.kind === 'build' && r.work === 'design' && /baker/i.test(r.what ?? '') && /river/.test(r.place ?? '')],
+  ['designs: an observatory (design)', 'mayor', designed(['I would love an observatory on the hill']), (r) => r?.kind === 'build' && r.work === 'design' && /observ/i.test(r.what ?? '')],
+  ['designs: library by the river (work)', 'mayor', designed(['Mayor, could you build a library by the river?']), (r) => r?.kind === 'build' && /library/.test(r.work ?? '')],
+  ['designs: a spaceship (refuse)', 'mayor', designed(['Mayor, build me a spaceship to fly to the moon']), (r) => r?.kind === 'refuse' && !!r.reason],
+  ['designs: a skyscraper (refuse)', 'mayor', designed(['build a 100-storey skyscraper']), (r) => r?.kind === 'refuse' && !!r.reason],
+  ['designs: more houses', 'mayor', designed(['Mayor, we need more houses for everyone']), (r) => r?.kind === 'build' && /^houses?$/i.test(r.work ?? '')],
   ['member: logs (promise)', 'member', member(['Ada, can you get me some logs?']), (r) => r?.kind === 'promise' && r.option === 'gather:logs'],
   ['member: bake bread (promise)', 'member', member(['Ada, we are hungry, could you bake some bread']), (r) => r?.kind === 'promise' && r.option === 'make:bread'],
   ['member: a church (forward)', 'member', member(['Ada, can the village build a church?']), (r) => r?.kind === 'forward'],
@@ -72,7 +88,8 @@ for (const [label, role, user, ok] of CASES) {
   const tally = new Tally();
   const kinds: Record<string, number> = {};
   for (let i = 0; i < TIMES; i++) {
-    const r = await chat(MODEL, talkSystem(role), user, [talkTool(role)], { kind: 'talk' });
+    const designs = role === 'mayor' && /pre-designed building/i.test(user);
+    const r = await chat(MODEL, talkSystem(role, designs), user, [talkTool(role, designs)], { kind: 'talk' });
     if (!r.ok) {
       tally.add(r, false);
       all.add(r, false);

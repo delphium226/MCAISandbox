@@ -4633,7 +4633,9 @@ async function monumentSite(a: BotAgent, _args: Record<string, unknown>, signal:
   if (m.site?.prepared) return `the ${N}'s site at ${areaText(m.site)} is already prepared`;
   const reg = a.world.villages;
   if (!m.site) {
-    const { hub, home } = siteHub(v, Math.floor(a.bot.entity.position.y));
+    const { hub: centre, home } = siteHub(v, Math.floor(a.bot.entity.position.y));
+    // (MC_TALK_DESIGNS: a civic building a person asked for somewhere is placed outward from there)
+    const hub = (m as { near?: { x: number; z: number } }).near ?? centre;
     if (!hub) throw new Error('monument_site: the village has no home');
     const takenAt = siteTaken(v, [...reg.villages.values()].filter((o) => o !== v), v.mine ? mineAreas(v.mine) : [], Date.now(), a.name);
     const found = await withScanTurn(signal, () => {

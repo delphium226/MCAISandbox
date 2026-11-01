@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ToolDef } from './world';
 import { rawSetting } from './settings';
+import { offerLine, type DesignOffer } from './talkDesign';
 
 export const PLAYER_TALK = {
   on: !/^(off|0|false|no)$/i.test(rawSetting('MC_TALK') ?? 'on'),
@@ -49,9 +50,13 @@ export interface PlayerRequest {
   /** The line said back (the model's words and code's facts). */
   answer?: string;
   reason?: string;
-  /** A build: the public work's piece (or `houses`) and its words. */
+  /** A build: the public work's piece (or `houses`, or `civic:ID` for a pre-designed building, MC_TALK_DESIGNS) and its
+   *  words. */
   piece?: string;
   what?: string;
+  /** MC_TALK_DESIGNS: the architect is drawing it (no piece yet), and the pre-designed building the Mayor named nearest. */
+  drawing?: boolean;
+  nearest?: string;
   place?: Place & { x?: number; z?: number; note?: string };
   eta?: number;
   /** A build's units of work (the quarter's), and the layout number it was laid out as. */
@@ -226,6 +231,22 @@ export function statusFor(village: string, from: string, now: number, progress: 
   return statusFact(best, now, progress(best));
 }
 
+/**
+ * #198: a question about the person's own request ("where is my house?", "how is the house I asked for coming along?")
+ * when the ledger holds none it can be about: the line to say instead of the model's (train 16's Mayor answered "your
+ * house is all set and ready for you to move in" to a person who had asked for no house). A house question with no house
+ * among their requests, or any such question with no request at all; null when statusFor has a request to answer from.
+ */
+export function noRequestLine(village: string, from: string, now: number, question: string): string | null {
+  if (!/\b(my|mine|i (?:asked|wanted|requested)|you promised)\b/i.test(question)) return null;
+  const rs = statusRequests(village, from, now);
+  const house = HOUSE_WORDS.test(question);
+  if (house && !rs.some((r) => r.piece === 'houses' || HOUSE_WORDS.test(`${r.what ?? ''} ${r.text}`)))
+    return `I have no house request from you on record${rs.length ? ` (only ${rs.at(-1)!.what ?? rs.at(-1)!.optionName ?? 'another request'})` : ''}; ask me for one and I will put it to the village.`;
+  if (!rs.length) return 'I have no request from you on record just now; ask me and I will put it to the village.';
+  return null;
+}
+
 /** A line asking how a request goes ("where?", "what happened to the house", "is it done yet"). */
 export function isStatusQuestion(text: string): boolean {
   return /(what happened|^\s*where\b|\bwhere (is|are|'s|did|will|was)\b|how long|when will|\b(done|ready|finished|built) yet\b|\bis it (done|ready|finished|built)|\bhow('s| is| are) (the|my|our|it)\b|\bstatus\b|\bprogress\b|any news)/i.test(text);
@@ -265,6 +286,14 @@ export function placeOf(text: string): Place | null {
   return null;
 }
 
+/** A line without its place words ("a post office near the market" -> "a post office"): what is asked for, not where
+ *  (MC_TALK_DESIGNS' shortlist would take the market for a market hall). */
+export function withoutPlace(text: string): string {
+  const pl = placeOf(text);
+  const i = pl ? text.toLowerCase().indexOf(pl.words) : -1;
+  return i < 0 ? text : `${text.slice(0, i)}${text.slice(i + pl!.words.length)}`.replace(/\s{2,}/g, ' ').trim();
+}
+
 /** The point a direction names: `dist` blocks from home that way (north is -z). */
 export function dirPoint(home: { x: number; z: number }, dir: NonNullable<Place['dir']>, dist = 40): { x: number; z: number } {
   const [dx, dz] = dir === 'north' ? [0, -1] : dir === 'south' ? [0, 1] : dir === 'east' ? [1, 0] : [-1, 0];
@@ -291,7 +320,7 @@ export function bearing(home: { x: number; z: number }, p: { x: number; z: numbe
 // ---- the works a Mayor may build (#38) --------------------------------------------------------------------------------
 
 /** A piece's words: "plains_fletcher_house_1" -> "fletcher house". */
-export const workWords = (piece: string) => piece.replace(/@.*$/, '').replace(/^(plains|desert|savanna|taiga|snowy)_/, '').replace(/_\d+$/, '').replace(/_/g, ' ');
+export const workWords = (piece: string) => piece.replace(/@.*$/, '').replace(/^(plains|desert|savanna|taiga|snowy|asked)_/, '').replace(/_r?\d+$/, '').replace(/_/g, ' ');
 
 export interface WorkOffer { id: string; words: string; biome: string; units: number; gather: Record<string, number> }
 
@@ -351,9 +380,21 @@ const MEMBER_SYSTEM = `You are a member of a Minecraft village whose members are
 - About the person's requests (what happened, where, when), say only what "Their requests now" shows. Code adds the facts after your line.
 - say: one short friendly line in your own voice. Do not give times or coordinates: code adds them.`;
 
-export const talkSystem = (role: 'mayor' | 'member') => (role === 'mayor' ? MAYOR_SYSTEM : MEMBER_SYSTEM);
+// (MC_TALK_DESIGNS, talkDesign.ts: the pre-designed buildings first, then the works, then a building the architect draws)
+const MAYOR_DESIGN_SYSTEM = `You are the Mayor of a Minecraft village whose members are run by language models. A person, a human player, has spoken to you. Answer them once with the respond tool.
+- kind=build when they ask the village to build something. work names what we build, the first of these that fits what they asked:
+  1. a pre-designed building from "Pre-designed buildings that match their words": its id (a real building, drawn in full);
+  2. a work from "Works we can build": its id; or "houses" for houses to live in;
+  3. "design" when it is a building none of those fits: our architect draws it new, small (up to 11x11 blocks and 12 high). Set what to the building in a few words ("a bakery") and nearest to the id of the listed building closest to it.
+- kind=refuse for what is not a building the village could put up in this game (items or creatures it cannot get, fighting, magic, anything outside this game, anything as huge as a city or a skyscraper); reason says why in one plain sentence, and nearest names the listed building closest to what they asked.
+- kind=chat for greetings, questions and talk that asks nothing to be built: say answers from what you know of the village.
+- About the person's requests (what happened, where, when), say only what "Their requests now" shows: if it says a request is not started, do not say it is being built; give no place it does not give. Code adds the facts after your line.
+- place: copy the person's own words for where it should go ("by the river", "here", "next to the hall"), or leave it empty. Code finds the spot.
+- say: one short friendly line in your own voice. Do not give times, distances or coordinates: code adds them.`;
 
-export function talkTool(role: 'mayor' | 'member'): ToolDef {
+export const talkSystem = (role: 'mayor' | 'member', designs = false) => (role === 'mayor' ? (designs ? MAYOR_DESIGN_SYSTEM : MAYOR_SYSTEM) : MEMBER_SYSTEM);
+
+export function talkTool(role: 'mayor' | 'member', designs = false): ToolDef {
   const kinds = role === 'mayor' ? ['chat', 'build', 'refuse'] : ['chat', 'promise', 'forward', 'refuse'];
   const props: Record<string, unknown> = {
     kind: { type: 'string', enum: kinds },
@@ -361,8 +402,12 @@ export function talkTool(role: 'mayor' | 'member'): ToolDef {
     reason: { type: 'string', description: 'kind=refuse: why, in one plain sentence.' },
   };
   if (role === 'mayor') {
-    props.work = { type: 'string', description: 'kind=build: the id of a work from the list, or "houses".' };
+    props.work = { type: 'string', description: designs ? 'kind=build: the id of a pre-designed building or a work from the lists, "houses", or "design" for a new building our architect draws.' : 'kind=build: the id of a work from the list, or "houses".' };
     props.place = { type: 'string', description: "kind=build: the person's words for where, or empty." };
+    if (designs) {
+      props.what = { type: 'string', description: 'work=design: the building in a few words ("a bakery").' };
+      props.nearest = { type: 'string', description: 'work=design or kind=refuse: the id of the listed building closest to what they asked.' };
+    }
   } else props.option = { type: 'string', description: 'kind=promise: the id of a chore from your list.' };
   return { name: 'respond', description: 'Answer the person: talk, take the request, or refuse it with a reason.', input_schema: { type: 'object', properties: props, required: ['kind', 'say'] } };
 }
@@ -382,6 +427,10 @@ export interface TalkCtx {
   /** #179: the person's requests now (statusLines), the only facts the answer may give about them. */
   status?: string[];
   works?: WorkOffer[];
+  /** MC_TALK_DESIGNS: the pre-designed buildings the person's words name (talkDesign.ts shortlist), and some others when
+   *  none (sampler: for the nearest). */
+  designs?: DesignOffer[];
+  otherDesigns?: DesignOffer[];
   options?: Array<{ id: string; name: string }>;
   /** A member's line forwarded to the Mayor. */
   via?: string;
@@ -394,13 +443,15 @@ export function talkUser(c: TalkCtx): string {
     c.state.length ? `The village now:\n${c.state.map((l) => `- ${l}`).join('\n')}` : '',
     c.history.length ? `What ${c.from} asked before, and how it went:\n${c.history.map((l) => `- ${l}`).join('\n')}` : `You have not spoken with ${c.from} before.`,
     c.status ? `Their requests now (from the village's records; say nothing about them these do not show):\n${c.status.length ? c.status.map((l) => `- ${l}`).join('\n') : '- none open'}` : '',
-    c.works ? `Works we can build (id: what, size in units of work):\n${c.works.map((w) => `- ${w.id}: ${w.words} (${w.units})`).join('\n')}\n- houses: a street of houses for members` : '',
+    c.designs ? (c.designs.length ? `Pre-designed buildings that match their words (id: name, kind, size):\n${c.designs.map(offerLine).join('\n')}`
+      : `No pre-designed building matches their words. Some others the village could build (id: name, kind, size):\n${(c.otherDesigns ?? []).map(offerLine).join('\n')}`) : '',
+    c.works ? `Works we can build (id: what, size in units of work):\n${c.works.map((w) => `- ${w.id}: ${w.words} (${w.units})`).join('\n')}\n- houses: a street of houses for members${c.designs ? '\n- design: a building none of the above fits, drawn new by our architect' : ''}` : '',
     c.options ? `Your chores (id: what):\n${c.options.map((o) => `- ${o.id}: ${o.name}`).join('\n')}` : '',
     `${c.via ? `${c.via} passes on what ${c.from} said to them` : `${c.from} says to you`}:\n${c.lines.map((l) => `"${l}"`).join('\n')}`,
   ].filter(Boolean).join('\n\n');
 }
 
-export interface Respond { kind: TalkKind; say: string; work?: string; option?: string; place?: string; reason?: string }
+export interface Respond { kind: TalkKind; say: string; work?: string; option?: string; place?: string; reason?: string; what?: string; nearest?: string }
 
 /** The model's answer: its respond call, else its text as talk; null when there is neither. */
 export function parseRespond(reply: { calls?: Array<{ name: string; input: Record<string, unknown> }>; text?: string }, role: 'mayor' | 'member'): Respond | null {
@@ -411,7 +462,8 @@ export function parseRespond(reply: { calls?: Array<{ name: string; input: Recor
     const ok: TalkKind[] = role === 'mayor' ? ['chat', 'build', 'refuse'] : ['chat', 'promise', 'forward', 'refuse'];
     let kind = str(c.input.kind).toLowerCase() as TalkKind;
     if (!ok.includes(kind)) kind = str(c.input.work) && role === 'mayor' ? 'build' : str(c.input.option) && role === 'member' ? 'promise' : str(c.input.reason) ? 'refuse' : 'chat';
-    return { kind, say: clean(str(c.input.say)), ...(str(c.input.work) ? { work: str(c.input.work) } : {}), ...(str(c.input.option) ? { option: str(c.input.option) } : {}), ...(str(c.input.place) ? { place: str(c.input.place) } : {}), ...(str(c.input.reason) ? { reason: clean(str(c.input.reason)) } : {}) };
+    return { kind, say: clean(str(c.input.say)), ...(str(c.input.work) ? { work: str(c.input.work) } : {}), ...(str(c.input.option) ? { option: str(c.input.option) } : {}), ...(str(c.input.place) ? { place: str(c.input.place) } : {}), ...(str(c.input.reason) ? { reason: clean(str(c.input.reason)) } : {}),
+      ...(str(c.input.what) ? { what: clean(str(c.input.what)).slice(0, 60) } : {}), ...(str(c.input.nearest) ? { nearest: str(c.input.nearest) } : {}) };
   }
   const text = clean(reply.text ?? '');
   return text ? { kind: 'chat', say: text } : null;

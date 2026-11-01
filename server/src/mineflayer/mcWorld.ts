@@ -38,7 +38,7 @@ import { IRON_AGE, IRON_MINERS, LADDER, LETTERS, RUNG_DEFS, VW, chooseRung, feed
 import type { RungId } from '../wanted';
 import type { ChronicleEntry } from '../social';
 import { BALLOTS_PARALLEL, STYLE_LOOK, VOTE_MAX_MS, VOTE_SETTING, castAll, predictedBallot, predictedChoice, parseStyle, styleOption, tally, woodStyleOptions, type Ballot, type BallotRequest, type StyleHouse, type VoteMode, type VoteOption, type VoteRecord, type VoteTopic } from '../vote';
-import { callModel, isTransient, label, parseSpec, type ModelSpec } from '../modelCall';
+import { OLLAMA_ROUTES, OLLAMA_URL, callModel, isTransient, label, parseSpec, type ModelSpec } from '../modelCall';
 import { TieredBrain } from '../tieredBrain';
 import { REASONING, isCloudModel, usage } from '../modelUsage';
 import { LLMBrain } from '../llmBrain';
@@ -98,7 +98,7 @@ import { HOME_DESIGN, castDesign, castProgram, characterOf, designNote, inHoldou
 import { generateDesign } from '../buildingGen';
 import { applyWrites } from '../memory';
 import { deathMemory, deathWords, type DeathCause } from './mcHazard';
-import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, etaMinutes, historyLines, initTalk, isStatusQuestion, matchWork, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, statusFor, statusLines, talkSystem, talkTool, talkUser, updateRequest, workWords, type PlayerRequest, type ReqProgress, type Respond, type WorkOffer } from '../playerTalk';
+import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, etaMinutes, historyLines, initTalk, isStatusQuestion, matchWork, noRequestLine, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, statusFor, statusLines, talkSystem, talkTool, talkUser, updateRequest, withoutPlace, workWords, type PlayerRequest, type ReqProgress, type Respond, type WorkOffer } from '../playerTalk';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { isNight, nightTick } from './mcSurvivalB';
 import { anyBed, armTick, armsOn, bandWords, builtBounds, combatCounts, curfewActs, curfewTick, dangerOf, dangerTick, deathsFact, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, headingHome, homeBand, homeByDuskOn, isWeapon, pastBand, phaseOf, WATCH_HEALTH, watchedTonight, watchLoop, type SafetyBand } from './mcCombat';
@@ -115,8 +115,9 @@ import { bedBuilding, dyeBedOn } from './mcDyeBed';
 import { DYE_BED, DYE_FLOWERS, DYE_REACH, TALL_FLOWERS, dyeRecipes, makeableColours, windowColours } from '../dyeBed';
 import { DETAIL_COLOURS } from '../gothicGen';
 import { PICKS, drawRank } from '../shortlist';
-import { CIVIC, CIVIC_KEEP, aKind, civicOptions, civicsStanding, civicDone, civicKit, codePick, CIVIC_SYSTEM, CIVIC_TOOL, CIVIC_SITE_FAILS, checkCivic, civicPrompt, civicLine, type CivicOption } from '../civic';
+import { CIVIC, CIVIC_KEEP, aKind, civicOptions, civicsStanding, civicDone, civicKit, codePick, CIVIC_SYSTEM, CIVIC_TOOL, CIVIC_SITE_FAILS, checkCivic, civicPrompt, civicLine, civicEntry, civicScale, civicsOf, type CivicBuilt, type CivicOption } from '../civic';
 import { newCivic, monumentType } from '../monument';
+import { TALK_DESIGNS, askedName, castPublic, civicIdOf, civicPiece, failWords, matchDesign, publicWords, sampler, shortlist, type DesignOffer, type PublicResult } from '../talkDesign';
 import { stoneStandIn, DEEP_BLOCKS, deepStandIn, GEM_STAND, DYE_FAILS, DYE_WAIT_MIN, dyeStandIn, dyeStood, furnishLeaveOut, leftOutItems, refurnishOn, COPPER_ROOF, COPPER_BLOCKS, copperFrom, copperOn, copperReached, copperStandIn, reroofReturns } from '../monument';
 import { DEEP_KEEP, deepenForStone, setKeepCopper } from './mcMine';
 import { BED_WOOL, WILD_SHEAR_KEY, noteWildShear, penOrder, shearsFirst, wildShearWait } from '../bedWool';
@@ -4290,6 +4291,7 @@ export class MineflayerWorld implements WorldAdapter {
       if (M3.news) this.monumentNews(v, text, 'Mayor');
       else this.villages.note(v, text);
       console.log(`[civic] ${v.name}: ${text}; ${civicLine(v)}`);
+      this.talkCivicEnd(v, c, now);
     }
     if (!v.monument) {
       if (CIVIC.on && this.civicTick(v, now)) return;
@@ -4346,6 +4348,8 @@ export class MineflayerWorld implements WorldAdapter {
   /** MC_CIVIC (civic.ts): the next civic building begun (true: begun or its choice under way; false: none to begin, the
    *  monument's turn when the iron age is done). */
   private civicTick(v: Village, now: number): boolean {
+    // (MC_TALK_DESIGNS: a civic building a person asked for begins first, from talkTick)
+    if (this.talkCivicWaiting(v)) return true;
     const iron = ironReached(v);
     if (iron && civicsStanding(v) >= CIVIC.first) return false;
     const last = (v as { civics?: Array<{ built?: number; at: number }> }).civics?.at(-1);
@@ -6410,6 +6414,7 @@ export class MineflayerWorld implements WorldAdapter {
       `${[...this.agents.values()].filter((b) => b.village()?.name === v.name).length} members`];
     if (g?.active) out.push(g.active.project ? `the public work ${workWords(g.active.project)} is being built` : 'a street of houses is being built');
     if (g?.work?.piece) out.push(`the village voted to build ${workWords(g.work.piece)} next`);
+    if (v.monument && monumentType(v.monument) === 'civic') out.push(`the public building ${presetWords(v.monument.preset)} is being built`);
     const q = requestsOf(v.name).filter((r) => r.status === 'queued' || r.status === 'under_way');
     if (q.length) out.push(`people's requests accepted: ${q.map((r) => `${r.what ?? r.piece} for ${r.from} (${r.status === 'queued' ? 'waiting' : 'under way'})`).join(', ')}`);
     return out;
@@ -6446,6 +6451,12 @@ export class MineflayerWorld implements WorldAdapter {
       /* before completion some facts are missing: no persona then */
     }
     const offers = role === 'mayor' ? this.talkOffers(v) : undefined;
+    // (MC_TALK_DESIGNS: the pre-designed buildings the person's words name, else a few others for the nearest)
+    // (built here, under way or asked for already: not offered again, nor named nearest)
+    const standing = new Set([...civicsOf(v).filter((c) => !c.skipped).map((c) => c.preset), ...(v.monument && monumentType(v.monument) === 'civic' ? [v.monument.preset] : []),
+      ...requestsOf(v.name).filter((x) => x.status === 'queued' || x.status === 'under_way').map((x) => civicIdOf(x.piece)).filter((x): x is string => !!x)]);
+    const designs = role === 'mayor' && this.talkDesignsOn() ? shortlist(rs.map((x) => withoutPlace(x.text)).join(' '), standing) : undefined;
+    const others = designs && !designs.length ? sampler(standing) : undefined;
     let options: Array<{ id: string; name: string }> | undefined;
     if (role === 'member' && v.complete) {
       try {
@@ -6457,19 +6468,19 @@ export class MineflayerWorld implements WorldAdapter {
     // (#179: the person's requests as the world shows them now, not the ledger's word for "under way")
     const history = historyLines(v.name, r.from, now, 5, r.id, (q) => (q.status === 'queued' || q.status === 'under_way' ? this.talkProgress(v, q, now).state : undefined));
     const user = talkUser({ agent: a.name, role, village: v.name, persona, from: r.from, lines: rs.map((x) => x.text), history,
-      state: this.talkState(v), status: this.talkStatus(v, r.from, now), ...(offers ? { works: offers } : {}), ...(options ? { options } : {}), ...(r.via ? { via: r.via } : {}) });
-    const res = await callModel({ spec, system: talkSystem(role), user, tools: [talkTool(role)], level: REASONING.talk, agent: a.name, kind: 'talk', priority: 'human' });
+      state: this.talkState(v), status: this.talkStatus(v, r.from, now), ...(offers ? { works: offers } : {}), ...(designs ? { designs, otherDesigns: others } : {}), ...(options ? { options } : {}), ...(r.via ? { via: r.via } : {}) });
+    const res = await callModel({ spec, system: talkSystem(role, !!designs), user, tools: [talkTool(role, !!designs)], level: REASONING.talk, agent: a.name, kind: 'talk', priority: 'human' });
     const p = parseRespond(res.reply as { calls?: Array<{ name: string; input: Record<string, unknown> }>; text?: string }, role);
     if (!p) {
       updateRequest(r.id, { status: 'unanswered', outcome: 'an empty reply' });
       return;
     }
-    console.log(`[talk] ${v.name}: ${a.name} answers ${r.id}: ${p.kind}${p.work ? ` work=${p.work}` : ''}${p.option ? ` option=${p.option}` : ''}${p.place ? ` place="${p.place}"` : ''}${p.reason ? ` reason="${p.reason}"` : ''} (${res.ms} ms)`);
-    this.talkAct(v, a, r, p, offers ?? [], options ?? []);
+    console.log(`[talk] ${v.name}: ${a.name} answers ${r.id}: ${p.kind}${p.work ? ` work=${p.work}` : ''}${p.option ? ` option=${p.option}` : ''}${p.place ? ` place="${p.place}"` : ''}${p.reason ? ` reason="${p.reason}"` : ''}${p.what ? ` what="${p.what}"` : ''}${p.nearest ? ` nearest=${p.nearest}` : ''}${designs ? ` (shortlist: ${designs.map((d) => d.id).join(', ') || 'none'})` : ''} (${res.ms} ms)`);
+    this.talkAct(v, a, r, p, offers ?? [], options ?? [], designs ? [...designs, ...(others ?? [])] : undefined);
   }
 
   /** What an answer does: talk, a refusal, a promise, a building passed to the Mayor, or a build checked and queued. */
-  private talkAct(v: Village, a: BotAgent, r: PlayerRequest, p: Respond, offers: WorkOffer[], options: Array<{ id: string; name: string }>) {
+  private talkAct(v: Village, a: BotAgent, r: PlayerRequest, p: Respond, offers: WorkOffer[], options: Array<{ id: string; name: string }>, designs?: DesignOffer[]) {
     const now = Date.now();
     const refuse = (reason: string) => {
       // (the model's line usually says sorry already; code's reason after it, without a second one)
@@ -6482,13 +6493,19 @@ export class MineflayerWorld implements WorldAdapter {
       // (#179: a question about the person's requests gets code's facts after the model's line: train 13's Mayor said
       // "being built right where you marked" while nothing was)
       // (#183: the request the question names, not the latest: a torch promise's fact answered "where is my house?")
-      const fact = isStatusQuestion(r.text) ? statusFor(v.name, r.from, now, (q) => this.talkProgress(v, q, now), r.text) : null;
-      const line = fact ? answerLine(p.say, fact.replace(/^r\d+, /, '')) : p.say;
+      // (#198: a question about their own request with none on record is answered by code alone: train 16's Mayor told a
+      // person who had asked for no house that it was "all set and ready for you to move in")
+      const none = isStatusQuestion(r.text) ? noRequestLine(v.name, r.from, now, r.text) : null;
+      const fact = isStatusQuestion(r.text) && !none ? statusFor(v.name, r.from, now, (q) => this.talkProgress(v, q, now), r.text) : null;
+      const line = none ?? (fact ? answerLine(p.say, fact.replace(/^r\d+, /, '')) : p.say);
       updateRequest(r.id, { kind: 'chat', status: 'chat', say: p.say, answer: line, closed: now });
       if (line) this.talkSay(a.name, line);
       return;
     }
     // (a Mayor's refusal names what the village could build instead, when the model's reason does not)
+    // (MC_TALK_DESIGNS: the pre-designed building the Mayor named nearest, when its reason does not name it)
+    const near = designs && matchDesign(designs, p.nearest ?? '');
+    if (p.kind === 'refuse' && near) return refuse(`${(p.reason || 'that is not something we can do here').replace(/[.!\s]+$/, '')}${(p.reason ?? '').toLowerCase().includes(near.title.toLowerCase().replace(/^the /, '')) ? '' : `; the nearest we could build is ${near.title} (${aKind(near.kind)})`}`);
     if (p.kind === 'refuse') return refuse(`${p.reason || 'that is not something we can do here'}${offers.length && !offers.some((w) => (p.reason ?? '').toLowerCase().includes(w.words)) ? `; we could build ${offers.slice(0, 4).map((w) => w.words).join(', ')}` : ''}`);
     if (p.kind === 'forward') {
       const m = this.mayorOf(v);
@@ -6509,7 +6526,28 @@ export class MineflayerWorld implements WorldAdapter {
       if (MEMORY.on) applyWrites(v.name, a.name, { remember: `${r.from} (a person) asked me: "${r.text.slice(0, 80)}"; I promised to ${o.name.toLowerCase()}` }, 'world', now);
       return;
     }
-    // build (the Mayor)
+    // build (the Mayor). MC_TALK_DESIGNS: a pre-designed building first (the civic path), then a work, then a building the
+    // architect draws (a work the model named that is on no list goes to the architect too)
+    if (designs) {
+      const asked = (p.work ?? '').trim();
+      // (pre-designed first: "design" while the shortlist holds a building of the kind the person's words name takes it,
+      // the one the Mayor named nearest if it is one: requestbench's pub went to the architect once in six)
+      const named = designs.filter((o) => o.score >= 10);
+      const civic = asked && !/^design$/i.test(asked) ? matchDesign(designs, asked) : named.length ? named.find((o) => o.id === p.nearest) ?? named[0] : undefined;
+      if (civic) {
+        const c = this.talkCivicCheck(v, r, p, civic);
+        if ('why' in c) return refuse(c.why);
+        updateRequest(r.id, { kind: 'build', status: 'queued', say: p.say, answer: answerLine(p.say, c.facts), piece: civicPiece(civic.id), what: c.what, units: civic.blocks, ...(c.place ? { place: c.place } : {}) });
+        this.talkSay(a.name, answerLine(p.say, c.facts));
+        console.log(`[talk] ${v.name}: ${r.from}'s ${r.id} takes the pre-designed ${civic.id} (${c.what})`);
+        if (MEMORY.on) applyWrites(v.name, a.name, { remember: `${r.from} (a person) asked for ${c.what}${c.place ? ` ${c.place.words}` : ''}; I said yes` }, 'world', now);
+        return;
+      }
+      if (/^design$/i.test(asked) || (!/^(houses?|homes?|a street of houses)$/i.test(asked) && !matchWork(offers, asked))) {
+        void this.talkDesignStart(v, a, r, p, designs, refuse);
+        return;
+      }
+    }
     const check = this.talkBuildCheck(v, r, p, offers);
     if ('why' in check) return refuse(check.why);
     updateRequest(r.id, { kind: 'build', status: 'queued', say: p.say, answer: answerLine(p.say, check.facts), piece: check.piece, what: check.what, eta: check.eta, units: check.units, ...(check.place ? { place: check.place } : {}) });
@@ -6576,9 +6614,173 @@ export class MineflayerWorld implements WorldAdapter {
   }
 
   /** The piece a person asked for, alone on its pad (a vote's quarter adds companions nobody asked for). */
-  private talkPiece(piece: string): { pieces: Array<NonNullable<MineflayerWorld['works']>[number]>; size: number; units: number } | null {
+  private talkPiece(piece: string, v?: Village): { pieces: Array<NonNullable<MineflayerWorld['works']>[number]>; size: number; units: number } | null {
     const w = this.publicWorks().find((x) => x.design.name === piece);
-    return w ? { pieces: [w], size: w.size, units: w.units } : null;
+    if (w) return { pieces: [w], size: w.size, units: w.units };
+    // (MC_TALK_DESIGNS: a building the architect drew for a person, kept in the village's designs)
+    const d = piece.startsWith('asked_') ? v?.designs[piece] : undefined;
+    if (!d) return null;
+    const m = this.materialTasks(d, d.name), pad = padFor([d]);
+    if (m.problems.length || !pad) return null;
+    const gather: Counts = {};
+    for (const [n, q] of Object.entries(this.materials.plan(designBill(d)).gather)) gather[n] = q;
+    const e = { biome: 'asked', design: d, units: m.units ?? 0, volume: d.width * d.depth * d.height, gather, size: pad.size };
+    return { pieces: [e], size: pad.size, units: e.units };
+  }
+
+  /** MC_TALK_DESIGNS (talkDesign.ts) with the civic tier and the monument's path it builds by. */
+  private talkDesignsOn(): boolean {
+    return TALK_DESIGNS.on && CIVIC.on && MONUMENT.on;
+  }
+
+  /** A person's request for a pre-designed building checked and placed; or why not. */
+  private talkCivicCheck(v: Village, r: PlayerRequest, p: Pick<Respond, 'place'>, o: DesignOffer): { what: string; facts: string; place?: NonNullable<PlayerRequest['place']> } | { why: string } {
+    const open = (x: PlayerRequest) => x.id !== r.id && (x.status === 'queued' || x.status === 'under_way');
+    if (civicsOf(v).some((c) => c.preset === o.id && !c.skipped)) return { why: `we have built ${o.title} already` };
+    const m = v.monument;
+    if ((m && monumentType(m) === 'civic' && m.preset === o.id) || requestsOf(v.name).some((x) => open(x) && x.piece === civicPiece(o.id))) return { why: `${o.title} is already asked for` };
+    const place = this.talkPlace(v, r, p.place), home = villageHome(v);
+    const ahead = requestsOf(v.name).filter((x) => open(x) && civicIdOf(x.piece)).length;
+    const busy = !v.complete ? 'after the village is finished' : m ? `after the ${monumentType(m) === 'civic' ? presetWords(m.preset) : monumentNoun(m)} under way` : ahead ? 'after the public buildings asked for before it' : '';
+    const where = place ? (place.x !== undefined && home ? ` ${place.words} (${bearing(home, { x: place.x, z: place.z! })})${place.note ? `; ${place.note}` : ''}` : `; ${place.note ?? ''}`) : '';
+    return { what: `${o.title} (${aKind(o.kind)})`, place: place ?? undefined, facts: `${o.title}, ${aKind(o.kind)} at 1:${o.scale}: ${o.width}x${o.depth}, ${o.height} high, ${o.blocks} blocks in ${o.jobs} parts${where}${busy ? `, ${busy}` : ''}` };
+  }
+
+  /** Requests whose architect's drawing is under way (lost on a restart: talkTick fails them). */
+  private talkDrawing = new Set<string>();
+
+  /**
+   * MC_TALK_DESIGNS' second tier: a building no list fits, drawn by the architect (talkDesign.ts castPublic) and built as
+   * a public work. The Mayor says so at once; the drawing's outcome is told when it comes. No model server: a refusal that
+   * names the nearest pre-designed building.
+   */
+  private async talkDesignStart(v: Village, a: BotAgent, r: PlayerRequest, p: Respond, designs: DesignOffer[], refuse0: (why: string) => void) {
+    // (a refusal here is code's alone: the model's line said yes to a drawing, "I'll have it drawn up right away")
+    const refuse = (why: string) => {
+      p.say = `${r.from}, I am sorry`;
+      refuse0(why);
+    };
+    const g = v.growth;
+    const w = (p.what || (p.work && !/^design$/i.test(p.work) ? p.work.replace(/_/g, ' ') : '') || 'the building').trim();
+    const what = /^(a|an|the)\s/i.test(w) ? w : `${/^[aeiou]/i.test(w) ? 'an' : 'a'} ${w}`;
+    const near = matchDesign(designs, p.nearest ?? '');
+    const nearest = near ? `; the nearest we could build is ${near.title} (${aKind(near.kind)})` : '';
+    if ((g?.projectFails ?? 0) >= 3) return refuse(`our last public works failed, and building rests for now${nearest}`);
+    if (g?.stop && !/house design/.test(g.stop)) return refuse(`building has stopped here (${g.stop.slice(0, 80)})`);
+    if (v.complete && !this.growClaimers(v).length) return refuse('nobody here takes building work just now');
+    const spec = TALK_DESIGNS.model;
+    // (the local architect's server down: say so now, not after a promise; the user's brief)
+    const down = !spec || (spec.provider === 'ollama' && !isCloudModel(spec.model)
+      && !(await fetch(`${OLLAMA_ROUTES.get(spec.model) ?? OLLAMA_URL}/api/version`, { signal: AbortSignal.timeout(2500) }).then((x) => x.ok, () => false)));
+    if (down) {
+      console.log(`[talk] ${v.name}: ${r.id} wants ${what} drawn, but the architect's model (${spec ? label(spec) : 'none'}) is not reachable`);
+      return refuse(`our architect cannot draw new buildings just now${nearest || '; ask me for one of our pre-designed buildings'}`);
+    }
+    const place = this.talkPlace(v, r, p.place), home = villageHome(v);
+    const where = place ? (place.x !== undefined && home ? ` ${place.words} (${bearing(home, { x: place.x, z: place.z! })})${place.note ? `; ${place.note}` : ''}` : `; ${place.note ?? ''}`) : '';
+    const line = answerLine(p.say, `our architect is drawing up ${what}${where}`);
+    updateRequest(r.id, { kind: 'build', status: 'queued', drawing: true, say: p.say, answer: line, what, ...(near ? { nearest: near.id } : {}), ...(place ? { place } : {}) });
+    this.talkSay(a.name, line);
+    if (MEMORY.on) applyWrites(v.name, a.name, { remember: `${r.from} (a person) asked for ${what}${place ? ` ${place.words}` : ''}; our architect draws it` }, 'world', Date.now());
+    this.talkDrawing.add(r.id);
+    const family = v.vanillaBiome ? villageBiome(v.vanillaBiome) : this.currentStyle(v) ?? 'plains';
+    console.log(`[talk] ${v.name}: the architect (${label(spec!)}) draws ${r.id}: ${what} (${family}, ${this.catalogWoodOf(v)})`);
+    const res: PublicResult = await castPublic({ agent: a.name, spec: spec!, ctx: { text: r.text, what, family, wood: this.catalogWoodOf(v) }, budget: LANDMARK_UNITS, bill: this.homeBill(), name: askedName(what, r.id) })
+      .catch((e: unknown) => ({ design: null, cuts: [], notes: [], unknown: [], code: '', said: '', why: 'error' as const, error: String((e as Error)?.message ?? e).slice(0, 120) }));
+    this.talkDrawing.delete(r.id);
+    this.talkDrawn(v, r, res, what, near);
+  }
+
+  /** The architect's drawing in: the design kept and the request queued as a public work; or the nearest pre-designed
+   *  building instead (a program that failed), or a refusal naming it (no model). */
+  private talkDrawn(v: Village, r: PlayerRequest, res: PublicResult, what: string, near?: DesignOffer) {
+    const now = Date.now();
+    const tell = (line: string) => {
+      const m = this.mayorOf(v);
+      if (m) this.talkSay(m.name, line);
+    };
+    const cur = requestById(r.id);
+    if (!cur || cur.status !== 'queued') return;
+    const thing = what.replace(/^(a|an|the) /i, '');
+    const code = res.code.replace(/\s+/g, ' ').slice(0, 600);
+    const q = res.design ? (() => {
+      v.designs[res.design!.name] = res.design!;
+      const piece = this.talkPiece(res.design!.name, v);
+      if (!piece) delete v.designs[res.design!.name];
+      return piece;
+    })() : null;
+    if (q && res.built) {
+      this.villages.save();
+      const g = v.growth;
+      const paces = requestsOf(v.name).filter((x) => x.status === 'done' && x.units && x.started && x.closed && !civicIdOf(x.piece)).map((x) => (x.closed! - x.started!) / 60000 / x.units!);
+      const pace = paces.length ? paces.reduce((s, x) => s + x, 0) / paces.length : undefined;
+      const eta = etaMinutes(q.units, this.growClaimers(v).length, pace, pace ? 1 : Number(rawSetting('MC_TIME_SCALE') ?? 1) || 1);
+      const busy = g?.active ? `, after the ${g.active.project ? workWords(g.active.project) : 'houses'} under way` : g?.work?.piece ? `, after the ${workWords(g.work.piece)} the village voted for` : '';
+      const gather: Record<string, number> = {};
+      for (const [k, n] of Object.entries(q.pieces[0].gather)) gather[k.replace(/^any:/, '')] = Math.round(n);
+      const bill = billWords(gather);
+      const form = `${publicWords(res.built)}${res.cuts.length ? ` (cut to fit: ${[...new Set(res.cuts)].join(', ')})` : ''}`;
+      updateRequest(r.id, { drawing: undefined, piece: res.design!.name, units: q.units, eta, outcome: `drawn: ${form}`.slice(0, 200) });
+      tell(`${r.from}, our architect has drawn your ${thing}: ${form}; about ${eta} min of work${busy}${bill ? `; it needs ~${bill}` : ''}.`);
+      console.log(`[talk] ${v.name}: the architect drew ${r.id} (${what}) as ${res.design!.name}: ${form}, ${q.units} units on ${q.size}x${q.size}${res.unknown.length ? `; unknown ${res.unknown.join(',')}` : ''} (${res.ms ?? '?'} ms); "${res.said.slice(0, 120)}"; code: ${code}`);
+      return;
+    }
+    const why = res.design ? 'fit' : res.why;
+    console.log(`[talk] ${v.name}: the architect's drawing of ${r.id} (${what}) failed: ${why}${res.error ? ` (${res.error})` : ''}${code ? `; code: ${code}` : ''}`);
+    const soft = why === 'down' || why === 'budget' || why === 'timeout' || why === 'withdrawn';
+    if (near && !soft) {
+      const c = this.talkCivicCheck(v, cur, { place: cur.place?.words }, near);
+      if (!('why' in c)) {
+        updateRequest(r.id, { drawing: undefined, piece: civicPiece(near.id), what: c.what, units: near.blocks, outcome: `the drawing failed (${why}): the nearest pre-designed building instead` });
+        tell(`${r.from}, ${failWords(why)}, so we will build ${near.title} (${aKind(near.kind)}) instead, the nearest we have - ${c.facts}.`);
+        return;
+      }
+    }
+    updateRequest(r.id, { drawing: undefined, status: 'failed', outcome: `the drawing failed: ${why}${res.error ? ` (${res.error.slice(0, 80)})` : ''}`, closed: now });
+    tell(`${r.from}, I am sorry: ${failWords(why)}${near ? `; the nearest we could build is ${near.title} (${aKind(near.kind)}), ask me for it` : ''}.`);
+  }
+
+  /** MC_TALK_DESIGNS: a person's civic building waiting for its turn (the tier's own pick and the monument wait for it). */
+  private talkCivicWaiting(v: Village): boolean {
+    return requestsOf(v.name).some((r) => r.status === 'queued' && !!civicIdOf(r.piece));
+  }
+
+  /** A person's civic building begun when no record is open and the tier's gap has passed (talkTick); true if begun. */
+  private talkCivicStart(v: Village, r: PlayerRequest, now: number): boolean {
+    if (v.monument || !this.talkDesignsOn() || !v.storageHut) return false;
+    const last = civicsOf(v).at(-1);
+    if (last && now - (last.built ?? last.at) < (CIVIC.gap * 60000) / timeScale()) return false;
+    const id = civicIdOf(r.piece)!, e = civicEntry(id);
+    if (!e) {
+      updateRequest(r.id, { status: 'failed', outcome: `no building ${id}`, closed: now });
+      return false;
+    }
+    const scale = civicScale(id);
+    const rec = newCivic(id, scale, this.catalogWoodOf(v), now);
+    rec.arch = { by: r.from, reason: `asked for by ${r.from}: "${r.text.slice(0, 100)}"` };
+    // (the site search starts from the place asked, mcBuild's monumentSite)
+    if (r.place?.x !== undefined) (rec as { near?: { x: number; z: number } }).near = { x: r.place.x, z: r.place.z! };
+    Object.assign(rec, civicKit(v, kilnSize(this.materials.plan(monumentPlan(rec).bill, {}).fuel.smelts)));
+    v.monument = rec;
+    this.villages.save();
+    updateRequest(r.id, { status: 'under_way', started: now });
+    const text = `The village begins ${e.title}, ${aKind(e.kind)} (1:${scale}), as ${r.from} asked${r.place?.words ? ` (${r.place.words})` : ''}`;
+    if (M3.news) this.monumentNews(v, text, 'Mayor');
+    else this.villages.note(v, text);
+    console.log(`[talk] ${v.name}: ${r.from}'s ${r.id} begins the civic ${monumentLine(rec)}${r.place?.x !== undefined ? ` near ${r.place.x},${r.place.z}` : ''}`);
+    const m = this.mayorOf(v);
+    if (m) this.talkSay(m.name, `${r.from}, work on ${e.title} has begun${r.place?.words ? ` ${r.place.words}` : ''}.`);
+    return true;
+  }
+
+  /** A civic record left the monument's place: a person's request for it done (built) or failed (its site given up). */
+  private talkCivicEnd(v: Village, c: CivicBuilt, now: number) {
+    const r = requestsOf(v.name).find((x) => x.status === 'under_way' && x.piece === civicPiece(c.preset));
+    if (!r) return;
+    updateRequest(r.id, { status: c.skipped ? 'failed' : 'done', outcome: c.skipped ?? 'built', closed: now });
+    const m = this.mayorOf(v);
+    const title = civicEntry(c.preset)?.title ?? presetWords(c.preset);
+    if (m) this.talkSay(m.name, c.skipped ? `${r.from}, I am sorry: ${title} could not be built (${c.skipped}).` : `${r.from}, ${title} is finished${r.place?.words ? `, ${r.place.words}` : ''}.`);
   }
 
   /** #37: the person's place words (the model's copy, else their line) to a point near home, or a note why not. */
@@ -6616,10 +6818,28 @@ export class MineflayerWorld implements WorldAdapter {
         const m = this.mayorOf(v);
         if (m) this.talkSay(m.name, line);
       };
+      // (MC_TALK_DESIGNS: a building being drawn waits for its drawing; one lost in a restart fails)
+      if (r.status === 'queued' && r.drawing) {
+        if (!this.talkDrawing.has(r.id)) {
+          updateRequest(r.id, { drawing: undefined, status: 'failed', outcome: 'its drawing was lost (a restart)', closed: now });
+          tell(`${r.from}, I am sorry: our architect's drawing of your ${(r.what ?? 'building').replace(/^an? /, '')} was lost; ask me again.`);
+        }
+        continue;
+      }
+      const cid = civicIdOf(r.piece);
+      if (cid && r.status === 'under_way') {
+        if (v.monument && v.monument.preset === cid) continue;
+        const c = civicsOf(v).find((x) => x.preset === cid);
+        if (c) this.talkCivicEnd(v, c, now);
+        else updateRequest(r.id, { status: 'failed', outcome: 'its record is gone', closed: now });
+        continue;
+      }
       if (r.status === 'queued') {
         if (now - r.at > (120 * 60000) / scale) {
           updateRequest(r.id, { status: 'failed', outcome: 'it waited too long for its turn', closed: now });
           tell(`${r.from}, I am sorry: your ${r.what ?? 'request'} waited too long and is dropped.`);
+        } else if (cid) {
+          if (v.complete) this.talkCivicStart(v, r, now);
         } else if (!started && v.complete) started = this.talkStart(v, r, now);
       } else if (r.status === 'under_way') {
         if (r.piece === 'houses') {
@@ -6678,6 +6898,26 @@ export class MineflayerWorld implements WorldAdapter {
     const lay = lays.length ? lays : r.layout !== undefined ? v.layouts?.[r.layout - 1] : undefined;
     const act = g?.active && r.layout !== undefined && g.active.layout === r.layout ? g.active : undefined;
     const rests = (until?: number) => (until && until > now ? `; building rests ${mins(until - now)} more min after a failed layout` : '');
+    // (MC_TALK_DESIGNS: a civic building's record, a drawing under way)
+    if (r.drawing) return { state: 'accepted: our architect is drawing it', ...(asked ? { where: asked } : {}) };
+    const cid = civicIdOf(r.piece);
+    if (cid && (r.status === 'queued' || r.status === 'under_way' || r.status === 'done')) {
+      const m = v.monument;
+      const siteAt = (s: { x1: number; z1: number; x2: number; z2: number }) => {
+        const c = { x: Math.round((s.x1 + s.x2) / 2), z: Math.round((s.z1 + s.z2) / 2) };
+        return `${home ? bearing(home, c) : `at ${c.x},${c.z}`}${r.place?.x !== undefined ? `, ~${Math.round(Math.hypot(c.x - r.place.x, c.z - r.place.z!) / 5) * 5} blocks from the place asked` : ''}`;
+      };
+      if (r.status === 'done') {
+        const c = civicsOf(v).find((x) => x.preset === cid && !x.skipped);
+        return { state: `finished ${mins(now - (r.closed ?? now))} min ago`, ...(c?.site ? { where: siteAt(c.site) } : asked ? { where: asked } : {}) };
+      }
+      if (r.status === 'queued') return { state: `accepted, not started yet: ${!v.complete ? 'after the village is finished' : m ? `after the ${monumentType(m) === 'civic' ? presetWords(m.preset) : monumentNoun(m)} under way` : 'waiting its turn'}`, ...(asked ? { where: asked } : {}) };
+      if (m && m.preset === cid) {
+        if (m.state === 'site') return { state: m.site ? 'its site is being levelled' : 'its site is being chosen', ...(m.site ? { where: siteAt(m.site) } : asked ? { where: asked } : {}) };
+        return { state: 'being built', done: m.done.length, of: monumentPlan(m).jobs.length, ...(m.site ? { where: siteAt(m.site) } : {}) };
+      }
+      return { state: 'being started', ...(asked ? { where: asked } : {}) };
+    }
     switch (r.status) {
       case 'promised': return { state: `promised by ${r.to}${r.due ? `, due ${r.due > now ? `in ${mins(r.due - now)} min` : 'now'}` : ''}` };
       case 'kept': return { state: `done ${mins(now - (r.closed ?? now))} min ago` };
@@ -6721,7 +6961,7 @@ export class MineflayerWorld implements WorldAdapter {
       const m = this.mayorOf(v);
       if (m) this.talkSay(m.name, `${r.from}, I am sorry: we could not lay out your ${r.what ?? r.piece} (${why.replace(/^lay_out_houses: /, '').slice(0, 120)}).`);
     };
-    const q = r.piece ? this.talkPiece(r.piece) : null;
+    const q = r.piece ? this.talkPiece(r.piece, v) : null;
     if (!q) {
       fail('it does not fit here any more');
       return false;
