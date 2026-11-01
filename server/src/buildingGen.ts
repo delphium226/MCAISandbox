@@ -8,6 +8,7 @@
  */
 import type { Design } from './village';
 import { HOME_BOX, HOUSE_WALLS, LANDMARK_WALLS } from './designs';
+import { dressDesign } from './dressing';
 
 /** What the architect gives instead of layers (the submit_style tool). Sizes are the walls; an overhang adds a ring. */
 export interface BuildingStyle {
@@ -492,7 +493,8 @@ function generateV2(style: BuildingStyle, by: string): Design {
 
   const { palette, layers } = encode(grid);
   const blocks = layers.flat().reduce((s, row) => s + [...row].filter((c) => c !== '.' && c !== '_').length, 0);
-  return { name: style.name, description: style.description, palette, layers, width: W, depth: D, height, blocks, by, style };
+  // (MC_DRESSING: the walls dressed lightly, dressing.ts)
+  return dressDesign({ name: style.name, description: style.description, palette, layers, width: W, depth: D, height, blocks, by, style });
 }
 
 /** Readable symbols for the usual blocks; anything else (or a clash) takes the next free one. */

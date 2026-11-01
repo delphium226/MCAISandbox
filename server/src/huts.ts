@@ -5,6 +5,7 @@
 import type { Area, Design } from './village';
 import { annexCandidates } from './farmSlots';
 import { rawSetting } from './settings';
+import { dressDesign } from './dressing';
 
 export const STORAGE_HUT = 'storage_hut';
 
@@ -57,11 +58,12 @@ export function storageHutDesign(open = OPEN_STORAGE): Design {
   const palette = { C: 'cobblestone', P: 'oak_planks', L: 'oak_log', T: 'crafting_table', F: 'furnace' };
   const layers = open ? OPEN_LAYERS : LAYERS;
   const blocks = layers.flat().reduce((s, row) => s + [...row].filter((c) => c !== '.' && c !== '_').length, 0);
-  return {
+  // (MC_DRESSING: dressed lightly; it stays open-sided)
+  return dressDesign({
     name: STORAGE_HUT,
     description: `the village storage hut${open ? ', open-sided' : ''}, built by code: plan_layout adds it by itself (not a design to build or copy)`,
     palette, layers: layers.map((l) => [...l]), width: 7, depth: 9, height: layers.length, blocks, by: 'code',
-  };
+  });
 }
 
 /**
@@ -114,11 +116,11 @@ const MINING_LAYERS = [
 export function miningHutDesign(): Design {
   const palette = { P: 'oak_planks', L: 'oak_log' };
   const blocks = MINING_LAYERS.flat().reduce((s, row) => s + [...row].filter((c) => c !== '.' && c !== '_').length, 0);
-  return {
+  return dressDesign({
     name: MINING_HUT,
     description: 'the village mining hut over the mine stairs, built by code: plan_layout adds it by itself (not a design to build or copy)',
     palette, layers: MINING_LAYERS.map((l) => [...l]), width: 5, depth: 5, height: MINING_LAYERS.length, blocks, by: 'code',
-  };
+  });
 }
 
 /** A 5x5 hut cell turned clockwise `rot` times, as build_design turns designs. */

@@ -96,8 +96,10 @@ def commands():
 WANTS_OFF = {"MC_PURSUITS": "off", "MC_ESTEEM": "off", "MC_TITLES": "off", "MC_RESTLESS": "off", "MC_EXPLORE_RINGS": "1"}
 # (the civic tier, 10-31: the goldens and the monument's checks are of the monument at the iron rung, without it)
 CIVIC_OFF = {"MC_CIVIC": "off"}
+# (the wall dressing, 11-01: the goldens' menus were recorded with undressed homes and works)
+DRESSING_OFF = {"MC_DRESSING": "off"}
 CHECK_ENV = {"small_works": {"MC_VANILLA_ALL": "off", "MC_GARDENS": "off"},
-             **{n: {**WANTS_OFF, **CIVIC_OFF} for n in ("choice_golden", "board_golden", "palette_golden", "palette_golden:old_board", "policy_options")},
+             **{n: {**WANTS_OFF, **CIVIC_OFF, **DRESSING_OFF} for n in ("choice_golden", "board_golden", "palette_golden", "palette_golden:old_board", "policy_options")},
              **{n: CIVIC_OFF for n in ("monument_unit", "monument_m3", "castle_monument")}}
 
 

@@ -16,6 +16,7 @@ import { V2_LIMITS, encode } from './buildingGen';
 import { MAX_SMELTS } from './designs';
 import { FAMILY } from './houseStyle';
 import { runProgram, runProgramIsolated, type ProgramRun } from './houseSandbox';
+import { dressDesign } from './dressing';
 
 export { PROGRAM_LIMITS, WORKER_LIMITS, runProgram, runProgramIsolated, type ProgramRun } from './houseSandbox';
 
@@ -703,7 +704,8 @@ export function compileHouse(spec: HouseSpec, name = 'home_program', by = 'progr
 
   const { palette, layers } = encode(grid);
   const blocks = layers.flat().reduce((s, row) => s + [...row].filter((c) => c !== '.' && c !== '_').length, 0);
-  return { design: { name, description: describeSpec(drawn), palette, layers, width: W, depth: D, height, blocks, by }, notes, drawn };
+  // (MC_DRESSING: the walls dressed lightly, dressing.ts)
+  return { design: dressDesign({ name, description: describeSpec(drawn), palette, layers, width: W, depth: D, height, blocks, by }), notes, drawn };
 
   /** Each cell's roof layer: the highest of the parts' height fields that may reach it (its own walls, open ground, or a
    *  wing's run into the body). */

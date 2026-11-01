@@ -100,7 +100,8 @@ function check(d: Design, budget: number): string[] {
       for (let x = 0; x < d.width; x++) {
         const b = block(d, l, x, z);
         let m = /_stairs\[.*facing=(\w+)/.exec(b);
-        if (m) {
+        // (a sill under a window, MC_DRESSING's, is no roof stair)
+        if (m && !/glass/.test(block(d, l + 1, x, z) ?? '')) {
           const [sx, sz] = STEP[m[1]];
           // (a chimney rises above the roof beside it: its column is no slope)
           const chimney = (cx: number, cz: number) => [...Array(d.height).keys()].some((l2) => block(d, l2, cx, cz) === 'cobblestone_wall');

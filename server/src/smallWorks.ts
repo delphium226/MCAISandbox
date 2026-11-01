@@ -11,6 +11,7 @@ import { vanillaJar } from './vanillaData';
 import { VILLAGE_BIOMES, decorToDesign, listDecorPieces, listPieces, pieceToDesign, readPiece, yardToDesign } from './vanillaPieces';
 import type { Area, Design } from './village';
 import { rawSetting } from './settings';
+import { dressDesign } from './dressing';
 
 export interface SmallWorkKind {
   /** The kind's key, in the design's name (small_<kind>_<wood>). */
@@ -36,10 +37,11 @@ const logOf = (wood: string) => (wood === 'crimson' || wood === 'warped' ? `${wo
 
 function design(kind: string, wood: string, description: string, palette: Record<string, string>, layers: string[][]): Design {
   const blocks = layers.flat().reduce((s, row) => s + [...row].filter((c) => c !== '.' && c !== '_').length, 0);
-  return {
+  // (MC_DRESSING: the walls dressed lightly, dressing.ts)
+  return dressDesign({
     name: `${SMALL_WORK_PREFIX}${kind}_${wood}`, description, palette, layers: layers.map((l) => [...l]),
     width: layers[0][0].length, depth: layers[0].length, height: layers.length, blocks, by: 'code',
-  };
+  });
 }
 
 // Layers are bottom-up, rows north to south, columns west to east; layer 0 is the ground's own level ("_" leaves it as it

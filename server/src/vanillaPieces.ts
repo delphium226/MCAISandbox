@@ -10,6 +10,7 @@ import { readNbt, type Nbt } from './nbt';
 import type { Design } from './village';
 import { VANILLA_ALL, baseName, isDoor, outsideCells, outwardStep, turnState, variantWood, woodVariant } from './designs';
 import { DEFAULT_JAR, listEntries, readEntry, vanillaJar } from './vanillaData';
+import { dressDesign } from './dressing';
 
 export { DEFAULT_JAR };
 
@@ -168,6 +169,8 @@ export interface VanillaShelf { layer: number; i: number; j: number; block: 'boo
 
 export interface ImportedPiece {
   design: Design;
+  /** The design before MC_DRESSING (designs saved before it are this one: their lights and shelves are the same cells). */
+  plain?: Design;
   path: string;
   biome: string;
   /** Which way the entrance faced in the piece (the design is turned so it faces south). */
@@ -270,7 +273,8 @@ function importAt(piece: Piece, raw: Array<string | null>, biome: string, door: 
   if (droppedBelow) notes.push(`${droppedBelow} blocks below the floor dropped`);
   // (the side of the piece that ends up south: the entrance's, or the door's when turned to it)
   const front = Object.keys(TURNS).find((k) => TURNS[k] === turns) ?? facing;
-  return { design, path: piece.path, biome, front, droppedBelow, substitutions: subs, notes, lights, shelves };
+  // (MC_DRESSING: the walls dressed lightly, the same cells, so its lights and shelves stand)
+  return { design: dressDesign(design), plain: design, path: piece.path, biome, front, droppedBelow, substitutions: subs, notes, lights, shelves };
 }
 
 export interface ImportedCentre {
@@ -475,7 +479,7 @@ function convert(piece: Piece, raw: Array<string | null>, biome: string, dy: num
   return { design, droppedBelow, subs, x1, z1, w0: x2 - x1 + 1, d0: z2 - z1 + 1, lights, shelves };
 }
 
-const lightsByName = new Map<string, { key: string; design: Design; lights: VanillaLight[]; shelves: VanillaShelf[] } | null>();
+const lightsByName = new Map<string, { key: string; design: Design; plain?: Design; lights: VanillaLight[]; shelves: VanillaShelf[] } | null>();
 const lightsOf = new WeakMap<Design, VanillaLight[] | null>();
 /** A jar read that failed, by jar and name: tried again a minute later, never cached (B.4's review, lens 3 L3). */
 const lightsFailed = new Map<string, number>();
@@ -495,7 +499,7 @@ export function vanillaLights(d: Design, jar = vanillaJar()): VanillaLight[] | n
   const k = `${jar}|${name}`;
   if (!lightsByName.has(k)) {
     if (Date.now() - (lightsFailed.get(k) ?? -Infinity) < 60000) return null;
-    let found: { key: string; design: Design; lights: VanillaLight[]; shelves: VanillaShelf[] } | null = null;
+    let found: { key: string; design: Design; plain?: Design; lights: VanillaLight[]; shelves: VanillaShelf[] } | null = null;
     const biome = VILLAGE_BIOMES.find((b) => name.startsWith(`${b}_`));
     if (biome)
       try {
@@ -510,7 +514,7 @@ export function vanillaLights(d: Design, jar = vanillaJar()): VanillaLight[] | n
           } catch {
             imp = null;
           }
-          found = imp ? { key: designKey(imp.design), design: imp.design, lights: imp.lights, shelves: imp.shelves ?? [] } : null;
+          found = imp ? { key: designKey(imp.design), design: imp.design, plain: (imp as ImportedPiece).plain, lights: imp.lights, shelves: imp.shelves ?? [] } : null;
           break;
         }
       } catch (e) {
@@ -522,7 +526,10 @@ export function vanillaLights(d: Design, jar = vanillaJar()): VanillaLight[] | n
     lightsByName.set(k, found);
   }
   const f = lightsByName.get(k);
-  const lights = f && (wood ? designKey(woodVariant(f.design, wood)) : f.key) === designKey(d) ? f.lights : null;
+  // (the dressed import, or the plain one a design saved before MC_DRESSING was)
+  const keyOf = (x: Design) => (wood ? designKey(woodVariant(x, wood)) : designKey(x));
+  const dk = designKey(d);
+  const lights = f && ((wood ? keyOf(f.design) : f.key) === dk || (!!f.plain && keyOf(f.plain) === dk)) ? f.lights : null;
   lightsOf.set(d, lights);
   return lights;
 }

@@ -18,7 +18,9 @@
  *   --dry     draw and lay out only (prints the layout and the command count; no server needed)
  *   --only    place only these buildings (the layout is still the whole gallery's)
  *   --plain   the generators' walls as drawn (by default dressed by dressing.ts when MC_DRESSING is on, as villages build them)
- *   --compare ID,ID,...  before and after: each building plain on the north side of an avenue of its own north of the
+ *   --road Z  (with --compare) the compare avenue's road at z = Z
+ *   --compare ID,ID,...  before and after (a design family's id: home:FAMILY:MEMBER, char:FAMILY:MEMBER, program:FAMILY,
+ *             vanilla:PIECE, work:KIND, hut:storage|mining): each building plain on the north side of an avenue of its own north of the
  *             spawn and dressed opposite it on the south side (layout-compare.json, compare.md; the gallery stays)
  * MC_SERVER_DIR (default mc/gallery) names the server whose server.properties gives the RCON port and password.
  */
@@ -30,6 +32,15 @@ import { civicEntries, civicScale, drawCivic } from '../server/src/civic';
 import { Rcon } from '../server/src/mineflayer/rcon';
 import { DRESSING, dress, type Supply } from '../server/src/dressing';
 import { DEEP_STONE_ON } from '../server/src/monument';
+import type { Design } from '../server/src/village';
+import { generateDesign } from '../server/src/buildingGen';
+import { FAMILY, characterChoice, memberStyle, styleFromChoice } from '../server/src/houseStyle';
+import { compileHouse, defaultSpec } from '../server/src/houseProgram';
+import { listPieces, pieceToDesign, readPiece } from '../server/src/vanillaPieces';
+import { vanillaJar } from '../server/src/vanillaData';
+import { SMALL_WORKS } from '../server/src/smallWorks';
+import { miningHutDesign, storageHutDesign } from '../server/src/huts';
+import { woodVariant } from '../server/src/designs';
 
 const args = process.argv.slice(2);
 const flag = (f: string) => args.includes(f);
@@ -116,14 +127,38 @@ const SPAWN: [number, number, number] = [SPINE_X, Y0, avenueAt[0].road - 14];
 
 // --compare: an avenue north of the spawn, each building plain on its north side and dressed opposite on its south side
 if (COMPARE.length) {
-  const pick = COMPARE.map((id) => items.find((i) => i.id === id) ?? (() => { throw new Error(`gallery: no building ${id}`); })());
-  const pairs = pick.map((it) => [
+  // (a design family's id: home:FAMILY:MEMBER, char:FAMILY:MEMBER, program:FAMILY, vanilla:PIECE, work:KIND, hut:storage|mining;
+  // drawn by its generator with MC_DRESSING off, then on, in the family's wood)
+  const designPair = (id: string): [Item, Item] => {
+    const [kind, a, b] = id.split(':');
+    const draw = (): { d: Design; title: string; place: string } => {
+      if (kind === 'home') return { d: woodVariant(generateDesign(memberStyle(b, a)), FAMILY[a].wood), title: `${b}'s ${a} home`, place: 'member style' };
+      if (kind === 'char') return { d: woodVariant(generateDesign(styleFromChoice(b, a, characterChoice(b, a))), FAMILY[a].wood), title: `${b}'s ${a} home`, place: 'character draw' };
+      if (kind === 'program') return { d: woodVariant(compileHouse(defaultSpec(a)).design, FAMILY[a].wood), title: `${a} house program`, place: 'house program' };
+      if (kind === 'vanilla') { const biome = a.split('_')[0]; return { d: pieceToDesign(readPiece(listPieces(vanillaJar(), biome, 'houses').find((p) => p.endsWith(`/${a}`))!, vanillaJar()), biome).design, title: a.replace(/_/g, ' '), place: 'vanilla piece' }; }
+      if (kind === 'work') return { d: SMALL_WORKS.find((k) => k.kind === a)!.make('oak'), title: a.replace(/_/g, ' '), place: 'small work' };
+      if (kind === 'hut') return { d: a === 'mining' ? miningHutDesign() : storageHutDesign(), title: `${a} hut`, place: 'hut' };
+      throw new Error(`gallery: no design ${id}`);
+    };
+    DRESSING.on = false;
+    const p = draw();
+    DRESSING.on = true;
+    const q = draw();
+    const as = (d: Design) => ({ design: d, scale: 1 }) as unknown as Cathedral;
+    const base = { kind: p.place, place: p.place, scale: 1, avenue: 'Before and after: homes, works and huts' };
+    return [{ ...base, id: `${id}_before`, title: `Before: ${p.title}`, c: as(p.d), side: 'n' }, { ...base, id: `${id}_after`, title: `After: ${q.title}`, c: as(q.d), side: 's' }];
+  };
+  const designs = COMPARE.some((id) => id.includes(':'));
+  const pick = COMPARE.filter((id) => !id.includes(':')).map((id) => items.find((i) => i.id === id) ?? (() => { throw new Error(`gallery: no building ${id}`); })());
+  const pairs = [...pick.map((it) => [
     { ...it, id: `${it.id}_before`, title: `Before: ${it.title}`, avenue: 'Before and after', c: plain.get(it.id)!, side: 'n' as const },
     { ...it, id: `${it.id}_after`, title: `After: ${it.title}`, avenue: 'Before and after', c: dressed(it.id, it.kind, plain.get(it.id)!), side: 's' as const },
-  ]);
+  ]), ...COMPARE.filter((id) => id.includes(':')).map(designPair)];
   const ds = Math.max(...pairs.map(([, a]) => a.c.design.depth));
-  // (south of it nothing below z = -AVENUE_GAP: the gallery's avenues start at z = 0)
-  const road = Math.min(SPAWN[2] - 20, -AVENUE_GAP) - ds - SETBACK - ROAD;
+  // (south of it nothing below z = -AVENUE_GAP: the gallery's avenues start at z = 0; --road Z puts it elsewhere, north of
+  // the first compare avenue)
+  const road = opt('--road') ? Number(opt('--road')) : Math.min(SPAWN[2] - 20, -AVENUE_GAP) - ds - SETBACK - ROAD;
+  if (designs) for (const pr of pairs) for (const it of pr) it.avenue = 'Before and after: homes, works and huts';
   let x = 0;
   for (const [b, a] of pairs) {
     b.x = a.x = x;
@@ -136,7 +171,7 @@ if (COMPARE.length) {
   items.length = 0;
   items.push(...pairs.flat());
   avenueAt.length = 0;
-  avenueAt.push({ name: 'Before and after', road, x1: x, count: items.length });
+  avenueAt.push({ name: items[0].avenue, road, x1: x, count: items.length });
 }
 
 // ---- cells to commands ----
