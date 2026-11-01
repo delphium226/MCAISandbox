@@ -42,6 +42,8 @@ const castle = mon.newMonument('oak', 0, 'castle');
 ok(!mon.m3(castle).detail, 'a castle has no detail');
 const plain = mon.newMonument('oak', 0);
 delete mon.m3(plain).detail;
+// (the palette as drawn: the wall dressing's own blocks are dressing_check.mts')
+delete mon.m3(plain).dress;
 const plainPlan = mon.monumentPlan(plain);
 ok(!plainPlan.bill.chiseled_stone_bricks && plainPlan.bill.stone && plainPlan.stageNames.length === 8, 'a record without detail drawn as before');
 
@@ -53,7 +55,9 @@ for (const preset of ['notre_dame', 'chartres']) {
   m.site = { x1: 0, z1: 0, x2: 40, z2: 40, y: 70, rotate: 0, prepared: true };
   const c = mon.monumentPlan(m);
   ok(c.stageNames.length === 8, `${preset}: ${c.stageNames.length} stages (no furnishing yet)`);
-  ok(c.bill.chiseled_stone_bricks > 0 && c.bill.polished_andesite > 0 && c.bill.polished_diorite > 0 && !c.bill.stone, `${preset}: the detail stones kept: ${JSON.stringify(c.bill)}`);
+  // (the detail palette as drawn, the dressing aside; the build below is of the dressed record)
+  const c0 = mon.monumentPlan({ ...m, dress: false } as Monument);
+  ok(c0.bill.chiseled_stone_bricks > 0 && c0.bill.polished_andesite > 0 && c0.bill.polished_diorite > 0 && !c0.bill.stone, `${preset}: the detail stones kept: ${JSON.stringify(c0.bill)}`);
   ok(!Object.keys(c.bill).some((k) => /stained/.test(k)) && !c.bill.lantern, `${preset}: plain windows without glazing, no furnishing`);
   let loads = 0, built = 0, heldForCuts = 0;
   for (let round = 0; round < 2000 && mon.currentStage(m); round++) {

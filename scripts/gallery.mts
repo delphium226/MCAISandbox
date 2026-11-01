@@ -17,6 +17,9 @@
  * Usage: node node_modules/tsx/dist/cli.mjs scripts/gallery.mts [--dry] [--only ID,ID] [--conns N] [--out DIR]
  *   --dry     draw and lay out only (prints the layout and the command count; no server needed)
  *   --only    place only these buildings (the layout is still the whole gallery's)
+ *   --plain   the generators' walls as drawn (by default dressed by dressing.ts when MC_DRESSING is on, as villages build them)
+ *   --compare ID,ID,...  before and after: each building plain on the north side of an avenue of its own north of the
+ *             spawn and dressed opposite it on the south side (layout-compare.json, compare.md; the gallery stays)
  * MC_SERVER_DIR (default mc/gallery) names the server whose server.properties gives the RCON port and password.
  */
 import fs from 'node:fs';
@@ -25,6 +28,8 @@ import { GOTHIC_PRESETS, generateCathedral, type Cathedral } from '../server/src
 import { CASTLE_PRESETS, generateCastle } from '../server/src/castleGen';
 import { civicEntries, civicScale, drawCivic } from '../server/src/civic';
 import { Rcon } from '../server/src/mineflayer/rcon';
+import { DRESSING, dress, type Supply } from '../server/src/dressing';
+import { DEEP_STONE_ON } from '../server/src/monument';
 
 const args = process.argv.slice(2);
 const flag = (f: string) => args.includes(f);
@@ -35,6 +40,11 @@ const CONNS = Number(opt('--conns') ?? 6) || 6;
 const today = new Date().toISOString().slice(0, 10);
 const OUT = opt('--out') ?? path.join('runs', today, 'gallery');
 const SERVER = process.env.MC_SERVER_DIR || 'mc/gallery';
+const COMPARE = (opt('--compare') ?? '').split(',').filter(Boolean);
+const DRESS = DRESSING.on && !flag('--plain');
+/** The supply a village's building of this kind is dressed with (a cathedral begun with the detail palette and deep stone). */
+const supplyOf = (kind: string): Supply => (kind === 'cathedral' ? (DEEP_STONE_ON ? 'deep' : 'detail') : 'base');
+const dressed = (id: string, kind: string, c: Cathedral): Cathedral => dress(c, { seed: id, supply: supplyOf(kind) });
 
 /** The world's surface: superflat grass at y = -61, buildings from y = -60. */
 const GROUND = -61, Y0 = -60;
@@ -64,6 +74,9 @@ for (const e of [...civicEntries()].sort((a, b) => a.source.family.localeCompare
   const scale = civicScale(e.id);
   items.push({ id: e.id, title: e.title.replace(/^the /, 'The '), place: e.place, built: e.built, kind: e.kind, scale, avenue: CIVIC_AVENUE[e.source.family] ?? `Civic: ${e.source.family}`, c: drawCivic(e.id, scale) });
 }
+// (the plain drawings kept for --compare; the gallery's own buildings dressed as villages build them)
+const plain = new Map(items.map((i) => [i.id, i.c]));
+if (DRESS && !COMPARE.length) for (const it of items) it.c = dressed(it.id, it.kind, it.c);
 const avenues = [...new Set(items.map((i) => i.avenue))];
 const monuments = items.filter((i) => i.kind === 'cathedral' || i.kind === 'castle').length;
 console.log(`${items.length} buildings: ${monuments} monuments, ${items.length - monuments} civic; avenues: ${avenues.join(' | ')}`);
@@ -100,6 +113,31 @@ for (const name of avenues) {
   zCursor = road + ROAD + SETBACK + ds + AVENUE_GAP;
 }
 const SPAWN: [number, number, number] = [SPINE_X, Y0, avenueAt[0].road - 14];
+
+// --compare: an avenue north of the spawn, each building plain on its north side and dressed opposite on its south side
+if (COMPARE.length) {
+  const pick = COMPARE.map((id) => items.find((i) => i.id === id) ?? (() => { throw new Error(`gallery: no building ${id}`); })());
+  const pairs = pick.map((it) => [
+    { ...it, id: `${it.id}_before`, title: `Before: ${it.title}`, avenue: 'Before and after', c: plain.get(it.id)!, side: 'n' as const },
+    { ...it, id: `${it.id}_after`, title: `After: ${it.title}`, avenue: 'Before and after', c: dressed(it.id, it.kind, plain.get(it.id)!), side: 's' as const },
+  ]);
+  const ds = Math.max(...pairs.map(([, a]) => a.c.design.depth));
+  // (south of it nothing below z = -AVENUE_GAP: the gallery's avenues start at z = 0)
+  const road = Math.min(SPAWN[2] - 20, -AVENUE_GAP) - ds - SETBACK - ROAD;
+  let x = 0;
+  for (const [b, a] of pairs) {
+    b.x = a.x = x;
+    b.z = road - SETBACK - b.c.design.depth;
+    a.z = road + ROAD + SETBACK;
+    b.sign = [x + (b.c.design.width >> 1), Y0, road - 1];
+    a.sign = [x + (a.c.design.width >> 1), Y0, road + ROAD];
+    x += Math.max(b.c.design.width, a.c.design.width) + GAP;
+  }
+  items.length = 0;
+  items.push(...pairs.flat());
+  avenueAt.length = 0;
+  avenueAt.push({ name: 'Before and after', road, x1: x, count: items.length });
+}
 
 // ---- cells to commands ----
 const stripState = (b: string) => b.replace(/\[.*$/, '');
@@ -226,7 +264,7 @@ for (const c of [`gamerule advance_time false`, `gamerule advance_weather false`
 
 // clear the last build's boxes (a rebuild after presets changed)
 fs.mkdirSync(OUT, { recursive: true });
-const layoutFile = path.join(OUT, 'layout.json');
+const layoutFile = path.join(OUT, COMPARE.length ? 'layout-compare.json' : 'layout.json');
 if (fs.existsSync(layoutFile) && !ONLY.size) {
   const old = JSON.parse(fs.readFileSync(layoutFile, 'utf8')) as Array<{ box: [number, number, number, number, number] }>;
   console.log(`clearing ${old.length} boxes of the last build`);
@@ -238,8 +276,13 @@ if (fs.existsSync(layoutFile) && !ONLY.size) {
   }
 }
 
-// the spine road, the spawn platform and the legend
-{
+// the spine road, the spawn platform and the legend (compare mode: only the spine from its avenue to the spawn)
+if (COMPARE.length) {
+  const a = avenueAt[0];
+  await forceload(SPINE_X - 3, a.road, SPINE_X + 3, SPAWN[2], true);
+  await runAll([`fill ${SPINE_X - 2} ${GROUND} ${a.road} ${SPINE_X + 2} ${GROUND} ${SPAWN[2]} polished_andesite strict`]);
+  await forceload(SPINE_X - 3, a.road, SPINE_X + 3, SPAWN[2], false);
+} else {
   const zEnd = avenueAt[avenueAt.length - 1].road + ROAD - 1;
   await forceload(SPINE_X - 12, SPAWN[2] - 8, SPINE_X + 12, zEnd, true);
   const cmds: string[] = [];
@@ -320,9 +363,10 @@ for (const a of avenueAt) {
   }
   md.push('');
 }
-fs.writeFileSync(path.join(OUT, 'index.md'), md.join('\n') + '\n');
+fs.writeFileSync(path.join(OUT, COMPARE.length ? 'compare.md' : 'index.md'), md.join('\n') + '\n');
 if (!ONLY.size) fs.writeFileSync(layoutFile, JSON.stringify(layout));
-console.log(`placed ${placed} buildings (${items.filter((i) => i.kind === 'cathedral' || i.kind === 'castle').length} monuments, ${items.length - monuments} civic) in ${((Date.now() - t0) / 60000).toFixed(1)} min; ${problems} problems`);
+const placedMon = items.filter((i) => i.kind === 'cathedral' || i.kind === 'castle').length;
+console.log(`placed ${placed} buildings (${placedMon} monuments, ${items.length - placedMon} civic) in ${((Date.now() - t0) / 60000).toFixed(1)} min; ${problems} problems`);
 for (const l of problemLines) console.log('  ' + l);
-console.log(`index: ${path.join(OUT, 'index.md')}`);
+console.log(`index: ${path.join(OUT, COMPARE.length ? 'compare.md' : 'index.md')}`);
 process.exit(problems ? 1 : 0);

@@ -40,6 +40,7 @@ import { CUTTER, needsCutting, type CutStep, type CutterRecord } from './cutter'
 import type { DyeBed } from './dyeBed';
 import { FURNISH_STAGE, furnishKindOf, furnishKinds, furnishOn, furnishTrade, type FurnishKind } from './furnish';
 import { aKind, civicEntries, civicEntry, drawCivic } from './civic';
+import { DRESSING, dress, supplyOf } from './dressing';
 
 export { KILN };
 export const MONUMENT = {
@@ -64,7 +65,7 @@ export const monumentNoun = (m: Monument) => (monumentType(m) === 'civic' ? civi
 export const presetsOf = (t: MonumentType): Record<string, unknown> => (t === 'castle' ? CASTLE_PRESETS : t === 'civic' ? Object.fromEntries(civicEntries().map((e) => [e.id, e])) : GOTHIC_PRESETS);
 /** A civic building's record (MC_CIVIC): its preset drawn at 1:scale, in the village wood. */
 export function newCivic(preset: string, scale: number, wood: string, now: number): MonumentM3 {
-  return { type: 'civic', preset, scale, palette: 'full', wood, at: now, state: 'site', done: [], yard: {}, stages: [] };
+  return { type: 'civic', preset, scale, palette: 'full', wood, at: now, state: 'site', done: [], yard: {}, stages: [], ...(DRESSING.on ? { dress: true } : {}) };
 }
 /** civicDraw's oak as the village wood (oak and stripped oak only). */
 const civicWood = (block: string, wood: string) => block.replace(/^(stripped_)?oak_/, `$1${wood}_`);
@@ -285,6 +286,7 @@ export function newMonument(wood: string, now: number, type: MonumentType = MONU
     if (DEEP_STONE_ON) m.deep = true;
     if (GEODE_ON) m.accents = true;
   }
+  if (DRESSING.on) m.dress = true;
   return m;
 }
 
@@ -323,11 +325,14 @@ export function monumentPlan(m: Monument): MonumentPlan {
   const copper = detail && type === 'cathedral' && !!m3(m).copper, reroof = copper ? m3(m).reroof ?? [] : [];
   const accents = detail && type === 'cathedral' && !!m3(m).accents;
   const refurnish = fk ? m3(m).refurnish ?? [] : [];
-  const key = `${type}|${m.preset}|${m.scale}|${m.palette}|${m.wood}|${JSON.stringify(m.colours ?? {})}|${detail}|${JSON.stringify(standIns)}|${JSON.stringify(from)}|${JSON.stringify(fk ?? null)}|${deep}|${copper}|${reroof.join(',')}|${accents}|${refurnish.join(',')}`;
+  // (MC_DRESSING: the walls dressed, on a record begun with it; today's palette is cobblestone throughout)
+  const dressed = !!m3(m).dress && m.palette !== 'today';
+  const key = `${type}|${m.preset}|${m.scale}|${m.palette}|${m.wood}|${JSON.stringify(m.colours ?? {})}|${detail}|${JSON.stringify(standIns)}|${JSON.stringify(from)}|${JSON.stringify(fk ?? null)}|${deep}|${copper}|${reroof.join(',')}|${accents}|${refurnish.join(',')}|${dressed}`;
   let c = plans.get(key);
   if (c) return c;
-  const gen: Cathedral = type === 'civic' ? drawCivic(m.preset, m.scale) : type === 'castle' ? generateCastle(CASTLE_PRESETS[m.preset] ?? CASTLE_PRESETS.conwy, m.scale)
+  const drawn: Cathedral = type === 'civic' ? drawCivic(m.preset, m.scale) : type === 'castle' ? generateCastle(CASTLE_PRESETS[m.preset] ?? CASTLE_PRESETS.conwy, m.scale)
     : generateCathedral(GOTHIC_PRESETS[m.preset] ?? GOTHIC_PRESETS.notre_dame, m.scale, { detail, furnish: !!fk, ...(fk ? { furnishKinds: fk } : {}), ...(copper ? { copperRoof: true } : {}), ...(accents ? { accents: true } : {}) });
+  const gen = dressed ? dress(drawn, { seed: m.preset, supply: supplyOf(type, detail, deep) }) : drawn;
   {
     const wood = m.wood || 'oak';
     const pal: Record<string, string> = {}, pal0: Record<string, string> = {};
@@ -769,6 +774,8 @@ export type MonumentM3 = Monument & {
   leftAt?: Partial<Record<FurnishKind, number>>;
   /** #162 tier 3, chain C (MC_GEODE): drawn with the geode's accents (calcite, amethyst). */
   accents?: boolean;
+  /** MC_DRESSING: its walls dressed (dressing.ts: texture, relief and its stone's colour), kept on the record. */
+  dress?: boolean;
   /** #162: its stonecutter (mcCutter.ts) and dye bed (mcDyeBed.ts). */
   cutter?: CutterRecord;
   dyeBed?: DyeBed;
