@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-270 settings.
+271 settings.
 
 ## Game speed
 
@@ -308,6 +308,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_COMBAT` | flag | `on` |  |  | Survival stage (c), with monsters only (MC_WORLD_MODE=hostile or normal): the combat reflex (flee creepers, fight back armed, run to the storage hut for a sword unarmed, defend a member within 8 blocks, eat when hurt; direct-steer melee); off: the old self-defence reflex. |
 | `MC_GROUNDS_LIGHT` | flag | `on` |  |  | Survival stage (d), with monsters only: each neighbourhood's open ground is a light part (a 12-block grid of torch spots off streets, pads and lamps), lit by the light chore from stored torches; from dusk to dawn its options go first and the light need weighs double. |
 | `MC_GUARDS` | flag | `on` |  |  | Survival stage (d), with monsters only: the night watch, a dusk chore for armed members (one per 6): walk a loop of the lamps and edge spots until dawn, fight hostiles inside the bounds, defend members within 24 blocks. |
+| `MC_HOME_BY_DUSK` | flag | `on` |  |  | Survival (d), #194, with monsters only: while no member has a bed (the night runs its length) and no curfew rule holds, code keeps members home by dusk: from ~50 s before dusk to dawn, options past the built bounds + 16 leave the menu and a member out past them walks home. |
 | `MC_HOST` | string | `127.0.0.1` |  |  | The Minecraft server Mineflayer connects to. |
 | `MC_PORT` | number | `25565` |  |  | The Minecraft server port Mineflayer connects to; in the sandbox, its game server's port (default 8765). |
 | `MC_PVP` | string | `true` |  |  | The sandbox: true lets players hurt each other. |

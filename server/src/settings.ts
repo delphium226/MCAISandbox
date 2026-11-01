@@ -572,6 +572,8 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'Survival stage (d), with monsters only (and MC_RULES on): the curfew rule, read from members\' words ("no one outside after dark"; 32-128 blocks from home, from dusk or nightfall): options past its distance leave the menu in its phase and a member out past it walks home; the ballot shows the deaths\' fact, the results line last night\'s count.' },
   { name: 'MC_GUARDS', type: 'flag', default: 'on', group: 'server', live: false, read: 'mineflayer/mcCombat.ts, mineflayer/mcWorld.ts',
     describe: 'Survival stage (d), with monsters only: the night watch, a dusk chore for armed members (one per 6): walk a loop of the lamps and edge spots until dawn, fight hostiles inside the bounds, defend members within 24 blocks.' },
+  { name: 'MC_HOME_BY_DUSK', type: 'flag', default: 'on', group: 'server', live: false, read: 'mineflayer/mcCombat.ts, mineflayer/mcWorld.ts',
+    describe: 'Survival (d), #194, with monsters only: while no member has a bed (the night runs its length) and no curfew rule holds, code keeps members home by dusk: from ~50 s before dusk to dawn, options past the built bounds + 16 leave the menu and a member out past them walks home.' },
 ];
 
 const BY_NAME = new Map(SETTINGS.map((s) => [s.name, s]));

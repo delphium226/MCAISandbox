@@ -6934,7 +6934,8 @@ async function putUpTorches(a: BotAgent, args: Record<string, unknown>, signal: 
     skipped++;
     if (!loaded) return;
     skips[k] = (skips[k] ?? 0) + 1;
-    if (skips[k] >= 2 && !never.has(k)) {
+    // (an open-ground spot at once: its ground is read where it is, and the second visit to mark it never lit nothing, #197)
+    if (skips[k] >= (P.kind === 'grounds' ? 1 : 2) && !never.has(k)) {
       never.add(k);
       newNever++;
     }

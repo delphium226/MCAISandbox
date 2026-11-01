@@ -4,6 +4,7 @@
 // by mode (a child process each, the settings are read at import): mob drops obtainable only with monsters, fightsMobs
 // and armsOn, and the arms goods. Stage (d) (spec_d.md 0-3): the phase by tick, the built bounds and the distance beyond
 // them, the distance bins, the guards' cap and loop, the reach by role, the deaths' fact, and the three flags by mode.
+// The (d) fixes (#194-#196): when a curfew acts, code's home-by-dusk band and its flag, past the band.
 // Usage: node node_modules/tsx/dist/cli.mjs scripts/checks/combat_unit.mts
 import { execFileSync } from 'node:child_process';
 
@@ -15,7 +16,7 @@ if (process.env.MODE_CHILD) {
     fights: C.fightsMobs(), arms: C.armsOn(), flesh: M.mobDropObtainable('rotten_flesh'), dirt: M.mobDropObtainable('dirt'),
     fleshWhy: M.UNOBTAINABLE.rotten_flesh ?? '', glow: M.UNOBTAINABLE.glowstone_dust ?? '',
     armsGoods: W.ARMS_GOODS.map((g) => g.item), armsTagged: W.ARMS_GOODS.every((g) => g.arms), makeHasArms: W.MAKE_GOODS.some((g) => g.arms),
-    grounds: C.groundsLightOn(), safety: C.safetyRulesOn(), guards: C.guardsOn(),
+    grounds: C.groundsLightOn(), safety: C.safetyRulesOn(), guards: C.guardsOn(), home: C.homeByDuskOn(),
   }));
 } else {
   const { Vec3 } = await import('vec3');
@@ -105,6 +106,8 @@ if (process.env.MODE_CHILD) {
   ok(!peace.grounds && !peace.safety && !peace.guards && !easy.grounds && !easy.safety && !easy.guards, 'stage (d): nothing without monsters');
   ok(host.grounds && host.safety && host.guards && !dOff.grounds && !dOff.safety && !dOff.guards, 'stage (d): on by default with monsters; each flag off turns it off');
   ok(!noFight.guards && noFight.grounds, 'no guards without the combat reflex');
+  const homeOff = child('hostile', { MC_HOME_BY_DUSK: 'off' });
+  ok(!peace.home && !easy.home && host.home && !homeOff.home, '#194: home by dusk only with monsters, on by default, off by its flag');
   ok(host.armsTagged && !host.makeHasArms && host.armsGoods.includes('stone_sword') && host.armsGoods.includes('iron_chestplate'), 'the arms goods apart from MAKE_GOODS');
 
   // Stage (d): the phase, the bounds and bins
@@ -135,6 +138,17 @@ if (process.env.MODE_CHILD) {
   const many = Array.from({ length: 40 }, (_, i) => ({ x: i, z: 0 }));
   ok(C.watchLoop(box, many, []).length === 16, 'at most 16 spots');
   ok(C.watchLoop(box, [{ x: 1, z: 1 }, { x: 1, z: 1 }], []).length === 1, 'a spot once');
+  // #196: a curfew acts ahead of its phase (a nightfall one from dusk, a dusk one CURFEW_LEAD before), until dawn
+  ok(C.curfewActs(11500, 'night') && C.curfewActs(13000, 'night') && !C.curfewActs(10500, 'night') && !C.curfewActs(6000, 'night'), 'a nightfall curfew acts from dusk');
+  ok(C.curfewActs(10000, 'dusk') && C.curfewActs(10500, 'dusk') && !C.curfewActs(9999, 'dusk') && C.curfewActs(20000, 'dusk') && !C.curfewActs(23600, 'dusk') && !C.curfewActs(undefined, 'dusk'), 'a dusk curfew acts from 1000 ticks before dusk, until dawn');
+  // #194: code's band, past the built bounds + 16
+  const hb = C.homeBand(vb)!;
+  ok(hb.code && hb.phase === 'dusk' && hb.box?.x2 === 80 && C.homeBand({ layouts: [], structures: [] } as never) === null, 'home by dusk: the built bounds, from dusk; none without bounds');
+  ok(!C.pastBand(hb, { x: 0, z: 0 }, 90, 10) && C.pastBand(hb, { x: 0, z: 0 }, 100, 10) && C.pastBand({ dist: 64, phase: 'night' }, { x: 0, z: 0 }, 65, 0) && !C.pastBand({ dist: 64, phase: 'night' }, { x: 0, z: 0 }, 60, 0), "past the band: the box + 16, or the rule's distance from home");
+  ok(/no member has a bed/.test(C.bandWords(hb)) && C.bandWords({ dist: 64, phase: 'night' }) === 'the curfew: no trips past 64 blocks after nightfall', "the band's words");
+  // #195: once a member a night
+  const dn = C.dangerOf('UV');
+  ok(!C.watchedTonight('UV', 'Ada') && C.WATCH_HEALTH === 12 && dn.night.at === 0, 'not watched tonight before a watch');
 
   console.log(fails ? `${fails} FAILED` : 'all passed');
   process.exit(fails ? 1 : 0);

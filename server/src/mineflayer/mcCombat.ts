@@ -14,7 +14,8 @@ import type { Village } from '../village';
 import { rawSetting } from '../settings';
 import { modeSpec } from '../worldMode';
 import { timeScale } from './mcRules';
-import { packBite, eatOne } from './mcSurvivalB';
+import { bedOf, packBite, eatOne } from './mcSurvivalB';
+import { surfaceAt } from './mcBuild';
 import { storageContents, withdrawItems } from './mcStorage';
 import { at, checkAbort, goals, sleep, walk } from './mcUtil';
 
@@ -581,6 +582,41 @@ export function phaseOf(t: number | null | undefined): 'day' | 'dusk' | 'night' 
 }
 /** From `phase` to dawn (the curfew's band and the watch's hours). */
 export const fromPhase = (t: number | null | undefined, phase: 'dusk' | 'night'): boolean => phaseOf(t) === 'night' || (phase === 'dusk' && phaseOf(t) === 'dusk');
+/**
+ * Whether a curfew acts at `t` (#196): ahead of its phase, so the walk home ends before it. A nightfall curfew from dusk, a
+ * dusk one from CURFEW_LEAD ticks before dusk (~50 s at 1x), both until dawn.
+ */
+export const CURFEW_LEAD = 1000;
+export function curfewActs(t: number | null | undefined, phase: 'dusk' | 'night'): boolean {
+  if (typeof t !== 'number') return false;
+  return phaseOf(t) !== 'day' || (phase === 'dusk' && t >= DUSK_FROM - CURFEW_LEAD && t < DUSK_FROM);
+}
+/** #194: with monsters, code keeps members home by dusk while no member has a bed (the night then runs its length). */
+export const homeByDuskOn = (): boolean => modeSpec().mobs && flagOn('MC_HOME_BY_DUSK');
+/** A curfew's band as the menu and the walk home read it: the rule's, or code's (`box`: past the built bounds + 16). */
+export type SafetyBand = { dist: number; phase: 'dusk' | 'night'; box?: Box; code?: boolean };
+/** Code's band (#194): home by dusk, out past the built bounds + 16 (the danger count's "out after dark"); null without bounds. */
+export function homeBand(v: Pick<Village, 'layouts' | 'structures'>): SafetyBand | null {
+  const box = builtBounds(v);
+  return box ? { dist: 0, phase: 'dusk', box, code: true } : null;
+}
+/** Whether (x, z) lies past the band (from home, or past its box + 16). */
+export const pastBand = (band: SafetyBand, home: { x: number; z: number }, x: number, z: number): boolean =>
+  band.box ? beyond(band.box, x, z) > 0 : Math.hypot(x - home.x, z - home.z) > band.dist;
+/** The band's words for a dropped option and the walk's line. */
+export const bandWords = (band: SafetyBand): string => band.code
+  ? 'home by dusk: no member has a bed yet, so the night runs its length'
+  : `the curfew: no trips past ${band.dist} blocks after ${band.phase === 'dusk' ? 'dusk' : 'nightfall'}`;
+/** Whether any member has a bed (bedOf), checked at most every 30 s. */
+let bedSeen = { at: 0, any: false };
+export function anyBed(agents: Iterable<BotAgent>): boolean {
+  const now = Date.now();
+  if (now - bedSeen.at < 30000) return bedSeen.any;
+  let any = false;
+  for (const a of agents) if (bedOf(a)) { any = true; break; }
+  bedSeen = { at: now, any };
+  return any;
+}
 
 /** The village's built bounds (spec 0): its neighbourhoods' areas (fields left out) and structures, one box; null with neither. */
 export function builtBounds(v: Pick<Village, 'layouts' | 'structures'>): Box | null {
@@ -750,6 +786,12 @@ export function dangerTick(agents: Iterable<BotAgent>, villages: Iterable<Villag
 
 /** Members on watch, by name: their village and when the watch began. */
 export const guards = new Map<string, { village: string; since: number }>();
+/** The night (its record's start, Danger.night.at) of each member's last watch, by "village|member". */
+const watchedNight = new Map<string, number>();
+/** Whether the member has kept watch this night already (#195: once a night; the menu offers it no more). */
+export const watchedTonight = (village: string, member: string): boolean => watchedNight.get(`${village}|${member}`) === dangerOf(village).night.at;
+/** The watch's health floor to start (the watch ends at 8: a hurt member took it and ended it at once, again and again). */
+export const WATCH_HEALTH = 12;
 export const guardsOf = (village: string): number => [...guards.values()].filter((g) => g.village === village).length;
 
 /**
@@ -765,7 +807,12 @@ export async function keepWatch(a: BotAgent, spots: Array<{ x: number; z: number
   const t0 = Date.now();
   guards.set(a.name, { village: v.name, since: t0 });
   const d = dangerOf(v.name);
-  d.watchNights[a.name] = (d.watchNights[a.name] ?? 0) + 1;
+  // (#195: one a member a night, the night keyed by when its record began)
+  if (!watchedTonight(v.name, a.name)) {
+    watchedNight.set(`${v.name}|${a.name}`, d.night.at);
+    d.watchNights[a.name] = (d.watchNights[a.name] ?? 0) + 1;
+  }
+  const home = v.storage?.chests[0];
   let visited = 0, kills = 0, i = Math.floor(Math.random() * spots.length);
   const t = track(a);
   try {
@@ -780,7 +827,14 @@ export async function keepWatch(a: BotAgent, spots: Array<{ x: number; z: number
         return `kept watch ${Math.round((Date.now() - t0) / 1000)} s: ${visited} spots, ${kills} kills; ended hurt (health ${Math.round(a.bot.health ?? 0)})`;
       }
       const s = spots[i++ % spots.length];
-      await walk(a, new goals.GoalNearXZ(s.x, s.z, 2), 'the watch spot', signal, 30000).catch((e: Error) => {
+      // (on the ground at the spot: a goal in x and z alone took a guard down the mine to die at y 23, #196)
+      const y0 = Math.floor(home?.y ?? a.bot.entity.position.y);
+      const g = surfaceAt(a, s.x, s.z, y0);
+      if (g && (g.liquid || Math.abs(g.y - y0) > 12)) {
+        await sleep(500, signal);
+        continue;
+      }
+      await walk(a, new goals.GoalNear(s.x, (g ? g.y : y0) + 1, s.z, g ? 2 : 4), 'the watch spot', signal, 30000).catch((e: Error) => {
         if (e.message === 'cancelled') throw e;
       });
       visited++;
@@ -807,28 +861,29 @@ export async function keepWatch(a: BotAgent, spots: Array<{ x: number; z: number
  * in 10 minutes a member; the action under way resumes after, and the menu offers nothing past the distance meanwhile).
  */
 const sentHome = new Map<string, number>();
-export function curfewTick(agents: Iterable<BotAgent>, bandOf: (village: string) => { dist: number; phase: 'dusk' | 'night' } | null): void {
-  if (!safetyRulesOn()) return;
+export function curfewTick(agents: Iterable<BotAgent>, bandOf: (v: Village) => SafetyBand | null): void {
+  if (!safetyRulesOn() && !homeByDuskOn()) return;
   const now = Date.now();
   for (const a of agents) {
     const v = a.village();
     const home = v?.storage?.chests[0];
-    if (!v || !home || !a.bot.entity || a.inReflex() || headingHome.has(a.name)) continue;
-    const band = bandOf(v.name);
-    if (!band || !fromPhase(a.bot.time?.timeOfDay, band.phase)) continue;
+    // (a guard on watch walks the edge by its own chore)
+    if (!v || !home || !a.bot.entity || a.inReflex() || headingHome.has(a.name) || guards.has(a.name)) continue;
+    const band = bandOf(v);
+    if (!band || !curfewActs(a.bot.time?.timeOfDay, band.phase)) continue;
     const p = a.bot.entity.position;
     const r = Math.hypot(p.x - home.x, p.z - home.z);
-    if (r <= band.dist || now - (sentHome.get(a.name) ?? 0) < 10 * 60000) continue;
+    if (!pastBand(band, home, p.x, p.z) || now - (sentHome.get(a.name) ?? 0) < 10 * 60000) continue;
     sentHome.set(a.name, now);
     headingHome.add(a.name);
-    console.log(`[curfew] ${a.name} ${v.name}: ${Math.round(r)} blocks out after ${band.phase}: heads home`);
+    console.log(`[curfew] ${a.name} ${v.name}: ${Math.round(r)} blocks out at ${phaseOf(a.bot.time?.timeOfDay)} (${bandWords(band)}): heads home`);
     const started = a.runReflex('curfew', async (signal) => {
       await walk(a, new goals.GoalNear(home.x, home.y, home.z, 4), 'home (the curfew)', signal, 180000);
-      return `walked home ${Math.round(r)} blocks under the curfew`;
+      return `walked home ${Math.round(r)} blocks ${band.code ? 'before dark (no bed yet)' : 'under the curfew'}`;
     }, (msg) => {
       headingHome.delete(a.name);
       console.log(`[curfew] ${a.name} ${msg}`);
-      a.pushEvent('system', `The village's curfew (code): you ${msg}.`);
+      a.pushEvent('system', `${band.code ? 'Home by dusk' : "The village's curfew"} (code): you ${msg}.`);
     }, (e) => {
       headingHome.delete(a.name);
       console.log(`[curfew] ${a.name} could not walk home: ${e.message}`);

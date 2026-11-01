@@ -101,7 +101,7 @@ import { deathMemory, deathWords, type DeathCause } from './mcHazard';
 import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, etaMinutes, historyLines, initTalk, isStatusQuestion, matchWork, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, statusFor, statusLines, talkSystem, talkTool, talkUser, updateRequest, workWords, type PlayerRequest, type ReqProgress, type Respond, type WorkOffer } from '../playerTalk';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { isNight, nightTick } from './mcSurvivalB';
-import { armTick, armsOn, builtBounds, combatCounts, curfewTick, dangerOf, dangerTick, deathsFact, fromPhase, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, headingHome, isWeapon, phaseOf, watchLoop } from './mcCombat';
+import { anyBed, armTick, armsOn, bandWords, builtBounds, combatCounts, curfewActs, curfewTick, dangerOf, dangerTick, deathsFact, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, headingHome, homeBand, homeByDuskOn, isWeapon, pastBand, phaseOf, WATCH_HEALTH, watchedTonight, watchLoop, type SafetyBand } from './mcCombat';
 import { nightsFall, realHunger, worldMode } from '../worldMode';
 import { APPETITE, FOOD_POINTS, appetiteOn, barLevel, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
@@ -1332,6 +1332,16 @@ export class MineflayerWorld implements WorldAdapter {
     return undefined;
   }
 
+  /**
+   * Survival (d): the curfew in force (the rule's), else code's home by dusk while no member has a bed (#194: the first
+   * night runs its length, and nearly every death was on a far trip in it); null in peaceful and with both off.
+   */
+  safetyBand(v: Village): SafetyBand | null {
+    const rule = curfewBand(v.name);
+    if (rule) return rule;
+    return homeByDuskOn() && v.complete && !anyBed(this.agents.values()) ? homeBand(v) : null;
+  }
+
   /** Survival (d): the defence chore a member is on, for the danger count's minutes (watch, home, grounds). */
   private defenceChore(a: BotAgent): string | undefined {
     if (onWatch.has(a.name)) return 'watch';
@@ -2328,7 +2338,7 @@ export class MineflayerWorld implements WorldAdapter {
     try {
       // (survival (d): the danger count, and the curfew's walk home)
       dangerTick(this.agents.values(), this.villages.villages.values(), (a) => this.defenceChore(a));
-      curfewTick(this.agents.values(), (village) => curfewBand(village));
+      curfewTick(this.agents.values(), (v) => this.safetyBand(v));
     } catch (e) {
       console.error('[danger] check failed:', e);
     }
@@ -7588,15 +7598,21 @@ export class MineflayerWorld implements WorldAdapter {
       if (!out.some((o) => o.kind === 'light')) reasons.light = ['torches short', 'backing off', 'busy', "others' houses"].find((w) => why.includes(w)) ?? 'nothing unlit';
     }
 
-    // Survival (d), MC_GUARDS (spec 3): the night watch, from dusk to dawn, for an armed member, one per 6 members
-    if (guardsOn() && v.complete && v.storage?.chests.length && phaseOf(this.timeOfDay()) !== 'day' && !onWatch.has(a.name)) {
+    // Survival (d), MC_GUARDS (spec 3): the night watch, from dusk to dawn, for an armed member, one per 6 members: a slot key
+    // each (watch:1..cap), so the cap holds within one sweep (9 started at once for a cap of 4); a member once a night and
+    // with health over WATCH_HEALTH (a hurt one ended it at once and took it again, 13 times; #195, #197)
+    if (guardsOn() && v.complete && v.storage?.chests.length && phaseOf(this.timeOfDay()) !== 'day' && !onWatch.has(a.name)
+      && (a.bot.health ?? 20) > WATCH_HEALTH && !watchedTonight(v.name, a.name)) {
       const members = [...this.agents.values()].filter((x) => x.village()?.name === v.name).length;
       const armed = a.bot.inventory.items().some((it) => isWeapon(it.name));
-      const on = guardsOf(v.name), cap = guardCap(members);
-      if (armed && on < cap && this.watchSpots(v).length) {
+      const cap = guardCap(members);
+      const slots = Array.from({ length: cap }, (_, i) => `watch:${i + 1}`);
+      const slot = slots.find((k) => !excluded([`${k}=`], busy));
+      const on = slots.filter((k) => excluded([`${k}=`], busy)).length;
+      if (armed && slot && this.watchSpots(v).length) {
         const nights = dangerOf(v.name).watchNights[a.name] ?? 0;
         add({
-          id: 'watch', kind: 'watch', key: `watch:${a.name}`, excludes: [`watch:${a.name}=`], name: 'Keep watch tonight', rank: 120,
+          id: 'watch', kind: 'watch', key: slot, excludes: [`${slot}=`], name: 'Keep watch tonight', rank: 120,
           facts: `${on} of ${cap} watchers out (one per 6 members); walk the lamps and the village's edge until dawn, fight monsters inside the village, help any member hurt within 24 blocks; you have kept watch ${nights === 0 ? 'no night yet' : nights === 1 ? 'one night' : `${nights} nights`}`,
           effect: 'the village kept safe tonight (no goods)',
         }, { kind: 'watch' });
@@ -8739,15 +8755,16 @@ export class MineflayerWorld implements WorldAdapter {
     }
     // Survival (d), MC_SAFETY_RULES (spec 2): in the curfew's phase, options whose site lies past its distance from home leave
     // the menu with the rule named
-    const band = curfewBand(v.name);
+    // (and code's home by dusk while no member has a bed, #194; both from ahead of their phase, #196)
+    const band = this.safetyBand(v);
     const home = v.storage?.chests[0];
-    if (band && home && fromPhase(this.timeOfDay(), band.phase)) {
+    if (band && home && curfewActs(this.timeOfDay(), band.phase)) {
       for (let i = out.length - 1; i >= 0; i--) {
         const o = out[i];
         const d = OPTION_RUN.get(o) as { x?: number; z?: number } | undefined;
         const site = o.at ?? (d && typeof d.x === 'number' && typeof d.z === 'number' ? { x: d.x, z: d.z } : undefined);
-        if (!site || Math.hypot(site.x - home.x, site.z - home.z) <= band.dist) continue;
-        pal.drop(o, 'law', `the curfew: no trips past ${band.dist} blocks after ${band.phase === 'dusk' ? 'dusk' : 'nightfall'}`);
+        if (!site || !pastBand(band, home, site.x, site.z)) continue;
+        pal.drop(o, 'law', bandWords(band));
       }
     }
     // G2 (MC_ACTS=on): an option answering a request to the member or keeping its promise is tagged, and the trim keeps it
