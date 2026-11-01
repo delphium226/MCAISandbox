@@ -998,3 +998,8 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 10-31 (planning session, same authority) **Test train 15 tests what is new since train 14 together**: the wants
   tuning (`MC_WANTS_TUNE`), the civic tier (`MC_CIVIC`), string from cobwebs (`MC_STRING`) and the #181-#183 fixes,
   model-driven, flags on against off; survival stays opt-in and out of the train.
+- 11-01 (planning session, under the user's "make your own decisions and continue progressing") **The wants tuning is
+  confirmed and the wants pilot ends**: over two pairs (F347, F349) `MC_WANTS_TUNE` cut on-members' stalls 19/17 -> 3/2
+  without weakening the step's pull (60% tuned against 58% untuned in train 16). Wants and the tuning stay on for every
+  member (`MC_WANTS_HOLDOUT=0`, the default); trains stop splitting members, and the wants are judged by the village
+  as a whole from now on.
