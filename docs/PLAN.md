@@ -34,31 +34,27 @@ each phase's goal and design, and links to its issues; it no longer carries chec
 
 ## Next session starts with
 
-(updated 2026-10-31 ~17:30 by the planning session; the user: "make your own decisions and continue progressing";
+(updated 2026-11-01 ~10:00 by the planning session; the user: "make your own decisions and continue progressing";
 the strategy is `docs/STRATEGY.md`; the logs are `runs/2026-10-27/planning/state.md` and
 `runs/2026-10-31/planning/briefs.md`)
 
 - **How work runs:** unchanged (the planning session briefs and checks work sessions; the context rule; the test
   train; pushes to `private` without asking; LAN addresses beside 127.0.0.1). **New flags default on** (10-30);
-  survival modes are the exception (peaceful stays the default).
-- **Done 10-30/31 (all pushed):** trains 13-14 (F342-F344); #180/#179 (157036d); #181-#183 (6a3afc3); wants tuning
-  `MC_WANTS_TUNE` (f90833b, sim only so far); goal experiment "get rich" (74729be, F346); string from cobwebs
-  `MC_STRING` (12a62af, #178); survival (a) damage (3c4ed75) and (b) easy, nights, real hunger (9fb86d3 + e945aa3);
-  40 more monuments (ec1753f); the civic tier `MC_CIVIC`, 80 real buildings between houses and the monument
-  (13e1641, 9fb86d3, 8691210, 5759577); the gallery world `scripts/gallery.mts` (813b5e5; mc/gallery, port 25571,
-  stopped).
-- **Decisions 10-31** (DECISIONS a39e559): house design stays character; civic picks steered to variety; train 15's
-  scope.
-- **In flight:**
-  - survival (c) hostile mobs (local_9a7819d4): pair passed (5 deaths in 5 nights, +8% model calls), load probe done,
-    commit and `runs/2026-10-31/survival/report_c.md` to come;
-  - civic tier (local_e8d3e8dc): third staged run, then the variety steer and its report;
-  - small fixes #187 beds/wool, #188 lava, #186, #168/#169 (local_49b15eca; worlds 1-2);
-  - test train 15 (local_27959a30; brief runs/2026-10-31/planning/brief_train15.md; waits for survival (c)'s commit
-    and the civic report, then worlds 4-5).
-- **Next:** check those reports; then survival (d) (defence as works: walls, lights, guards) once (c) is judged; the
-  wants tuning village-wide if train 15 shows the busy gap closed; #164 steps 3-5; the street-placement leftover of
-  #179 (streets land 33-37 blocks from the place asked).
+  survival modes are the exception (peaceful stays the default). **Shared checkout: commit with
+  `git commit -- <paths>`** (three commits swept or overwrote other sessions' hunks on 10-31/11-01: 9fb86d3, 15bbf43,
+  3e87f5e).
+- **Done 10-31/11-01 (all pushed):** train 15 (F347, 4ecd01f); loop lag at 25 (F348, 40d74cd: true p99 28-36 ms, the
+  176 ms was the meter); fixes #186-#188, #168/#169 (3cdca2c: beds from sheep, the lava reflex); civic tier
+  (13e1641..25c5105, 80 buildings, variety steer); survival (c) hostile mobs (15bbf43); #190-#192 (7917505..2586917:
+  a monument gets its own kiln, iron give-up retried in 5 min, place claims by the far end); #189 partly (bucket pour
+  does not work in Mineflayer; open); survival (d) sections 0-3 (3e87f5e, bf0b322, db76d2a; report
+  `runs/2026-10-31/survival/report_d.md`: safety rule, watch and loop passed; deaths 8 vs 5 in night 1, +21% model
+  calls, curfew marks failed; #194-#197).
+- **In flight:** test train 16 (local_3aae4e4c; from db76d2a, worlds 4-5, ends ~11:55): P all flags against Q
+  (`MC_CIVIC`, `MC_WANTS_TUNE` off); judges #190 in a full run and the wants tuning's second pair.
+- **Next:** check train 16; then survival (d) fixes #194-#197 (night-1 far trips, the watch count, the curfew's reach,
+  model calls), then sections 4 (hunters) and 5 (walls); the wants tuning village-wide if trains 15-16 agree; #189;
+  #164 steps 3-5; the street-placement leftover of #179. STRATEGY.md has not been refreshed since 10-22.
 
 ## Earlier phases
 
