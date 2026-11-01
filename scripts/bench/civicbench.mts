@@ -7,7 +7,7 @@
  * Usage: node node_modules/tsx/dist/cli.mjs scripts/bench/civicbench.mts
  * Env: MODEL (default ollama:gpt-oss:120b-cloud), N (samples a seed, default 10), CONC (calls at once, default 3),
  *   SEEDS (village names, default P1,Elmfield,Riverbend,Meadowford,Stonebrook), IRON=0 (timber only), PEEK=1 (each
- *   reason), CHECKPOINT (a villages.json: a seed named there is that village, its site and civics), DRY=1 (print the prompts, no calls), OLDPROMPT=1 (the prompt before MC_CIVIC_VARIETY on the same lists).
+ *   reason), MENU=old (the fixed menu before 11-01; else each sample draws its own list, as a run of its own), CHECKPOINT (a villages.json: a seed named there is that village, its site and civics), DRY=1 (print the prompts, no calls), OLDPROMPT=1 (the prompt before MC_CIVIC_VARIETY on the same lists).
  * Writes a JSON summary to runs/<date>/bench/civicbench-<timestamp>.json.
  */
 import fs from 'node:fs';
@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 process.env.MC_MODEL_RECORD ??= '0';
 const { civicOptions, civicPrompt, checkCivic, setCivic, CIVIC_SYSTEM, CIVIC_TOOL } = await import('../../server/src/civic');
+const { setPicks } = await import('../../server/src/shortlist');
 const { callModel, parseSpec } = await import('../../server/src/modelCall');
 const { REASONING } = await import('../../server/src/modelUsage');
 
@@ -32,29 +33,36 @@ const saved = (Array.isArray(savedRaw.villages ?? savedRaw) ? savedRaw.villages 
 type Row = { seed: string; pick: string | null; rank: number; blocks: number; reason: string; offered: string[] };
 const rows: Row[] = [];
 const jobs: Array<() => Promise<void>> = [];
+// (MENU=old: the fixed list and prompt before 11-01, MC_PICK_RANDOM and MC_CIVIC_VARIETY off; else each sample is a run
+// of its own: MC_PICK_RANDOM's seed is draw<k>, so the list is drawn again)
+const OLD = process.env.MENU === 'old';
+setPicks({ random: !OLD });
 for (const [i, seed] of SEEDS.entries()) {
   // (a fresh village: the storage chest stands in for its site, as on the test sites; CHECKPOINT: the saved village)
   const v = (saved.find((x) => x.name === seed) ?? { name: seed, plots: Array.from({ length: 25 }), storage: { chests: [{ x: 100 * i, y: 64, z: -50 * i }], updated: 0 } }) as never;
-  const options = civicOptions(v, IRON);
-  // (OLDPROMPT=1: the lists as now, the prompt before MC_CIVIC_VARIETY, to compare prompts on the same lists)
-  if (process.env.OLDPROMPT) setCivic({ variety: false });
-  const user = civicPrompt({ village: seed, members: 25, wood: 'birch', houses: 25, built: [], options });
-  setCivic({ variety: true });
-  const sizes = [...options].sort((a, b) => a.blocks - b.blocks).map((o) => o.id);
-  console.log(`\n${seed}: ${options.map((o) => `${o.id} ${o.blocks}`).join(', ')}`);
-  if (process.env.DRY) { console.log(user); continue; }
-  for (let k = 0; k < N; k++) jobs.push(async () => {
-    try {
-      const { reply } = await callModel({ spec, system: CIVIC_SYSTEM, user, tools: [CIVIC_TOOL], level: REASONING.design, agent: 'Mayor', kind: 'design', priority: 'plan' });
-      const call = reply.calls?.find((c) => c.name === CIVIC_TOOL.name);
-      const r = call ? checkCivic(call.input as Record<string, unknown>, options) : { problem: 'no call' };
-      const pick = 'pick' in r ? r.pick : null;
-      rows.push({ seed, pick: pick?.id ?? null, rank: pick ? sizes.indexOf(pick.id) : -1, blocks: pick?.blocks ?? 0, reason: 'pick' in r ? r.reason : r.problem, offered: sizes });
-      if (process.env.PEEK) console.log(`  ${seed}: ${pick?.id ?? '-'} (rank ${pick ? sizes.indexOf(pick.id) : '-'}): ${'pick' in r ? r.reason : r.problem}`);
-    } catch (e) {
-      rows.push({ seed, pick: null, rank: -1, blocks: 0, reason: String((e as Error)?.message ?? e).slice(0, 120), offered: sizes });
-    }
-  });
+  for (let k = 0; k < N; k++) {
+    if (!OLD) setPicks({ seed: `draw${k}` });
+    setCivic({ variety: !OLD });
+    const options = civicOptions(v, IRON);
+    // (OLDPROMPT=1: the lists as now, the prompt before MC_CIVIC_VARIETY, to compare prompts on the same lists)
+    if (process.env.OLDPROMPT) setCivic({ variety: false });
+    const user = civicPrompt({ village: seed, members: 25, wood: 'birch', houses: 25, built: [], options });
+    const sizes = [...options].sort((a, b) => a.blocks - b.blocks).map((o) => o.id);
+    if (k === 0 || !OLD) console.log(`${seed}${OLD ? '' : ` draw${k}`}: ${options.map((o) => `${o.id} ${o.blocks}`).join(', ')}`);
+    if (process.env.DRY) { if (k === 0) console.log(user); continue; }
+    jobs.push(async () => {
+      try {
+        const { reply } = await callModel({ spec, system: CIVIC_SYSTEM, user, tools: [CIVIC_TOOL], level: REASONING.design, agent: 'Mayor', kind: 'design', priority: 'plan' });
+        const call = reply.calls?.find((c) => c.name === CIVIC_TOOL.name);
+        const r = call ? checkCivic(call.input as Record<string, unknown>, options) : { problem: 'no call' };
+        const pick = 'pick' in r ? r.pick : null;
+        rows.push({ seed, pick: pick?.id ?? null, rank: pick ? sizes.indexOf(pick.id) : -1, blocks: pick?.blocks ?? 0, reason: 'pick' in r ? r.reason : r.problem, offered: sizes });
+        if (process.env.PEEK) console.log(`  ${seed}: ${pick?.id ?? '-'} (rank ${pick ? sizes.indexOf(pick.id) : '-'}): ${'pick' in r ? r.reason : r.problem}`);
+      } catch (e) {
+        rows.push({ seed, pick: null, rank: -1, blocks: 0, reason: String((e as Error)?.message ?? e).slice(0, 120), offered: sizes });
+      }
+    });
+  }
 }
 let next = 0;
 await Promise.all(Array.from({ length: CONC }, async () => { while (next < jobs.length) await jobs[next++](); }));
@@ -72,5 +80,5 @@ console.log(`picks: ${count(ok.map((r) => r.pick)).map(([p, c]) => `${p} ${c}`).
 const out = path.join(ROOT, 'runs', new Date().toISOString().slice(0, 10), 'bench');
 fs.mkdirSync(out, { recursive: true });
 const file = path.join(out, `civicbench-${Date.now()}.json`);
-fs.writeFileSync(file, JSON.stringify({ model: MODEL, n: N, seeds: SEEDS, iron: IRON, oldPrompt: !!process.env.OLDPROMPT, rows }, null, 1));
+fs.writeFileSync(file, JSON.stringify({ model: MODEL, n: N, seeds: SEEDS, iron: IRON, menu: OLD ? 'old' : 'drawn', oldPrompt: !!process.env.OLDPROMPT, rows }, null, 1));
 console.log(`wrote ${file}`);

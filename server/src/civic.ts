@@ -21,6 +21,7 @@ import type { Cathedral } from './gothicGen';
 import * as gothic from './gothicGen';
 import * as castle from './castleGen';
 import { rawSetting } from './settings';
+import { PICKS, drawRank } from './shortlist';
 import { TIMBER_PRESETS, generateTimber, type TimberPreset } from './timberGen';
 import { TOWER_PRESETS, generateTower } from './towerGen';
 import { villageHome, type Village } from './village';
@@ -44,6 +45,8 @@ export function setCivic(s: Partial<typeof CIVIC>): void { Object.assign(CIVIC, 
 
 /** The options on the chooser's list, and the scales tried (1:N). */
 export const CIVIC_LIST = 6;
+/** MC_PICK_RANDOM (shortlist.ts): the shortlist is this many, one of a kind, drawn per run and village. */
+export const CIVIC_PICKS = 5;
 export const CIVIC_SCALES = [1, 2, 3, 4];
 /** What a civic building leaves in storage of each item when it claims storage's stock for its yard. */
 export const CIVIC_KEEP = 32;
@@ -138,9 +141,10 @@ export interface CivicOption { id: string; title: string; kind: string; age: 'ti
  * any other village's most recent civic building (planning's DECISIONS a39e559: the Mayor took Pembridge first in all
  * three staged runs), each at its scale, the kinds the village has not built first, at most two of a kind, CIVIC_LIST in
  * all; the order within a rank is the village's own (a hash of its name, its site with MC_CIVIC_VARIETY, and the count
- * built), so villages differ.
+ * built), so villages differ. With MC_PICK_RANDOM (on) the order is this run's draw (shortlist.ts) and the list is
+ * CIVIC_PICKS of different kinds, so one checkpoint offers other buildings in other runs.
  */
-export function civicOptions(v: Village, ironReached: boolean, n = CIVIC_LIST, others: Village[] = []): CivicOption[] {
+export function civicOptions(v: Village, ironReached: boolean, n = PICKS.random ? CIVIC_PICKS : CIVIC_LIST, others: Village[] = []): CivicOption[] {
   const ages = civicAges(v, ironReached), had = civicsOf(v);
   const done = new Set(had.map((c) => c.preset)), kinds = new Set(had.filter((c) => !c.skipped).map((c) => c.kind));
   for (const o of others) {
@@ -151,12 +155,13 @@ export function civicOptions(v: Village, ironReached: boolean, n = CIVIC_LIST, o
   const home = CIVIC.variety ? villageHome(v) : null;
   const seed = `${v.name}|${home ? `${home.x},${home.z}|` : ''}${had.length}`;
   const hash = (s: string) => { let h = 2166136261; for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return h >>> 0; };
+  const rank = PICKS.random ? (id: string) => drawRank(`civic|${v.name}|${had.length}`, id) : (id: string) => hash(`${seed}|${id}`);
   const pool = civicEntries().filter((e) => ages.includes(e.age) && !done.has(e.id))
-    .sort((a, b) => Number(kinds.has(a.kind)) - Number(kinds.has(b.kind)) || hash(`${seed}|${a.id}`) - hash(`${seed}|${b.id}`));
+    .sort((a, b) => Number(kinds.has(a.kind)) - Number(kinds.has(b.kind)) || rank(a.id) - rank(b.id));
   const out: CivicOption[] = [], perKind = new Map<string, number>();
   for (const e of pool) {
     if (out.length >= n) break;
-    if ((perKind.get(e.kind) ?? 0) >= 2) continue;
+    if ((perKind.get(e.kind) ?? 0) >= (PICKS.random ? 1 : 2)) continue;
     const scale = civicScale(e.id), c = drawCivic(e.id, scale);
     // (a footprint wider than the monument's search can place near the village is left out)
     if (Math.max(c.design.width, c.design.depth) > 72) continue;

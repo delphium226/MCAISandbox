@@ -40,6 +40,7 @@ import { CUTTER, needsCutting, type CutStep, type CutterRecord } from './cutter'
 import type { DyeBed } from './dyeBed';
 import { FURNISH_STAGE, furnishKindOf, furnishKinds, furnishOn, furnishTrade, type FurnishKind } from './furnish';
 import { aKind, civicEntries, civicEntry, drawCivic } from './civic';
+import { PICKS, drawOrder } from './shortlist';
 import { DRESSING, dress, supplyOf } from './dressing';
 
 export { KILN };
@@ -911,10 +912,16 @@ export interface ArchitectFacts {
   options: Array<{ preset: string; scale: number; width: number; depth: number; height: number; blocks: number; jobs: number }>;
 }
 
-/** Each preset drawn at each allowed scale (~50 ms each at 1:2), for the architect's facts. */
-export function architectOptions(scales = M3.scales): ArchitectFacts['options'] {
+/** MC_PICK_RANDOM: the cathedrals on the architect's list. */
+export const ARCHITECT_PICKS = 5;
+/** Each preset drawn at each allowed scale (~50 ms each at 1:2), for the architect's facts; with `village` and
+ *  MC_PICK_RANDOM, ARCHITECT_PICKS presets drawn for this run and village. */
+export function architectOptions(scales = M3.scales, village?: string): ArchitectFacts['options'] {
   const out: ArchitectFacts['options'] = [];
-  for (const preset of Object.keys(GOTHIC_PRESETS))
+  // (MC_PICK_RANDOM, with the village: ARCHITECT_PICKS cathedrals drawn for this run and village, not all 24: the
+  // architect took Chartres every time, #155)
+  const presets = village && PICKS.random ? drawOrder(Object.keys(GOTHIC_PRESETS), `cathedral|${village}`, (p) => p).slice(0, ARCHITECT_PICKS) : Object.keys(GOTHIC_PRESETS);
+  for (const preset of presets)
     for (const scale of scales) {
       const c = generateCathedral(GOTHIC_PRESETS[preset], scale);
       out.push({ preset, scale, width: c.design.width, depth: c.design.depth, height: c.design.height, blocks: c.design.blocks, jobs: c.jobs.length });
@@ -940,7 +947,7 @@ export const ARCHITECT_TOOL = {
     type: 'object',
     properties: {
       reason: { type: 'string', description: 'One sentence: why this cathedral suits the village.' },
-      preset: { type: 'string', enum: Object.keys(GOTHIC_PRESETS) },
+      preset: PICKS.random ? { type: 'string', description: 'The id of one cathedral on the list.' } : { type: 'string', enum: Object.keys(GOTHIC_PRESETS) },
       scale: { type: 'number', description: 'N for 1:N, one of those offered.' },
       glass: { type: 'object', description: 'For each glass role (blue, red, yellow), a dye colour on offer or "plain".', properties: Object.fromEntries(GLASS_ROLES.map((r) => [r, { type: 'string' }])) },
       dedication: { type: 'string', description: 'Optional: a short name it is dedicated to (a saint, a founder, a virtue), up to 30 characters.' },
@@ -955,7 +962,7 @@ export function architectPrompt(f: ArchitectFacts): string {
   return [
     `The village ${f.village} (${f.members} members, building in ${f.wood} wood) begins its cathedral. Members quarry the stone, smelt it into bricks in a kiln, cut the roof from logs and make the glass; a bigger cathedral takes many more sessions.`,
     'The cathedrals (footprint, height, blocks, parts of 300-800 blocks):',
-    ...Object.keys(GOTHIC_PRESETS).map((p) => `- ${p}: ${GOTHIC_PRESETS[p].description}. ${f.options.filter((o) => o.preset === p).map((o) => `At 1:${o.scale}: ${o.width}x${o.depth}, ${o.height} high, ${o.blocks} blocks in ${o.jobs} parts.`).join(' ')}`),
+    ...(PICKS.random ? [...new Set(f.options.map((o) => o.preset))] : Object.keys(GOTHIC_PRESETS)).map((p) => `- ${p}: ${GOTHIC_PRESETS[p].description}. ${f.options.filter((o) => o.preset === p).map((o) => `At 1:${o.scale}: ${o.width}x${o.depth}, ${o.height} high, ${o.blocks} blocks in ${o.jobs} parts.`).join(' ')}`),
     scales.length > 1 ? `Scales offered: ${scales.map((s) => `1:${s}`).join(', ')}.` : `The scale is set: 1:${scales[0]} (give scale ${scales[0]}).`,
     f.dyes && Object.keys(f.dyes).length
       ? `Stained glass: the windows have three glass roles (blue, red and yellow in the real cathedrals). The flowers near the village give these dye colours (flowers counted): ${Object.entries(f.dyes).map(([c, n]) => `${c} (${n})`).join(', ')}. Give each role one of these colours or "plain".`
@@ -969,7 +976,8 @@ export interface ArchitectPick { preset: string; scale: number; colours: Record<
 export function checkArchitect(input: Record<string, unknown> | undefined, f: ArchitectFacts): { pick: ArchitectPick } | { problems: string[] } {
   const problems: string[] = [];
   const preset = String(input?.preset ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_').replace(/^notre_dame_de_paris$/, 'notre_dame');
-  if (!GOTHIC_PRESETS[preset]) problems.push(`preset must be one of ${Object.keys(GOTHIC_PRESETS).join(', ')} (got "${String(input?.preset ?? '')}")`);
+  const offered = PICKS.random ? [...new Set(f.options.map((o) => o.preset))] : Object.keys(GOTHIC_PRESETS);
+  if (!GOTHIC_PRESETS[preset] || !offered.includes(preset)) problems.push(`preset must be one of ${offered.join(', ')} (got "${String(input?.preset ?? '')}")`);
   const scales = [...new Set(f.options.map((o) => o.scale))];
   const raw = Number(String(input?.scale ?? '').replace(/^1:/, ''));
   const scale = raw > 0 && raw < 1 ? Math.round(1 / raw) : raw;

@@ -114,6 +114,7 @@ import { cutWork, cutterOn } from './mcCutter';
 import { bedBuilding, dyeBedOn } from './mcDyeBed';
 import { DYE_BED, DYE_FLOWERS, DYE_REACH, TALL_FLOWERS, dyeRecipes, makeableColours, windowColours } from '../dyeBed';
 import { DETAIL_COLOURS } from '../gothicGen';
+import { PICKS, drawRank } from '../shortlist';
 import { CIVIC, CIVIC_KEEP, aKind, civicOptions, civicsStanding, civicDone, civicKit, codePick, CIVIC_SYSTEM, CIVIC_TOOL, CIVIC_SITE_FAILS, checkCivic, civicPrompt, civicLine, type CivicOption } from '../civic';
 import { newCivic, monumentType } from '../monument';
 import { stoneStandIn, DEEP_BLOCKS, deepStandIn, GEM_STAND, DYE_FAILS, DYE_WAIT_MIN, dyeStandIn, dyeStood, furnishLeaveOut, leftOutItems, refurnishOn, COPPER_ROOF, COPPER_BLOCKS, copperFrom, copperOn, copperReached, copperStandIn, reroofReturns } from '../monument';
@@ -3330,7 +3331,8 @@ export class MineflayerWorld implements WorldAdapter {
     const y = v.plots[0]?.y ?? 64;
     const near = home ? this.growMembers(v).find((a) => a.bot.entity && Math.hypot(a.bot.entity.position.x - home.x, a.bot.entity.position.z - home.z) <= 32) : undefined;
     const cands = this.publicWorks().filter((w) => !built.has(w.design.name) && !bad.has(w.design.name))
-      .sort((p, q) => Number(q.biome === own) - Number(p.biome === own) || p.units - q.units || p.design.name.localeCompare(q.design.name));
+      .sort((p, q) => Number(q.biome === own) - Number(p.biome === own) || (PICKS.random ? drawRank(`works|${v.name}`, p.design.name) - drawRank(`works|${v.name}`, q.design.name) : 0) || p.units - q.units || p.design.name.localeCompare(q.design.name));
+    // (MC_PICK_RANDOM: the village's own biome first, then this run's draw rather than the cheapest: the same 3 every run)
     // (MC_WORKS_REPEAT, #75: once fewer than three unbuilt pieces qualify, built ones again, the fewest copies first; the
     // pool ran out at ~112 minutes in the sim at range 192)
     if (WORKS_REPEAT) {
@@ -4429,7 +4431,7 @@ export class MineflayerWorld implements WorldAdapter {
     const facts: ArchitectFacts = {
       // (the roster as memory keeps it too: M3a's trigger came while members were still spawning, 11 of 25)
       village: v.name, members: Math.max([...this.agents.values()].filter((a) => a.village() === v).length, rosterOf(v.name).length),
-      wood: this.catalogWoodOf(v), dyes: counts ? dyesOnOffer(counts) : null, options: architectOptions(),
+      wood: this.catalogWoodOf(v), dyes: counts ? dyesOnOffer(counts) : null, options: architectOptions(undefined, v.name),
     };
     let user = architectPrompt(facts);
     let why = 'no model';

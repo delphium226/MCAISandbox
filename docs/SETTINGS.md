@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-273 settings.
+275 settings.
 
 ## Game speed
 
@@ -275,6 +275,8 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_ORE_MINE` | flag | `off` |  | `MC_IRON_AGE` | MC_ORE_MINE (with MC_IRON_AGE): the iron levels follow the iron seen (short drifts to ore seen near the tunnels, turns and next levels toward it, levels 6 apart down to y -8) instead of fixed patterns only, up to 8,000 cells in all. |
 | `MC_ORE_VEIN` | flag | `off` |  |  | Ore veins followed in the mine (with the ore mine). |
 | `MC_OWN_TOOLS` | flag | `off` |  |  | MC_OWN_TOOLS: a tool given to a member stays with it (deposits keep it) and its skills use it before storage's. |
+| `MC_PICK_RANDOM` | flag | `on` |  |  | MC_PICK_RANDOM=on (the user's, 11-01: the buildings picked more random): the lists a village picks buildings from are drawn per run and per village: the civic tier's shortlist (5, one of a kind), the monument architect's cathedrals (5 of 24) and the public works vote's order within the village's biome (not the cheapest first). The model still picks. Off: the fixed lists before 11-01. |
+| `MC_PICK_SEED` | string | (unset) |  | `MC_PICK_RANDOM` | The run's seed for MC_PICK_RANDOM's draws; unset: drawn at start and logged as "[pick] seed X". Set it to a run's seed to draw the same lists (with MC_MODEL_REPLAY). |
 | `MC_QUARRY` | flag | `on` |  | `MC_MONUMENT` | MC_QUARRY=on (M2, #145; off by default): the cathedral's cobblestone trips dig a terrace pit beside its pad (sized from the bill, chosen by the first trip near the storage hut) instead of the village mine, one member a row; the pit is kept ground like a building. |
 
 ## Needs and food

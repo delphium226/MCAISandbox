@@ -44,6 +44,8 @@ process.env.MC_NEWS = OFF ? 'off' : 'on';
 process.env.MC_LADDER = 'on';
 process.env.MC_IRON_AGE = 'on';
 process.env.MC_MONUMENT = 'on';
+// (the architect sees every cathedral: MC_PICK_RANDOM's drawn list would turn the stubbed picks away)
+process.env.MC_PICK_RANDOM = 'off';
 process.env.MC_MONUMENT_SCALE = '0.25';
 process.env.MC_MONUMENT_PALETTE = 'full';
 process.env.MC_GLAZING = 'on';
