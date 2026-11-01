@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-278 settings.
+280 settings.
 
 ## Game speed
 
@@ -127,7 +127,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_MERCHANT_ORDER_SIZE` | number | `1` |  |  | An order's count in the good's batches (MC_MERCHANT_ORDER_SIZE, 1). |
 | `MC_MERCHANT_ORDERS` | flag | `off` |  | `MC_MERCHANT` | s42 (#73, the user's idea at s41: the merchant drives demand): orders. At each restock the merchant posts orders for goods the village's workshop can make ("wants 16 birch_fence, pays 3 emeralds"); an open order raises the good's make target by its count (a sink for the workshop, F258) and... |
 | `MC_MERCHANT_RESTOCK` | number | `20` |  |  | Minutes between restocks (wall minutes times MC_TIME_SCALE, as the other after-phase clocks). |
-| `MC_OWN` | flag | `off` |  |  | Members own things: own chests, shares of what they make. |
+| `MC_OWN` | flag | `on` |  |  | Members own things: own chests, shares of what they make (on by default since 11-01, the user's; =off turns it off). |
 | `MC_OWN_FARM` | flag | `off` |  | `MC_OWN` | Members' own farms (s43, MC_OWN_FARM=on): a member with a house and no farm may lay out a wheat field of its own near its house (lay_out_field's pad, within OWN_FARM_REACH of the house), seeded from the commons' spare seeds; it is claimed for it for good, and its harvests are wholly its own (a... |
 | `MC_OWN_LEVY` | number | `0.25` |  |  | The levy on own sales. |
 | `MC_OWN_SALES` | flag | `off` |  | `MC_OWN` | Members' sales to the merchant (s43, MC_OWN_SALES=on): what it buys from members, items an emerald (vanilla's farmer and fisherman; since 10-23 also the mason's stone, the smiths' coal, the fletcher's sticks and string), at most OWN_SALE_LOTS lots of a good a restock across members; the levy... |
@@ -142,6 +142,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_STORAGE_BARRELS` | flag | `on` |  |  | MC_STORAGE_BARRELS=off: the hut's nine chest spots only (s40: barrels in the six cells between them, on by default). |
 | `MC_STORAGE_CAP` | string | (unset) |  | `MC_STORAGE_GROW` | MC_STORAGE_CAP (#121, with MC_STORAGE_GROW): the most of each bulk stone kind storage keeps, "cobblestone:1024,stone:256" by default ("stone": each other bulk kind; a kind named on its own takes its own number); "off": no cap. |
 | `MC_STORAGE_GROW` | flag | `on` |  |  | MC_STORAGE_GROW (#121; on by default since 10-24, the user's after test train 1; off turns it off): storage that grows. A deposit keeps at most a cap of each bulk stone kind (the rest goes on the spoil heap), and a storage yard is prepared beside the village once the hut is nearly full. |
+| `MC_STORAGE_KEEP` | flag | `on` |  | `MC_STORAGE_GROW` | MC_STORAGE_KEEP (11-01, on; =off: the plain caps): bulk stone over MC_STORAGE_CAP is kept while storage has room (up to 80% of its slots, one kind at most 40%), not put on the spoil heap, for later jobs (the cathedral, the civic buildings, the wall dressing); the storage yard is prepared at 60% full instead of 75%. |
 | `MC_TECH_MADE` | string | (unset) |  |  | Tools counted as made already (innovation experiments). |
 | `MC_TECH_ROYALTY` | number | `0.1` |  |  | The inventors' royalty (s44, the user's): this share of every batch the workshop makes of an unlocked entry's goods. |
 | `MC_TECH_UNLOCKED` | string | (unset) |  |  | (MC_TECH_UNLOCKED=hay,campfire: entries a village starts with, for experiments) |
@@ -273,6 +274,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_MONUMENT_SCALE` | number | `0.3333` |  | `MC_MONUMENT` | The scale against the real building, rounded to 1:N: 0.3333 (1:3, the user's scale since 10-27), 0.25 (1:4, quick tests) or 0.5 (1:2). |
 | `MC_MONUMENT_SCALES` | string | (unset) |  | `MC_MONUMENT_ARCHITECT` | The scales the architect may pick from, comma-separated (0.25,0.5); empty: MC_MONUMENT_SCALE only. |
 | `MC_MONUMENT_SHARE` | number | `0.6` |  | `MC_MONUMENT` | At most this share of a menu may be monument options (one at least), so food, the ladder and chores go on. |
+| `MC_MONUMENT_STOCK` | flag | `on` |  | `MC_MONUMENT` | MC_MONUMENT_STOCK (11-01, on; =off: gathering trips only): a monument takes what storage can spare of the cobblestone, logs and sand it wants (beyond the workshop's want and 64 of each) before it sends gathering trips, as a civic building does. |
 | `MC_MONUMENT_TYPE` | string | `cathedral` |  | `MC_MONUMENT` | The monument the village builds after the iron age (#153): cathedral (gothicGen.ts) or castle (castleGen.ts: Conwy, or the White Tower with MC_MONUMENT_PRESET=white_tower), on the same pad, yard, quarry, kiln and jobs; the architect (MC_MONUMENT_ARCHITECT) picks only for the cathedral. |
 | `MC_ORE_MINE` | flag | `off` |  | `MC_IRON_AGE` | MC_ORE_MINE (with MC_IRON_AGE): the iron levels follow the iron seen (short drifts to ore seen near the tunnels, turns and next levels toward it, levels 6 apart down to y -8) instead of fixed patterns only, up to 8,000 cells in all. |
 | `MC_ORE_VEIN` | flag | `off` |  |  | Ore veins followed in the mine (with the ore mine). |

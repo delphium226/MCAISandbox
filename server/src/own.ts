@@ -9,9 +9,9 @@ import { rawSetting } from './settings';
 
 type Counts = Record<string, number>;
 
-/** On with MC_OWN=on (off by default until a live run passes); the share of a chore's net yield that is the member's. */
+/** On unless MC_OWN=off (on by default since 11-01, the user's); the share of a chore's net yield that is the member's. */
 export const OWN = {
-  on: /^(on|1|true)$/i.test(rawSetting('MC_OWN') ?? 'off'),
+  on: /^(on|1|true)$/i.test(rawSetting('MC_OWN') ?? 'on'),
   share: Math.min(1, Math.max(0, Number(rawSetting('MC_OWN_SHARE') ?? 0.25))),
 };
 

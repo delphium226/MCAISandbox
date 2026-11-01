@@ -64,6 +64,7 @@ for (const k of ['MC_MONUMENT', 'MC_QUARRY', 'MC_KILN', 'MC_GLAZING', 'MC_MONUME
 process.env.MC_MONUMENT_PALETTE ??= 'today';
 const { MineflayerWorld } = await import('../../server/src/mineflayer/mcWorld');
 const mon = await import('../../server/src/monument');
+const sc = await import('../../server/src/mineflayer/mcStorage');
 const { turnState } = await import('../../server/src/designs');
 unmute();
 const dir = fs.mkdtempSync(path.join(SCRATCH, 'w-'));
@@ -141,6 +142,18 @@ quiet.log(`stage 1 wants ${Object.entries(wants1).map(([n, q]) => `${q} ${n}`).j
 ok(mon.currentStage(m) === 1 && wants1.cobblestone > 0, 'stage 1 wants cobblestone');
 const probe = agents.find((a) => menuOf(a)) ?? agents[1];
 let opts = monOpts(probe);
+// (MC_MONUMENT_STOCK, check_offline's monument_stock: im2_mine's storage holds thousands of cobblestone, so the stage's
+// cobblestone is claimed for the yard on the first look and a job is offered with no trip; the claim leaves the workshop's
+// keeps, and makeSpare no longer counts what was claimed; the rest of this check runs with the flag off)
+if (process.env.MONUMENT_STOCK_ONLY) {
+  const claimed = m.yard.cobblestone ?? 0;
+  ok(claimed > 0 && claimed <= wants1.cobblestone, `stage 1's cobblestone claimed from storage: ${claimed} of ${wants1.cobblestone}`);
+  ok(!opts.some((o) => o.id === 'monument:gather:cobblestone'), `no cobblestone trip once claimed: ${opts.map((o) => o.id).join(', ')}`);
+  ok(opts.some((o) => /^monument:job:/.test(o.id)), 'a job offered from the claimed stock');
+  ok((w.makeSpare(v, '').cobblestone ?? 0) >= 0 && (sc.storageContents(v).cobblestone ?? 0) - claimed >= 64, 'storage keeps 64 cobblestone beyond the claim');
+  quiet.log(failures ? `FAIL monument_stock: ${failures} of ${checks} checks` : `PASS monument_stock: ${checks} checks, 0 failures`);
+  process.exit(failures ? 1 : 0);
+}
 ok(opts.some((o) => o.id === 'monument:gather:cobblestone'), `a cobblestone trip on the menu: ${opts.map((o) => o.id).join(', ')}`);
 ok(!opts.some((o) => /^monument:job:/.test(o.id)), 'a job offered with an empty yard');
 const spare0 = w.makeSpare(v, '').cobblestone ?? 0;

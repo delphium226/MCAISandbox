@@ -12,7 +12,7 @@ import fs from 'node:fs';
 process.env.MC_STORAGE_GROW = 'on';
 delete process.env.MC_STORAGE_CAP;
 const { STORAGE_GROW, storageYardCandidates, storageYardSpots } = await import('../../server/src/huts');
-const { freeSpots, yardSpots, storageSlots, spoilSplit, bulkCap, STORAGE_CAP } = await import('../../server/src/mineflayer/mcStorage');
+const { freeSpots, yardSpots, storageSlots, spoilSplit, keepSplit, bulkCap, STORAGE_CAP, STORAGE_KEEP } = await import('../../server/src/mineflayer/mcStorage');
 const { storageDue } = await import('../../server/src/mineflayer/mcWorld');
 const { mineAreas } = await import('../../server/src/mineflayer/mcMine');
 const { overlaps } = await import('../../server/src/village');
@@ -119,6 +119,26 @@ ok(STORAGE_GROW, 'MC_STORAGE_GROW=on read');
   const s2 = spoilSplit(store, { cobblestone: 128, raw_copper: 20 });
   ok(s2.cobblestone === 128 && !s2.raw_copper, `im2_mine's 6,145 cobblestone: a carried 128 all spoiled (${JSON.stringify(s2)})`);
   ok(!Object.keys(spoilSplit(store, { cobblestone: 5 }, {})).length, 'no caps: nothing spoiled');
+}
+
+// MC_STORAGE_KEEP (on by default): over the cap, kept while storage has room
+{
+  ok(STORAGE_KEEP, 'MC_STORAGE_KEEP on by default');
+  const k1 = keepSplit({ cobblestone: 1000 }, { cobblestone: 64, oak_log: 30 }, { used: 100, cap: 405 });
+  ok(!Object.keys(k1).length, `room: a load over the cap kept (${JSON.stringify(k1)})`);
+  const k2 = keepSplit({ cobblestone: 1000 }, { cobblestone: 64 }, { used: 330, cap: 405 });
+  ok(k2.cobblestone === 40, `past 80% of the slots: what is over the cap spoiled (${JSON.stringify(k2)})`);
+  const k3 = keepSplit({ andesite: 10400 }, { andesite: 64, granite: 64 }, { used: 200, cap: 405 });
+  ok(k3.andesite === 64 && !k3.granite, `one kind at most 40% of the slots (${JSON.stringify(k3)})`);
+  const k4 = keepSplit({ andesite: 300, granite: 300 }, { andesite: 64, granite: 64 }, { used: 323, cap: 405 });
+  ok(k4.andesite === undefined && k4.granite === 64, `the last 64 items of room go to the first kind (${JSON.stringify(k4)})`);
+  const k5 = keepSplit({ cobblestone: 100 }, { cobblestone: 64 }, { used: 400, cap: 405 });
+  ok(!Object.keys(k5).length, `under the cap: kept even when full (${JSON.stringify(k5)})`);
+  // (the yard due sooner: im2_mine's full hut is due either way; a hut 65% used with no free spot is due only with it)
+  const v = fresh();
+  v.layouts![0].store = undefined;
+  ok(storageDue(v, { used: 263, cap: 405 }, 0, Date.now()).due, 'MC_STORAGE_KEEP: the yard due at 65% used');
+  ok(!storageDue(v, { used: 200, cap: 405 }, 0, Date.now()).due, 'MC_STORAGE_KEEP: not at 49% used');
 }
 
 process.stdout.write(`${failures ? 'FAILED' : 'ok'}: ${checks - failures} of ${checks} checks pass\n`);

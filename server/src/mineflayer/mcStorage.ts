@@ -531,6 +531,34 @@ export function spoilSplit(stored: Record<string, number>, carried: Record<strin
   return out;
 }
 
+/**
+ * MC_STORAGE_KEEP (on; with MC_STORAGE_GROW; the user's 11-01 "building up excess materials could be useful for jobs that
+ * come later"): bulk stone over its cap is kept while storage has room, for the cathedral, the civic buildings and the wall
+ * dressing (train 16's P put 1,526 stone on the heap while the cathedral stood plain stone in for 437 polished andesite and
+ * 162 diorite). Beyond each kind's cap, a load fills storage up to KEEP_FILL of its slots (the hut's spots, built or not,
+ * and the yard's once ready: a deposit crafts the next chest), one kind at most KEEP_KIND of them; the rest still goes on
+ * the heap. The yard is prepared sooner with it (mcWorld's storageDue).
+ */
+export const STORAGE_KEEP = STORAGE_GROW && !/^(off|0|false|no)$/i.test(rawSetting('MC_STORAGE_KEEP') ?? 'on');
+export const KEEP_FILL = 0.8, KEEP_KIND = 0.4;
+
+/** What of a carried load goes on the spoil heap with MC_STORAGE_KEEP (pure): each kind keeps the room under its cap, then
+ *  shares the room left below KEEP_FILL of `slots.cap` (stone stacks to 64), at most KEEP_KIND of the slots a kind. */
+export function keepSplit(stored: Record<string, number>, carried: Record<string, number>, slots: { used: number; cap: number }, caps: Record<string, number> = STORAGE_CAP): Record<string, number> {
+  const out: Record<string, number> = {};
+  let room = Math.max(0, Math.floor(KEEP_FILL * slots.cap) - slots.used) * 64;
+  for (const [n, q] of Object.entries(carried)) {
+    const cap = bulkCap(n, caps);
+    if (cap === null || q <= 0) continue;
+    const under = Math.max(0, cap - (stored[n] ?? 0));
+    const kindRoom = Math.max(0, Math.floor(KEEP_KIND * slots.cap) * 64 - (stored[n] ?? 0) - under);
+    const extra = Math.min(room, kindRoom, Math.max(0, q - under));
+    room -= extra;
+    if (q - under - extra > 0) out[n] = q - under - extra;
+  }
+  return out;
+}
+
 /** What each agent's deposit in progress put on the spoil heap (#121), for deposit's flow. */
 const spoiledBy = new Map<string, Record<string, number>>();
 
@@ -544,7 +572,7 @@ async function spoilSurplus(a: BotAgent, v: Village, test: (n: string) => boolea
   for (const it of a.bot.inventory.items()) if (BULK_STONE.test(it.name) && test(it.name) && !needed(it.name) && a.memory.monumentGather !== it.name) carried[it.name] = (carried[it.name] ?? 0) + it.count;
   const stored = { ...storageContents(v) };
   for (const [n, q] of Object.entries(v.monument?.yard ?? {})) if (stored[n]) stored[n] = Math.max(0, stored[n] - q);
-  const split = spoilSplit(stored, carried);
+  const split = STORAGE_KEEP ? keepSplit(stored, carried, storageSlots(v, a.world.registry as unknown as StackReg)) : spoilSplit(stored, carried);
   if (!Object.keys(split).length) return;
   const done: Record<string, number> = {};
   for (const [n, q] of Object.entries(split)) {
@@ -557,7 +585,7 @@ async function spoilSurplus(a: BotAgent, v: Village, test: (n: string) => boolea
   await syncInventory(a);
   const what = Object.entries(done).map(([n, q]) => `${q} ${n}`).join(', ');
   const keeps = Object.keys(done).map((n) => `${bulkCap(n)} ${n}`).join(', ');
-  notes.push(`storage keeps at most ${keeps}; ${what} went on the spoil heap`);
+  notes.push(STORAGE_KEEP ? `storage is nearly full; ${what} went on the spoil heap` : `storage keeps at most ${keeps}; ${what} went on the spoil heap`);
   console.log(`[storage] spoil: ${a.name} (${v.name}) ${what} over the cap`);
 }
 

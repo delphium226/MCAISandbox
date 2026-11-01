@@ -66,6 +66,8 @@ def commands():
     # (#115: the settings registry against the server's reads, and docs/SETTINGS.md up to date)
     # (M1, #144: the monument's trigger, yard, jobs and share on im2_mine with the iron rung set by hand)
     out["monument_unit"] = ([node, TSX, "scripts/checks/monument_unit.mts"], ["mc/testcheckpoints/im2_mine/villages.json"])
+    # (MC_MONUMENT_STOCK, 11-01: the monument's yard claimed from storage's spare cobblestone before any trip)
+    out["monument_stock"] = ([node, TSX, "scripts/checks/monument_unit.mts"], ["mc/testcheckpoints/im2_mine/villages.json"])
     # (M2, #145: the quarry's pit, its rows, stands and site search)
     out["quarry_unit"] = ([node, TSX, "scripts/checks/quarry_unit.mts"], [])
     # (M2, #145: the kiln's ledger and the full palette's plan, the 1:4 cathedral through the planned yard)
@@ -98,9 +100,17 @@ WANTS_OFF = {"MC_PURSUITS": "off", "MC_ESTEEM": "off", "MC_TITLES": "off", "MC_R
 CIVIC_OFF = {"MC_CIVIC": "off"}
 # (the wall dressing, 11-01: the goldens' menus were recorded with undressed homes and works)
 DRESSING_OFF = {"MC_DRESSING": "off"}
+# (MC_OWN on by default since 11-01: policy_options' gated menus were recorded without members' own options)
+OWN_OFF = {"MC_OWN": "off"}
+# (MC_MONUMENT_STOCK on by default since 11-01: the monument checks test its gathering trips; monument_stock tests the claim)
+STOCK_OFF = {"MC_MONUMENT_STOCK": "off"}
 CHECK_ENV = {"small_works": {"MC_VANILLA_ALL": "off", "MC_GARDENS": "off"},
              **{n: {**WANTS_OFF, **CIVIC_OFF, **DRESSING_OFF} for n in ("choice_golden", "board_golden", "palette_golden", "palette_golden:old_board", "policy_options")},
              **{n: CIVIC_OFF for n in ("monument_unit", "monument_m3", "castle_monument")}}
+CHECK_ENV["policy_options"] = {**CHECK_ENV["policy_options"], **OWN_OFF}
+for _n in ("monument_unit", "monument_m3", "castle_monument"):
+    CHECK_ENV[_n] = {**CHECK_ENV[_n], **STOCK_OFF}
+CHECK_ENV["monument_stock"] = {**CIVIC_OFF, "MC_MONUMENT_STOCK": "on", "MONUMENT_STOCK_ONLY": "1"}
 
 
 def run(name, cmd, needs, logdir):

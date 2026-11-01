@@ -46,7 +46,7 @@ import { TaskBrain } from '../taskBrain';
 import type { AgentBrain } from '../world';
 import type { Area, Design, Initiative, Monument, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
-import { PART_RE, freeSpots, storageContents, storageFlow, storageGross, storageSlots, storageStrays } from './mcStorage';
+import { PART_RE, STORAGE_KEEP, freeSpots, storageContents, storageFlow, storageGross, storageSlots, storageStrays } from './mcStorage';
 import { HOME_BASICS, basicsCost, basicsFacts, basicsLeft, basicsOf, bedsOwed, freeDecorSlots, houseDecorOf, sheepPlace, woolInHand, type BasicsCells } from './mcHome';
 import { HOUSE_DECOR, decorPicks, decorWants } from '../houseDecor';
 import { contractOf, deliveriesOf, deliveryWords, earmarked, levyOwed, levySweep, markAtEnd, reconcilePay, startPay, storeByCommand, type PayWorld } from './mcPay';
@@ -254,6 +254,11 @@ const unusedGood = (g: MakeGood) => UNUSED_GOOD.test(g.forWhat) && !(STORAGE_GRO
 /** The smallest trip a further gatherer is sent for while some of the material is already on the way (no walk for one
  *  log; with nothing incoming any want goes, so the last few still come). */
 const GATHER_MIN_TRIP: Record<Material, number> = { logs: 6, sand: 8, cobblestone: 8 };
+/** MC_MONUMENT_STOCK (on; the user's 11-01 "cut down trips"): a monument takes what storage can spare of the cobblestone,
+ *  logs and sand it wants before it sends gathering trips, as a civic building does, leaving the workshop's want and
+ *  STOCK_KEEP of each (train 16's cathedral made 31 cobblestone trips while storage put its cobblestone on the heap). */
+const MONUMENT_STOCK = !/^(off|0|false|no)$/i.test(rawSetting('MC_MONUMENT_STOCK') ?? 'on');
+const STOCK_KEEP = 64;
 /** #45 (MC_GARDENS): a garden's wildflowers, gathered by its own crew only (not a workshop material: the catalogue reads
  *  GATHER_KINDS). */
 const FLOWER_GATHER = { trip: 12, block: () => 'wildflowers', deposit: () => 'wildflowers' };
@@ -8439,6 +8444,7 @@ export class MineflayerWorld implements WorldAdapter {
         const wants = KILN.on ? stageWantsPlanned(m, planOf(this)) : stageWants(m, (b) => this.monumentRaw(m, b));
         // (#162 tier 3, chain B: the iron mine keeps the copper ore it meets while the roof wants raw copper)
         if (COPPER_ROOF.on) setKeepCopper(!!m3(m).copper && (wants.raw_copper ?? 0) > 0);
+        let stockWant: GatherWanted | undefined;
         for (const [item, q] of Object.entries(wants)) {
           // (MC_CIVIC: a civic building takes what storage holds first, CIVIC_KEEP of each left for the village's chores;
           // its bill is small, and the staged run's mill waited on a quarry for cobblestone storage held)
@@ -8448,6 +8454,16 @@ export class MineflayerWorld implements WorldAdapter {
               m.yard[item] = (m.yard[item] ?? 0) + k;
               this.villages.save();
               console.log(`[civic] ${v.name}: ${k} ${item} in storage claimed for the ${N}'s yard`);
+              if (k >= q) continue;
+            }
+          } else if (MONUMENT_STOCK && /_log$|^cobblestone$|^(red_)?sand$/.test(item)) {
+            const mat: Material = /_log$/.test(item) ? 'logs' : item === 'cobblestone' ? 'cobblestone' : 'sand';
+            stockWant ??= this.gatherWanted(v);
+            const k = Math.min(q, Math.floor((this.makeSpare(v, '')[item] ?? 0) - Math.max(STOCK_KEEP, stockWant[mat]?.need ?? 0)));
+            if (k > 0) {
+              m.yard[item] = (m.yard[item] ?? 0) + k;
+              this.villages.save();
+              console.log(`[monument] ${v.name}: ${k} ${item} in storage claimed for the ${N}'s yard (stock first)`);
               if (k >= q) continue;
             }
           }
@@ -11454,7 +11470,8 @@ const INITIATIVES_MAX = Number(rawSetting('MC_INITIATIVES') ?? 3), INITIATIVE_GA
 /** MC_INITIATIVE_STORE=off: initiatives gather all their own (s36's rule); on by default since s40 (the user's, 10-20). */
 const INITIATIVE_STORE = !/^(off|0|false)$/i.test(rawSetting('MC_INITIATIVE_STORE') ?? 'on');
 /** #121: the storage yard is due at this share of the storage's slots used, with at most STORE_FREE spots free. */
-const STORE_AT = 0.75, STORE_FREE = 2;
+// (MC_STORAGE_KEEP: the yard at 60% full, before deposits keep stone up to 80%, mcStorage's KEEP_FILL)
+const STORE_AT = STORAGE_KEEP ? 0.6 : 0.75, STORE_FREE = 2;
 
 /**
  * Whether the storage yard is due (#121, pure, for storage_grow.mts): a storage hut, no yard ready or recorded with three
