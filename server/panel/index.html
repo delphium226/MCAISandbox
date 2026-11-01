@@ -23,6 +23,23 @@
     --accent: #6c9cff; --good: #4cc27f; --bad: #ff6b60; --warn: #e5a93b; --info: #a58cff; --chat: #4fc3cf;
     --planning: #a58cff; --thinking: #6c9cff; --acting: #4cc27f; --waiting: #7d8591; --idle: #9aa3ae; --done: #4fc3cf; --backoff: #ff6b60;
   }
+  /* The Overview console's chart colours: eight categories, a sequential blue ramp for busy (low to high), the status
+     colours (the same in both themes, always with an icon and a word) and recessive gridlines */
+  :root {
+    --c1: #2a78d6; --c2: #eb6834; --c3: #1baf7a; --c4: #eda100; --c5: #e87ba4; --c6: #008300; --c7: #6250d6; --c8: #e34948;
+    --h0: #e3ecf7; --h1: #b5cff0; --h2: #78a9e6; --h3: #2a78d6; --h4: #174f99; --track: #dfe7f2;
+    --st-good: #0ca30c; --st-warning: #fab219; --st-serious: #ec835a; --st-critical: #d03b3b; --grid: #e6e9ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --c1: #3987e5; --c2: #d95926; --c3: #199e70; --c4: #c98500; --c5: #d55181; --c6: #008300; --c7: #9085e9; --c8: #e66767;
+      --h0: #22303f; --h1: #184f95; --h2: #256abf; --h3: #3987e5; --h4: #86b6ef; --track: #1c2a3d; --grid: #2a2f37;
+    }
+  }
+  :root[data-theme="dark"] {
+    --c1: #3987e5; --c2: #d95926; --c3: #199e70; --c4: #c98500; --c5: #d55181; --c6: #008300; --c7: #9085e9; --c8: #e66767;
+    --h0: #22303f; --h1: #184f95; --h2: #256abf; --h3: #3987e5; --h4: #86b6ef; --track: #1c2a3d; --grid: #2a2f37;
+  }
   * { box-sizing: border-box; }
   /* (author display rules such as .chip's beat the browser's own [hidden] rule) */
   [hidden] { display: none !important; }
@@ -269,8 +286,89 @@
   .flexrow > .wide { flex: 999 1 560px; min-width: 0; }
   .flexrow > .narrow { flex: 1 1 340px; min-width: 0; }
   .flexrow > .card, .flexrow > .wide > .card { min-width: 0; }
-  #ovMap { flex: 1.6 1 560px; }
-  #ovWho { flex: 1 1 430px; }
+  /* The Overview console (design A): tiles, alerts and projects | the map | society, the member heat table, three charts */
+  .oc-h { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin: 0 0 8px; }
+  .num { font-variant-numeric: tabular-nums; }
+  .oc-tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+  .oc-tile { display: flex; flex-direction: column; gap: 4px; }
+  .oc-tile .oc-h { margin: 0; }
+  .oc-tile .row2 { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; }
+  .oc-val { font-size: 26px; font-weight: 650; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .oc-alert a, .oc-tbl a { color: var(--accent); }
+  .oc-tbl td:first-child a { color: var(--text); text-decoration: none; }
+  .oc-tbl td:first-child a:hover { text-decoration: underline; }
+  .oc-spark { display: flex; align-items: flex-end; gap: 2px; height: 28px; flex: none; }
+  .oc-spark i { width: 4px; border-radius: 2px 2px 0 0; background: var(--line); }
+  .oc-r2 { display: grid; grid-template-columns: 300px minmax(0, 1fr) 340px; gap: 12px; align-items: start; margin-bottom: 12px; }
+  .oc-r2 > .card { display: flex; flex-direction: column; gap: 6px; }
+  .oc-r3 { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, .8fr); gap: 12px; margin: 12px 0; }
+  .oc-r4 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 10px; }
+  #ovRow #worldmap h2 { margin: 0 0 8px; font-size: 11px; }
+  #ovRow canvas.world { height: 520px; }
+  .oc-alert { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .oc-alert:last-child { border-bottom: 0; }
+  .oc-alert .t { font-weight: 600; }
+  .oc-badge { flex: none; min-width: 76px; text-align: center; font-size: 11px; font-weight: 700; border-radius: 4px; padding: 2px 6px; white-space: nowrap; }
+  .oc-badge.critical { background: var(--st-critical); color: #fff; } .oc-badge.serious { background: var(--st-serious); color: #0b0b0b; }
+  .oc-badge.warning { background: var(--st-warning); color: #0b0b0b; } .oc-badge.good { background: var(--st-good); color: #fff; }
+  .oc-proj { display: flex; flex-direction: column; gap: 3px; padding: 4px 0; font-size: 13px; }
+  .oc-proj .top { display: flex; justify-content: space-between; gap: 8px; }
+  .oc-meter { height: 8px; border-radius: 4px; background: var(--track); overflow: hidden; }
+  .oc-meter.thin { height: 6px; border-radius: 3px; }
+  .oc-meter i { display: block; height: 100%; border-radius: 0 4px 4px 0; }
+  .oc-stack { display: flex; height: 18px; gap: 2px; }
+  .oc-stack i { display: block; min-width: 2px; }
+  .oc-stack i:first-child { border-radius: 4px 0 0 4px; } .oc-stack i:last-child { border-radius: 0 4px 4px 0; } .oc-stack i:only-child { border-radius: 4px; }
+  .oc-econ { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .oc-econ b { display: block; font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .oc-econ span { font-size: 11px; color: var(--muted); }
+  .oc-btn { font-size: 12px; padding: 4px 10px; min-height: 30px; }
+  .oc-btn.on { border-color: var(--c1); background: color-mix(in srgb, var(--c1) 18%, var(--panel-2)); }
+  .oc-scroll { overflow-x: auto; }
+  table.oc-tbl { font-size: 12px; }
+  table.oc-tbl th { white-space: nowrap; border-bottom: 1px solid var(--line); }
+  table.oc-tbl td { padding: 3px 6px; white-space: nowrap; vertical-align: middle; }
+  table.oc-tbl tr:hover td { background: var(--panel-2); }
+  .oc-heat { display: flex; gap: 2px; }
+  .oc-heat i { display: block; width: 18px; height: 14px; border-radius: 2px; flex: none; }
+  .oc-key { display: inline-flex; gap: 2px; align-items: center; }
+  .oc-key i { width: 16px; height: 10px; border-radius: 2px; display: inline-block; }
+  .oc-sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; flex: none; }
+  .oc-legend { display: flex; gap: 6px 12px; flex-wrap: wrap; margin-bottom: 8px; font-size: 12px; color: var(--muted); }
+  .oc-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .oc-legend b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .oc-cols { display: flex; align-items: flex-end; gap: 6px; height: 170px; border-bottom: 1px solid var(--line); padding: 0 2px; position: relative;
+    background: linear-gradient(to top, transparent calc(50% - .5px), var(--grid) calc(50% - .5px), var(--grid) calc(50% + .5px), transparent calc(50% + .5px)); }
+  .oc-col { flex: 1; display: flex; flex-direction: column-reverse; gap: 2px; max-width: 24px; margin: 0 auto; height: 100%; }
+  .oc-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); padding-top: 4px; font-variant-numeric: tabular-nums; }
+  .oc-read { font-size: 12px; color: var(--muted); min-height: 18px; font-variant-numeric: tabular-nums; }
+  .oc-line { position: relative; height: 150px; }
+  .oc-line svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .oc-gridl { stroke: var(--grid); stroke-width: 1; vector-effect: non-scaling-stroke; fill: none; }
+  .oc-cross { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--muted); pointer-events: none; }
+  .oc-hits { position: absolute; inset: 0; display: flex; }
+  .oc-hits div { flex: 1; }
+  .oc-ylab { position: absolute; right: 0; font-size: 11px; color: var(--muted); transform: translateY(-2px); pointer-events: none; }
+  .oc-hbar { display: grid; grid-template-columns: 70px minmax(0, 1fr) 64px; gap: 8px; align-items: center; padding: 3px 0; font-size: 12px; }
+  .oc-hbar > div { height: 12px; }
+  .oc-hbar > div i { display: block; height: 12px; min-width: 2px; background: var(--c1); border-radius: 0 4px 4px 0; }
+  .oc-hbar .num { text-align: right; }
+  .oc-dtiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-content: start; }
+  .oc-dtiles > div { border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+  .oc-dtiles b { display: block; font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .oc-dtiles span { font-size: 11px; color: var(--muted); }
+  @media (max-width: 1100px) {
+    .oc-r2 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .oc-r2 #ovMap { grid-column: 1 / -1; order: -1; }
+    .oc-r3, .oc-r4 { grid-template-columns: minmax(0, 1fr); }
+    .oc-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+  @media (max-width: 640px) {
+    .oc-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .oc-r2 { grid-template-columns: minmax(0, 1fr); }
+    .oc-val { font-size: 22px; }
+    .oc-hide-sm { display: none !important; }
+  }
   .offbox { padding: 26px 20px; text-align: center; border: 1px dashed var(--line); border-radius: 10px; background: var(--panel); color: var(--muted); }
   .offbox b { display: block; margin-bottom: 4px; color: var(--text); }
   .mlist { flex: 1 1 290px; max-width: 360px; padding: 10px 8px; }
@@ -279,12 +377,6 @@
   a.mrow[aria-current="page"] { background: color-mix(in srgb, var(--accent) 16%, transparent); }
   a.mrow .nm { font-weight: 650; flex: none; min-width: 56px; }
   a.mrow .doing { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12.5px; }
-  .attn { margin: 0; padding: 0; list-style: none; }
-  .attn li { display: flex; gap: 10px; align-items: baseline; padding: 5px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
-  .attn li:last-child { border-bottom: 0; }
-  .attn .kind { flex: none; font-size: 10.5px; font-weight: 650; color: var(--bg); background: var(--warn); border-radius: 4px; padding: 0 6px; }
-  .attn .kind.bad { background: var(--bad); }
-  .attn .kind.info { background: var(--info); }
   .happened .kind { display: inline-block; width: 58px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
   .twocol { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 6px 24px; }
   /* (the map's activity list overlay only on the full screen: the overview shows who is doing what beside it) */
@@ -296,7 +388,10 @@
     nav.l1 a { flex: 1; justify-content: center; flex-direction: column; gap: 0; min-height: 54px; padding: 0 2px; font-size: 11.5px; border-bottom: 0; border-top: 2px solid transparent; }
     nav.l1 a[aria-current="page"] { border-top-color: var(--accent); }
     nav.l1 .badge, nav.l1 .ncnt { font-size: 9.5px; line-height: 14px; padding: 0 4px; }
+    /* (the fixed Talk bar sits on top of the bottom bar, not under it: the page leaves room for both) */
     body { padding-bottom: 60px; }
+    .talkbar { bottom: 55px; padding: 6px 16px; gap: 6px; }
+    main { padding-bottom: 140px !important; }
     .seg { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; }
     /* (the member chosen first, the list under it; and a header of one or two rows) */
     .mlist { max-width: none; order: 2; }
@@ -337,8 +432,9 @@
   <div class="l2" id="l2"></div>
   <div id="view"></div>
   <!-- (the overview's map row stays in the page: the map's canvas keeps its drag and zoom across the 1 s redraws) -->
-  <div class="flexrow" id="ovRow" hidden>
-    <div class="wide" id="ovMap">
+  <div class="oc-r2" id="ovRow" hidden>
+    <div class="card" id="ovLeft"></div>
+    <div id="ovMap">
     <section id="worldmap" hidden>
       <h2>World map <span class="sub" id="wmInfo" style="text-transform:none;letter-spacing:0"></span></h2>
       <div class="card">
@@ -361,7 +457,7 @@
       </div>
     </section>
     </div>
-    <div class="narrow card" id="ovWho"></div>
+    <div class="card" id="ovSoc"></div>
   </div>
   <div id="ovBottom"></div>
 </main>
@@ -432,7 +528,7 @@ function hrefOf(top, sub, member) {
   return L2[top] ? `#/${top}/${sub || route.sub[top]}` : `#/${top}`;
 }
 /** Fetch what the open tab shows and nothing else (model calls, memory, votes, the member's map). */
-const kick = () => { refreshMaps(); refreshCalls(); refreshExtras(); };
+const kick = () => { refreshMaps(); refreshCalls(); refreshExtras(); refreshFoundry().then(() => lastData && route.sub.run === 'foundry' && render(lastData)); };
 window.addEventListener('hashchange', () => {
   readHash(); saveRoute();
   if (lastData) render(lastData);
@@ -769,9 +865,9 @@ function seenBody(c) {
 // ---- s34: votes, an agent's thoughts and what it carries. Fetched only while their tab is open, every 8 s at most ----
 const extraData = new Map(); // key -> { at, data, err }
 const EXTRA_MS = 8000;
-async function fetchExtra(key, path) {
+async function fetchExtra(key, path, ms = EXTRA_MS) {
   const e = extraData.get(key);
-  if (e && Date.now() - e.at < EXTRA_MS) return false;
+  if (e && Date.now() - e.at < ms) return false;
   extraData.set(key, { ...(e || {}), at: Date.now() });
   try { extraData.set(key, { at: Date.now(), data: await api(path) }); }
   catch (err) { extraData.set(key, { at: Date.now(), data: e && e.data, err: String((err && err.message) || err) }); }
@@ -840,6 +936,8 @@ async function refreshExtras() {
   // (character v2: every member compact for People, the matrix and quartiles for Relations and the Overview's mood card)
   if (v && route.top === 'society' && (sub === 'people' || sub === 'relations')) jobs.push(fetchExtra(`charv:${v.name}`, `/api/character?village=${encodeURIComponent(v.name)}`));
   if (v && route.top === 'overview') jobs.push(fetchExtra(`charv:${v.name}`, `/api/character?village=${encodeURIComponent(v.name)}`));
+  // (the console's series and projects: every 30 s, only while the Overview is open)
+  if (v && route.top === 'overview') jobs.push(fetchExtra(`tl:${v.name}`, `/api/timeline?village=${encodeURIComponent(v.name)}&bin=10`, 30000), fetchExtra(`civic:${v.name}`, `/api/civic?village=${encodeURIComponent(v.name)}`, 30000));
   if (v && ((route.top === 'society' && sub === 'relations') || route.top === 'overview')) jobs.push(fetchExtra(`chars:${v.name}`, `/api/character/series?village=${encodeURIComponent(v.name)}&matrix=${route.top === 'society' ? 1 : 0}`));
   if (!jobs.length) return;
   if ((await Promise.all(jobs)).some(Boolean) && lastData) render(lastData);
@@ -954,7 +1052,7 @@ function villageMoodCard(v) {
   const band = `${pts.map((p) => `${X(p.t)},${Y(p.mood[2])}`).join(' ')} ${[...pts].reverse().map((p) => `${X(p.t)},${Y(p.mood[0])}`).join(' ')}`;
   const line = pts.map((p) => `${X(p.t)},${Y(p.mood[1])}`).join(' ');
   const mins = Math.round((t1 - t0) / 60000);
-  const svg = `<svg width="${W}" height="${H + 14}" viewBox="0 0 ${W} ${H + 14}" role="img" aria-label="village mood over time">
+  const svg = `<svg width="${W}" height="${H + 14}" viewBox="0 0 ${W} ${H + 14}" style="max-width:100%;height:auto" role="img" aria-label="village mood over time">
     <text x="0" y="${Y(top) + 4}" class="sub" font-size="10" fill="var(--muted)">+${top}</text>
     <text x="8" y="${Y(0) + 4}" font-size="10" fill="var(--muted)">0</text>
     <text x="0" y="${Y(-top) + 4}" font-size="10" fill="var(--muted)">-${top}</text>
@@ -2088,23 +2186,6 @@ function ledgerTotals(m) {
   const sold = e.filter(([, l]) => l.bought > 0).sort((x, y) => y[1].bought - x[1].bought), bought = e.filter(([, l]) => l.sold > 0).sort((x, y) => y[1].sold - x[1].sold);
   return { sold, bought };
 }
-/** The simple view's Market card: the merchant (or why there is none), emeralds, what it buys and sells, what was traded. */
-function marketCard(v) {
-  const m = v.market;
-  if (!m) return '';
-  if (!m.here) return `<div class="card"><div class="label">Market</div><div class="empty">No merchant yet: one comes once a market stall stands (members build them as their own projects). Storage holds ${plural(m.emeralds, 'emerald')}.</div></div>`;
-  const buys = (m.offers || []).filter((o) => o.dir === 'buys'), sells = (m.offers || []).filter((o) => o.dir === 'sells');
-  const { sold, bought } = ledgerTotals(m);
-  const row = (o) => `<li><span>${esc(offerWords(o))}</span> ${stockBar(o)}</li>`;
-  return `<div class="card"><div class="label">Market</div>
-      <div class="sub">The merchant stands in the market stall at <span class="mono">${m.x},${m.z}</span>; ${esc(restockText(m))}. Storage holds <b>${plural(m.emeralds, 'emerald')}</b>.</div>
-      <div class="vgrid" style="margin-top:6px"><div class="col"><div class="sub">It buys</div><ul class="list">${buys.map(row).join('')}</ul></div>
-        <div class="col"><div class="sub">It sells</div><ul class="list">${sells.map(row).join('')}</ul></div></div>
-      <div class="section"><div class="label">Traded so far</div>${sold.length || bought.length
-        ? `<div class="mats">${sold.map(([n, l]) => `<span title="sold to the merchant"><b>${l.bought}</b> ${esc(words(n))} sold</span>`).join('')}${bought.map(([n, l]) => `<span title="bought from the merchant"><b>${l.sold}</b> ${esc(words(n))} bought</span>`).join('')}</div>`
-        : '<div class="empty">nothing yet</div>'}</div>
-    </div>`;
-}
 /** What the village does after its buildings: the field, farms, pens, the iron age, lamps and signs. */
 function villageLife(v) {
   const items = [], streets = [];
@@ -2236,20 +2317,55 @@ function overviewStrip(v, agents) {
       ${builds.length ? `<div class="progress" title="${built} of ${builds.length} built"><i style="width:${pct}%"></i></div>` : ''}
     </div>`;
 }
-/** What needs a look, each with a link to its tab: failed tasks, needs nobody answers, members in trouble, the budget. */
-function attention(d, v) {
+/** The console's alert levels: an icon and a word with each colour, worst first. */
+const OC_LEVELS = { critical: ['!', 'critical'], serious: ['!', 'serious'], warning: ['!', 'warning'], good: ['✓', 'good'] };
+const OC_RANK = { critical: 0, serious: 1, warning: 2, good: 3 };
+/**
+ * What needs a look, worst first, each with a link to its tab: the budget spent, failed tasks, needs nobody answers,
+ * members in trouble, and from the console's data a stalled monument, busy under 70% in the last bin, kiln tends that
+ * fail, deaths last night (worlds that are not peaceful); a civic building just finished as good news.
+ */
+function attentionItems(d, v) {
   const out = [];
-  if (v) {
-    for (const t of v.tasks.filter((x) => x.status === 'failed').slice(-3).reverse())
-      out.push(['bad', 'task', `${t.claimedBy ? `${esc(t.claimedBy)}'s ` : ''}<b>${esc(t.title)}</b> failed${t.result ? `: ${esc(t.result)}` : ''}`, '#/village/tasks/failed', 'Village › Tasks']);
-    for (const [k, n] of Object.entries(v.needGauges?.kinds || {}))
-      if (NEED_TROUBLE.has(n.status)) out.push(['', 'need', `${esc(words(k))} ${esc(n.status)}: ${esc(n.text)}`, '#/society/needs', 'Society › Needs']);
-  }
-  for (const a of d.agents.slice().sort(byAgent)) { const f = flags(a); if (f) out.push(['info', 'member', `<b>${esc(a.name)}</b> ${f}`, hrefOf('members', 'now', a.name), 'Members']); }
+  const add = (level, title, sub, href, where) => out.push({ level, title, sub, href, where });
   const b = lastUsage?.budget;
-  if (b?.blocked) out.push(['bad', 'budget', 'cloud calls are paused: the hour\'s token budget is spent', '#/run/cost', 'Run › Models and cost']);
-  if (!out.length) return '<div class="empty">Nothing needs a look.</div>';
-  return `<ul class="attn">${out.slice(0, 8).map(([cls, kind, html, href, where]) => `<li><span class="kind ${cls}">${kind}</span><span>${html} <a href="${href}">${where}</a></span></li>`).join('')}</ul>${out.length > 8 ? `<div class="sub">and ${out.length - 8} more</div>` : ''}`;
+  if (b?.blocked) add('critical', 'Cloud calls are paused', 'the hour\'s token budget is spent', '#/run/cost', 'Run › Models and cost');
+  const now = Date.now();
+  if (v) {
+    const cv = ocData('civic', v), tl = ocData('tl', v);
+    const m = cv?.monument;
+    if (m && m.state !== 'built') {
+      const since = m.lastJobAt || (m.done === 0 ? m.at : null);
+      const idle = since ? (now - since) / 60000 : 0;
+      if (idle > 10) {
+        const k = cv.kiln;
+        add(idle > 30 ? 'critical' : 'serious', `${cap(m.noun)} stalled at job ${m.jobs.done} of ${m.jobs.total ?? '?'}`,
+          `no job built for ${Math.round(idle)} min${m.lastJobAt ? '' : ' (since it began)'}${k && k.failed ? `; the kiln of ${k.furnaces}: ${k.failed} of ${k.tends} tends failed${k.failWhy?.[0] ? ` ("${esc(k.failWhy[0].text)}")` : ''}` : ''}${m.state === 'site' ? '; its site is not chosen yet' : ''}`,
+          '#/village/ladder', 'Village › Ladder');
+      }
+    }
+    const k = cv?.kiln;
+    if (k && k.bans?.length) add('serious', `Kiln tends banned (${k.bans.length})`, `${k.bans.map((x) => esc(x.id.replace('monument:kiln:', 'lane '))).join(', ')} until ${new Date(Math.max(...k.bans.map((x) => x.until))).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, '#/village/ladder', 'Village › Ladder');
+    else if (k && k.failed) add('warning', `${k.failed} of ${k.tends} kiln tends failed`, k.failWhy?.length ? k.failWhy.map((x) => `${esc(x.text)} ×${x.count}`).join(', ') : '', '#/run/choices', 'Run › Choices');
+    const lastBusy = tl?.busy?.length ? tl.busy[tl.busy.length - 1] : null;
+    if (lastBusy != null && lastBusy < 0.7) add('serious', `Busy fell to ${pct0(lastBusy)} in the last ${tl.binMin} min`, `run so far ${pct0(meanOf(tl.busy))}`, '#/run/busy', 'Run › Busy');
+    const dg = world?.danger?.[v.name];
+    if (worldNotPeaceful() && dg?.lastNight?.deaths) add('serious', `${plural(dg.lastNight.deaths, 'death')} last night`, `${plural(dg.lastNight.out, 'member')} out after dark`, '#/overview', 'Survival below');
+    for (const t of v.tasks.filter((x) => x.status === 'failed').slice(-3).reverse())
+      add('serious', `${t.claimedBy ? `${esc(t.claimedBy)}'s ` : ''}${esc(t.title)} failed`, t.result ? esc(t.result) : '', '#/village/tasks/failed', 'Village › Tasks');
+    for (const [kn, n] of Object.entries(v.needGauges?.kinds || {}))
+      if (NEED_TROUBLE.has(n.status)) add('warning', `Need: ${esc(words(kn))} ${esc(n.status)}`, esc(n.text), '#/society/needs', 'Society › Needs');
+    for (const c of cv?.civics || []) if (c.built && now - c.built < 30 * 60000) add('good', `${cap(esc(c.kind))} finished${c.minutes != null ? ` in ${c.minutes} min` : ''}`, `${esc(words(c.preset))} 1:${c.scale}, ${c.blocks} blocks${c.by ? `, chosen by ${esc(c.by)}` : ''}`, '#/village/buildings', 'Village › Buildings');
+  }
+  for (const a of d.agents.slice().sort(byAgent)) { const f = flags(a); if (f) add('warning', esc(a.name), f, hrefOf('members', 'now', a.name), 'Members'); }
+  return out.sort((x, y) => OC_RANK[x.level] - OC_RANK[y.level]);
+}
+function attention(d, v) {
+  const out = attentionItems(d, v);
+  const row = (x) => `<div class="oc-alert"><span class="oc-badge ${x.level}">${OC_LEVELS[x.level][0]} ${OC_LEVELS[x.level][1]}</span><div style="min-width:0"><div class="t">${x.title}</div>`
+    + `<div class="sub">${x.sub ? `${x.sub} · ` : ''}<a href="${x.href}">${x.where}</a></div></div></div>`;
+  if (!out.length) return `<div class="oc-alert"><span class="oc-badge good">✓ good</span><div><div class="t">Nothing needs a look</div></div></div>`;
+  return out.slice(0, 7).map(row).join('') + (out.length > 7 ? `<div class="sub">and ${out.length - 7} more</div>` : '');
 }
 /** What happened: chat, then the village log newest first, with the board's "was not needed" lines folded into one. */
 function happenedList(v, agents) {
@@ -2260,6 +2376,278 @@ function happenedList(v, agents) {
   if (unneeded) lines.push(['board', `${plural(unneeded, 'gather task')} closed unneeded lately: the storage already held enough`]);
   return lines.length ? `<ul class="list happened">${lines.map(([k, h]) => `<li><span class="kind">${k}</span><span class="clamp" title="${esc(h)}">${esc(h)}</span></li>`).join('')}</ul>` : '<div class="empty">nothing yet</div>';
 }
+
+// ---- The Overview console (design A, runs/2026-11-01/panel-design): one screen for "is this run healthy, and if not,
+// why?". Data: /api/timeline and /api/civic (every 30 s while the Overview is open), /api/perf (every 10 s, a ring kept
+// here), /api/status (danger and combat), the overview ----
+const OC_BINS = 12;
+const ocData = (kind, v) => (v ? extraData.get(`${kind}:${v.name}`)?.data || null : null);
+const pct0 = (x) => (x == null ? '–' : `${Math.round(100 * x)}%`);
+const sumOf = (xs) => (xs || []).reduce((s, x) => s + (x || 0), 0);
+const meanOf = (xs) => { const ys = (xs || []).filter((x) => x != null); return ys.length ? sumOf(ys) / ys.length : null; };
+const lastOf = (xs, n = OC_BINS) => (xs || []).slice(-n);
+const worldNotPeaceful = () => (world?.worldRules?.mode ? world.worldRules.mode !== 'peaceful' : !!(world?.danger && Object.keys(world.danger).length));
+/** Chart hover state (which bin or sample), kept across the 1 s redraws; the member table's sort. */
+const ocHover = { fam: -1, p99: -1 };
+let ocSort = store.get('panel.ocSort', 'name');
+/** /api/perf every 10 s: an hour of samples kept while the page is open. */
+const perfRing = [];
+async function refreshPerf() {
+  if (paused || (world && world.kind !== 'minecraft')) return;
+  try {
+    const p = await api('/api/perf');
+    perfRing.push(p);
+    if (perfRing.length > 360) perfRing.splice(0, perfRing.length - 360);
+  } catch {}
+}
+// (the console's chart helpers: inline HTML and SVG; bars at most 24 px with 4 px rounded tops, 2 px lines, 2 px gaps
+// between stacked segments, 1 px recessive gridlines, text in the page's own colours)
+/** A sparkline of bars 4 px wide, the last in `last`; null bars a 2 px stub. */
+function sparkBars(xs, last = 'var(--c1)', tip = '') {
+  if (!xs.length) return '';
+  const mx = Math.max(1e-9, ...xs.map((x) => x || 0));
+  return `<div class="oc-spark" title="${esc(tip)}">${xs.map((x, i) => `<i style="height:${Math.max(2, Math.round((26 * (x || 0)) / mx))}px${i === xs.length - 1 ? `;background:${last}` : ''}"></i>`).join('')}</div>`;
+}
+/** A heat cell on the sequential ramp (0-20-40-60-80-100%); a dashed outline where the member was not seen. */
+function heatCell(x, tip) {
+  const k = x == null ? -1 : x < 0.2 ? 0 : x < 0.4 ? 1 : x < 0.6 ? 2 : x < 0.8 ? 3 : 4;
+  return `<i title="${esc(tip)}" style="${k < 0 ? 'border:1px dashed var(--line)' : `background:var(--h${k})`}"></i>`;
+}
+/** Stacked columns, one per bin: `series` [{name, color, vals}], the hovered bin full and the rest faded. */
+function stackedColumns(series, n, hover, labels, key) {
+  const tot = Array.from({ length: n }, (_, i) => sumOf(series.map((s) => s.vals[i])));
+  const mx = Math.max(1, ...tot), H = 160;
+  const cols = Array.from({ length: n }, (_, i) => {
+    const segs = series.filter((s) => s.vals[i] > 0);
+    return `<div class="oc-col" data-ochover="${key}:${i}" style="opacity:${hover < 0 || hover === i ? 1 : 0.45}">${segs.map((s, k) => `<div title="${esc(`${s.name}, ${labels[i]}: ${s.vals[i]}`)}" style="height:${Math.max(1, Math.round((s.vals[i] * H) / mx) - 2)}px;background:${s.color};border-radius:${k === segs.length - 1 ? '4px 4px 0 0' : '0'}"></div>`).join('')}</div>`;
+  });
+  return `<div class="oc-cols" data-ocleave="${key}"><span class="oc-ylab" style="top:2px;right:2px">${mx}</span><span class="oc-ylab" style="top:50%;right:2px">${Math.round(mx / 2)}</span>${cols.join('')}</div>`;
+}
+/** A line of samples [{v}] (a 2 px line over a faint area), gridlines at the top and half way, and a crosshair. */
+function lineChart(pts, hover, key, unit) {
+  const n = pts.length, W = 240, H = 100;
+  const raw = Math.max(1, ...pts.map((p) => p.v));
+  const step = 10 ** Math.floor(Math.log10(raw)), top = Math.ceil(raw / step) * step;
+  const xy = pts.map((p, i) => [(i * W) / Math.max(1, n - 1), H - (Math.min(p.v, top) / top) * H]);
+  const d = `M${xy.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join('L')}`;
+  const cross = hover >= 0 && hover < n ? `<div class="oc-cross" style="left:${(hover * 100) / Math.max(1, n - 1)}%"></div>` : '';
+  return `<div class="oc-line" data-ocleave="${key}"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M0 0.5H${W}M0 ${H / 2}H${W}" class="oc-gridl"/><path d="${d}L${W} ${H}L0 ${H}Z" fill="var(--c1)" fill-opacity="0.12"/>
+      <path d="${d}" fill="none" stroke="var(--c1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>
+    ${cross}<span class="oc-ylab" style="top:0">${top} ${unit}</span><span class="oc-ylab" style="top:50%">${top / 2}</span>
+    <div class="oc-hits">${pts.map((_, i) => `<div data-ochover="${key}:${i}"></div>`).join('')}</div></div>`;
+}
+/** Horizontal bars [{name, v, label, tip}], scaled to the largest. */
+function hbars(rows) {
+  const mx = Math.max(1, ...rows.map((r) => r.v));
+  return rows.map((r) => `<div class="oc-hbar" title="${esc(r.tip)}"><span class="sub">${esc(r.name)}</span><div><i style="width:${Math.round((100 * r.v) / mx)}%"></i></div><span class="num">${esc(r.label)}</span></div>`).join('');
+}
+/** The run's bins as "+a to +b min" (since the village's first chore). */
+const binLabel = (tl, idx) => `+${idx * tl.binMin} to +${(idx + 1) * tl.binMin} min`;
+/** Perf samples bucketed into at most `n` points, each its bucket's worst p99 (a stall shows). */
+function perfPoints(n) {
+  const xs = perfRing.filter((p) => p && p.loop);
+  if (xs.length <= n) return xs.map((p) => ({ v: p.loop.p99, at: p.at, max: p.loop.max }));
+  const k = Math.ceil(xs.length / n), out = [];
+  for (let i = 0; i < xs.length; i += k) {
+    const g = xs.slice(i, i + k);
+    out.push({ v: Math.max(...g.map((p) => p.loop.p99)), at: g[g.length - 1].at, max: Math.max(...g.map((p) => p.loop.max)) });
+  }
+  return out;
+}
+const tile = (label, value, sub, spark = '') => `<div class="card oc-tile"><div class="oc-h">${label}</div><div class="row2"><div class="oc-val">${value}</div>${spark}</div><div class="sub">${sub}</div></div>`;
+/** The tile row: busy now, homes, cost, failures, loop p99 (walk stalls: no count is kept in memory). */
+function consoleTiles(d, v) {
+  const tl = ocData('tl', v), cv = ocData('civic', v);
+  const bins = tl ? lastOf(tl.busy) : [];
+  const now = bins.length ? bins[bins.length - 1] : null;
+  const busyFb = busyShare(d.agents.filter((a) => a.village === v.name).map((a) => a.name));
+  const t = lastUsage?.total;
+  const fails = tl ? sumOf(tl.failed) : null;
+  const p = perfRing[perfRing.length - 1];
+  const pp = perfPoints(OC_BINS).map((x) => x.v);
+  const h = cv?.homes;
+  return `<section class="oc-tiles" aria-label="Run at a glance">${[
+    tile('Busy now', pct0(now ?? busyFb), tl ? `last ${tl.binMin} min · run ${pct0(meanOf(tl.busy))}` : 'last hour (the timeline is loading)',
+      sparkBars(bins, now != null && now < 0.7 ? 'var(--st-serious)' : 'var(--c1)', tl ? `busy by ${tl.binMin}-min bin: ${bins.map(pct0).join(', ')}` : '')),
+    tile('Homes', h ? `${h.owned} / ${h.members}` : '–', h ? `${plural(h.neighbourhoods, 'neighbourhood')} · ${plural(h.built, 'house')} built${h.growing ? ' · growing' : ''}` : 'houses with an owner, of members'),
+    tile('Cost', t ? `$${(t.cost ?? 0).toFixed(2)}` : '–', t ? `${fmtTok((t.promptTokens || 0) + (t.outputTokens || 0))} tokens · ${t.calls || 0} calls` : 'no model calls yet',
+      tl ? sparkBars(lastOf(tl.tokens), 'var(--c1)', `tokens by ${tl.binMin}-min bin: ${lastOf(tl.tokens).map((x) => (x == null ? '–' : fmtTok(x))).join(', ')}`) : ''),
+    tile('Failures', fails ?? '–', tl?.failWhy?.[0] ? `top: ${esc(tl.failWhy[0].text)} ×${tl.failWhy[0].count}` : 'failed chores this run',
+      tl ? sparkBars(lastOf(tl.failed), 'var(--c8)', `failed chores by ${tl.binMin}-min bin: ${lastOf(tl.failed).join(', ')}`) : ''),
+    tile('Loop p99', p ? `${Math.round(p.loop.p99)} ms` : '–', p ? `max ${Math.round(p.loop.max)} ms · rss ${(p.rss / 2 ** 30).toFixed(2)} GB · tick p99 ${p.tick?.p99 ?? '–'} ms` : 'event loop, from /api/perf',
+      pp.length > 1 ? sparkBars(pp, 'var(--c1)', `loop p99 (ms), the worst in each part of the last ${Math.round((perfRing.length * 10) / 60)} min: ${pp.map(Math.round).join(', ')}`) : ''),
+  ].join('')}</section>`;
+}
+/** The projects: civic buildings, the monument's jobs, the ladder's stage, growth. */
+function projectsHtml(v) {
+  const cv = ocData('civic', v);
+  if (!cv) return '<div class="empty">loading…</div>';
+  const rows = [];
+  const row = (name, val, pct, c, sub) => rows.push(`<div class="oc-proj"><div class="top"><span style="font-weight:600">${name}</span><span class="num sub">${val}</span></div>`
+    + `<div class="oc-meter"><i style="width:${Math.max(0, Math.min(100, pct))}%;background:${c}"></i></div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`);
+  for (const c of cv.civics) row(esc(cap(words(c.preset))), c.skipped ? 'given up' : 'built', c.skipped ? 0 : 100, c.skipped ? 'var(--st-critical)' : 'var(--st-good)',
+    `${esc(c.kind)} 1:${c.scale}, ${c.blocks} blocks${c.minutes != null ? ` in ${c.minutes} min` : ''}${c.skipped ? `: ${esc(c.skipped)}` : ''}`);
+  const m = cv.monument;
+  if (m) {
+    const idle = m.state !== 'built' && (m.lastJobAt || m.at) && Date.now() - (m.lastJobAt || m.at) > 10 * 60000;
+    const yard = Object.entries(m.yard || {}).sort((x, y) => y[1] - x[1]).slice(0, 2).map(([n, q]) => `${q} ${words(n)}`).join(', ');
+    row(`${esc(cap(words(m.preset)))} <span class="sub">(${esc(m.noun)} 1:${m.scale})</span>`, `${m.jobs.done} / ${m.jobs.total ?? '?'} jobs`, m.jobs.total ? (100 * m.jobs.done) / m.jobs.total : 0,
+      m.state === 'built' ? 'var(--st-good)' : idle ? 'var(--st-critical)' : 'var(--c1)',
+      `${m.state}${m.stage ? `, stage ${m.stage}${m.stages[m.stage - 1]?.name ? ` (${esc(m.stages[m.stage - 1].name)})` : ''}` : ''}${m.blocks.total ? ` · ${m.blocks.done} of ${m.blocks.total} blocks` : ''}${m.kiln ? ` · kiln of ${m.kiln.furnaces} (${m.kiln.tends} tends)` : ''}${yard ? ` · yard ${esc(yard)}` : ''}`);
+  }
+  const l = cv.ladder;
+  if (l && l.name) row(esc(l.name), `stage ${Math.min(l.stage + 1, l.stages)} of ${l.stages}`, l.stages ? (100 * l.stage) / l.stages : 0, 'var(--c1)', `${esc(l.words || '')}${l.reached.length ? ` · reached: ${esc(l.reached.join(', '))}` : ''}`);
+  else if (l && l.reached.length) row('Ladder of ages', 'all reached', 100, 'var(--st-good)', esc(l.reached.join(', ')));
+  const h = cv.homes;
+  if (h) row('Growth', plural(h.owned, 'home'), h.members ? (100 * h.owned) / h.members : 0, 'var(--c1)', `${plural(h.neighbourhoods, 'neighbourhood')}, ${plural(h.built, 'house')} built${h.growing ? '; growing now' : ''}`);
+  return rows.join('') || '<div class="empty">no civic building, monument or ladder yet</div>';
+}
+/** Society: laws in force (their vote), pursuits by state, trade and food. */
+function societyHtml(v) {
+  const cv = ocData('civic', v), s = cv?.society;
+  let html = '';
+  if (s?.laws) {
+    html += s.laws.length ? s.laws.slice(-4).map((r) => {
+      const y = r.votes?.yes ?? 0, n = r.votes?.no ?? 0, share = y + n ? Math.round((100 * y) / (y + n)) : 0;
+      return `<div class="oc-proj"><div class="top"><span>${esc(r.text)}</span><span class="num sub">${share}% yes</span></div><div class="oc-meter thin"><i style="width:${share}%;background:var(--c1)"></i></div>`
+        + `<div class="sub">${r.votes ? `${y} yes, ${n} no${r.votes.abstain ? `, ${r.votes.abstain} abstained` : ''}` : 'in force'} · since ${ago(r.since)} ago</div></div>`;
+    }).join('') : '<div class="empty">no law in force yet</div>';
+    html += `<div class="sub">${s.passed} passed of ${s.proposed} proposed${s.laws.length > 4 ? `; ${s.laws.length} in force, the newest 4 shown` : ''} · compliance is in the run's acts log, not kept live</div>`;
+  } else html += '<div class="sub">Rules are off in this run (MC_RULES).</div>';
+  const p = s?.pursuits;
+  if (p) {
+    const parts = [['stalled', p.stalled, 'var(--st-critical)'], ['dropped', p.dropped, 'var(--c4)'], ['active', p.active, 'var(--c1)'], ['done', p.done, 'var(--st-good)']];
+    const tot = sumOf(parts.map((x) => x[1]));
+    html += `<div class="oc-h" style="margin:8px 0 0">Wants and pursuits</div>${tot ? `<div class="oc-stack" title="${tot} pursuits: ${parts.map(([k, n]) => `${n} ${k}`).join(', ')}">${parts.filter((x) => x[1]).map(([, n, c]) => `<i style="flex:${n};background:${c}"></i>`).join('')}</div>` : ''}
+      <div class="sub num" style="display:flex;gap:12px;flex-wrap:wrap">${parts.map(([k, n, c]) => `<span><span class="oc-sw" style="background:${c}"></span> ${k} ${n}</span>`).join('')}</div>`;
+  }
+  // (trade and food from the overview: the merchant's ledger, fish in storage, the appetite)
+  const sum = {};
+  for (const c of v.storage?.chests || []) for (const [nm, q] of Object.entries(c.items || {})) sum[nm] = (sum[nm] || 0) + q;
+  const count = (re) => Object.entries(sum).filter(([nm]) => re.test(nm)).reduce((t, [, q]) => t + q, 0);
+  const m = v.market, fd = villageFood(v);
+  const traded = m?.here ? Object.values(m.ledger || {}).reduce((t, l) => t + l.bought + l.sold, 0) : null;
+  const members = (lastData?.agents || []).filter((a) => a.village === v.name).length;
+  const econ = [[m ? (m.emeralds ?? 0) : '–', 'emeralds stored'], [traded ?? '–', m?.here ? 'items traded' : 'no merchant yet'], [count(/^(cod|salmon|pufferfish|tropical_fish)$/), 'raw fish stored'],
+    [count(/^cooked_(cod|salmon)$/), 'cooked fish stored'], [fd ? fd.meals : '–', 'meals eaten'], [fd && members ? pct0(fd.hungry.length / members) : '–', 'hungry']];
+  html += `<div class="oc-h" style="margin:8px 0 0">Trade and food</div><div class="oc-econ">${econ.map(([x, k]) => `<div><b>${esc(x)}</b><span>${esc(k)}</span></div>`).join('')}</div>`;
+  return html;
+}
+/** The member table: a busy strip of the last 12 bins, sortable by name, least busy or most failures. */
+function memberTable(d, v) {
+  const tl = ocData('tl', v);
+  if (!tl) return card('Members', '<div class="empty">loading the timeline…</div>');
+  const n = tl.bins, from = Math.max(0, n - OC_BINS);
+  let rows = tl.members.slice();
+  const avg = (m) => (m.avg ?? meanOf(m.chore) ?? 0);
+  if (ocSort === 'busy') rows.sort((x, y) => avg(x) - avg(y));
+  else if (ocSort === 'fail') rows.sort((x, y) => y.failed - x.failed || x.name.localeCompare(y.name));
+  else rows.sort((x, y) => (x.role === 'mayor' ? -1 : 0) - (y.role === 'mayor' ? -1 : 0) || x.name.localeCompare(y.name, undefined, { numeric: true }));
+  const btn = (k, label) => `<button type="button" class="oc-btn${ocSort === k ? ' on' : ''}" data-ocsort="${k}">${label}</button>`;
+  const PST = { active: 'var(--c1)', stalled: 'var(--st-critical)', dropped: 'var(--c4)', done: 'var(--st-good)' };
+  const body = rows.map((m) => {
+    const cells = lastOf(m.busy).map((x, i) => heatCell(x, `${m.name}, ${binLabel(tl, from + i)}: ${x == null ? 'not seen' : `${pct0(x)} busy`}; chore time ${pct0(m.chore[from + i])}`)).join('');
+    return `<tr><td style="font-weight:600"><a href="${hrefOf('members', 'now', m.name)}">${esc(m.name)}</a></td><td class="sub">${esc(m.top || '–')}</td><td class="sub">${esc(m.goal || '–')}</td>
+      <td><div class="oc-heat">${cells}</div></td><td class="num">${pct0(m.avg)}</td><td class="num">${m.choices}</td><td class="num">${m.failed}</td><td class="num sub">${fmtTok(m.tokens || 0)}</td>
+      <td class="sub">${m.pursuit ? `<span class="oc-sw" style="border-radius:50%;background:${PST[m.pursuit.state] || 'var(--muted)'}" title="${esc(m.pursuit.state)}"></span> ${esc(m.pursuit.label)} <span class="num">${esc(m.pursuit.of || '')}</span>` : '–'}</td></tr>`;
+  }).join('');
+  const key = [0, 1, 2, 3, 4].map((k) => `<i style="background:var(--h${k})"></i>`).join('');
+  return `<section class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      <div class="oc-h" style="margin:0">Members: busy share by ${tl.binMin}-minute bin</div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="sub">sort</span>${btn('name', 'name')}${btn('busy', 'least busy')}${btn('fail', 'most failures')}
+        <span class="sub oc-hide-sm" style="margin-left:8px">0%</span><span class="oc-key oc-hide-sm">${key}</span><span class="sub oc-hide-sm">100%</span></div></div>
+    <div class="oc-scroll"><table class="oc-tbl"><thead><tr><th>Member</th><th>Mostly</th><th>Life goal</th><th>Busy, ${esc(binLabel(tl, from).split(' to ')[0])} to +${n * tl.binMin} min</th><th>Avg</th><th>Choices</th><th>Failed</th><th>Tokens</th><th>Pursuit</th></tr></thead><tbody>${body}</tbody></table></div>
+    <div class="sub" style="margin-top:6px">Busy: an action running (the utilisation clock); a cell's tooltip adds its chore time (a choice to its end). Choices, failures and tokens since ${new Date(tl.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.${tl.notes?.length ? ` Partial: ${esc(tl.notes.join('; '))}.` : ''}</div></section>`;
+}
+/** The three charts: choice families by bin, loop p99 over time, tokens by call kind. */
+function consoleCharts(v) {
+  const tl = ocData('tl', v);
+  let fam = '<div class="empty">loading…</div>';
+  if (tl) {
+    const n = Math.min(OC_BINS, tl.bins), from = tl.bins - n;
+    const names = [...FAMILY_ORDER, ...Object.keys(tl.families).filter((k) => !FAMILY_ORDER.includes(k))];
+    const series = names.filter((k) => tl.families[k]).map((k, i) => ({ name: k, color: i < 8 ? `var(--c${i + 1})` : 'var(--muted)', vals: tl.families[k].slice(from) }));
+    const labels = Array.from({ length: n }, (_, i) => binLabel(tl, from + i));
+    const hb = ocHover.fam < n ? ocHover.fam : -1;
+    const tot = Array.from({ length: n }, (_, i) => sumOf(series.map((s) => s.vals[i])));
+    const legend = series.map((s) => `<span><span class="oc-sw" style="background:${s.color}"></span>${esc(s.name)} <b>${hb < 0 ? sumOf(s.vals) : s.vals[hb]}</b></span>`).join('');
+    const top = hb >= 0 ? series.filter((s) => s.vals[hb]).sort((x, y) => y.vals[hb] - x.vals[hb])[0] : null;
+    fam = `<div class="oc-legend">${legend}</div>${stackedColumns(series, n, hb, labels, 'fam')}
+      <div class="oc-axis"><span>${esc(labels[0]?.split(' to ')[0] || '')}</span><span>${esc(labels[Math.floor(n / 2)]?.split(' to ')[0] || '')}</span><span>+${tl.bins * tl.binMin} min</span></div>
+      <div class="oc-read" style="margin-top:6px">${hb < 0 ? `${sumOf(tot)} choices in the last ${n * tl.binMin} min; hover a column for its ${tl.binMin} minutes.` : `${esc(labels[hb])}: ${tot[hb]} choices${top ? `, most ${esc(top.name)} (${top.vals[hb]})` : ''}.`}</div>`;
+  }
+  const pts = perfPoints(90);
+  const hp = ocHover.p99 < pts.length ? ocHover.p99 : -1;
+  const p99 = pts.length < 2 ? '<div class="empty">collecting samples (one every 10 s)…</div>'
+    : `<div class="oc-read">${hp < 0 ? `median ${Math.round(pts.map((x) => x.v).sort((a, b) => a - b)[Math.floor(pts.length / 2)])} ms over ${Math.round((perfRing.length * 10) / 60)} min; hover for a point` : `${new Date(pts[hp].at).toLocaleTimeString()}: p99 ${Math.round(pts[hp].v)} ms, max ${Math.round(pts[hp].max)} ms`}</div>
+      ${lineChart(pts, hp, 'p99', 'ms')}<div class="oc-axis"><span>${new Date(pts[0].at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><span>now</span></div>`;
+  const kinds = tl ? Object.entries(tl.byKind || {}).map(([k, x]) => ({ name: k, v: x.tokens, calls: x.calls })) : [];
+  const byModel = !kinds.length && lastUsage?.byModel ? Object.entries(lastUsage.byModel).map(([k, x]) => ({ name: k, v: (x?.promptTokens || 0) + (x?.outputTokens || 0), calls: x?.calls || 0 })) : [];
+  const kr = (kinds.length ? kinds : byModel).filter((x) => x.v > 0).sort((x, y) => y.v - x.v);
+  const ktot = sumOf(kr.map((x) => x.v));
+  const tok = kr.length ? hbars(kr.slice(0, 9).map((x) => ({ name: x.name, v: x.v, label: fmtTok(x.v), tip: `${x.name}: ${x.calls} calls, ${fmtTok(x.v)} tokens` })))
+    + `<div class="sub" style="margin-top:6px">${esc(kr[0].name)} takes ${pct0(kr[0].v / ktot)} of ${fmtTok(ktot)} tokens${kinds.length ? ' (the village\'s members, since its first chore)' : ' (every call, by model)'}. Hover a bar for its call count.</div>`
+    : '<div class="empty">no model calls yet</div>';
+  return `<section class="oc-r3"><div class="card"><div class="oc-h">What members chose, by ${tl ? tl.binMin : 10}-minute bin</div>${fam}</div>
+    <div class="card"><div class="oc-h">Event-loop p99</div>${p99}</div>
+    <div class="card"><div class="oc-h">Tokens by ${kinds.length ? 'call kind' : 'model'}</div>${tok}</div></section>`;
+}
+const FAMILY_ORDER = ['making goods', 'building', 'gathering', 'care and light', 'farms and pens', 'new crafts', 'own goods', 'eat and rest'];
+/** Survival, only in a world that is not peaceful: the danger count, deaths by time of day, kills. */
+function survivalCard(v) {
+  if (!worldNotPeaceful()) return '';
+  const dg = world?.danger?.[v.name], cb = world?.combat;
+  if (!dg) return card('Survival', `<div class="empty">no danger count for ${esc(v.name)} yet (it starts once a game minute in a mob mode)</div>`);
+  const deaths = sumOf(Object.values(dg.deaths || {})), kills = sumOf(Object.values(cb?.kills || {}));
+  const watchers = Object.keys(dg.watchNights || {}).length, watches = sumOf(Object.values(dg.watchNights || {}));
+  const tiles = [[`${dg.near48} / ${dg.near96}`, 'hostiles within 48 / 96 now'], [`${dg.peak48} / ${dg.peak96}`, 'night peak within 48 / 96'],
+    [Math.round(dg.outMin), `member-min out after dark (farthest ${Math.round(dg.outMax)})`], [dg.spawnsIn, 'spawns inside the bounds'],
+    [watchers, `members who kept watch (${watches} watches)`], [dg.night?.out?.length ?? 0, 'out after dark tonight'], [deaths, 'deaths'], [kills, `mobs killed${cb ? ` (${cb.fights} fights, ${cb.flees} flees)` : ''}`]];
+  const ph = [['day', dg.deathsPhase?.day || 0], ['dusk', dg.deathsPhase?.dusk || 0], ['night', dg.deathsPhase?.night || 0]];
+  const mx = Math.max(1, ...ph.map((x) => x[1])), H = 130;
+  const cols = ph.map(([k, n]) => `<div style="display:flex;flex-direction:column;align-items:center;gap:4px"><span class="num" style="font-size:12px">${n}</span><div title="${n} deaths at ${k}" style="width:24px;height:${Math.max(2, Math.round((n * H) / mx))}px;background:var(--c8);border-radius:4px 4px 0 0"></div></div>`).join('');
+  const dist = Object.entries(dg.deaths || {}).map(([b, n]) => `${n} at ${esc(b)}`).join(', ');
+  const killed = Object.entries(cb?.kills || {}).sort((x, y) => y[1] - x[1]).slice(0, 5).map(([k, n]) => `${n} ${words(k)}`).join(', ');
+  return `<section class="card" style="margin-top:12px"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline"><div class="oc-h" style="margin:0">Survival</div><div class="sub">${esc(world.worldRules?.summary || world.worldRules?.mode || '')}</div></div>
+    <div class="oc-r4"><div class="oc-dtiles">${tiles.map(([x, k]) => `<div><b>${esc(x)}</b><span>${esc(k)}</span></div>`).join('')}</div>
+      <div><div class="sub" style="margin-bottom:6px">Deaths by time of day</div><div style="display:flex;align-items:flex-end;justify-content:space-around;height:${H + 24}px;border-bottom:1px solid var(--line)">${cols}</div>
+        <div class="sub" style="display:flex;justify-content:space-around;padding-top:4px">${ph.map(([k]) => `<span>${k}</span>`).join('')}</div></div>
+      <div class="sub"><div style="margin-bottom:6px">Last night: ${dg.lastNight ? `${plural(dg.lastNight.out, 'member')} out after dark, ${plural(dg.lastNight.deaths, 'death')}` : 'none ended yet'}; tonight so far: ${plural(dg.night?.deaths || 0, 'death')}.</div>
+        ${dist ? `<div>Where they died, from home: ${dist}.</div>` : ''}${killed ? `<div>Killed: ${esc(killed)}.</div>` : ''}</div></div></section>`;
+}
+/** The rest of the Overview under the console: the village head, its mood, who is doing what, what happened. */
+function overviewBottom(d, v) {
+  const inV = v ? d.agents.filter((a) => a.village === v.name) : [];
+  const loose = d.agents.filter((a) => !a.village || !d.villages.some((x) => x.name === a.village));
+  const who = `<div class="wide card"><div class="label" style="display:flex;gap:8px"><span>Who is doing what</span><span class="spacer"></span><a href="${hrefOf('members')}" style="text-transform:none;letter-spacing:0">All members</a></div>`
+    + (v ? simpleAgents(inV, v.name) : '') + (loose.length || !v ? `${v ? '<div class="label" style="margin-top:12px">In no village</div>' : ''}${simpleAgents(loose, 'loose')}` : '') + '</div>';
+  const happened = `<div class="narrow card"><div class="label" style="display:flex;gap:8px"><span>What happened</span><span class="spacer"></span><a href="#/run/events" style="text-transform:none;letter-spacing:0">Every event</a></div>${happenedList(v, d.agents)}</div>`;
+  if (!v) return `<div class="flexrow">${who}${happened}</div>`;
+  return memberTable(d, v) + consoleCharts(v) + survivalCard(v)
+    + `<h2>The village</h2>${overviewStrip(v, inV)}${villageMoodCard(v)}<div class="flexrow" style="margin-top:14px">${who}${happened}</div>`;
+}
+document.addEventListener('mouseover', (e) => {
+  const t = e.target instanceof Element ? e.target : null;
+  const h = t?.closest('[data-ochover]');
+  let changed = false;
+  if (h) {
+    const [k, i] = h.dataset.ochover.split(':');
+    if (ocHover[k] !== Number(i)) { ocHover[k] = Number(i); changed = true; }
+  } else {
+    // (off a chart: its hover goes)
+    const inside = t?.closest('[data-ocleave]')?.dataset.ocleave;
+    for (const k of Object.keys(ocHover)) if (k !== inside && ocHover[k] !== -1) { ocHover[k] = -1; changed = true; }
+  }
+  if (changed && lastData && route.top === 'overview') render(lastData);
+});
+document.addEventListener('click', (e) => {
+  const b = e.target.closest?.('[data-ocsort]');
+  if (!b) return;
+  ocSort = b.dataset.ocsort;
+  store.set('panel.ocSort', ocSort);
+  if (lastData) render(lastData);
+});
 
 // ---- Run: is the run healthy, and what does it cost ----
 let lastUsage = null, modelsInfo = null;
@@ -2369,7 +2757,8 @@ function runTab(d, v, tab) {
 // where it stands and why ----
 let foundryReqs = null;
 async function refreshFoundry() {
-  if (paused) return;
+  // (only while its tab is open: kick() fetches it when the tab opens)
+  if (paused || route.top !== 'run' || route.sub.run !== 'foundry') return;
   try { foundryReqs = await api('/api/foundry/requests'); } catch { foundryReqs = null; }
 }
 const REQ_GROUPS = [
@@ -2452,7 +2841,7 @@ function viewHtml(d, v) {
   if (top === 'members') return membersView(d);
   if (top === 'run') return runTab(d, v, sub);
   if (!v) return top === 'overview' ? '' : '<div class="offbox"><b>No village yet</b>The mayor has not laid one out.</div>';
-  if (top === 'overview') return overviewStrip(v, d.agents.filter((a) => a.village === v.name)) + villageMoodCard(v);
+  if (top === 'overview') return consoleTiles(d, v);
   if (top === 'village') return villageTab(v, sub);
   if (top === 'society') return societyTab(v, sub);
   if (top === 'economy') return economyTab(v, sub);
@@ -2519,13 +2908,11 @@ function renderNow(d) {
   $('ovRow').hidden = !ov;
   $('ovMap').hidden = $('worldmap').hidden;
   if (ov) {
-    const inV = v ? d.agents.filter((a) => a.village === v.name) : [];
-    const loose = d.agents.filter((a) => !a.village || !d.villages.some((x) => x.name === a.village));
-    $('ovWho').innerHTML = `<div class="label" style="display:flex;gap:8px"><span>Who is doing what</span><span class="spacer"></span><a href="${hrefOf('members')}" style="text-transform:none;letter-spacing:0">All members</a></div>`
-      + (v ? simpleAgents(inV, v.name) : '') + (loose.length || !v ? `${v ? '<div class="label" style="margin-top:12px">In no village</div>' : ''}${simpleAgents(loose, 'loose')}` : '');
-    $('ovBottom').innerHTML = `<div class="flexrow"><div class="narrow card"><div class="label">Needs a look</div>${attention(d, v)}</div>
-      <div class="narrow card"><div class="label" style="display:flex;gap:8px"><span>What happened</span><span class="spacer"></span><a href="#/run/events" style="text-transform:none;letter-spacing:0">Every event</a></div>${happenedList(v, d.agents)}</div></div>`;
-  } else { $('ovWho').innerHTML = ''; $('ovBottom').innerHTML = ''; }
+    $('ovLeft').innerHTML = `<div class="oc-h">Needs a look</div>${attention(d, v)}${v ? `<div class="oc-h" style="margin-top:8px">Projects</div>${projectsHtml(v)}` : ''}`;
+    $('ovSoc').hidden = !v;
+    $('ovSoc').innerHTML = v ? `<div class="oc-h">Society</div>${societyHtml(v)}` : '';
+    $('ovBottom').innerHTML = overviewBottom(d, v);
+  } else { $('ovLeft').innerHTML = ''; $('ovSoc').innerHTML = ''; $('ovBottom').innerHTML = ''; }
   drawMaps();
   drawWorld();
 }
@@ -2829,7 +3216,7 @@ async function refreshHeader() {
     world = { kind: s.world === 'minecraft' ? 'minecraft' : 'sandbox', ...s };
     $('world').innerHTML = world.kind === 'minecraft'
       ? `<span class="dot" style="background:var(--good)"></span> <b>Minecraft ${esc(s.version)}</b> ${esc(s.server)}` +
-        (s.worldRules ? ` <span class="sub" style="color:${s.worldRules.ok ? 'inherit' : 'var(--bad)'}" title="${esc(s.worldRules.problems.join('; '))}">${esc(s.worldRules.ok ? 'peaceful, no damage' + (s.worldRules.tickRate && s.worldRules.tickRate !== 20 ? `, ${s.worldRules.tickRate / 20}x speed` : '') : s.worldRules.summary)}</span>` : '')
+        (s.worldRules ? ` <span class="sub" style="color:${s.worldRules.ok ? 'inherit' : 'var(--bad)'}" title="${esc(s.worldRules.problems.join('; '))}">${esc(s.worldRules.ok ? (s.worldRules.mode && s.worldRules.mode !== 'peaceful' ? s.worldRules.summary : 'peaceful, no damage') + (s.worldRules.tickRate && s.worldRules.tickRate !== 20 ? `, ${s.worldRules.tickRate / 20}x speed` : '') : s.worldRules.summary)}</span>` : '')
       : `<span class="dot" style="background:var(--good)"></span> <b>Sandbox</b> seed ${esc(s.seed)}, ${Math.round(s.mspt * 10) / 10} ms/tick`;
     $('mcWatch').hidden = world.kind !== 'minecraft';
     $('worldmap').hidden = world.kind !== 'minecraft';
@@ -2853,7 +3240,9 @@ setInterval(refreshScorecard, 60000); // #80: a sample a minute
 refreshTechTrees();
 setInterval(refreshTechTrees, 30000); // the tech tree changes as goods are made
 refreshFoundry();
-setInterval(refreshFoundry, 30000); // G6: the foundry's requests move by the hour
+setInterval(refreshFoundry, 30000); // G6: the foundry's requests move by the hour (fetched only while their tab is open)
+refreshPerf();
+setInterval(refreshPerf, 10000); // the console's loop p99 line: a sample every 10 s, an hour kept
 refreshMaps();
 setInterval(refreshMaps, 2000);
 setTimeout(refreshWorldAtlas, 1500);

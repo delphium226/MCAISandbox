@@ -22,6 +22,10 @@
  *                       entries, linked by the recipes plans use), for the Tech tab's graph; computed at most every 30 s
  *   GET /api/scorecard  #80's thriving scorecard per complete village: 10-minute points, hours and the pass mark, from a
  *                       sample a minute this process keeps from its first request (a day of them) and the busy history
+ *   GET /api/timeline   the Overview console's series for ?village= by ?bin= minutes (10): busy, choice families, failed
+ *                       chores and tokens per bin since the first chore, and per member; kept 30 s
+ *   GET /api/civic      ?village=: civic buildings, the monument's jobs, stages, yard and kiln (tends, failures, bans), the
+ *                       ladder's stage, homes, laws and pursuits
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -53,6 +57,10 @@ import { CHARACTER, glance, identityOf, memberView, seriesView, villageView } fr
 import { phaseLine } from './society';
 import { LADDER, ladderView } from './ladder';
 import { rawSetting } from './settings';
+import type { ChoiceOutcome } from './choose';
+import { currentStage, monumentNoun, monumentPlan, monumentType } from './monument';
+import { civicsOf } from './civic';
+import { WANTS, wantsOf } from './pursuits';
 
 /** A design's elevations, or nothing for a malformed one (villages.json is read unchecked; one must not break the panel). */
 function safeElevations(d: Design): string {
@@ -331,6 +339,223 @@ async function loadedModels() {
   return { ok: errors.length < urls.length, error: errors.join('; ') || undefined, models };
 }
 
+// ---- The Overview console's series (GET /api/timeline, GET /api/civic): read-only views of what the agent server holds ----
+
+/** Choice kinds into the console's eight families (an unlisted kind goes to "other"). */
+const FAMILY_OF: Record<string, string> = {
+  make: 'making goods', cake: 'making goods',
+  help: 'building', initiate: 'building', monument: 'building', works: 'building', slot: 'building', start: 'building', annex: 'building',
+  iron: 'gathering', gather: 'gathering', explore: 'gathering',
+  light: 'care and light', tidy: 'care and light', furnish: 'care and light', watch: 'care and light',
+  farm: 'farms and pens', pen: 'farms and pens', penwork: 'farms and pens', grow: 'farms and pens',
+  activity: 'new crafts', innovate: 'new crafts',
+  own: 'own goods',
+  eat: 'eat and rest', rest: 'eat and rest',
+};
+export const FAMILIES = ['making goods', 'building', 'gathering', 'care and light', 'farms and pens', 'new crafts', 'own goods', 'eat and rest'];
+/** Ends ChoiceStats keeps a village (choose.ts KEEP): a list this long may have lost its oldest ends. */
+const CHOICE_KEEP = 2000;
+
+const findVillage = (w: WorldAdapter, name: string) => [...w.villages.villages.values()].find((x) => x.name.toLowerCase() === name.toLowerCase());
+const tokensOf = (t: { promptTokens?: number; outputTokens?: number } | undefined) => (t?.promptTokens ?? 0) + (t?.outputTokens ?? 0);
+
+/** A member's chore ends in the village: every one ChoiceStats holds (the world's own record, read through its public
+ *  method), else the last 30 that choiceHistory gives. */
+function choiceEnds(w: WorldAdapter, village: string, a: WorldAgent): { ends: ChoiceOutcome[]; full: boolean } {
+  const cs = (w as unknown as { choiceStats?: { agentHistory?: (v: string, n: string, k?: number) => ChoiceOutcome[] } }).choiceStats;
+  if (cs?.agentHistory) return { ends: cs.agentHistory(village, a.name, CHOICE_KEEP), full: true };
+  return { ends: (w.choiceHistory?.(a) ?? []) as ChoiceOutcome[], full: false };
+}
+
+/** The reason in a failed end's line ("Make torch: failed (destination full), 0.4 min"). */
+const failWhy = (line: string) => /failed \((.*?)\)?, [\d.]+ min/.exec(line)?.[1]?.replace(/\d+/g, 'N').slice(0, 48) ?? 'failed';
+
+const timelineCache = new Map<string, { at: number; body: unknown }>();
+/**
+ * The village's run by bins of `binMin` minutes since its first chore (at most 144 bins, a day back): the busy share (the
+ * utilisation clock's, an action running), choices by family (counted at their start), failed chores (at their end) and
+ * model tokens (the usage ledger, its members' calls); per member the same busy, its chore time per bin (a choice to its
+ * end), choices, failures and tokens. Kept 30 s.
+ */
+export function timeline(w: WorldAdapter, village: string, binMin = 10, now = Date.now()) {
+  const v = findVillage(w, village);
+  if (!v) return null;
+  const bm = Math.max(1, Math.min(120, Math.floor(binMin) || 10)), binMs = bm * 60000;
+  const key = `${v.name}|${bm}`;
+  const hit = timelineCache.get(key);
+  if (hit && now - hit.at < 30_000) return hit.body;
+  const members = w.agentList().filter((a) => a.village() === v);
+  const notes: string[] = [];
+  // (each member's chores as intervals: the ends held, and a chore running now)
+  const spans: Array<{ agent: string; kind: string; start: number; end: number; ok: boolean; running: boolean; line: string }> = [];
+  let held = 0, full = true;
+  for (const a of members) {
+    const r = choiceEnds(w, v.name, a);
+    full &&= r.full;
+    held += r.ends.length;
+    for (const e of r.ends) spans.push({ agent: a.name, kind: e.kind, start: e.at - e.minutes * 60000, end: e.at, ok: e.ok || e.cut, running: false, line: e.line });
+    const st = w.choiceStatus?.(a);
+    if (st?.state === 'running' && st.since) spans.push({ agent: a.name, kind: st.kind ?? 'other', start: st.since, end: now, ok: true, running: true, line: '' });
+  }
+  if (!full) notes.push('chore ends: only the last 30 a member (this world gives no full record)');
+  if (held >= CHOICE_KEEP) notes.push(`chore ends: the agent server keeps ${CHOICE_KEEP} a village, so the first bins may be short`);
+  const first = spans.length ? Math.min(...spans.map((s) => s.start)) : now - binMs;
+  const start = Math.max(first, now - 144 * binMs);
+  const n = Math.max(1, Math.ceil((now - start) / binMs));
+  const binOf = (t: number) => Math.floor((t - start) / binMs);
+  const zeros = () => new Array<number>(n).fill(0);
+  // Busy: the utilisation clock's minutes, each bin the mean of the minutes seen (members alike)
+  const minutes = Math.min(1000, Math.ceil((now - start) / 60000) + 1);
+  const util = w.utilisation?.(1, minutes);
+  if (!util) notes.push('busy: this world keeps no utilisation clock');
+  const utilBins = (row: Array<number | null> | undefined) => {
+    const sum = zeros(), cnt = zeros();
+    if (row && util) for (let p = 0; p < row.length; p++) {
+      const b = binOf(util.start + p * 60000);
+      if (b >= 0 && b < n && row[p] != null) { sum[b] += row[p]!; cnt[b]++; }
+    }
+    return sum.map((s, b) => (cnt[b] ? Math.round((1000 * s) / cnt[b]) / 1000 : null));
+  };
+  const memberBusy = new Map(members.map((a) => [a.name, utilBins(util?.agents[a.name])]));
+  const busy = Array.from({ length: n }, (_, b) => {
+    const xs = [...memberBusy.values()].map((r) => r[b]).filter((x): x is number => x != null);
+    return xs.length ? Math.round((1000 * xs.reduce((s, x) => s + x, 0)) / xs.length) / 1000 : null;
+  });
+  // Choices by family at their start, failures at their end
+  const families: Record<string, number[]> = Object.fromEntries(FAMILIES.map((f) => [f, zeros()]));
+  const failed = zeros();
+  const why = new Map<string, number>();
+  const per = new Map(members.map((a) => [a.name, { choices: 0, failed: 0, chore: zeros(), kinds: new Map<string, number>() }]));
+  for (const s of spans) {
+    const m = per.get(s.agent)!;
+    const fam = FAMILY_OF[s.kind] ?? 'other';
+    const b0 = binOf(s.start);
+    if (b0 >= 0 && b0 < n) {
+      (families[fam] ??= zeros())[b0]++;
+      m.choices++;
+      m.kinds.set(s.kind, (m.kinds.get(s.kind) ?? 0) + 1);
+    }
+    if (!s.ok && !s.running) {
+      const b1 = binOf(s.end);
+      if (b1 >= 0 && b1 < n) {
+        failed[b1]++;
+        m.failed++;
+        const k = failWhy(s.line);
+        why.set(k, (why.get(k) ?? 0) + 1);
+      }
+    }
+    // (chore time: the interval's overlap with each bin)
+    for (let b = Math.max(0, binOf(s.start)); b <= Math.min(n - 1, binOf(s.end)); b++) {
+      const lo = Math.max(s.start, start + b * binMs), hi = Math.min(s.end, start + (b + 1) * binMs, now);
+      if (hi > lo) m.chore[b] += hi - lo;
+    }
+  }
+  // Tokens: the ledger's members' calls since each bin's start, differenced (partial when the log was pruned). Each
+  // report scans the ledger's log, so only the last TOKEN_BINS bins have their own (earlier ones null)
+  const names = members.map((a) => a.name);
+  const TOKEN_BINS = 36, t0 = Math.max(0, n - TOKEN_BINS);
+  const all = usage.report({ since: start, agents: names });
+  const cum = Array.from({ length: n + 1 }, (_, b) => (b === n ? 0 : b === 0 ? tokensOf(all.total) : b >= t0 ? tokensOf(usage.report({ since: start + b * binMs, agents: names }).total) : null));
+  const tokens = Array.from({ length: n }, (_, b) => (b >= t0 && cum[b] != null && cum[b + 1] != null ? Math.max(0, cum[b]! - cum[b + 1]!) : null));
+  if (t0 > 0) notes.push(`tokens: by bin for the last ${TOKEN_BINS} bins only`);
+  if (all.partial) notes.push('tokens: the usage log does not reach back to the first bin');
+  const byKind = Object.fromEntries(Object.entries(all.byKind).map(([k, t]) => [k, { calls: t.calls, tokens: tokensOf(t) }]));
+  const goals = GOALS_ON ? goalsOf(v)?.of : undefined;
+  const memberRows = members.map((a) => {
+    const m = per.get(a.name)!;
+    const binLen = (b: number) => Math.max(1, Math.min(binMs, now - (start + b * binMs)));
+    const chore = m.chore.map((ms, b) => Math.round((1000 * Math.min(ms, binLen(b))) / binLen(b)) / 1000);
+    const top = [...m.kinds.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? null;
+    let pursuit: { label: string; state: string; of?: string } | null = null;
+    if (WANTS.pursuits) {
+      const p = wantsOf(v.name, a.name).pursuit;
+      if (p && !p.shadow) pursuit = { label: p.label, state: p.state, of: `${Math.max(0, Math.min(p.target, p.value - p.base))}/${p.target}` };
+    }
+    const b = memberBusy.get(a.name) ?? [];
+    const seen = b.filter((x): x is number => x != null);
+    return {
+      name: a.name, role: typeof a.memory.villageRole === 'string' ? a.memory.villageRole : null, top, goal: goals?.[a.name] ?? null,
+      busy: b, chore, avg: seen.length ? Math.round((1000 * seen.reduce((s, x) => s + x, 0)) / seen.length) / 1000 : null,
+      choices: m.choices, failed: m.failed, tokens: tokensOf(all.byAgent[a.name]), pursuit,
+    };
+  });
+  const body = {
+    village: v.name, binMin: bm, start, now, bins: n, busy, families, failed, tokens, byKind,
+    failWhy: [...why.entries()].sort((x, y) => y[1] - x[1]).slice(0, 5).map(([text, count]) => ({ text, count })),
+    members: memberRows, notes,
+  };
+  timelineCache.set(key, { at: now, body });
+  return body;
+}
+
+/** When each village's monument last gained a job, as this process saw it (the record keeps only its stages' times). */
+const monumentSeen = new Map<string, { done: number; at: number }>();
+/**
+ * The village's projects: its civic buildings, the monument (jobs and blocks done of the plan's, its stages, the yard, the
+ * kiln with its tends, failures and bans), the ladder's stage, the homes, and the society's laws and pursuits.
+ */
+export function civicView(w: WorldAdapter, village: string, now = Date.now()) {
+  const v = findVillage(w, village);
+  if (!v) return null;
+  const members = w.agentList().filter((a) => a.village() === v);
+  const civics = civicsOf(v).map((c) => ({ preset: c.preset, kind: c.kind, scale: c.scale, blocks: c.blocks, at: c.at, built: c.built ?? null, by: c.by ?? null, skipped: c.skipped ?? null,
+    minutes: c.built ? Math.round((c.built - c.at) / 6000) / 10 : null }));
+  let monument: Record<string, unknown> | null = null;
+  const m = v.monument;
+  if (m) {
+    let plan: ReturnType<typeof monumentPlan> | null = null;
+    try { plan = monumentPlan(m); } catch { plan = null; }
+    const seen = monumentSeen.get(v.name);
+    if (!seen || seen.done !== m.done.length) monumentSeen.set(v.name, { done: m.done.length, at: seen ? now : 0 });
+    const stageTimes = m.stages.flatMap((s) => [s.began ?? 0, s.ended ?? 0]);
+    const lastJobAt = Math.max(monumentSeen.get(v.name)!.at, ...stageTimes, 0) || null;
+    const blocksDone = plan ? plan.jobs.filter((j, i) => m.done.includes(i) && j.reroof === undefined && j.refurnish === undefined).reduce((t, j) => t + j.blocks, 0) : null;
+    const k = m.kiln;
+    monument = {
+      type: monumentType(m), noun: monumentNoun(m), preset: m.preset, scale: m.scale, state: m.state, at: m.at, built: m.built ?? null,
+      jobs: { done: m.done.length, total: plan?.jobs.length ?? null }, blocks: { done: blocksDone, total: plan?.design.blocks ?? null },
+      stage: currentStage(m), stages: m.stages.map((s, i) => ({ name: plan?.stageNames[i] ?? `stage ${i + 1}`, began: s.began ?? null, ended: s.ended ?? null })),
+      yard: m.yard, site: !!m.site, fails: m.fails ?? 0, backoff: m.backoff ?? null, lastJobAt, quarry: !!m.quarry,
+      kiln: k ? { state: k.state, furnaces: k.furnaces.length, tends: k.tends, made: k.made, held: k.furnaces.reduce((t, f) => t + f.n, 0) } : null,
+    };
+  }
+  // The kiln's tends from the chore record: monument:kiln:N (lane 0 builds it); failures, their reasons, and bans now
+  let kiln: Record<string, unknown> | null = null;
+  if (m?.kiln) {
+    const tends: ChoiceOutcome[] = [];
+    for (const a of members) tends.push(...choiceEnds(w, v.name, a).ends.filter((e) => /^monument:kiln:[1-9]/.test(e.id)));
+    const fails = tends.filter((e) => !e.ok && !e.cut);
+    const why = new Map<string, number>();
+    for (const e of fails) why.set(failWhy(e.line), (why.get(failWhy(e.line)) ?? 0) + 1);
+    const cs = (w as unknown as { choiceStats?: { banned?: (v: string, k: string, id: string, now: number) => { until: number; scope: string } | null } }).choiceStats;
+    const bans = cs?.banned ? [...new Set(tends.map((e) => e.id))].map((id) => ({ id, ban: cs.banned!(v.name, 'monument', id, now) })).filter((x) => x.ban).map((x) => ({ id: x.id, until: x.ban!.until, scope: x.ban!.scope })) : [];
+    kiln = { furnaces: m.kiln.furnaces.length, state: m.kiln.state, tends: tends.length, ok: tends.filter((e) => e.ok).length, failed: fails.length,
+      failWhy: [...why.entries()].sort((x, y) => y[1] - x[1]).slice(0, 3).map(([text, count]) => ({ text, count })), bans, lastFail: fails.length ? fails[fails.length - 1].at : null };
+  }
+  const lv = ladderView(v) as { current?: string | null; stage?: number; rungs?: Array<{ id: string; name: string; reached: unknown; current: boolean; stages: Array<{ words: string; state: string }> }> } | null;
+  const cur = lv?.rungs?.find((r) => r.current);
+  const ladder = lv ? { current: lv.current ?? null, name: cur?.name ?? null, stage: lv.stage ?? 0, stages: cur?.stages.length ?? 0, words: cur?.stages[lv.stage ?? 0]?.words ?? null,
+    reached: (lv.rungs ?? []).filter((r) => r.reached).map((r) => r.name) } : null;
+  const owners = new Set(v.structures.map((s) => s.owner).filter(Boolean));
+  const past = v.growth?.past ?? [];
+  const homes = { owned: owners.size, members: members.length, neighbourhoods: past.filter((p) => !p.project).length, built: past.filter((p) => !p.project).reduce((t, p) => t + p.built, 0), layouts: (v.layouts ?? []).length, growing: !!v.growth?.active };
+  let society: Record<string, unknown> | null = null;
+  if (RULES.on || WANTS.pursuits) {
+    const pursuits = { active: 0, stalled: 0, dropped: 0, done: 0 };
+    if (WANTS.pursuits) for (const a of members) {
+      const s = wantsOf(v.name, a.name);
+      for (const p of [...(s.pursuit && s.pursuit.state === 'active' ? [s.pursuit] : []), ...s.done]) if (!p.shadow && p.state in pursuits) pursuits[p.state]++;
+    }
+    const ls = RULES.on ? lawsOf(v.name) : [];
+    society = {
+      laws: RULES.on ? rulesInForce(v.name).map((r) => ({ id: r.id, text: r.text, since: r.since, votes: r.votedBy ?? null })) : null,
+      proposed: RULES.on ? ls.length : null, passed: RULES.on ? ls.filter((l) => l.status === 'passed').length : null,
+      pursuits: WANTS.pursuits ? pursuits : null,
+    };
+  }
+  return { village: v.name, at: now, civics, monument, kiln, ladder, homes, society };
+}
+
 /** Serve the panel routes; returns false for anything else. */
 /** #80: the scorecard's samples, one a minute of each complete village, from the first request this process serves. */
 const scores = new ScoreClock();
@@ -422,6 +647,12 @@ export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: Se
     if (!w.utilisation) return sendJson(res, 404, { error: 'this world keeps no utilisation' }), true;
     const bin = Number(url.searchParams.get('bin') ?? 1), points = Number(url.searchParams.get('points') ?? 60);
     return sendJson(res, 200, w.utilisation(bin, points)), true;
+  }
+  // The Overview console: the village's run by bins (?village=&bin= minutes, default 10), and its projects
+  if (url.pathname === '/api/timeline' || url.pathname === '/api/civic') {
+    const vn = url.searchParams.get('village') ?? '';
+    const body = url.pathname === '/api/timeline' ? timeline(w, vn, Number(url.searchParams.get('bin') ?? 10)) : civicView(w, vn);
+    return sendJson(res, body ? 200 : 404, body ?? { error: `no village ${vn}` }), true;
   }
   if (url.pathname === '/api/scorecard') return sendJson(res, 200, scorecards(w)), true;
   if (url.pathname === '/api/techtree') return sendJson(res, 200, techTrees(w)), true;
