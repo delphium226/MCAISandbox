@@ -23,7 +23,7 @@ import * as castle from './castleGen';
 import { rawSetting } from './settings';
 import { TIMBER_PRESETS, generateTimber, type TimberPreset } from './timberGen';
 import { TOWER_PRESETS, generateTower } from './towerGen';
-import type { Village } from './village';
+import { villageHome, type Village } from './village';
 
 export const CIVIC = {
   on: /^(on|1|true|yes)$/i.test(rawSetting('MC_CIVIC') ?? 'on'),
@@ -35,6 +35,9 @@ export const CIVIC = {
   choose: (/^code$/i.test(rawSetting('MC_CIVIC_CHOOSE') ?? 'model') ? 'code' : 'model') as 'model' | 'code',
   /** Minutes (game time: divided by MC_TIME_SCALE) between one civic building standing and the next one's choice. */
   gap: Math.max(0, Number(rawSetting('MC_CIVIC_GAP') ?? 5) || 0),
+  /** The chooser's prompt says every building on the list fits the village, not that a bigger one takes longer, and the
+   *  list's order is seeded by the village's site as well as its name (the Mayor took the smallest in 228 of 261 calls). */
+  variety: /^(on|1|true|yes)$/i.test(rawSetting('MC_CIVIC_VARIETY') ?? 'on'),
 };
 /** Test hook. */
 export function setCivic(s: Partial<typeof CIVIC>): void { Object.assign(CIVIC, s); }
@@ -134,7 +137,8 @@ export interface CivicOption { id: string; title: string; kind: string; age: 'ti
  * The short list (pure but for the drawing's cache): the entries of the open ages not built or given up here, and not
  * any other village's most recent civic building (planning's DECISIONS a39e559: the Mayor took Pembridge first in all
  * three staged runs), each at its scale, the kinds the village has not built first, at most two of a kind, CIVIC_LIST in
- * all; the order within a rank is the village's own (a hash of its name and the count built), so villages differ.
+ * all; the order within a rank is the village's own (a hash of its name, its site with MC_CIVIC_VARIETY, and the count
+ * built), so villages differ.
  */
 export function civicOptions(v: Village, ironReached: boolean, n = CIVIC_LIST, others: Village[] = []): CivicOption[] {
   const ages = civicAges(v, ironReached), had = civicsOf(v);
@@ -144,7 +148,8 @@ export function civicOptions(v: Village, ironReached: boolean, n = CIVIC_LIST, o
     const last = civicsOf(o).filter((c) => !c.skipped).at(-1);
     if (last) done.add(last.preset);
   }
-  const seed = `${v.name}|${had.length}`;
+  const home = CIVIC.variety ? villageHome(v) : null;
+  const seed = `${v.name}|${home ? `${home.x},${home.z}|` : ''}${had.length}`;
   const hash = (s: string) => { let h = 2166136261; for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return h >>> 0; };
   const pool = civicEntries().filter((e) => ages.includes(e.age) && !done.has(e.id))
     .sort((a, b) => Number(kinds.has(a.kind)) - Number(kinds.has(b.kind)) || hash(`${seed}|${a.id}`) - hash(`${seed}|${b.id}`));
@@ -189,8 +194,14 @@ export const CIVIC_TOOL = {
 
 export interface CivicFacts { village: string; members: number; wood: string; houses: number; built: string[]; options: CivicOption[] }
 export function civicPrompt(f: CivicFacts): string {
+  // (MC_CIVIC_VARIETY: "a bigger building takes longer" made the size the reason: the smallest was taken in 228 of 261
+  // calls, Pembridge's 166 blocks in every train. Every option is drawn under MC_CIVIC_BLOCKS, about an hour's work.)
+  const hours = Math.max(1, Math.round(25 / Math.max(1, f.members)));
+  const means = CIVIC.variety
+    ? `Members fell the logs, quarry the stone and smelt the glass. Every building on the list is drawn at a scale the village can manage: the largest is about ${hours === 1 ? 'an hour' : `${hours} hours`} of its members' work, the smallest a few minutes, so size is not what decides; each is built once and stands for good.`
+    : 'Members fell the logs, quarry the stone and smelt the glass; a bigger building takes longer.';
   return [
-    `The village ${f.village} (${f.members} members, ${f.houses} houses, building in ${f.wood} wood) chooses its next public building. Members fell the logs, quarry the stone and smelt the glass; a bigger building takes longer.`,
+    `The village ${f.village} (${f.members} members, ${f.houses} houses, building in ${f.wood} wood) chooses its next public building. ${means}`,
     f.built.length ? `It has built: ${f.built.join(', ')}.` : 'It has no public building yet.',
     'The buildings it can raise now (real ones, drawn from their measures at the scale given):',
     ...f.options.map((o) => o.line),

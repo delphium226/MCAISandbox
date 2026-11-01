@@ -369,6 +369,8 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'Who picks the next civic building from the short list: the mayor\'s model (code\'s first option when it fails), or code.' },
   { name: 'MC_CIVIC_GAP', type: 'number', default: '5', group: 'ladder', live: false, requires: ['MC_CIVIC'], read: 'civic.ts',
     describe: 'Minutes (divided by MC_TIME_SCALE) between one civic building standing and the next one\'s choice.' },
+  { name: 'MC_CIVIC_VARIETY', type: 'flag', default: 'on', group: 'ladder', live: false, requires: ['MC_CIVIC'], read: 'civic.ts',
+    describe: 'MC_CIVIC_VARIETY=on: the mayor\'s civic prompt says every building on the list fits the village (the largest about an hour\'s work for 25 members) instead of "a bigger building takes longer", and the list\'s order is seeded by the village\'s site as well as its name. Off: the prompt and order before 11-01 (the smallest was taken in 228 of 261 calls).' },
   { name: 'MC_LODGE_TRIP', type: 'number', default: '4', group: 'ladder', live: false, requires: ['MC_LODGE'], read: 'lodge.ts',
     describe: 'Stacks one bulk monument trip aims for with MC_LODGE (#163): 4 (256 cobblestone, logs or sand), ended sooner by its 5-minute cap.' },
   { name: 'MC_MODEL_RECORD', type: 'string', default: '', group: 'models', live: false, read: 'modelCall.ts',
