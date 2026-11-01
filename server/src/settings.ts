@@ -566,6 +566,12 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'Survival stage (c), with monsters only (MC_WORLD_MODE=hostile or normal): the combat reflex (flee creepers, fight back armed, run to the storage hut for a sword unarmed, defend a member within 8 blocks, eat when hurt; direct-steer melee); off: the old self-defence reflex.' },
   { name: 'MC_ARMS', type: 'flag', default: 'on', group: 'server', live: false, read: 'mineflayer/mcCombat.ts, mineflayer/mcWorld.ts',
     describe: 'Survival stage (c), with monsters only: swords and armour are workshop goods (stone swords for half the members) and members take one of each from storage (near it, or anywhere at night).' },
+  { name: 'MC_GROUNDS_LIGHT', type: 'flag', default: 'on', group: 'server', live: false, read: 'mineflayer/mcCombat.ts, mineflayer/mcWorld.ts',
+    describe: 'Survival stage (d), with monsters only: each neighbourhood\'s open ground is a light part (a 12-block grid of torch spots off streets, pads and lamps), lit by the light chore from stored torches; from dusk to dawn its options go first and the light need weighs double.' },
+  { name: 'MC_SAFETY_RULES', type: 'flag', default: 'on', group: 'server', live: false, read: 'rules.ts, mineflayer/mcCombat.ts, mineflayer/mcWorld.ts',
+    describe: 'Survival stage (d), with monsters only (and MC_RULES on): the curfew rule, read from members\' words ("no one outside after dark"; 32-128 blocks from home, from dusk or nightfall): options past its distance leave the menu in its phase and a member out past it walks home; the ballot shows the deaths\' fact, the results line last night\'s count.' },
+  { name: 'MC_GUARDS', type: 'flag', default: 'on', group: 'server', live: false, read: 'mineflayer/mcCombat.ts, mineflayer/mcWorld.ts',
+    describe: 'Survival stage (d), with monsters only: the night watch, a dusk chore for armed members (one per 6): walk a loop of the lamps and edge spots until dawn, fight hostiles inside the bounds, defend members within 24 blocks.' },
 ];
 
 const BY_NAME = new Map(SETTINGS.map((s) => [s.name, s]));

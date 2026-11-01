@@ -6868,6 +6868,9 @@ function stateName(a: BotAgent, x: number, y: number, z: number): string | null 
   return props.length ? `${b.name}[${props.join(',')}]` : b.name;
 }
 
+/** Plants an open-ground torch spot may stand in (cleared first; survival (d)). */
+const GROUND_PLANT = /^(short_grass|tall_grass|grass|fern|large_fern|dandelion|poppy|blue_orchid|allium|azure_bluet|(red|orange|white|pink)_tulip|oxeye_daisy|cornflower|lily_of_the_valley|dead_bush|short_dry_grass|tall_dry_grass|bush|leaf_litter|wildflowers)$/;
+
 /** Which light run last wrote an agent's lightCarried ("village|agent"): only that run deletes it. */
 const lightRuns = new Map<string, symbol>();
 
@@ -6904,7 +6907,20 @@ async function putUpTorches(a: BotAgent, args: Record<string, unknown>, signal: 
   const old = v.lights?.[part];
   const done = new Set(old?.done ?? []), never = new Set(old?.never ?? []);
   const skips: Record<string, number> = { ...(old?.skips ?? {}) };
-  const keyOf = (q: { x: number; y: number; z: number }) => `${q.x},${q.y},${q.z}`;
+  // (survival (d): an open-ground spot is keyed by its recorded y, set where the ground is: `ky`)
+  const keyOf = (q: { x: number; y: number; z: number; ky?: number }) => `${q.x},${q.ky ?? q.y},${q.z}`;
+  // An open-ground spot's cell on the ground in the bot's view: from 4 above its recorded y down to 4 below, the first cell
+  // that is air, a plant or a torch over one that is neither (null when not loaded; as recorded when there is none)
+  const ground = (q: LightPart['spots'][number]): LightPart['spots'][number] | null => {
+    if (P.kind !== 'grounds') return q;
+    const free = (n: string) => n === 'air' || n === 'cave_air' || n === 'torch' || GROUND_PLANT.test(n);
+    for (let y = q.y + 4; y >= q.y - 4; y--) {
+      const c = blockName(a, q.x, y, q.z), b = blockName(a, q.x, y - 1, q.z);
+      if (c === null || b === null) return null;
+      if (free(c) && !free(b) && b !== 'water' && b !== 'lava') return { ...q, y, ky: q.y };
+    }
+    return q;
+  };
   let carried0 = 0, took = 0, placed = 0, standing = 0, dropped = 0, unconfirmed = 0, newNever = 0, skipped = 0, found = 0, back = 0, left = 0, counted = false;
   // (the count before the last deposit: a failure during it still reports what went back, B.4's review, lens 2 L9)
   let beforeBack: number | null = null;
@@ -6984,14 +7000,17 @@ async function putUpTorches(a: BotAgent, args: Record<string, unknown>, signal: 
     const job: Job = { targets: [], area: { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 }, y: v.plots[0]?.y ?? 64, free: true, what: `the ${P.label}'s torches`, task: 'put_up_torches' };
     await standBy(a, job, signal);
     // The recorded spots again, in the bot's view: one missing or wrong is unlit again (a hand dig took its wall)
-    for (const q of P.spots) {
-      const k = keyOf(q);
+    for (const q0 of P.spots) {
+      const k = keyOf(q0);
       if (!done.has(k)) continue;
+      const q = ground(q0);
+      if (!q) continue;
       const name = blockName(a, q.x, q.y, q.z);
       if (name !== null && !torch(q, name)) done.delete(k);
     }
     const faces = P.kind === 'mine' && v.mine ? mineFacesGoing(v.mine) : [];
-    const targets = P.spots.filter((q) => !done.has(keyOf(q)) && !never.has(keyOf(q)) && !(P.kind === 'mine' && nearMineFace(faces, q))).slice(0, count);
+    const targets = P.spots.filter((q) => !done.has(keyOf(q)) && !never.has(keyOf(q)) && !(P.kind === 'mine' && nearMineFace(faces, q))).slice(0, count)
+      .map((q) => ground(q) ?? q);
     if (!targets.length) throw new ContentionError(`put_up_torches: nothing unlit in the ${P.label} (another lighter was first)`, 'taken', `light:${part}`);
     carried0 = await a.world.rcon.count(a.name, 'torch');
     counted = true;
@@ -7062,11 +7081,13 @@ async function putUpTorches(a: BotAgent, args: Record<string, unknown>, signal: 
       checkAbort(signal);
       if (before <= 0) break;
       const k = keyOf(q);
-      const cell = blockName(a, q.x, q.y, q.z);
+      let cell = blockName(a, q.x, q.y, q.z);
       if (cell === null) {
         skip(k, false);
         continue;
       }
+      // (survival (d): grass or a flower on an open-ground spot is cleared first, as the pathfinder walks through it)
+      if (P.kind === 'grounds' && GROUND_PLANT.test(cell) && /Changed the block/i.test(await a.world.rcon.command(`setblock ${q.x} ${q.y} ${q.z} minecraft:air`).catch(() => ''))) cell = 'air';
       if (torch(q, cell)) {
         done.add(k);
         found++;

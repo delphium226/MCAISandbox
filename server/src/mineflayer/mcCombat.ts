@@ -10,6 +10,7 @@
 import { Vec3 } from 'vec3';
 import type { Entity } from 'prismarine-entity';
 import type { BotAgent } from './botAgent';
+import type { Village } from '../village';
 import { rawSetting } from '../settings';
 import { modeSpec } from '../worldMode';
 import { timeScale } from './mcRules';
@@ -90,7 +91,7 @@ export type Decision =
  * them, unless 2 already defend against that mob.
  */
 export function decide(me: { health: number; armed: boolean; hurtAgo: number; mobs: Seen[]; swordNear?: boolean; ranAgo?: number },
-  members: Array<{ name: string; dist: number; hurtAgo: number; mobs: Seen[] }>, defenders: ReadonlyMap<number, ReadonlySet<string>>): Decision {
+  members: Array<{ name: string; dist: number; hurtAgo: number; mobs: Seen[] }>, defenders: ReadonlyMap<number, ReadonlySet<string>>, reach = 8): Decision {
   const near = [...me.mobs].sort((p, q) => p.dist - q.dist);
   const creeper = near.find((m) => m.name === 'creeper' && m.dist < 5);
   if (creeper) return { kind: 'flee', mob: creeper };
@@ -104,7 +105,7 @@ export function decide(me: { health: number; armed: boolean; hurtAgo: number; mo
   }
   if (!me.armed || me.health <= 12) return null;
   for (const o of [...members].sort((p, q) => p.dist - q.dist)) {
-    if (o.dist > 8 || o.hurtAgo >= 3000) continue;
+    if (o.dist > reach || o.hurtAgo >= 3000) continue;
     const mob = [...o.mobs].sort((p, q) => p.dist - q.dist).find((m) => m.name !== 'creeper' && m.dist < 5);
     if (mob && (defenders.get(mob.id)?.size ?? 0) < 2) return { kind: 'defend', mob, member: o.name };
   }
@@ -236,7 +237,9 @@ export function combatTick(a: BotAgent): void {
   t.scanAt = now;
   if (!t.ids.size || a.inReflex()) return;
   const p = bot.entity.position;
-  const mine = mobsNear(a, t, p, 16);
+  // (stage (d), MC_GUARDS: a member on watch defends within 24 blocks)
+  const reach = guards.has(a.name) ? GUARD_REACH : 8;
+  const mine = mobsNear(a, t, p, Math.max(16, reach));
   if (!mine.length) return;
   const members: Array<{ name: string; dist: number; hurtAgo: number; mobs: Seen[] }> = [];
   for (const o of a.world.agents.values()) {
@@ -244,11 +247,11 @@ export function combatTick(a: BotAgent): void {
     const ot = tracks.get(o);
     if (!ot || now - ot.hurtAt >= 3000) continue;
     const d = o.bot.entity.position.distanceTo(p);
-    if (d > 8) continue;
+    if (d > reach) continue;
     members.push({ name: o.name, dist: d, hurtAgo: now - ot.hurtAt, mobs: mobsNear(a, t, o.bot.entity.position, 5) });
   }
   const armed = armedOf(a);
-  const d = decide({ health: hp, armed, hurtAgo: now - t.hurtAt, mobs: mine, swordNear: !armed && swordNear(a), ranAgo: now - t.ranAt }, members, defenders);
+  const d = decide({ health: hp, armed, hurtAgo: now - t.hurtAt, mobs: mine.filter((m) => m.dist <= 16), swordNear: !armed && swordNear(a), ranAgo: now - t.ranAt }, members, defenders, reach);
   if (!d) return;
   if (d.kind === 'shelter') t.ranAt = now;
   start(a, d);
@@ -553,3 +556,295 @@ export function armTick(agents: Iterable<BotAgent>, night: boolean): void {
     busy.set(v.name, (busy.get(v.name) ?? 0) + 1);
   }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Stage (d): defence as village works, roles and rules (runs/2026-10-31/survival/spec_d.md 0-3). Each piece acts only
+// with monsters (MC_WORLD_MODE=hostile|normal) and has its own flag, on by default.
+// ---------------------------------------------------------------------------------------------
+
+const flagOn = (name: string) => !/^(off|0|false|no)$/i.test(rawSetting(name) ?? 'on');
+/** Spec 1: the village's open ground is a light part (`grounds`), weighed up at night. */
+export const groundsLightOn = (): boolean => modeSpec().mobs && flagOn('MC_GROUNDS_LIGHT');
+/** Spec 2: the curfew rule is read from members' words, enforced on the menu, and its stake shown. */
+export const safetyRulesOn = (): boolean => modeSpec().mobs && flagOn('MC_SAFETY_RULES');
+/** Spec 3: the night watch chore. */
+export const guardsOn = (): boolean => fightsMobs() && flagOn('MC_GUARDS');
+
+export type Box = { x1: number; z1: number; x2: number; z2: number };
+
+/** The phase of the day by its tick: the evening before a bed may be used (dusk), the bed's night, else day. */
+export const DUSK_FROM = 11000;
+export function phaseOf(t: number | null | undefined): 'day' | 'dusk' | 'night' {
+  if (typeof t !== 'number') return 'day';
+  if (t >= 12541 && t <= 23458) return 'night';
+  return t >= DUSK_FROM && t < 12541 ? 'dusk' : 'day';
+}
+/** From `phase` to dawn (the curfew's band and the watch's hours). */
+export const fromPhase = (t: number | null | undefined, phase: 'dusk' | 'night'): boolean => phaseOf(t) === 'night' || (phase === 'dusk' && phaseOf(t) === 'dusk');
+
+/** The village's built bounds (spec 0): its neighbourhoods' areas (fields left out) and structures, one box; null with neither. */
+export function builtBounds(v: Pick<Village, 'layouts' | 'structures'>): Box | null {
+  const boxes: Box[] = [...(v.layouts ?? []).filter((l) => !l.field), ...(v.structures ?? [])];
+  if (!boxes.length) return null;
+  return { x1: Math.min(...boxes.map((b) => b.x1)), z1: Math.min(...boxes.map((b) => b.z1)), x2: Math.max(...boxes.map((b) => b.x2)), z2: Math.max(...boxes.map((b) => b.z2)) };
+}
+/** How far (x, z) lies beyond `box` grown by `margin` (0 inside). */
+export function beyond(box: Box, x: number, z: number, margin = 16): number {
+  const dx = Math.max(box.x1 - margin - x, 0, x - box.x2 - margin), dz = Math.max(box.z1 - margin - z, 0, z - box.z2 - margin);
+  return Math.hypot(dx, dz);
+}
+/** A death's or a trip's distance from home in the report's bins. */
+export const DIST_BINS = ['<48', '48-100', '100-200', '200+'] as const;
+export type DistBin = (typeof DIST_BINS)[number];
+export const distBin = (d: number): DistBin => (d < 48 ? '<48' : d < 100 ? '48-100' : d < 200 ? '100-200' : '200+');
+
+/** At most one guard per 6 members (spec 3), one at least. */
+export const guardCap = (members: number): number => Math.max(1, Math.floor(members / 6));
+export const GUARD_REACH = 24;
+
+/**
+ * The watch's loop (spec 3): the village's lamps and the grounds grid's edge spots (those within `edge` of the bounds' sides),
+ * in order round the bounds' centre, so a guard walks a ring; at most `max` spots, evenly taken.
+ */
+export function watchLoop(bounds: Box, lamps: Array<{ x: number; z: number }>, grounds: Array<{ x: number; z: number }>, edge = 8, max = 16): Array<{ x: number; z: number }> {
+  const onEdge = (s: { x: number; z: number }) => s.x - bounds.x1 < edge || bounds.x2 - s.x < edge || s.z - bounds.z1 < edge || bounds.z2 - s.z < edge;
+  const cx = (bounds.x1 + bounds.x2) / 2, cz = (bounds.z1 + bounds.z2) / 2;
+  const seen = new Set<string>();
+  const all = [...lamps, ...grounds.filter(onEdge)].filter((s) => {
+    const k = `${s.x},${s.z}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  }).sort((p, q) => Math.atan2(p.z - cz, p.x - cx) - Math.atan2(q.z - cz, q.x - cx));
+  if (all.length <= max) return all;
+  return Array.from({ length: max }, (_, i) => all[Math.floor((i * all.length) / max)]);
+}
+
+/** The deaths' fact (spec 2's stake): "4 of 5 deaths were on trips over 100 blocks out", or '' with none. */
+export function deathsFact(byBin: Partial<Record<DistBin, number>>, byPhase: Partial<Record<'day' | 'dusk' | 'night', number>>): string {
+  const all = DIST_BINS.reduce((n, b) => n + (byBin[b] ?? 0), 0);
+  if (!all) return '';
+  const far = (byBin['100-200'] ?? 0) + (byBin['200+'] ?? 0), dark = (byPhase.dusk ?? 0) + (byPhase.night ?? 0);
+  return far ? `${far} of ${all} deaths were on trips over 100 blocks out${dark ? `, ${dark} after dark` : ''}` : `${all} death${all === 1 ? '' : 's'}, ${dark} after dark, none on far trips`;
+}
+
+/** The danger count of one village (spec 0): every pass mark of (d) reads these. */
+export interface Danger {
+  /** Hostiles within 48 and 96 of home at the last count, and the most seen at a count after dark. */
+  near48: number; near96: number; peak48: number; peak96: number;
+  /** Member-minutes (game) out past the built bounds + 16 after dusk, and the farthest (blocks from home). */
+  outMin: number; outMax: number;
+  deaths: Partial<Record<DistBin, number>>; deathsPhase: Partial<Record<'day' | 'dusk' | 'night', number>>;
+  /** Hostiles first seen inside the built bounds (a spawn there, or one walked in unseen). */
+  spawnsIn: number;
+  /** Per member, game minutes in each defence chore (watch, home, grounds). */
+  chores: Record<string, Record<string, number>>;
+  /** The night under way and the last one: members out after dark and deaths (the curfew's result line). */
+  night: { out: string[]; deaths: number; at: number }; lastNight?: { out: number; deaths: number };
+  /** Watch nights by member (spec 3's specialisation). */
+  watchNights: Record<string, number>;
+  /** Hit-to-kill times of the watch's fights inside the bounds (ms), the last 50. */
+  killMs: number[];
+}
+const dangers = new Map<string, Danger>();
+const newDanger = (): Danger => ({ near48: 0, near96: 0, peak48: 0, peak96: 0, outMin: 0, outMax: 0, deaths: {}, deathsPhase: {}, spawnsIn: 0, chores: {}, night: { out: [], deaths: 0, at: 0 }, watchNights: {}, killMs: [] });
+export const dangerOf = (village: string): Danger => {
+  let d = dangers.get(village);
+  if (!d) dangers.set(village, (d = newDanger()));
+  return d;
+};
+/** /api/status world.danger. */
+export const dangerView = (): Record<string, Danger> => Object.fromEntries(dangers);
+
+/** botAgent's death (mob modes): the distance from home and the phase. */
+export function noteDeath(a: BotAgent, where: Vec3 | undefined): void {
+  if (!modeSpec().mobs) return;
+  const v = a.village();
+  const home = v?.storage?.chests[0];
+  if (!v || !home || !where) return;
+  const d = dangerOf(v.name);
+  const r = Math.hypot(where.x - home.x, where.z - home.z);
+  const bin = distBin(r);
+  const ph = phaseOf(a.bot.time?.timeOfDay);
+  d.deaths[bin] = (d.deaths[bin] ?? 0) + 1;
+  d.deathsPhase[ph] = (d.deathsPhase[ph] ?? 0) + 1;
+  if (ph !== 'day') d.night.deaths++;
+  console.log(`[danger] ${v.name}: ${a.name} died ${Math.round(r)} blocks from home (${bin}) at ${ph}`);
+}
+
+const seenMobs = new Set<number>();
+let dangerAt = 0, dangerLogAt = 0, lastPhase: 'day' | 'dusk' | 'night' = 'day';
+/** Members heading home under the curfew (the head-home reflex), by name. */
+export const headingHome = new Set<string>();
+
+/**
+ * Once a game minute (the world's tick, mob modes): each village's hostiles near home, members out after dark, spawns inside
+ * the bounds, the defence chores' minutes (`choreOf`), and a `[danger]` line every 10 game minutes.
+ */
+export function dangerTick(agents: Iterable<BotAgent>, villages: Iterable<Village>, choreOf: (a: BotAgent) => string | undefined): void {
+  if (!modeSpec().mobs) return;
+  const now = Date.now();
+  const minute = 60000 / Math.max(1, timeScale());
+  if (now - dangerAt < minute) return;
+  dangerAt = now;
+  const list = [...agents].filter((a) => a.bot.entity);
+  const t = list.find((a) => typeof a.bot.time?.timeOfDay === 'number')?.bot.time.timeOfDay;
+  const ph = phaseOf(t);
+  // (the night's record rolls over at dawn)
+  if (ph === 'day' && lastPhase !== 'day') for (const d of dangers.values()) {
+    d.lastNight = { out: d.night.out.length, deaths: d.night.deaths };
+    d.night = { out: [], deaths: 0, at: now };
+  }
+  lastPhase = ph;
+  // (every hostile any bot sees, once)
+  const mobs = new Map<number, Vec3>();
+  for (const a of list) {
+    const tr = tracks.get(a);
+    if (tr) for (const id of tr.ids) {
+      const e = a.bot.entities[id];
+      if (e && e.isValid !== false && !mobs.has(id)) mobs.set(id, e.position);
+    }
+  }
+  const log = now - dangerLogAt >= 10 * minute;
+  if (log) dangerLogAt = now;
+  for (const v of villages) {
+    const home = v.storage?.chests[0];
+    const box = builtBounds(v);
+    if (!home || !box || !v.complete) continue;
+    const d = dangerOf(v.name);
+    let n48 = 0, n96 = 0;
+    for (const [id, p] of mobs) {
+      const r = Math.hypot(p.x - home.x, p.z - home.z);
+      if (r < 48) n48++;
+      if (r < 96) n96++;
+      if (!seenMobs.has(id) && beyond(box, p.x, p.z, 0) === 0) d.spawnsIn++;
+    }
+    Object.assign(d, { near48: n48, near96: n96 });
+    if (ph !== 'day') Object.assign(d, { peak48: Math.max(d.peak48, n48), peak96: Math.max(d.peak96, n96) });
+    for (const a of list) {
+      if (a.village()?.name !== v.name) continue;
+      const p = a.bot.entity.position;
+      if (ph !== 'day' && beyond(box, p.x, p.z) > 0) {
+        d.outMin++;
+        d.outMax = Math.max(d.outMax, Math.round(Math.hypot(p.x - home.x, p.z - home.z)));
+        if (!d.night.out.includes(a.name)) d.night.out.push(a.name);
+      }
+      const c = choreOf(a);
+      if (c) {
+        const m = (d.chores[a.name] ??= {});
+        m[c] = (m[c] ?? 0) + 1;
+      }
+    }
+    if (log) {
+      const deaths = DIST_BINS.filter((b) => d.deaths[b]).map((b) => `${b} ${d.deaths[b]}`).join(', ') || 'none';
+      const chores: Record<string, number> = {};
+      for (const m of Object.values(d.chores)) for (const [k, q] of Object.entries(m)) chores[k] = (chores[k] ?? 0) + q;
+      console.log(`[danger] ${v.name} (${ph}): hostiles ${n48} within 48, ${n96} within 96 (night peaks ${d.peak48}/${d.peak96}); out after dark ${d.outMin} member-min (farthest ${d.outMax}); deaths ${deaths}; spawns inside ${d.spawnsIn}; defence min ${Object.entries(chores).map(([k, q]) => `${k} ${q}`).join(', ') || 'none'}; watchers ${Object.keys(d.watchNights).length}`);
+    }
+  }
+  for (const id of mobs.keys()) seenMobs.add(id);
+  if (seenMobs.size > 5000) seenMobs.clear();
+}
+
+// ---- The night watch (spec 3) -------------------------------------------------------------------
+
+/** Members on watch, by name: their village and when the watch began. */
+export const guards = new Map<string, { village: string; since: number }>();
+export const guardsOf = (village: string): number => [...guards.values()].filter((g) => g.village === village).length;
+
+/**
+ * keep_watch (a chore, not in TOOLS): walk the loop of `spots` (watchLoop's) until dawn, fighting any hostile within 16 of the
+ * spot reached and inside the bounds; ends at dawn, after 20 minutes, or at health 8 (to the hut, eat). The reflex still
+ * defends members within 24 meanwhile.
+ */
+export async function keepWatch(a: BotAgent, spots: Array<{ x: number; z: number }>, bounds: Box, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('keep_watch: not in a village');
+  if (!armedOf(a)) throw new Error('keep_watch: no weapon (take a sword from storage first)');
+  if (!spots.length) throw new Error('keep_watch: the village has no lamps or edge spots to walk');
+  const t0 = Date.now();
+  guards.set(a.name, { village: v.name, since: t0 });
+  const d = dangerOf(v.name);
+  d.watchNights[a.name] = (d.watchNights[a.name] ?? 0) + 1;
+  let visited = 0, kills = 0, i = Math.floor(Math.random() * spots.length);
+  const t = track(a);
+  try {
+    while (phaseOf(a.bot.time?.timeOfDay) !== 'day' && Date.now() - t0 < 20 * 60000) {
+      checkAbort(signal);
+      if ((a.bot.health ?? 20) <= 8) {
+        const chest = v.storage?.chests[0];
+        if (chest) await walk(a, new goals.GoalNear(chest.x, chest.y, chest.z, 3), 'the storage hut', signal, 30000).catch((e: Error) => {
+          if (e.message === 'cancelled') throw e;
+        });
+        await biteIfHurt(a);
+        return `kept watch ${Math.round((Date.now() - t0) / 1000)} s: ${visited} spots, ${kills} kills; ended hurt (health ${Math.round(a.bot.health ?? 0)})`;
+      }
+      const s = spots[i++ % spots.length];
+      await walk(a, new goals.GoalNearXZ(s.x, s.z, 2), 'the watch spot', signal, 30000).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+      });
+      visited++;
+      const foe = mobsNear(a, t, new Vec3(s.x, a.bot.entity.position.y, s.z), 16).filter((m) => m.name !== 'creeper').sort((p, q) => p.dist - q.dist)
+        .map((m) => a.bot.entities[m.id]).find((e) => e && beyond(bounds, e.position.x, e.position.z, 0) === 0);
+      if (foe) {
+        const f0 = Date.now();
+        const r = await melee(a, foe, signal, { giveUpAt: 8 });
+        if (r.killed) {
+          kills++;
+          d.killMs = [...d.killMs, Date.now() - f0].slice(-50);
+        }
+        console.log(`[guard] ${a.name} ${v.name}: ${r.text} near ${s.x},${s.z}`);
+      } else await sleep(1500, signal);
+    }
+    return `kept watch ${Math.round((Date.now() - t0) / 1000)} s until dawn: ${visited} spots, ${kills} kills`;
+  } finally {
+    guards.delete(a.name);
+  }
+}
+
+/**
+ * The curfew's head-home reflex (spec 2): a member past the rule's distance from home in its phase walks home (at most once
+ * in 10 minutes a member; the action under way resumes after, and the menu offers nothing past the distance meanwhile).
+ */
+const sentHome = new Map<string, number>();
+export function curfewTick(agents: Iterable<BotAgent>, bandOf: (village: string) => { dist: number; phase: 'dusk' | 'night' } | null): void {
+  if (!safetyRulesOn()) return;
+  const now = Date.now();
+  for (const a of agents) {
+    const v = a.village();
+    const home = v?.storage?.chests[0];
+    if (!v || !home || !a.bot.entity || a.inReflex() || headingHome.has(a.name)) continue;
+    const band = bandOf(v.name);
+    if (!band || !fromPhase(a.bot.time?.timeOfDay, band.phase)) continue;
+    const p = a.bot.entity.position;
+    const r = Math.hypot(p.x - home.x, p.z - home.z);
+    if (r <= band.dist || now - (sentHome.get(a.name) ?? 0) < 10 * 60000) continue;
+    sentHome.set(a.name, now);
+    headingHome.add(a.name);
+    console.log(`[curfew] ${a.name} ${v.name}: ${Math.round(r)} blocks out after ${band.phase}: heads home`);
+    const started = a.runReflex('curfew', async (signal) => {
+      await walk(a, new goals.GoalNear(home.x, home.y, home.z, 4), 'home (the curfew)', signal, 180000);
+      return `walked home ${Math.round(r)} blocks under the curfew`;
+    }, (msg) => {
+      headingHome.delete(a.name);
+      console.log(`[curfew] ${a.name} ${msg}`);
+      a.pushEvent('system', `The village's curfew (code): you ${msg}.`);
+    }, (e) => {
+      headingHome.delete(a.name);
+      console.log(`[curfew] ${a.name} could not walk home: ${e.message}`);
+    });
+    if (!started) headingHome.delete(a.name);
+  }
+}
+
+/** The watch's skill (a chore, not in TOOLS): its loop and the bounds from the world (MineflayerWorld.watchSpots). */
+export const COMBAT_SKILLS = {
+  keep_watch: {
+    async run(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+      const v = a.village();
+      const bounds = v ? builtBounds(v) : null;
+      if (!v || !bounds) throw new Error('keep_watch: not in a village with buildings');
+      return keepWatch(a, a.world.watchSpots(v), bounds, signal);
+    },
+  },
+};

@@ -19,7 +19,7 @@ import { CHOOSE } from './choose';
 import { SOCIAL, memberSocial, profileLine, roleLine, type Profile } from './social';
 import { PROPOSALS_ON, addProposal, allProposals, endorse, parsePropose, proposeLine, withPropose, type CheckCtx, type Proposal } from './proposals';
 import { refusedSince } from './acts';
-import { RULES, addLaw, backLaw, classOf, lawFrom, laws, putClassOf, ruleResults, rulesInForce, type Law } from './rules';
+import { RULES, addLaw, backLaw, classOf, lawFrom, laws, putClassOf, ruleResults, rulesInForce, safetyOn, type Law } from './rules';
 import { rawSetting } from './settings';
 import { pursuitNight } from './pursuits';
 
@@ -356,7 +356,9 @@ const scriptedLaws164 = (): unknown[] => [
 export function scriptedLaw(village: string, agent: string, day: number, now: number): void {
   const h = [...`law|${agent}|${day}`].reduce((x, ch) => (Math.imul(x ^ ch.charCodeAt(0), 16777619) >>> 0), 2166136261);
   if (day === 1) {
-    const list = scriptedLaws164().length ? scriptedLaws164() : SCRIPTED_LAWS;
+    const base = scriptedLaws164().length ? scriptedLaws164() : SCRIPTED_LAWS;
+    // (survival (d), MC_SAFETY_RULES with monsters: a curfew among them, so staged runs exercise it)
+    const list = safetyOn() ? [{ what: 'No one goes more than 64 blocks from home after dark.' }, ...base] : base;
     const lw = lawFrom(list[h % list.length]);
     if (lw) addLaw(village, agent, lw, now);
   } else if (h % 3 === 0) {

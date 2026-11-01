@@ -29,6 +29,27 @@ def first(rx, text, group=1, default=None):
     return m.group(group) if m else default
 
 
+def danger_summary(text):
+    """Survival (d)'s danger count (mcCombat.ts): the last [danger] line's numbers, deaths, watches, curfew walks and grounds torches."""
+    r = {}
+    last = [l for l in text.splitlines() if "[danger]" in l and "hostiles" in l]
+    if last:
+        m = re.search(r"night peaks (\d+)/(\d+)\); out after dark (\d+) member-min \(farthest (\d+)\); deaths ([^;]*); spawns inside (\d+); defence min ([^;]*); watchers (\d+)", last[-1])
+        if m:
+            r["danger: night peak 48/96"] = f"{m.group(1)}/{m.group(2)}"
+            r["danger: out after dark"] = f"{m.group(3)} member-min (farthest {m.group(4)})"
+            r["danger: deaths by distance"] = m.group(5)
+            r["danger: spawns inside"] = m.group(6)
+            r["danger: defence min"] = m.group(7)
+            r["danger: watchers"] = m.group(8)
+    if "[death]" in text:
+        r["deaths"] = str(sum(1 for l in text.splitlines() if l.startswith("[death]") or "] [death]" in l or l.find("[death] ") >= 0 and " at " in l))
+    r["watches / curfew walks"] = f"{text.count(' keeps watch (')} / {text.count(': heads home')}"
+    g = [int(x) for x in re.findall(r"\[light\] \S+ \S+ part=grounds:\d+ placed=(\d+)", text)]
+    r["grounds torches placed"] = str(sum(g))
+    return r
+
+
 def agent_log_counts(log):
     reset = os.path.join(os.path.dirname(log), "reset_" + os.path.basename(log))
     m = re.search(r"log (\S*testagents-\S+\.log)", read(reset))
@@ -41,6 +62,7 @@ def agent_log_counts(log):
     if not text:
         return {}
     r = {k: text.count(k) for k in ("[lag]", "[stuck]", "[stuck-world]", "[repath]", "[dig]")}
+    r.update(danger_summary(text))
     # (initiatives, N.0: started, joins, steps, and how they ended)
     ini = [l for l in text.splitlines() if "[initiative]" in l]
     if ini:

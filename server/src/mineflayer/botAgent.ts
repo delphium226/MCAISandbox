@@ -18,7 +18,7 @@ import { mineAreas } from './mcMine';
 import { home, outOfWater, rescue, swimUp, teleportHome } from './mcRescue';
 import { timeScale } from './mcRules';
 import { modeSpec, takesDamage } from '../worldMode';
-import { HOSTILE, combatTick, fightsMobs, mayWake } from './mcCombat';
+import { HOSTILE, combatTick, fightsMobs, mayWake, noteDeath } from './mcCombat';
 import { spawnCellFor, survivalB } from './mcSurvivalB';
 import { causeFromState, deathCauseOf, hazardOf, lavaStep, noteTrap, safeCellNear, trappedUnderWater, type DeathCause, type Hazard } from './mcHazard';
 import { isPaused } from '../runClock';
@@ -851,6 +851,8 @@ export class BotAgent implements WorldAgent {
     this.memory.lastDeath = { cause, place, t };
     this.airUps = [];
     console.log(`[death] ${this.name} ${cause} at ${place}${heard ? ` ("${heard.text}")` : ' (no death message: guessed)'}`);
+    // (stage (d): the danger count's deaths by distance from home and phase)
+    noteDeath(this, where);
     // (a third death in 3 minutes: home itself kills (lava at the spawnpoint in a probe: 10 deaths in a row), so no walk or
     // teleport back there)
     this.deathTimes = [...this.deathTimes.filter((d) => t - d < 180000), t];

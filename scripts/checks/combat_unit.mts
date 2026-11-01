@@ -2,7 +2,8 @@
 // own fight armed/unarmed/low, defend with the 2-defender cap, nobody hurt), the cooldown by weapon and time scale,
 // armour's choice, the ahead-cell safety test, the eat-when-hurt choice, the wake throttle, the grounds' torch spots, and
 // by mode (a child process each, the settings are read at import): mob drops obtainable only with monsters, fightsMobs
-// and armsOn, and the arms goods.
+// and armsOn, and the arms goods. Stage (d) (spec_d.md 0-3): the phase by tick, the built bounds and the distance beyond
+// them, the distance bins, the guards' cap and loop, the reach by role, the deaths' fact, and the three flags by mode.
 // Usage: node node_modules/tsx/dist/cli.mjs scripts/checks/combat_unit.mts
 import { execFileSync } from 'node:child_process';
 
@@ -14,6 +15,7 @@ if (process.env.MODE_CHILD) {
     fights: C.fightsMobs(), arms: C.armsOn(), flesh: M.mobDropObtainable('rotten_flesh'), dirt: M.mobDropObtainable('dirt'),
     fleshWhy: M.UNOBTAINABLE.rotten_flesh ?? '', glow: M.UNOBTAINABLE.glowstone_dust ?? '',
     armsGoods: W.ARMS_GOODS.map((g) => g.item), armsTagged: W.ARMS_GOODS.every((g) => g.arms), makeHasArms: W.MAKE_GOODS.some((g) => g.arms),
+    grounds: C.groundsLightOn(), safety: C.safetyRulesOn(), guards: C.guardsOn(),
   }));
 } else {
   const { Vec3 } = await import('vec3');
@@ -99,7 +101,40 @@ if (process.env.MODE_CHILD) {
   ok(host.fights && host.arms && !off.fights && !off.arms, 'hostile: the reflex and arms on; MC_COMBAT/MC_ARMS=off turn them off');
   ok(!peace.flesh && !easy.flesh && host.flesh && !host.dirt, 'mob drops obtainable only with monsters');
   ok(/none in peaceful/.test(peace.fleshWhy) && /zombies at night/.test(host.fleshWhy) && peace.glow === host.glow, 'the drop words by mode; Nether items unchanged');
+  const dOff = child('hostile', { MC_GROUNDS_LIGHT: 'off', MC_SAFETY_RULES: 'off', MC_GUARDS: 'off' }), noFight = child('hostile', { MC_COMBAT: 'off' });
+  ok(!peace.grounds && !peace.safety && !peace.guards && !easy.grounds && !easy.safety && !easy.guards, 'stage (d): nothing without monsters');
+  ok(host.grounds && host.safety && host.guards && !dOff.grounds && !dOff.safety && !dOff.guards, 'stage (d): on by default with monsters; each flag off turns it off');
+  ok(!noFight.guards && noFight.grounds, 'no guards without the combat reflex');
   ok(host.armsTagged && !host.makeHasArms && host.armsGoods.includes('stone_sword') && host.armsGoods.includes('iron_chestplate'), 'the arms goods apart from MAKE_GOODS');
+
+  // Stage (d): the phase, the bounds and bins
+  ok(C.phaseOf(6000) === 'day' && C.phaseOf(11500) === 'dusk' && C.phaseOf(13000) === 'night' && C.phaseOf(23458) === 'night' && C.phaseOf(23600) === 'day' && C.phaseOf(undefined) === 'day', 'the phase by tick (dusk from 11000, the bed\'s night)');
+  ok(C.fromPhase(11500, 'dusk') && !C.fromPhase(11500, 'night') && C.fromPhase(13000, 'night') && !C.fromPhase(1000, 'dusk'), 'a band from dusk or from nightfall until dawn');
+  const vb = { layouts: [{ x1: 0, z1: 0, x2: 40, z2: 30, buildings: [] }, { x1: 50, z1: -20, x2: 80, z2: 10, buildings: [] }, { x1: 200, z1: 200, x2: 220, z2: 220, buildings: [], field: true }], structures: [{ x1: -5, z1: 5, x2: 2, z2: 12 }] } as never;
+  const bb = C.builtBounds(vb)!;
+  ok(bb.x1 === -5 && bb.z1 === -20 && bb.x2 === 80 && bb.z2 === 30, 'the built bounds: layouts and structures, fields left out');
+  ok(C.builtBounds({ layouts: [], structures: [] } as never) === null, 'no bounds with nothing built');
+  ok(C.beyond(bb, 10, 10) === 0 && C.beyond(bb, 96, 10) === 0 && C.beyond(bb, 100, 10) === 4 && Math.abs(C.beyond(bb, 99, 49) - Math.hypot(3, 3)) < 1e-9, 'beyond the bounds + 16 (0 inside, the corner by its diagonal)');
+  ok(C.beyond(bb, 81, 10, 0) === 1, 'beyond the bounds alone with margin 0');
+  ok(C.distBin(0) === '<48' && C.distBin(47.9) === '<48' && C.distBin(48) === '48-100' && C.distBin(100) === '100-200' && C.distBin(150) === '100-200' && C.distBin(200) === '200+', 'the distance bins');
+  ok(C.deathsFact({ '100-200': 3, '200+': 1, '<48': 1 }, { night: 4, day: 1 }) === '4 of 5 deaths were on trips over 100 blocks out, 4 after dark', 'the deaths\' fact');
+  ok(C.deathsFact({}, {}) === '' && /none on far trips/.test(C.deathsFact({ '<48': 2 }, { night: 2 })), 'the deaths\' fact with none, and near home');
+  // The guards: the cap, the reach, the loop
+  ok(C.guardCap(1) === 1 && C.guardCap(6) === 1 && C.guardCap(12) === 2 && C.guardCap(25) === 4, 'one guard per 6 members, one at least');
+  const hurtFar = [{ name: 'Ada', dist: 20, hurtAgo: 500, mobs: [z(9, 2)] }];
+  ok(C.decide(me({}), hurtFar, none) === null, 'a member hurt 20 blocks off: no defence at the default reach of 8');
+  ok(C.decide(me({}), hurtFar, none, C.GUARD_REACH)?.kind === 'defend', 'a guard defends within 24');
+  ok(C.decide(me({}), [{ name: 'Ada', dist: 25, hurtAgo: 500, mobs: [z(9, 2)] }], none, C.GUARD_REACH) === null, 'not past 24');
+  ok(C.decide(me({}), hurtFar, new Map([[9, new Set(['A', 'B'])]]), C.GUARD_REACH) === null, 'the 2-defender cap holds for guards');
+  const box = { x1: 0, z1: 0, x2: 60, z2: 60 };
+  const grid = [{ x: 6, z: 6 }, { x: 30, z: 30 }, { x: 54, z: 6 }, { x: 54, z: 54 }, { x: 6, z: 54 }, { x: 30, z: 4 }];
+  const loop = C.watchLoop(box, [{ x: 30, z: 58 }], grid);
+  ok(!loop.some((q) => q.x === 30 && q.z === 30) && loop.length === 6, 'the loop: lamps and edge spots, not the middle');
+  const ang = loop.map((q) => Math.atan2(q.z - 30, q.x - 30));
+  ok(ang.every((x, i) => i === 0 || x >= ang[i - 1]), 'the loop in order round the centre');
+  const many = Array.from({ length: 40 }, (_, i) => ({ x: i, z: 0 }));
+  ok(C.watchLoop(box, many, []).length === 16, 'at most 16 spots');
+  ok(C.watchLoop(box, [{ x: 1, z: 1 }, { x: 1, z: 1 }], []).length === 1, 'a spot once');
 
   console.log(fails ? `${fails} FAILED` : 'all passed');
   process.exit(fails ? 1 : 0);

@@ -61,7 +61,7 @@ export function reserved(excludes: string[], busy: Set<string>): boolean {
 const SKILL: Record<ChoiceKind, string> = {
   farm: 'harvest', slot: 'harvest', start: 'plant', annex: 'build', pen: 'build', penwork: 'tend', cake: 'craft', iron: 'mine',
   explore: 'explore', works: 'build', make: 'craft', gather: 'collect', light: 'light', furnish: 'furnish', initiate: 'build',
-  help: 'build', grow: 'build', eat: 'eat', tidy: 'tidy', activity: 'activity', own: 'own', innovate: 'research', rest: 'rest',
+  help: 'build', grow: 'build', eat: 'eat', tidy: 'tidy', activity: 'activity', own: 'own', innovate: 'research', rest: 'rest', watch: 'watch',
   monument: 'build',
 };
 /** The words of each skill in the open prompt's group headings. */

@@ -86,7 +86,7 @@ import { topWanted, wantedList } from '../wanted';
 import { SELLS } from '../merchant';
 import { clockOf, noteAnswer, scrub, setLifeGoal, setProjectLines, toldAnswer, villageMemory } from '../memory';
 import { codeNews, tellMember } from '../acts';
-import { RULES, boardSigns, breaks, contributeOwed, inClass, rulesInForce, claimHeld, claimRule, contributeTag, duties, levyRate, noteBlocked, noteClaimWait, noteCompliance, notePuts, noteReportUsed, noteTakes, pendReport, pendingReport, postClaim, postReport, reportFor, reportRule, rulesLine, setZoneVillages, skipReport, zoneBoxes, type ClaimWork, type Report } from '../rules';
+import { RULES, boardSigns, breaks, contributeOwed, inClass, rulesInForce, claimHeld, claimRule, curfewBand, setDangerFacts, contributeTag, duties, levyRate, noteBlocked, noteClaimWait, noteCompliance, notePuts, noteReportUsed, noteTakes, pendReport, pendingReport, postClaim, postReport, reportFor, reportRule, rulesLine, setZoneVillages, skipReport, zoneBoxes, type ClaimWork, type Report } from '../rules';
 import { CUSTOMS, CUSTOM_IDS, TEMPLATES, customFacts, didOn, noteDid, noteExposed, offered as customOffered, seedLine, type CustomId } from '../customs';
 import { lapsePending, levyLeft, pendShare, pendingOf, settlePending } from '../own';
 import { FIELD_RIPE, FLOWER_KEEP, FLOWER_WANTS, OWN_ROD, STRING } from '../supply';
@@ -101,7 +101,7 @@ import { deathMemory, deathWords, type DeathCause } from './mcHazard';
 import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, etaMinutes, historyLines, initTalk, isStatusQuestion, matchWork, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, statusFor, statusLines, talkSystem, talkTool, talkUser, updateRequest, workWords, type PlayerRequest, type ReqProgress, type Respond, type WorkOffer } from '../playerTalk';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { isNight, nightTick } from './mcSurvivalB';
-import { armTick, armsOn, combatCounts } from './mcCombat';
+import { armTick, armsOn, builtBounds, combatCounts, curfewTick, dangerOf, dangerTick, deathsFact, fromPhase, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, headingHome, isWeapon, phaseOf, watchLoop } from './mcCombat';
 import { nightsFall, realHunger, worldMode } from '../worldMode';
 import { APPETITE, FOOD_POINTS, appetiteOn, barLevel, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
@@ -143,6 +143,11 @@ import { kilnHolds, kilnLanes, kilnLine, kilnSize } from '../kiln';
 import { quarryLine } from '../quarry';
 
 /** Brains that only use the world interface (the scripted ones in brains.ts are sandbox-only). */
+// (survival (d): the curfew's ballot stake and result line read the danger count)
+setDangerFacts((village) => {
+  const d = dangerOf(village);
+  return { fact: deathsFact(d.deaths, d.deathsPhase), ...(d.lastNight ? { lastNight: d.lastNight } : {}) };
+});
 export const MC_BRAINS: Record<string, () => AgentBrain> = {
   idle: () => ({ name: 'idle' }),
   tiered: () => new TieredBrain(),
@@ -202,8 +207,8 @@ type ChoiceState = {
  * the walk from the storage hut to its door (blocks).
  */
 export type LightPart = {
-  part: string; label: string; kind: 'building' | 'mine'; structure?: Structure; place?: SignPlace;
-  spots: Array<{ x: number; y: number; z: number; block: 'wall_torch' | 'torch'; facing?: string; sides?: MineLightSpot['sides']; src?: 'vanilla' | 'code' }>;
+  part: string; label: string; kind: 'building' | 'mine' | 'grounds'; structure?: Structure; place?: SignPlace;
+  spots: Array<{ x: number; y: number; z: number; block: 'wall_torch' | 'torch'; facing?: string; sides?: MineLightSpot['sides']; src?: 'vanilla' | 'code'; ky?: number }>;
   unlit: number; growing: boolean; walk?: number;
 };
 
@@ -1321,6 +1326,28 @@ export class MineflayerWorld implements WorldAdapter {
    * mine record missing a field) is logged once a village and gives no parts: makeTarget, the make and gather menus and the
    * sweep read them, and one village's bad record stopped every village's chores (B.4's review, lens 3 L5).
    */
+  /** The game's time of day as the first bot with one sees it. */
+  timeOfDay(): number | undefined {
+    for (const a of this.agents.values()) if (typeof a.bot.time?.timeOfDay === 'number') return a.bot.time.timeOfDay;
+    return undefined;
+  }
+
+  /** Survival (d): the defence chore a member is on, for the danger count's minutes (watch, home, grounds). */
+  private defenceChore(a: BotAgent): string | undefined {
+    if (onWatch.has(a.name)) return 'watch';
+    if (headingHome.has(a.name)) return 'home';
+    return /^grounds:/.test(this.chores.get(a.name.toLowerCase())?.choice.light?.part ?? '') ? 'grounds' : undefined;
+  }
+
+  /** Survival (d), the watch's loop: the village's lamps and its grounds grid's edge spots (watchLoop). */
+  watchSpots(v: Village): Array<{ x: number; z: number }> {
+    const bounds = builtBounds(v);
+    if (!bounds) return [];
+    const lamps = (v.layouts ?? []).flatMap((l) => l.lamps ?? []);
+    const grounds = this.lightParts(v).filter((P) => P.kind === 'grounds').flatMap((P) => P.spots);
+    return watchLoop(bounds, lamps, grounds);
+  }
+
   lightParts(v: Village): LightPart[] {
     try {
       return this.lightPartsOf(v);
@@ -1341,14 +1368,14 @@ export class MineflayerWorld implements WorldAdapter {
     // when it changes is the full one worked out. Done builds, lit spots and structures are only added or replaced, so a
     // change moves a count or an id)
     const doneBuilds = v.tasks.reduce((n, t) => n + (t.status === 'done' ? 1 : 0), 0);
-    const quick = `${v.complete ?? false}|${v.structures.length}:${v.structures.map((st) => st.id).join(',')}|${v.tasks.length}:${doneBuilds}|${Object.keys(v.designs).length}|`
+    const quick = `${groundsLightOn() ? 'g' : ''}${v.complete ?? false}|${v.structures.length}:${v.structures.map((st) => st.id).join(',')}|${v.tasks.length}:${doneBuilds}|${Object.keys(v.designs).length}|`
       + `${(v.layouts ?? []).map((l) => `${l.signs?.length ?? 0}/${l.lamps?.length ?? 0}`).join(',')}|${Object.entries(v.lights ?? {}).map(([k, r]) => `${k}:${r.done.length}/${r.never?.length ?? 0}`).join(',')}|`
       + JSON.stringify(m ? [m.level, m.steps, m.stopped, m.dug, (m.legs ?? []).map((l) => [l.main, l.br, l.dug, l.ended, l.end]), m.down, m.iron ? [m.iron.x, m.iron.z, m.iron.steps, m.iron.level, m.iron.finished, m.iron.legs.map((l) => [l.dug, l.end])] : null] : null);
     const hit = this.lightCache.get(v.name);
     if (hit?.quick === quick) return hit.parts;
     const builds = v.tasks.filter((t) => t.status === 'done' && /^build_design "/.test(t.detail)).map((t) => t.detail.slice(0, 120));
     const sig = JSON.stringify([
-      v.complete ?? false, v.structures.map((st) => `${st.id}:${st.kind}:${st.x1},${st.z1},${st.y}`), builds, Object.keys(v.designs),
+      groundsLightOn(), v.complete ?? false, v.structures.map((st) => `${st.id}:${st.kind}:${st.x1},${st.z1},${st.y}`), builds, Object.keys(v.designs),
       (v.layouts ?? []).map((l) => [l.signs?.map((q) => `${q.x},${q.layer},${q.z}`), l.lamps]),
       m ? [m.level, m.steps, m.stopped, m.dug, (m.legs ?? []).map((l) => [l.main, l.br, l.dug, l.ended, l.end]), m.down, m.iron ? [m.iron.x, m.iron.z, m.iron.steps, m.iron.level, m.iron.finished, m.iron.legs.map((l) => [l.dug, l.end])] : null] : null,
       v.lights ?? null,
@@ -1417,7 +1444,26 @@ export class MineflayerWorld implements WorldAdapter {
         mine.push({ part, label, kind: 'mine', spots, unlit, growing: mineGrowing(m, part) });
       }
     }
-    const parts = [...buildings, ...mine];
+    // Survival (d), MC_GROUNDS_LIGHT (spec 1): each neighbourhood's open ground, a 12-block grid of standing torches off its
+    // structures (and a block round them), streets, pads, green, farm, slots and side plots, 7 clear of its lamps; the
+    // spot's y is the neighbourhood's level, found again on the ground by the placer
+    const grounds: LightPart[] = [];
+    if (groundsLightOn() && v.complete) {
+      const near = (q: Area, x: number, z: number, m = 0) => x >= q.x1 - m && x <= q.x2 + m && z >= q.z1 - m && z <= q.z2 + m;
+      const sides: Area[] = [...(v.storageHut ? [v.storageHut] : []), ...(v.layouts ?? []).flatMap((l) => [l.annex, l.works, l.store, l.farm, ...(l.slots ?? [])].filter((x): x is NonNullable<typeof x> => !!x))];
+      (v.layouts ?? []).forEach((l, i) => {
+        if (l.field) return;
+        const off: Area[] = [...(l.streets ?? []), ...(l.pads ?? []), ...(l.green ? [l.green] : []), ...sides];
+        const open = (x: number, z: number) => near(l, x, z) && !v.structures.some((st) => near(st, x, z, 1)) && !off.some((q) => near(q, x, z));
+        const y = l.y ?? l.pads?.find((q) => q.y !== undefined)?.y ?? v.plots[0]?.y ?? 64;
+        const part = `grounds:${i}`;
+        const spots = groundLightSpots(l, lamps, open).map((q) => ({ x: q.x, y: y + 1, z: q.z, block: 'torch' as const }));
+        if (!spots.length) return;
+        const name = l.name ?? (l.grow ? `neighbourhood ${l.grow}` : 'village centre');
+        grounds.push({ part, label: `open ground of the ${name}`, kind: 'grounds', spots, unlit: unlitOf(part, spots.map((q) => `${q.x},${q.y},${q.z}`)).length, growing: false });
+      });
+    }
+    const parts = [...buildings, ...mine, ...grounds];
     this.lightCache.set(v.name, { sig, quick, parts });
     return parts;
   }
@@ -2272,6 +2318,13 @@ export class MineflayerWorld implements WorldAdapter {
       armTick(this.agents.values(), isNight(t));
     } catch (e) {
       console.error('[combat] arming check failed:', e);
+    }
+    try {
+      // (survival (d): the danger count, and the curfew's walk home)
+      dangerTick(this.agents.values(), this.villages.villages.values(), (a) => this.defenceChore(a));
+      curfewTick(this.agents.values(), (village) => curfewBand(village));
+    } catch (e) {
+      console.error('[danger] check failed:', e);
     }
     this.utilTick();
     try {
@@ -4236,6 +4289,9 @@ export class MineflayerWorld implements WorldAdapter {
         this.architectPicks.delete(v.name);
         v.monument = newMonumentPicked(this.catalogWoodOf(v), now, pick.pick, pick.by, pick.why);
       } else v.monument = newMonument(this.catalogWoodOf(v), now);
+      // (MC_CIVIC: the kiln, lodge and quarries the civic buildings left)
+      // (#190: a kiln smaller than this record's own is left behind)
+      if (CIVIC.on) Object.assign(v.monument, civicKit(v, kilnSize(this.materials.plan(monumentPlan(v.monument).bill, {}).fuel.smelts)));
       // (M2, #145: the glass colours the flowers near the village give, chosen once; M3: the architect's when it chose)
       if (MONUMENT.glazing && v.monument.palette === 'full') {
         // (#162, MC_DYE_BED: the dye census, tall flowers and out to 144)
@@ -4249,9 +4305,6 @@ export class MineflayerWorld implements WorldAdapter {
           console.log(`[dyebed] ${v.name}: the windows' colours: ${cs.join(', ') || 'none (plain glass)'}`);
         }
       }
-      // (MC_CIVIC: the kiln, lodge and quarries the civic buildings left; #190: a kiln smaller than this record's own,
-      // its glass colours chosen, is left behind)
-      if (CIVIC.on) Object.assign(v.monument, civicKit(v, kilnSize(this.materials.plan(monumentPlan(v.monument).bill, {}).fuel.smelts)));
       const c = monumentPlan(v.monument);
       this.villages.save();
       const named = m3(v.monument).name ? `, dedicated to ${m3(v.monument).name}` : '';
@@ -7468,6 +7521,8 @@ export class MineflayerWorld implements WorldAdapter {
       let spare = facts.spare().torch ?? 0;
       const why: string[] = [];
       const ts = timeScale();
+      // (survival (d): from dusk to dawn the open ground's options go first, spec 1)
+      const dark = phaseOf(this.timeOfDay()) !== 'day';
       for (const [r, P] of this.lightParts(v).entries()) {
         if (excluded([`light:${P.part}=`], busy)) {
           why.push('busy');
@@ -7496,7 +7551,11 @@ export class MineflayerWorld implements WorldAdapter {
         const id = `light:${P.part}`;
         const tail = `${record('light')}${others('light', id)}${lastOf('light', id)}`;
         let facts2: string, effect: string, at: { x: number; y?: number; z: number } | undefined;
-        if (P.kind === 'building') {
+        if (P.kind === 'grounds') {
+          const min = Math.max(0.1, Math.round((0.4 / ts) * 10) / 10);
+          facts2 = `${P.unlit} of ${P.spots.length} dark spots on open ground; takes ${n} torches from storage (${spare} spare); set from the storage hut by command, ~${min} min; ${tail}`;
+          effect = `+${n} torches on the ${P.label}: zombies and skeletons spawn on dark ground at night (${P.unlit} dark spots there)`;
+        } else if (P.kind === 'building') {
           const r0 = v.lights?.[P.part];
           const k = P.spots.filter((q) => q.src === 'vanilla' && !r0?.done.includes(`${q.x},${q.y},${q.z}`) && !r0?.never?.includes(`${q.x},${q.y},${q.z}`)).length;
           const d = P.walk ?? 0;
@@ -7514,12 +7573,27 @@ export class MineflayerWorld implements WorldAdapter {
           effect = `+${n} torches along the ${P.label}: for the look of the tunnels (bots dig in the dark too; no mobs spawn here)`;
         }
         add({
-          id, kind: 'light', key: id, excludes: [`${id}=`], name: theirs ? `Help light ${anon ? 'a member' : theirs}'s house (${P.label})` : owner ? `Light your own house (${P.label})` : `Light the ${P.label}`, rank: Math.min(899, 860 + r) - (owner && !theirs ? 5 : 0), ...(at ? { at } : {}),
+          id, kind: 'light', key: id, excludes: [`${id}=`], name: theirs ? `Help light ${anon ? 'a member' : theirs}'s house (${P.label})` : owner ? `Light your own house (${P.label})` : `Light the ${P.label}`, rank: P.kind === 'grounds' && dark ? 300 + r : Math.min(899, 860 + r) - (owner && !theirs ? 5 : 0), ...(at ? { at } : {}),
           facts: theirs ? `${anon ? 'a member' : theirs}'s house; ${facts2}` : owner ? `your own house; ${facts2}` : facts2, effect,
         }, { kind: 'light', part: P.part, n, unlit: P.unlit, label: P.label });
         spare -= n;
       }
       if (!out.some((o) => o.kind === 'light')) reasons.light = ['torches short', 'backing off', 'busy', "others' houses"].find((w) => why.includes(w)) ?? 'nothing unlit';
+    }
+
+    // Survival (d), MC_GUARDS (spec 3): the night watch, from dusk to dawn, for an armed member, one per 6 members
+    if (guardsOn() && v.complete && v.storage?.chests.length && phaseOf(this.timeOfDay()) !== 'day' && !onWatch.has(a.name)) {
+      const members = [...this.agents.values()].filter((x) => x.village()?.name === v.name).length;
+      const armed = a.bot.inventory.items().some((it) => isWeapon(it.name));
+      const on = guardsOf(v.name), cap = guardCap(members);
+      if (armed && on < cap && this.watchSpots(v).length) {
+        const nights = dangerOf(v.name).watchNights[a.name] ?? 0;
+        add({
+          id: 'watch', kind: 'watch', key: `watch:${a.name}`, excludes: [`watch:${a.name}=`], name: 'Keep watch tonight', rank: 120,
+          facts: `${on} of ${cap} watchers out (one per 6 members); walk the lamps and the village's edge until dawn, fight monsters inside the village, help any member hurt within 24 blocks; you have kept watch ${nights === 0 ? 'no night yet' : nights === 1 ? 'one night' : `${nights} nights`}`,
+          effect: 'the village kept safe tonight (no goods)',
+        }, { kind: 'watch' });
+      }
     }
 
     // Making into storage (the workshop, D1): each good below its target with a whole batch from spare storage; crafting
@@ -8504,7 +8578,10 @@ export class MineflayerWorld implements WorldAdapter {
           const r = k && reads.get(k);
           if (!k || !r) continue;
           o.need = `village need: ${r.text}`;
-          o.nw = Math.round(needWeight(r.level, tv ? tv[NEED_TRAIT[k]] : 0.5) * 100) / 100;
+          // (survival (d), MC_GROUNDS_LIGHT: from dusk to dawn the light need weighs double, spec 1)
+          const night = k === 'light' && groundsLightOn() && phaseOf(this.timeOfDay()) !== 'day' ? 2 : 1;
+          o.nw = Math.round(needWeight(r.level, tv ? tv[NEED_TRAIT[k]] : 0.5) * night * 100) / 100;
+          if (night > 1) o.need += ' (zombies spawn on dark ground at night)';
         }
       }
     }
@@ -8651,6 +8728,19 @@ export class MineflayerWorld implements WorldAdapter {
           o.nw = Math.round((o.nw ?? 1) * nb.w * 100) / 100;
           o.ruleTag ??= nb.tag;
         }
+      }
+    }
+    // Survival (d), MC_SAFETY_RULES (spec 2): in the curfew's phase, options whose site lies past its distance from home leave
+    // the menu with the rule named
+    const band = curfewBand(v.name);
+    const home = v.storage?.chests[0];
+    if (band && home && fromPhase(this.timeOfDay(), band.phase)) {
+      for (let i = out.length - 1; i >= 0; i--) {
+        const o = out[i];
+        const d = OPTION_RUN.get(o) as { x?: number; z?: number } | undefined;
+        const site = o.at ?? (d && typeof d.x === 'number' && typeof d.z === 'number' ? { x: d.x, z: d.z } : undefined);
+        if (!site || Math.hypot(site.x - home.x, site.z - home.z) <= band.dist) continue;
+        pal.drop(o, 'law', `the curfew: no trips past ${band.dist} blocks after ${band.phase === 'dusk' ? 'dusk' : 'nightfall'}`);
       }
     }
     // G2 (MC_ACTS=on): an option answering a request to the member or keeping its promise is tagged, and the trim keeps it
@@ -9554,6 +9644,10 @@ export class MineflayerWorld implements WorldAdapter {
         console.log(`[custom] ${v.name}: ${worker.name} goes to ${TEMPLATES[d.custom].name.toLowerCase()}`);
         return;
       }
+      case 'watch':
+        this.setChore(v, worker, opt.key, [worker.enqueue('keep_watch', { chore: true })], 'keep watch tonight', undefined, meta, opt.holds, opt);
+        console.log(`[guard] ${v.name}: ${worker.name} keeps watch (${guardsOf(v.name) + 1} on watch)`);
+        return;
       case 'rest':
         this.setChore(v, worker, opt.key, [worker.enqueue('move_to', { x: d.x, y: d.y, z: d.z, range: 3, chore: true }), worker.enqueue('wait', { seconds: Math.max(10, Math.round(120 / timeScale())), chore: true })], 'rest at home', undefined, meta, opt.holds, opt);
         return;
@@ -10994,6 +11088,7 @@ type OptionRun =
   | { kind: 'own'; what: 'pledge'; entry: string; item: string; n: number }
   | { kind: 'innovate'; entry: string; chance: number; boost: number }
   | { kind: 'rest'; x: number; y: number; z: number }
+  | { kind: 'watch' }
   | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number; needs: Counts; gives: string[]; own?: string[] }
   // (#164: posting one's find on the board; a village custom, its spot and the flower it takes, the tools it returns)
   | { kind: 'board'; what: 'report'; text: string }
@@ -11012,7 +11107,7 @@ const GROW_WAIT_MS = 60000, GROW_STUCK_MS = 10 * 60000;
 /** A growth claim whose holder was idle on no chore, its brain not holding it, this many checks in a row (30 s apart) is
  *  handed back (s30's review, L-3). */
 const GROW_ORPHAN_CHECKS = 4;
-const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish', 'initiate', 'help', 'activity', 'own', 'innovate', 'rest', 'monument'];
+const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish', 'initiate', 'help', 'activity', 'own', 'innovate', 'rest', 'monument', 'watch'];
 /** An initiative's next step (s35): gathering a material into storage, or building it once the storage covers the bill. */
 type InitiativeStep = { what: 'gather'; material: Material | 'flowers' | 'saplings' | 'sandstone'; amount: number; block: string; deposit: string; item?: string } | { what: 'build' } | { what: 'prepare' };
 /** A green's side (s36): room for two or three small works with their rings. */

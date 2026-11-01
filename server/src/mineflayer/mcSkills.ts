@@ -7,6 +7,7 @@
 import { Vec3 } from 'vec3';
 import type { BotAgent } from './botAgent';
 import { BUILD_SKILLS } from './mcBuild';
+import { COMBAT_SKILLS } from './mcCombat';
 import { STORAGE_SKILLS } from './mcStorage';
 import { SURVIVAL_SKILLS } from './mcSurvival';
 import { MINE_SKILLS } from './mcMine';
@@ -68,6 +69,7 @@ export const MC_SKILLS: Record<string, McSkill> = {
   },
   ...SURVIVAL_SKILLS,
   ...BUILD_SKILLS,
+  ...COMBAT_SKILLS,
   ...STORAGE_SKILLS,
   ...MINE_SKILLS,
   ...MORE_MINE_SKILLS,

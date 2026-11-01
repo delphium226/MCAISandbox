@@ -19,6 +19,7 @@ import type { Rule } from './social';
 import type { Village } from './village';
 import { rawSetting } from './settings';
 import { customOf, noteStarted } from './customs';
+import { modeSpec } from './worldMode';
 
 const isFood = (item: string) => item in FOOD_POINTS;
 
@@ -45,7 +46,17 @@ export function setRulesSettings(s: Partial<typeof RULES>): void {
   Object.assign(RULES, s);
 }
 
-export const RULE_TYPES = ['quota', 'floor', 'zone', 'duty', 'levy', 'contribute', 'norm', 'repeal', 'claim', 'report'] as const;
+/** Survival stage (d), spec 2 (MC_SAFETY_RULES, on; with monsters only): the curfew is read from members' words and kept. */
+export const safetyOn = (): boolean => modeSpec().mobs && !/^(off|0|false|no)$/i.test(rawSetting('MC_SAFETY_RULES') ?? 'on');
+/** The curfew's band: blocks from home, and from which phase until dawn. */
+const CURFEW_MIN = 32, CURFEW_MAX = 128, CURFEW_DEFAULT = 64;
+/** The world's danger counts for a village (mcCombat's, set by the world): the deaths' fact and the last night's counts. */
+let dangerFacts: (village: string) => { fact: string; lastNight?: { out: number; deaths: number } } | null = () => null;
+export function setDangerFacts(fn: typeof dangerFacts): void {
+  dangerFacts = fn;
+}
+
+export const RULE_TYPES = ['quota', 'floor', 'zone', 'duty', 'levy', 'contribute', 'norm', 'repeal', 'claim', 'report', 'curfew'] as const;
 export type RuleType = (typeof RULE_TYPES)[number];
 export const QUOTA_CLASSES = ['tools', 'logs', 'torches'] as const;
 export type QuotaClass = (typeof QUOTA_CLASSES)[number];
@@ -164,6 +175,9 @@ export function validate(type: RuleType, p: Record<string, number | string>): st
       return Number.isInteger(Number(p.min)) && Number(p.min) >= CLAIM_MIN && Number(p.min) <= CLAIM_MAX ? null : `a claim holds ${CLAIM_MIN} to ${CLAIM_MAX} minutes`;
     case 'report':
       return null;
+    case 'curfew':
+      if (p.phase !== 'dusk' && p.phase !== 'night') return 'a curfew holds from dusk or from nightfall until dawn';
+      return Number.isInteger(Number(p.dist)) && Number(p.dist) >= CURFEW_MIN && Number(p.dist) <= CURFEW_MAX ? null : `a curfew keeps members within ${CURFEW_MIN} to ${CURFEW_MAX} blocks of home`;
     case 'zone':
       if (p.use !== 'nobuild' && p.use !== 'farms') return 'a zone keeps a place free of building, or for farms only';
       return [p.x1, p.z1, p.x2, p.z2].every((x) => Number.isFinite(Number(x))) ? null : `a zone must name a place of the village (${ZONE_PLACES})`;
@@ -190,6 +204,7 @@ export function ruleText(type: RuleType, p: Record<string, number | string>): st
       ? 'the land by each member\'s house is kept for its own farm, posted on the board by the storage hut; others\' farms keep off it'
       : `a member who starts on ${CLAIM_WORDS[p.work as ClaimWork] ?? p.work} posts a claim on the board by the storage hut; the others keep off it for ${p.min} minutes`;
     case 'report': return 'a member whose trip found or failed something posts it on the board by the storage hut';
+    case 'curfew': return `no member goes more than ${p.dist} blocks from home from ${p.phase === 'dusk' ? 'dusk' : 'nightfall'} until dawn`;
   }
 }
 
@@ -320,8 +335,13 @@ export function readLaw(raw: Record<string, unknown>): { type: RuleType; params:
   const t = String(r.type ?? raw.type ?? '').toLowerCase();
   const p = (r.params && typeof r.params === 'object' ? r.params : {}) as Record<string, number | string>;
   const text = `${raw.what ?? ''} ${raw.text ?? ''}`.trim();
-  if ((RULE_TYPES as readonly string[]).includes(t) && t !== 'norm' && (t !== 'repeal' || RULES.results) && (t !== 'claim' && t !== 'report' || RULES.types.has(t)) && Object.keys(p).length) {
-    return { type: t as RuleType, params: t === 'claim' ? { min: CLAIM_DEFAULT, ...p } : p };
+  if ((RULE_TYPES as readonly string[]).includes(t) && t !== 'norm' && (t !== 'repeal' || RULES.results) && (t !== 'claim' && t !== 'report' || RULES.types.has(t)) && (t !== 'curfew' || safetyOn()) && Object.keys(p).length) {
+    return { type: t as RuleType, params: t === 'claim' ? { min: CLAIM_DEFAULT, ...p } : t === 'curfew' ? { dist: CURFEW_DEFAULT, phase: 'night', ...p } : p };
+  }
+  // (survival (d), MC_SAFETY_RULES: a curfew from the whole sentence, before the storage rules: "be home by dusk" is no duty)
+  if (safetyOn()) {
+    const c = readCurfew(text);
+    if (c) return { type: 'curfew', params: c };
   }
   // (#164, MC_RULE_RESULTS: a repeal opens the law and names a rule, by its id or in words; addLaw finds the rule in force)
   if (RULES.results && REPEAL.test(text) && (RULE_ID.test(text) || REPEAL_NAMES.test(text.split(/[,;.]/)[0]))) {
@@ -402,6 +422,29 @@ export function readClaim(text: string): { work: ClaimWork; min: number } | null
   if (/\b(farm|field|plot|9 ?x ?9)\b/.test(s)) return { work: 'farm_site', min };
   if (/\bgreens?\b/.test(s)) return { work: 'green', min };
   return null;
+}
+
+/**
+ * Survival (d): a curfew's band from a law's words, or null: "no one outside after dark", "be home by dusk", "no trips at
+ * night", "stay within 64 blocks of the village at night". The distance named (blocks) is held to 32-128 (64 when none is
+ * named); the phase is dusk when the words name dusk, sunset or the evening, else nightfall.
+ */
+export function readCurfew(text: string): { dist: number; phase: 'dusk' | 'night' } | null {
+  const s = text.toLowerCase();
+  const dark = /\b(after dark|in the dark|at night|after nightfall|by nightfall|before nightfall|after dusk|by dusk|before dusk|at dusk|by sunset|after sunset|before dark|by dark|nights?|nighttime|night-time|evenings?)\b/.test(s);
+  if (!dark && !/\bcurfew\b/.test(s)) return null;
+  const stay = /\bcurfew\b|\b(no one|nobody|no member|no villager|none of us)\b[^.]*\b(outside|out|leaves?|travels?|wanders?|goes|ventures?|beyond|past|away)\b|\bno (trips?|travel|journeys?|expeditions?|exploring|gathering trips?)\b|\b(be|get|return|come|head|go|stay|remain|keep)\b[^.]*\b(home|inside|indoors|within|in the village|near (?:the )?(?:village|home|storage))\b|\b(don't|do not|must not|should not|never)\b[^.]*\b(leave|travel|wander|venture|go far|go out)\b/.test(s);
+  if (!stay) return null;
+  const n = Number(/(\d+)\s*(?:blocks?|m\b|metres?|meters?)/.exec(s)?.[1]);
+  const dist = Math.min(CURFEW_MAX, Math.max(CURFEW_MIN, Number.isFinite(n) && n > 0 ? n : CURFEW_DEFAULT));
+  return { dist, phase: /\b(dusk|sunset|evenings?|before dark|by dark)\b/.test(s) ? 'dusk' : 'night' };
+}
+
+/** The curfew in force (survival (d)): its distance and phase, or null (none, the rules or the flag off, or no monsters). */
+export function curfewBand(village: string): { dist: number; phase: 'dusk' | 'night' } | null {
+  if (!RULES.on || !safetyOn()) return null;
+  const r = rulesInForce(village).find((x) => (x.type as string) === 'curfew');
+  return r ? { dist: Number(r.params.dist), phase: r.params.phase === 'dusk' ? 'dusk' : 'night' } : null;
 }
 
 /** #164: whether a law asks members to post a trip's finds or failures ("post its coordinates on the common board", "report
@@ -485,6 +528,7 @@ export function lawTarget(type: RuleType, p: Record<string, number | string>): s
     case 'repeal': return `repeal:${p.of}`;
     case 'claim': return `claim:${p.work}`;
     case 'report': return 'report';
+    case 'curfew': return 'curfew';
   }
 }
 const STOP = new Set('each every member members villager villagers must should shall may will their they them with from into that this have least most more than once day days daily before after other others village communal storage'.split(' '));
@@ -834,6 +878,8 @@ export function stake(village: string, agent: string, type: RuleType, p: Record<
     const have = Object.entries(store).filter(([i]) => of(i)).reduce((s, [, n]) => s + n, 0);
     return `storage holds ${have} now`;
   }
+  // (survival (d): the deaths' fact from code's counts, the stake in the world #164 asked for)
+  if (type === 'curfew') return dangerFacts(village)?.fact ?? '';
   return '';
 }
 
@@ -891,6 +937,10 @@ export function ruleResult(village: string, r: Rule, now: number): string {
     return per.length ? `met by ${per.map((m) => `${m.did} of ${m.of}`).join(', then ')} members a day` : 'no full day yet';
   }
   if (t === 'norm') return 'words only: not enforced or counted';
+  if (t === 'curfew') {
+    const n = dangerFacts(village)?.lastNight;
+    return n ? `${n.out} member${n.out === 1 ? '' : 's'} out after dark last night, ${n.deaths} death${n.deaths === 1 ? '' : 's'}` : 'no night since it passed';
+  }
   if (t === 'levy') return `in force at ${r.params.rate}%`;
   // (#164: a claim's blocked trips of its work since against the 2 days before, and the menus that waited on a claim; a
   // report's finds posted of those reportable and the trips that used one)
