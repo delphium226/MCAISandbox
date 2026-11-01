@@ -2530,3 +2530,18 @@ CLAUDE.md when a phase ends.
     63, mobs cost nothing visible). The search load varies 4-5x between runs; the final runs were light (12-21 s of A*
     in 4 min). The probe's max of 230-280 ms is from outside the window (spawns or the start of work), not measured.
     Report: runs/2026-10-31/looplag/report.md.
+- F349 (11-01, train16, G8/G2/G7) **Train 16: with #190 fixed, the civic building and the cathedral both finish; over two
+  pairs the wants tuning ends stalls and does not weaken the step's pull.** P (MC_CIVIC, MC_WANTS_TUNE, MC_STRING on)
+  against Q (off); train 15's setup, code 2e608ed:
+  - **Civic and the kiln:** the Mayor picked Pembridge Market Hall again (4.5 min). Its kiln of 4 was left behind, the
+    cathedral built its own 15 at +19.7, and all 143 tends succeeded (0 failed). The cathedral was finished at +106.5,
+    against Q's +112.0 and train 15 N's 1 of 16. Busy 87 / 87%. One civic building a run, the same one twice.
+  - **Wants, two pairs (trains 15-16):** on-members' stalls 3 and 2 tuned, against 19 and 17 untuned. The primary was
+    60% (3.2x) tuned this time, against 41% (1.7x) in train 15, so that low did not repeat. Untuned it was 58% (2.8x).
+    Family persistence was 7/12 (2/15 before). Hour-2 busy, on minus off: tuned -1 / +2 points, untuned -1 / -5.
+  - **#191 live:** the first iron start was retried at +5.9 (train 15: +30.6). Deep landings came at +43 / +29 (+59 /
+    +61 before).
+  - **#192 held** on Q's talk lines. In P the user's own line made the fixture skip its house request, and the Mayor then
+    answered house questions with an invented house ("all set and ready for you to move in"): #198.
+  - [lag] 0 / 0, [stuck] 158 / 120, loop p99 median 68 / 61 ms; $1.52 + $1.34, and $1.23 more for a first try stopped
+    at +50. Report: runs/2026-11-01/train16/report.md.
