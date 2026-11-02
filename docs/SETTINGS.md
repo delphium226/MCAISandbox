@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-280 settings.
+282 settings.
 
 ## Game speed
 
@@ -318,7 +318,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_GUARDS` | flag | `on` |  |  | Survival stage (d), with monsters only: the night watch, a dusk chore for armed members (one per 6): walk a loop of the lamps and edge spots until dawn, fight hostiles inside the bounds, defend members within 24 blocks. |
 | `MC_HOME_BY_DUSK` | flag | `on` |  |  | Survival (d), #194, with monsters only: while no member has a bed (the night runs its length) and no curfew rule holds, code keeps members home by dusk: from ~50 s before dusk to dawn, options past the built bounds + 16 leave the menu and a member out past them walks home. |
 | `MC_HOST` | string | `127.0.0.1` |  |  | The Minecraft server Mineflayer connects to. |
-| `MC_HUNT` | flag | `on` |  |  | Survival stage (d) spec 4, with monsters only: the hunt, a night chore for armed members above health 14 (one per 6): skeletons and spiders first, zombies when none, within the built bounds + 32 and never past the curfew's band, up to 4 minutes (the night's sleeper waits for it), then the drops (bone, string, rotten flesh) to storage. Members stop buying string and bone from the merchant, the plan names the hunt as their source, and the workshop makes bone meal and fishing rods from them. |
+| `MC_HUNT` | flag | `on` |  |  | Survival stage (d) spec 4, with monsters only: the hunt, a night chore for armed members above health 14 (one per 6): skeletons and spiders first, zombies when none, within the built bounds + 32 and never past the curfew's band, up to 4 minutes (the night's sleeper waits for it), then the drops (bone, string, rotten flesh) to storage. Members stop buying string and bone from the merchant, the plan names the hunt as their source, and the workshop makes bone meal and fishing rods from them. Once a member has a bed the hunt walks rings 24 and 32 outside the bounds and reaches the bounds + 48 (#200). |
 | `MC_PORT` | number | `25565` |  |  | The Minecraft server port Mineflayer connects to; in the sandbox, its game server's port (default 8765). |
 | `MC_PVP` | string | `true` |  |  | The sandbox: true lets players hurt each other. |
 | `MC_RCON_TIMEOUT_MS` | number | `15000` |  |  | How long a command's reply may take (E.1): one lost reply used to hold the single chain, and every agent behind it, for good. Long enough for the longest /fill. |
@@ -328,6 +328,8 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_SERVER_DIR` | string | (unset) |  |  | The Minecraft server's folder: its server.properties (RCON) and this world's villages.json and atlas.json |
 | `MC_VERSION` | string | `26.1` |  |  | The Minecraft version Mineflayer speaks. |
 | `MC_VIEW_DISTANCE` | number | `10` |  |  | The sandbox: the players' view distance in chunks. |
+| `MC_WALLS` | flag | `on` |  |  | Survival stage (d) spec 5, with monsters only: the village wall. Once the danger count sees a death or 5+ hostiles within 48 at night, the village votes on "a wall round the village"; voted, a ring 6 outside the built bounds (fence on cobblestone, a fence gate in each ~24-cell segment, a torch every 8) is built segment by segment as a day chore from storage; growth past it adds a ring round the new area. Walks open its gates and a gatekeeper shuts them. |
+| `MC_WALLS_NOW` | flag | `off` |  |  | For staged tests of MC_WALLS: the wall planned as soon as the village is complete, without the danger trigger or the vote. |
 | `MC_WORLD` | string | `world` |  |  | The sandbox: the world's folder name under server/worlds. |
 | `MC_WORLD_MODE` | string | `peaceful` |  |  | The world's survival stage (worldMode.ts; peaceful by default, the user's 10-30): damage turns on falls, drowning and fire (still peaceful, always day; spawnpoints at the storage, air and fire reflexes, a drop limit of 4); easy is stage (b): easy difficulty, real hunger (the appetite reads the game food bar; an eating reflex), nights one sleeper in a bed ends (players_sleeping_percentage 1), the after-burn reflex and safe spawnpoints, no monsters; hostile is stage (c): easy plus monsters at night and in the dark, mob griefing off, the combat reflex (MC_COMBAT), swords and armour (MC_ARMS) and mob drops obtainable; normal is hostile on normal difficulty. keep_inventory stays on. |
 | `MCAI_ACTS_LOG` | string | (unset) |  |  | Where the acts log goes (default: beside the choice log). |

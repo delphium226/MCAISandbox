@@ -6,7 +6,7 @@
 // them, the distance bins, the guards' cap and loop, the reach by role, the deaths' fact, and the three flags by mode.
 // The (d) fixes (#194-#196): when a curfew acts, code's home-by-dusk band and its flag, past the band.
 // Stage (d) spec 4 (MC_HUNT): the hunt's target pick, its reach (the edge, home's height, the curfew's band), its flag by
-// mode, the plan's words for the drops and the hunt goods.
+// mode, the plan's words for the drops and the hunt goods. #201: the curfew's tail after dawn; #200: the rings with beds.
 // Usage: node node_modules/tsx/dist/cli.mjs scripts/checks/combat_unit.mts
 import { execFileSync } from 'node:child_process';
 
@@ -144,7 +144,9 @@ if (process.env.MODE_CHILD) {
   ok(C.watchLoop(box, [{ x: 1, z: 1 }, { x: 1, z: 1 }], []).length === 1, 'a spot once');
   // #196: a curfew acts ahead of its phase (a nightfall one from dusk, a dusk one CURFEW_LEAD before), until dawn
   ok(C.curfewActs(11500, 'night') && C.curfewActs(13000, 'night') && !C.curfewActs(10500, 'night') && !C.curfewActs(6000, 'night'), 'a nightfall curfew acts from dusk');
-  ok(C.curfewActs(10000, 'dusk') && C.curfewActs(10500, 'dusk') && !C.curfewActs(9999, 'dusk') && C.curfewActs(20000, 'dusk') && !C.curfewActs(23600, 'dusk') && !C.curfewActs(undefined, 'dusk'), 'a dusk curfew acts from 1000 ticks before dusk, until dawn');
+  ok(C.curfewActs(10000, 'dusk') && C.curfewActs(10500, 'dusk') && !C.curfewActs(9999, 'dusk') && C.curfewActs(20000, 'dusk') && !C.curfewActs(6000, 'dusk') && !C.curfewActs(undefined, 'dusk'), 'a dusk curfew acts from 1000 ticks before dusk, until dawn');
+  // (#201: until CURFEW_TAIL after dawn, a slept night's 0 included)
+  ok(C.CURFEW_TAIL === 3600 && C.curfewActs(23600, 'dusk') && C.curfewActs(0, 'night') && C.curfewActs(3000, 'dusk') && !C.curfewActs(3100, 'night') && !C.curfewActs(9000, 'night'), 'a curfew acts until 3600 ticks after dawn (#201)');
   // #194: code's band, past the built bounds + 16
   const hb = C.homeBand(vb)!;
   ok(hb.code && hb.phase === 'dusk' && hb.box?.x2 === 80 && C.homeBand({ layouts: [], structures: [] } as never) === null, 'home by dusk: the built bounds, from dusk; none without bounds');
@@ -173,6 +175,11 @@ if (process.env.MODE_CHILD) {
   ok(!C.huntReach(hb2, home2, C.homeBand({ layouts: [{ ...hb2, buildings: [] }], structures: [] } as never), { x: 80, y: 64, z: 30 }) && C.huntReach(hb2, home2, C.homeBand({ layouts: [{ ...hb2, buildings: [] }], structures: [] } as never), { x: 75, y: 64, z: 30 }), "home by dusk's band: the bounds + 16");
   const ring = C.huntRing(hb2);
   ok(ring.length === 16 && ring.every((q) => C.beyond(hb2, q.x, q.z, 0) > 11 && C.beyond(hb2, q.x, q.z) === 0), "the hunt's ring: 12 outside the bounds, inside home by dusk's 16, a spot every ~24");
+  // (#200: with beds, rings 24 and 32 in turn, the reach the bounds + 48)
+  const rings = C.huntRings(hb2, true), b0 = C.huntRings(hb2, false);
+  const cheb = (q: { x: number; z: number }) => Math.max(hb2.x1 - q.x, q.x - hb2.x2, hb2.z1 - q.z, q.z - hb2.z2);
+  ok(b0.length === 16 && rings.length === 40 && rings.filter((_, i) => i % 2 === 0).every((q) => cheb(q) === 24) && rings.filter((_, i) => i % 2).every((q) => cheb(q) === 32), 'with beds the hunt walks rings 24 and 32 in turn (#200); without, the 12 ring');
+  ok(C.HUNT_EDGE_BEDS === 48 && C.huntReach(hb2, home2, null, { x: 105, y: 64, z: 30 }, C.HUNT_EDGE_BEDS) && !C.huntReach(hb2, home2, null, { x: 105, y: 64, z: 30 }), 'with beds the reach is the bounds + 48');
   ok(C.HUNT_HEALTH === 14 && !C.huntedTonight('UV', 'Ada') && C.huntHold() === 0 && C.HUNTED_NOT_BOUGHT.has('string') && C.HUNTED_NOT_BOUGHT.has('bone') && !C.HUNTED_NOT_BOUGHT.has('gunpowder'), 'the hunt starts above 14; no hold with nobody out; gunpowder stays bought');
 
   console.log(fails ? `${fails} FAILED` : 'all passed');

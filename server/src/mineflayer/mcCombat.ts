@@ -601,12 +601,16 @@ export function phaseOf(t: number | null | undefined): 'day' | 'dusk' | 'night' 
 export const fromPhase = (t: number | null | undefined, phase: 'dusk' | 'night'): boolean => phaseOf(t) === 'night' || (phase === 'dusk' && phaseOf(t) === 'dusk');
 /**
  * Whether a curfew acts at `t` (#196): ahead of its phase, so the walk home ends before it. A nightfall curfew from dusk, a
- * dusk one from CURFEW_LEAD ticks before dusk (~50 s at 1x), both until dawn.
+ * dusk one from CURFEW_LEAD ticks before dusk (~50 s at 1x), both until CURFEW_TAIL ticks after dawn (#201: skeletons in
+ * shade shot members 250-312 blocks out on trips begun at dawn, 106-144 s after it; 3 minutes at 1x).
  */
 export const CURFEW_LEAD = 1000;
+export const CURFEW_TAIL = 3600;
+const DAWN = 23459;
 export function curfewActs(t: number | null | undefined, phase: 'dusk' | 'night'): boolean {
   if (typeof t !== 'number') return false;
-  return phaseOf(t) !== 'day' || (phase === 'dusk' && t >= DUSK_FROM - CURFEW_LEAD && t < DUSK_FROM);
+  const sinceDawn = t >= DAWN ? t - DAWN : t + 24000 - DAWN;
+  return phaseOf(t) !== 'day' || sinceDawn < CURFEW_TAIL || (phase === 'dusk' && t >= DUSK_FROM - CURFEW_LEAD && t < DUSK_FROM);
 }
 /** #194: with monsters, code keeps members home by dusk while no member has a bed (the night then runs its length). */
 export const homeByDuskOn = (): boolean => modeSpec().mobs && flagOn('MC_HOME_BY_DUSK');
@@ -908,6 +912,20 @@ export function huntReach(bounds: Box, home: { x: number; y: number; z: number }
  * band of 16), a spot every ~`step` blocks round it, in order.
  */
 export function huntRing(bounds: Box, margin = 12, step = 24): Array<{ x: number; z: number }> {
+  return ringAt(bounds, margin, step);
+}
+/**
+ * #200: once a member has a bed (no home by dusk band), the hunt walks two rings, 24 and 32 outside the bounds, their spots
+ * in turn, and reaches the bounds + HUNT_EDGE_BEDS: the lit ground and the watch thin the mobs nearer in.
+ */
+export const HUNT_RINGS_BEDS = [24, 32];
+export const HUNT_EDGE_BEDS = 48;
+export function huntRings(bounds: Box, beds: boolean, step = 24): Array<{ x: number; z: number }> {
+  if (!beds) return huntRing(bounds, 12, step);
+  const [p, q] = HUNT_RINGS_BEDS.map((m) => ringAt(bounds, m, step));
+  return Array.from({ length: Math.max(p.length, q.length) }, (_, i) => [p[i % p.length], q[i % q.length]]).flat();
+}
+function ringAt(bounds: Box, margin: number, step: number): Array<{ x: number; z: number }> {
   const x1 = bounds.x1 - margin, z1 = bounds.z1 - margin, x2 = bounds.x2 + margin, z2 = bounds.z2 + margin;
   const out: Array<{ x: number; z: number }> = [];
   const side = (ax: number, az: number, bx: number, bz: number) => {
@@ -942,7 +960,7 @@ const dropsCarried = (a: BotAgent): Record<string, number> => {
  * when none; melee (a give-up at HUNT_LOW), the drops walked over; with none in reach, on round the ring outside the bounds
  * (huntRing). Ends at dawn, after huntMs, or hurt; then the drops go to storage. The reflex still fights back meanwhile.
  */
-export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number }>, bounds: Box, bandOf: () => SafetyBand | null, signal: AbortSignal): Promise<string> {
+export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number }>, bounds: Box, bandOf: () => SafetyBand | null, signal: AbortSignal, edge = HUNT_EDGE): Promise<string> {
   const v = a.village();
   const home = v?.storage?.chests[0];
   if (!v || !home) throw new Error('hunt_edge: not in a village with storage');
@@ -975,7 +993,7 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
         const e = a.bot.entities[m.id];
         if (e) seen.push({ ...m, x: e.position.x, y: e.position.y, z: e.position.z });
       }
-      const prey = huntTarget(seen, (m) => huntReach(bounds, home, band, m));
+      const prey = huntTarget(seen, (m) => huntReach(bounds, home, band, m, edge));
       if (prey) {
         if (prey.dist > 20) await walk(a, new goals.GoalNear(prey.x, prey.y, prey.z, 4), 'the prey', signal, 30000).catch(ignore);
         const e = a.bot.entities[prey.id];
@@ -1078,10 +1096,11 @@ export const COMBAT_SKILLS = {
       const v = a.village();
       const bounds = v ? builtBounds(v) : null;
       if (!v || !bounds) throw new Error('hunt_edge: not in a village with buildings');
-      return huntEdge(a, huntRing(bounds), bounds, () => {
+      const beds = anyBed(a.world.agents.values());
+      return huntEdge(a, huntRings(bounds, beds), bounds, () => {
         const band = a.world.safetyBand(v);
         return band && curfewActs(a.bot.time?.timeOfDay, band.phase) ? band : null;
-      }, signal);
+      }, signal, beds ? HUNT_EDGE_BEDS : HUNT_EDGE);
     },
   },
 };

@@ -33,6 +33,7 @@ import type { McSkill } from './mcSkills';
 import { Materials, WOODS, chargedItem, describeWork, gatherTasks, label, woodName, woodPart, type Counts } from './mcMaterials';
 import { STORAGE_SKILLS, forgiveDebt, holdingStorageTask, ownTools, partsForFuel, refreshStorage, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS, STATION_REACH, holdVillageFurnace, placeStation, recordStation, stationNear, stationSpot, stationsReady, villageStation, villageStationCell } from './mcSurvival';
+import { wallTaken } from './mcWalls';
 import { ContentionError, at, checkAbort, goals, nearestBlocks, num, onVillageGround, reach, sleep, standableY, stateAt, str, syncInventory, unmoved, walk, withColumnCache } from './mcUtil';
 import { atlasSites } from './mcSiteAtlas';
 import { taskCalls } from '../taskBrain';
@@ -59,7 +60,7 @@ import { jobTargets, monumentNoun, monumentPlan, searchSite, siteHub, siteTaken 
 
 type Pos = [number, number, number];
 
-interface Target {
+export interface Target {
   x: number;
   y: number;
   z: number;
@@ -108,7 +109,7 @@ export const PAD_HALO = (() => {
 
 interface Surface { y: number; block: string; liquid: boolean; trees: number }
 
-function blockName(a: BotAgent, x: number, y: number, z: number): string | null {
+export function blockName(a: BotAgent, x: number, y: number, z: number): string | null {
   const own = a.bot.blockAt(new Vec3(x, y, z))?.name;
   if (own !== undefined) return own;
   // (beyond the bot's own chunks, a fellow member's view: s43, lamps and checks 170 blocks from the hut read as missing)
@@ -245,7 +246,7 @@ function treeAt(a: BotAgent, x: number, y: number, z: number): Pos[] {
 // Doing the work: commands, paced, with village reservations
 // ---------------------------------------------------------------------------------------------
 
-interface Job {
+export interface Job {
   targets: Target[];
   /** Ground reserved in the village while working (checked for conflicts first). */
   claim?: { area: Area; purpose: string; avoidStructures: boolean; ignore?: (s: Structure) => boolean };
@@ -898,7 +899,7 @@ const DIR_NAMES: Record<string, string> = { '1,0': 'east', '-1,0': 'west', '0,1'
  * Run a job: reserve its ground, stand by it, then clear (top-down) and place (bottom-up) with /fill and /setblock,
  * merging vertical runs of the same block. Returns the summary ("placed N blocks, cleared M; skipped ...").
  */
-async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): Promise<string> {
+export async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): Promise<string> {
   const pay = charged(a, job);
   const v = a.village();
   const reg = a.world.villages;
@@ -4439,6 +4440,8 @@ function growTaken(a: BotAgent, v: Village, home: { x: number; z: number }, r: n
     ...(v.mine ? mineAreas(v.mine).filter((b) => b.y2 >= level - 6) : []),
     ...plants,
     ...(v.growth?.bad ?? []),
+    // (survival (d), MC_WALLS: the wall's ring kept free, padded 5 as buildings are)
+    ...wallTaken(v).map((q) => pad(q, 5)),
     ...all.flatMap((o) => o.reservations.filter((q) => q.by !== a.name && q.until > now)),
     // (an open initiative's small work, padded 2 as smallBlocked pads them: a public work's quarter was laid over a
     // woodshed's spot in s36's N0on, which failed three builds)

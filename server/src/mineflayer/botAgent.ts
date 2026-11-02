@@ -20,6 +20,7 @@ import { timeScale } from './mcRules';
 import { modeSpec, takesDamage } from '../worldMode';
 import { HOSTILE, combatTick, fightsMobs, mayWake, noteDeath } from './mcCombat';
 import { spawnCellFor, survivalB } from './mcSurvivalB';
+import { isWallGate } from './mcWalls';
 import { causeFromState, deathCauseOf, hazardOf, lavaStep, noteTrap, safeCellNear, trappedUnderWater, type DeathCause, type Hazard } from './mcHazard';
 import { isPaused } from '../runClock';
 import { WALK_DIG } from './mcBlocks';
@@ -297,7 +298,9 @@ export class BotAgent implements WorldAgent {
           const open = p.open === true || p.open === 'true';
           b.safe = open;
           b.physical = !open;
-          b.openable = false;
+          // (survival (d), MC_WALLS: a village wall's gate is opened on the way, as a door; the gatekeeper shuts it after)
+          const pos = (b as unknown as { position?: { x: number; y: number; z: number } }).position;
+          b.openable = !open && !!pos && isWallGate(pos.x, pos.y, pos.z);
         } else if (b?.type !== undefined && doors.has(b.type)) {
           const p = (b as unknown as { getProperties?: () => Record<string, unknown> }).getProperties?.() ?? {};
           if (p.open === true || p.open === 'true' || p.half === 'upper') {

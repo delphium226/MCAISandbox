@@ -13,6 +13,7 @@ import type { PenShape, Side } from './farmSlots';
 import type { Quarry } from './quarry';
 import type { Kiln } from './kiln';
 import type { Lodge } from './lodge';
+import type { WallRecord } from './walls';
 import { growing, housesOf } from './grow';
 import { WOOD_VARIANTS, variantWood } from './designs';
 import { neighbourhoodNames } from './placeNames';
@@ -550,6 +551,8 @@ export interface Village {
   ladder?: LadderState;
   /** M1 (#144, MC_MONUMENT): the cathedral the village builds after the iron age (monument.ts). */
   monument?: Monument;
+  /** Survival (d) spec 5 (MC_WALLS): the village wall, once voted or refused (walls.ts, mineflayer/mcWalls.ts). */
+  wall?: WallRecord;
   plots: Plot[];
   structures: Structure[];
   designs: Record<string, Design>;

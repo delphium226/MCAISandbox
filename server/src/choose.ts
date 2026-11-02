@@ -949,6 +949,8 @@ export function choreProductive(kind: ChoiceKind | undefined, skill: string, ok:
   if (kind === 'gather' || kind === 'activity') return /^deposited [1-9]/.test(message);
   // (survival (d)'s hunt: a kill)
   if (kind === 'hunt') return /: [1-9]\d* kills?\b/.test(message);
+  // (survival (d)'s wall: cells built or taken down)
+  if (kind === 'wall') return /^(built|took down) [1-9]/.test(message);
   const parse = YIELD[skill];
   if (parse) {
     const n = parse(message);

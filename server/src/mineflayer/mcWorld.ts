@@ -101,7 +101,7 @@ import { deathMemory, deathWords, type DeathCause } from './mcHazard';
 import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, etaMinutes, historyLines, initTalk, isStatusQuestion, matchWork, noRequestLine, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, statusFor, statusLines, talkSystem, talkTool, talkUser, updateRequest, withoutPlace, workWords, type PlayerRequest, type ReqProgress, type Respond, type WorkOffer } from '../playerTalk';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { isNight, nightTick } from './mcSurvivalB';
-import { HUNT_HEALTH, HUNTED_NOT_BOUGHT, anyBed, armTick, armsOn, bandWords, builtBounds, combatCounts, curfewActs, curfewTick, dangerOf, dangerTick, deathsFact, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, headingHome, homeBand, homeByDuskOn, hunters, huntersOf, huntedTonight, huntMs, huntOn, isWeapon, pastBand, phaseOf, WATCH_HEALTH, watchedTonight, watchLoop, type SafetyBand } from './mcCombat';
+import { HUNT_HEALTH, HUNTED_NOT_BOUGHT, anyBed, armTick, armsOn, bandWords, builtBounds, combatCounts, curfewActs, curfewTick, dangerOf, dangerTick, deathsFact, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, DIST_BINS, headingHome, homeBand, homeByDuskOn, hunters, huntersOf, huntedTonight, huntMs, huntOn, isWeapon, pastBand, phaseOf, WATCH_HEALTH, watchedTonight, watchLoop, type SafetyBand } from './mcCombat';
 import { nightsFall, realHunger, worldMode } from '../worldMode';
 import { APPETITE, FOOD_POINTS, appetiteOn, barLevel, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
@@ -141,6 +141,7 @@ const UNDER_MS = 8 * 60000;
 const UNDER_IDLE = new Set(['wait', 'experiment']);
 /** #140 (F324): minutes (game time) a village leaves a bed flower it ran out of out of new mixes. */
 const FLOWER_OUT_MIN = 60;
+import { WALLS_NOW, WALL_NONE, WALL_VOTE, wallCap, gateTick, insideTick, nextSeg, noteGates, regrowWall, segBill, startWall, wallLine, wallsOn } from './mcWalls';
 import { kilnHolds, kilnLanes, kilnLine, kilnSize, kilnStone } from '../kiln';
 import { quarryLine } from '../quarry';
 
@@ -2379,6 +2380,11 @@ export class MineflayerWorld implements WorldAdapter {
     } catch (e) {
       console.error('[danger] check failed:', e);
     }
+    try {
+      this.wallsTick();
+    } catch (e) {
+      console.error('[wall] check failed:', e);
+    }
     this.utilTick();
     try {
       this.undergroundWatch();
@@ -2704,14 +2710,17 @@ export class MineflayerWorld implements WorldAdapter {
       ballots, tally: t.tally, winner: t.winner, ...(t.tie ? { tie: t.tie } : {}), closedAt: now,
     };
     v.votes = [...(v.votes ?? []), rec].slice(-20);
+    // (survival (d), MC_WALLS: the wall's vote is a public works vote of its own, decided here and never growth's next work)
+    const wallVote = r.options.some((o) => o.id === WALL_VOTE);
+    if (wallVote) this.wallVoted(v, r.id, t.winner === WALL_VOTE, now);
     // (X.2: a public work's vote decides the next work, '' for "no new work"; the style vote the next neighbourhood's style;
     // G8's rung vote the ladder's next rung, set by rungTick)
-    if (r.topic !== 'rung') {
+    if (r.topic !== 'rung' && !wallVote) {
       const g = (v.growth ??= { past: [] });
       if (r.topic === 'work') g.work = { piece: t.winner === PROJECT_NONE ? '' : t.winner, vote: r.id, at: now };
       else g.next = { style: t.winner, vote: r.id };
     }
-    const what = r.topic === 'work' ? `public work ${r.k}` : r.topic === 'rung' ? 'the next ambition' : `neighbourhood ${r.k}`;
+    const what = wallVote ? 'the wall' : r.topic === 'work' ? `public work ${r.k}` : r.topic === 'rung' ? 'the next ambition' : `neighbourhood ${r.k}`;
     const name = (id: string) => r.options.find((o) => o.id === id)?.name ?? id;
     for (const b of ballots) console.log(`[ballot] ${v.name}: ${b.agent} -> ${b.choice ? name(b.choice) : `none (${b.why ?? '?'})`} (predicted ${b.predicted ? name(b.predicted) : '-'}${b.position ? `, shown ${b.position} of ${b.shown.length}` : ''}): ${b.reason.replace(/\s+/g, ' ').slice(0, 160)}`);
     const cast = ballots.filter((b) => b.choice), agree = cast.filter((b) => b.choice === b.predicted).length;
@@ -2720,6 +2729,112 @@ export class MineflayerWorld implements WorldAdapter {
     this.villages.note(v, `the village voted ${name(t.winner)} for ${what} (${counts})`);
     this.villages.save();
     return t.winner;
+  }
+
+  // ---- Survival (d) spec 5, MC_WALLS: the wall's vote, growth, gates and counts --------------------------------------
+
+  private wallAt = { gates: 0, villages: 0, line: 0, inside: 0, loaded: false, gating: false };
+  /** The gatekeeper every second; each village's vote, growth and counts every 10 s; a `[wall]` line every 10 game minutes. */
+  private wallsTick() {
+    if (!wallsOn()) return;
+    const now = Date.now(), ts = Math.max(1, timeScale()), w = this.wallAt;
+    if (!w.loaded) {
+      w.loaded = true;
+      noteGates(this.villages.villages.values());
+    }
+    if (!w.gating && now - w.gates >= 1000) {
+      w.gates = now;
+      w.gating = true;
+      gateTick(this.agents.values(), (c) => this.rcon.command(c)).catch(() => undefined).finally(() => (w.gating = false));
+    }
+    if (now - w.villages < 10000) return;
+    w.villages = now;
+    const sample = now - w.inside >= 50000 / ts, line = now - w.line >= 600000 / ts;
+    if (sample) w.inside = now;
+    if (line) w.line = now;
+    for (const v of this.villages.villages.values()) {
+      const members = [...this.agents.values()].filter((a) => a.village()?.name === v.name && a.bot.entity);
+      if (!v.complete || !members.length) continue;
+      this.wallVoteTick(v, now);
+      const grown = regrowWall(v, this.villages.villages.values());
+      if (grown) {
+        console.log(`[wall] ${v.name}: ${grown}`);
+        this.villages.note(v, grown);
+        this.villages.save();
+      }
+      if (sample) insideTick(v, members);
+      if (line && v.wall?.state === 'voted') console.log(wallLine(v));
+    }
+  }
+
+  /**
+   * The wall's vote (spec 5): once the danger count sees a death or 5+ hostiles within 48 at night, "a wall round the
+   * village" against "no wall for now", as a public works vote of its own; refused, it comes back after another death.
+   * MC_WALLS_NOW (staged tests): planned at once.
+   */
+  private wallVoteTick(v: Village, now: number) {
+    const w = v.wall;
+    if (w?.state === 'voted') return;
+    const run = this.voting.get(v.name);
+    if (run) {
+      if (run.options.some((o) => o.id === WALL_VOTE) && (run.done || now - run.started >= VOTE_MAX_MS + 35000)) this.closeVote(v, run, now);
+      return;
+    }
+    const all = this.villages.villages.values();
+    if (WALLS_NOW) {
+      v.wall = startWall(v, all) ?? undefined;
+      if (v.wall) console.log(`[wall] ${v.name}: planned at once (MC_WALLS_NOW): ${v.wall.segs.length} segments, ${v.wall.segs.reduce((n, s) => n + s.cells.length, 0)} cells`);
+      this.villages.save();
+      return;
+    }
+    const d = dangerOf(v.name);
+    const deaths = DIST_BINS.reduce((n, b) => n + (d.deaths[b] ?? 0), 0);
+    if (!deaths && d.peak48 < 5) return;
+    if (w?.state === 'refused' && deaths <= (w.deaths ?? 0)) return;
+    const plan = startWall(v, all);
+    if (!plan) return;
+    const cells = plan.segs.reduce((n, s) => n + s.cells.length, 0);
+    const logs = Math.ceil((cells * 5) / 3 / 4);
+    const stake = deathsFact(d.deaths, d.deathsPhase) || `${d.peak48} monsters seen within 48 blocks of home at night`;
+    const options: VoteOption[] = [
+      { id: WALL_VOTE, name: 'A wall round the village', facts: `fence on cobblestone 6 blocks outside the village, ${cells} blocks round in ${plan.segs.length} parts with a gate in each and torches; ~${cells} cobblestone and ~${logs} logs from storage; ${stake}`.slice(0, 220), current: false, novel: true, units: Math.ceil(cells / 16), volume: cells * 2 },
+      { id: WALL_NONE, name: 'No wall for now', facts: 'members stay free for their other work; the question comes back after another death', current: true, novel: false, units: 0, volume: 0 },
+    ];
+    const mode = this.voteMode(v);
+    const k = (v.votes ?? []).filter((x) => x.topic === 'work').length + 1;
+    const id = `${v.name}-wall-${now.toString(36)}`;
+    if (mode === 'off') {
+      this.wallVoted(v, id, true, now);
+      return;
+    }
+    const voters = this.growMembers(v).filter((a) => a.bot.entity);
+    const r: VoteRun = { id, topic: 'work', k, options, started: now, mode, done: false, ballots: [], voters: voters.map((a) => a.name), ac: new AbortController() };
+    this.voting.set(v.name, r);
+    console.log(`[vote] ${v.name}: wall vote ${id} (${mode}, ${voters.length} voters; ${stake})`);
+    const predicted = (name: string) => predictedChoice(temperament(name), options, `${id}|${name}`);
+    if (mode === 'predicted') {
+      r.ballots = voters.map((a) => predictedBallot(id, a.name, options, predicted(a.name)));
+      this.closeVote(v, r, now);
+      return;
+    }
+    const reqs: BallotRequest[] = [];
+    for (const a of voters) {
+      const spec = parseSpec(typeof a.memory.chooseModel === 'string' ? a.memory.chooseModel : typeof a.memory.execModel === 'string' ? a.memory.execModel : CHOOSE.model);
+      if (spec) reqs.push({ voteId: id, agent: a.name, spec, level: REASONING.ballot, options, predicted: predicted(a.name), ctx: this.voterContext(v, a), signal: r.ac.signal, topic: 'work' });
+    }
+    castAll(id, reqs, BALLOTS_PARALLEL, now + VOTE_MAX_MS, r.ballots).then(() => (r.done = true), (e) => {
+      console.log(`[vote] ${v.name}: wall ballots failed: ${String((e as Error)?.message ?? e).slice(0, 200)}`);
+      r.done = true;
+    });
+  }
+
+  /** The wall's vote decided: planned, or refused until another death. */
+  private wallVoted(v: Village, vote: string, yes: boolean, now: number) {
+    const d = dangerOf(v.name);
+    const deaths = DIST_BINS.reduce((n, b) => n + (d.deaths[b] ?? 0), 0);
+    v.wall = (yes ? startWall(v, this.villages.villages.values(), vote) : null) ?? { state: 'refused', at: now, vote, deaths, rects: [], segs: [], built: {} };
+    console.log(`[wall] ${v.name}: ${v.wall.state === 'voted' ? `voted: ${v.wall.segs.length} segments, ${v.wall.segs.reduce((n, s) => n + s.cells.length, 0)} cells` : 'refused'}`);
+    this.villages.save();
   }
 
   private growTick(v: Village) {
@@ -3630,7 +3745,7 @@ export class MineflayerWorld implements WorldAdapter {
     if (g.work?.piece) return g.work.piece;
     const run = this.voting.get(v.name);
     if (run) {
-      if (run.topic !== 'work') return undefined;
+      if (run.topic !== 'work' || run.options.some((o) => o.id === WALL_VOTE)) return undefined;
       if (!run.done && now - run.started < VOTE_MAX_MS + 35000) return undefined;
       const w = this.closeVote(v, run, now);
       return w === PROJECT_NONE ? null : w;
@@ -7912,9 +8027,35 @@ export class MineflayerWorld implements WorldAdapter {
         const min = Math.max(1, Math.round(huntMs() / 60000));
         add({
           id: 'hunt', kind: 'hunt', key: slot, excludes: [`${slot}=`], name: 'Hunt at the village edge', rank: 125,
-          facts: `${huntersOf(v.name)} of ${cap} hunters out; skeletons and spiders first, within 32 blocks of the village, ~${min} min, then the drops to storage (it holds ${st.bone ?? 0} bone, ${st.string ?? 0} string); the hunt has killed ${kills} so far`,
+          facts: `${huntersOf(v.name)} of ${cap} hunters out; skeletons and spiders first, within ${anyBed(this.agents.values()) ? 48 : 32} blocks of the village, ~${min} min, then the drops to storage (it holds ${st.bone ?? 0} bone, ${st.string ?? 0} string); the hunt has killed ${kills} so far`,
           effect: 'bone and string for storage (bone meal, fishing rods); the merchant is not asked for them',
         }, { kind: 'hunt' });
+      }
+    }
+    // Survival (d), MC_WALLS (spec 5): the voted wall, a segment a member by day (the nearest free one), from storage's
+    // cobblestone and wood; the old ring's cells inside the region after growth taken down first
+    if (wallsOn() && v.complete && v.wall?.state === 'voted' && phaseOf(this.timeOfDay()) === 'day') {
+      const w = v.wall;
+      if (w.down?.length && !excluded(['walldown='], busy)) {
+        add({ id: 'wall:down', kind: 'wall', key: 'walldown', excludes: ['walldown='], name: 'Take down the old wall', rank: 395, facts: `${w.down.length} cells of the old wall stand inside the village since it grew; cleared from where they stand`, effect: 'the village walkable again where the wall stood' }, { kind: 'wall', seg: 0, down: true });
+      }
+      const members = [...this.agents.values()].filter((x) => x.village()?.name === v.name).length;
+      const on = w.segs.filter((x) => excluded([`wall:${x.id}=`], busy)).length;
+      const s = on < wallCap(members) ? nextSeg(v, a, (id) => excluded([`wall:${id}=`], busy)) : null;
+      if (on >= wallCap(members)) reasons.wall = 'busy';
+      if (s) {
+        const wood = v.wood ?? 'oak', bill = segBill(s, wood), st = storageContents(v);
+        const planks = Object.entries(st).reduce((n, [k, q]) => n + (/_log$/.test(k) ? 4 * q : /_planks$/.test(k) ? q : 0), 0);
+        const fences = Math.max(0, (bill[`${wood}_fence`] ?? 0) - (st[`${wood}_fence`] ?? 0));
+        const needPlanks = Math.ceil((fences * 5) / 3) + 4 * (bill[`${wood}_fence_gate`] ?? 0);
+        const done = w.segs.filter((x) => x.cells.every((c) => w.built[`${c.x},${c.z}`])).length;
+        if ((st.cobblestone ?? 0) >= bill.cobblestone && planks >= needPlanks) {
+          add({
+            id: `wall:${s.id}`, kind: 'wall', key: `wall:${s.id}`, excludes: [`wall:${s.id}=`], name: 'Build the village wall', rank: 400,
+            facts: `part ${s.id} of ${w.segs.length} (${done} done): ${s.cells.length} blocks of fence on cobblestone with a gate; takes ${bill.cobblestone} cobblestone and ~${Math.ceil(needPlanks / 4)} logs' wood from storage`,
+            effect: 'monsters kept out of the village at night (zombies cannot open the gates)',
+          }, { kind: 'wall', seg: s.id });
+        } else reasons.wall = 'storage short';
       }
     }
 
@@ -9977,6 +10118,17 @@ export class MineflayerWorld implements WorldAdapter {
         this.setChore(v, worker, opt.key, [worker.enqueue('keep_watch', { chore: true })], 'keep watch tonight', undefined, meta, opt.holds, opt);
         console.log(`[guard] ${v.name}: ${worker.name} keeps watch (${guardsOf(v.name) + 1} on watch)`);
         return;
+      case 'wall': {
+        const st = worker.enqueue(d.down ? 'take_down_wall' : 'build_wall', { seg: d.seg, chore: true });
+        const failed = (why: string) => {
+          if (why === 'cancelled' || st.code || !v.wall || d.down) return;
+          (v.wall.back ??= {})[d.seg] = Date.now() + 5 * 60000;
+          this.villages.save();
+        };
+        this.setChore(v, worker, opt.key, [st], d.down ? 'take down the old wall' : `build the village wall (part ${d.seg})`, failed, meta, opt.holds, opt);
+        console.log(`[wall] ${v.name}: ${worker.name} ${d.down ? 'takes down the old wall' : `builds segment ${d.seg}`}`);
+        return;
+      }
       case 'hunt':
         this.setChore(v, worker, opt.key, [worker.enqueue('hunt_edge', { chore: true })], 'hunt at the village edge', undefined, meta, opt.holds, opt);
         console.log(`[hunt] ${v.name}: ${worker.name} goes hunting (${huntersOf(v.name) + 1} out)`);
@@ -11423,6 +11575,7 @@ type OptionRun =
   | { kind: 'rest'; x: number; y: number; z: number }
   | { kind: 'watch' }
   | { kind: 'hunt' }
+  | { kind: 'wall'; seg: number; down?: boolean }
   | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number; needs: Counts; gives: string[]; own?: string[] }
   // (#164: posting one's find on the board; a village custom, its spot and the flower it takes, the tools it returns)
   | { kind: 'board'; what: 'report'; text: string }
