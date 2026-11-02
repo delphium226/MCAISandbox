@@ -30,6 +30,7 @@ import { MINING_HUT, STORAGE_HUT, STORAGE_HUT_STATIONS, storageYardCandidates, s
 import type { DecorPart, LightPart } from './mcWorld';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
+import { yardMaterials } from './mcKiln';
 import { Materials, WOODS, chargedItem, describeWork, gatherTasks, label, woodName, woodPart, type Counts } from './mcMaterials';
 import { STORAGE_SKILLS, forgiveDebt, holdingStorageTask, ownTools, partsForFuel, refreshStorage, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS, STATION_REACH, holdVillageFurnace, placeStation, recordStation, stationNear, stationSpot, stationsReady, villageStation, villageStationCell } from './mcSurvival';
@@ -248,6 +249,8 @@ function treeAt(a: BotAgent, x: number, y: number, z: number): Pos[] {
 
 export interface Job {
   targets: Target[];
+  /** The planner its shortfall is made with (#202: a monument's, mcKiln's yardMaterials); the world's otherwise. */
+  materials?: Materials;
   /** Ground reserved in the village while working (checked for conflicts first). */
   claim?: { area: Area; purpose: string; avoidStructures: boolean; ignore?: (s: Structure) => boolean };
   /** Where to stand: the area worked on. */
@@ -461,7 +464,7 @@ function billOf(place: Target[]): Counts {
 }
 
 /** Why the builder cannot start (what is short, and how to get it), or null. */
-function shortage(a: BotAgent, what: string, need: Counts, inv: Counts, store: Counts): string | null {
+function shortage(a: BotAgent, what: string, need: Counts, inv: Counts, store: Counts, materials?: Materials): string | null {
   const short: Counts = {};
   const lines: string[] = [];
   for (const [n, q] of Object.entries(need)) {
@@ -475,7 +478,7 @@ function shortage(a: BotAgent, what: string, need: Counts, inv: Counts, store: C
   const other: Counts = { ...inv };
   for (const [n, q] of Object.entries(store)) other[n] = (other[n] ?? 0) + q;
   for (const n of Object.keys(need)) delete other[n];
-  const plan = a.world.materials.plan(short, other);
+  const plan = (materials ?? a.world.materials).plan(short, other);
   // Ingredients that are in storage rather than in hand have to be fetched first
   const fetch: Counts = {};
   for (const [n, q] of Object.entries(plan.fromStock)) {
@@ -996,13 +999,13 @@ export async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled 
           await standBy(a, job, signal);
           inv = await carriedCounts(a, Object.keys(need));
         }
-        why = shortage(a, job.what ?? 'this', need, { ...inventoryCounts(a), ...inv }, v ? storageContents(v) : {});
+        why = shortage(a, job.what ?? 'this', need, { ...inventoryCounts(a), ...inv }, v ? storageContents(v) : {}, job.materials);
         if (why) {
           // Short only of things that can be made from what is in hand and in storage: make them here
           const short: Counts = {};
           for (const [n, q] of Object.entries(need)) if ((inv[n] ?? 0) < q) short[n] = q - (inv[n] ?? 0);
           // A crafting step that fails (one log fewer than counted) falls through to the shortage below and the requeue
-          const made = await makeFromStock(a, need, short, () => standBy(a, job, signal), signal, { what: job.what ?? job.design }).catch((e: Error) => {
+          const made = await makeFromStock(a, need, short, () => standBy(a, job, signal), signal, { what: job.what ?? job.design, ...(job.materials ? { materials: job.materials } : {}) }).catch((e: Error) => {
             // (a stall that did not move the bot fails the build now, so the rescue comes soon: F146)
             if (e.message === 'cancelled' || unmoved(e)) throw e;
             notes.push(e.message);
@@ -1022,7 +1025,7 @@ export async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled 
             if (v && Object.keys(again).length) await withdrawItems(a, v, again, signal);
             await standBy(a, job, signal);
             inv = await carriedCounts(a, Object.keys(need));
-            why = shortage(a, job.what ?? 'this', need, { ...inventoryCounts(a), ...inv }, v ? storageContents(v) : {});
+            why = shortage(a, job.what ?? 'this', need, { ...inventoryCounts(a), ...inv }, v ? storageContents(v) : {}, job.materials);
           }
         }
         if (!why || !v?.storage?.chests.length) break;
@@ -1051,7 +1054,7 @@ export async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled 
           inv = await carriedCounts(a, Object.keys(need));
           left = {};
           for (const [n, q] of Object.entries(need)) if ((inv[n] ?? 0) < q) left[n] = q - (inv[n] ?? 0);
-          why = shortage(a, job.what ?? 'this', need, { ...inventoryCounts(a), ...inv }, storageContents(v));
+          why = shortage(a, job.what ?? 'this', need, { ...inventoryCounts(a), ...inv }, storageContents(v), job.materials);
         }
       }
       if (why) {
@@ -4707,6 +4710,8 @@ async function buildMonument(a: BotAgent, args: Record<string, unknown>, signal:
   const summary = await runJob(a, {
     targets, area, y: Math.min(...targets.map((t) => t.y)), what,
     claim: { area, purpose: `build ${what}`, avoidStructures: false },
+    // (#202: its pieces made as the yard's plan makes them, sandstone from sand)
+    ...(yardMaterials(a.world, m) ? { materials: yardMaterials(a.world, m)! } : {}),
   }, signal);
   return `built ${what}: ${summary}`;
 }

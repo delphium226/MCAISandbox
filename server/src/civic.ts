@@ -21,7 +21,7 @@ import type { Cathedral } from './gothicGen';
 import * as gothic from './gothicGen';
 import * as castle from './castleGen';
 import { rawSetting } from './settings';
-import { PICKS, drawRank } from './shortlist';
+import { PICKS, drawRank, suppliable } from './shortlist';
 import { TIMBER_PRESETS, generateTimber, type TimberPreset } from './timberGen';
 import { TOWER_PRESETS, generateTower } from './towerGen';
 import { villageHome, type Village } from './village';
@@ -165,6 +165,8 @@ export function civicOptions(v: Village, ironReached: boolean, n = PICKS.random 
     const scale = civicScale(e.id), c = drawCivic(e.id, scale);
     // (a footprint wider than the monument's search can place near the village is left out)
     if (Math.max(c.design.width, c.design.depth) > 72) continue;
+    // (#202: a building with a block the yard cannot get is left out)
+    if (!suppliable('civic', e.id, scale, v.name)) continue;
     perKind.set(e.kind, (perKind.get(e.kind) ?? 0) + 1);
     const d = c.design;
     out.push({

@@ -15,6 +15,17 @@ export const PICKS = {
 /** Test hook. */
 export function setPicks(s: Partial<typeof PICKS>): void { Object.assign(PICKS, s); }
 
+/**
+ * #202: whether a building's every block has a way into the monument's yard (a trip, a chore, a recipe from what is
+ * gathered, a stand-in when short). The world sets it (it has the recipes: mcWorld's unsuppliable check); unset, every
+ * building passes. The short lists leave the others out: train 17's random civic pick, the Zytglogge, wanted sandstone
+ * the yard could not get, and the cathedral behind it never began. With `village`, the sand for its sandstone is
+ * counted against what lies in that village's reach (mcSandTrips' sandInReach).
+ */
+let supplyCheck: ((type: 'civic' | 'cathedral', preset: string, scale: number, village?: string) => boolean) | null = null;
+export function setSupplyCheck(f: typeof supplyCheck): void { supplyCheck = f; }
+export const suppliable = (type: 'civic' | 'cathedral', preset: string, scale: number, village?: string): boolean => !supplyCheck || supplyCheck(type, preset, scale, village);
+
 let logged = false;
 /** The run's seed, logged once (the first time a list is drawn). */
 export function pickSeed(): string {

@@ -14,7 +14,7 @@
  * (mcStorage.ts' atLodge), so a tend starts and ends there, not at the hut.
  */
 import { Vec3 } from 'vec3';
-import type { Village } from '../village';
+import type { Monument, Village } from '../village';
 import { VILLAGE_RANGE, areaText } from '../village';
 import { KILN, KILN_SMELTS, SLOT, cookedBy, fuelFor, kilnLanes, loadView, type KilnFurnace, kilnLine, kilnSize, kilnStrip, laneFurnaces, loadFurnace, newKiln, spreadLoad, unloadFurnace } from '../kiln';
 import { searchQuarry } from '../quarry';
@@ -40,13 +40,24 @@ const building = new Set<string>();
 
 /** The plan of a bill against what is had, as the yard's arithmetic wants it (Materials.plan); with the stonecutter
  *  (#162, MC_MONUMENT_DETAIL) a plan that cuts the stone pieces rather than crafting them. */
-const cutPlans = new WeakMap<object, Materials>();
-export const planOf = (w: { materials: { plan: PlanOf }; registry?: ConstructorParameters<typeof Materials>[0] }): PlanOf => {
-  if (!CUTTER.on || !w.registry) return (bill, have) => w.materials.plan(bill, have);
-  let cut = cutPlans.get(w);
-  // (#162's dye bed: the dyes asked for as such, the dyer makes them)
-  if (!cut) cutPlans.set(w, (cut = new Materials(w.registry, { cut: true, dyes: DYE_BED.on })));
-  return (bill, have) => cut!.plan(bill, have);
+const cutPlans = new WeakMap<object, Materials>(), craftPlans = new WeakMap<object, Materials>();
+export const planOf = (w: { materials: { plan: PlanOf }; registry?: ConstructorParameters<typeof Materials>[0] }, m?: Monument): PlanOf => {
+  const p = yardMaterials(w, m);
+  return p ? (bill, have) => p.plan(bill, have) : (bill, have) => w.materials.plan(bill, have);
+};
+/** The yard's planner itself (null without the registry): the monument's build makes its pieces with it, #202 (the
+ *  world's own planner gathers sandstone as it lies, so the Zytglogge's builder asked for sandstone with 816 sand in
+ *  storage). */
+export const yardMaterials = (w: { registry?: ConstructorParameters<typeof Materials>[0] }, m?: Monument): Materials | null => {
+  if (!w.registry) return null;
+  // (#202: cut only where a carver cuts, a detail record; another's build crafts its stairs, 6 cobblestone for 4, and the
+  // Zytglogge's top waited on 112 cobblestone stairs the yard's 122 cobblestone were planned to cover)
+  const cutting = CUTTER.on && (!m || !!(m as Monument & { detail?: boolean }).detail);
+  const plans = cutting ? cutPlans : craftPlans;
+  let p = plans.get(w);
+  // (#162's dye bed: the dyes asked for as such, the dyer makes them; #202: the yard's sandstone made from sand)
+  if (!p) plans.set(w, (p = new Materials(w.registry, cutting ? { cut: true, dyes: DYE_BED.on, yard: true } : { yard: true })));
+  return p;
 };
 
 /** Whether a village's cathedral uses its kiln now (the flag, a prepared site, and something the yard can smelt). */
@@ -201,7 +212,7 @@ async function tendKiln(a: BotAgent, args: Record<string, unknown>, signal: Abor
   const kl = m?.kiln;
   if (!v || !m || kl?.state !== 'ready') throw new Error('tend_kiln: the cathedral has no kiln ready');
   const lane = Math.max(1, Math.floor(num(args.lane ?? 1, 'lane')));
-  const reg = a.world.villages, plan = planOf(a.world), scale = timeScale();
+  const reg = a.world.villages, plan = planOf(a.world, m), scale = timeScale();
   const fs = laneFurnaces(kl, lane, kilnLanes(kl));
   // (the load spread over the furnaces as they will be once their done output is out: loadView)
   const view = loadView(fs, Date.now(), scale);

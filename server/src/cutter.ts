@@ -24,8 +24,9 @@ export interface CutStep { do: 'craft' | 'smelt'; item: string; runs: number; ma
 export interface Cut { item: string; input: string; runs: number; makes: number; unit?: number }
 
 /** #162 tier 3, chain B: a cut's input the carver makes at the stonecutter's table first when the yard holds none (9 copper
- *  ingots a copper block, the roof's cut copper cut from it); charged by command with the cut. */
-export const FORGE: Record<string, { input: string; n: number }> = { copper_block: { input: 'copper_ingot', n: 9 } };
+ *  ingots a copper block, the roof's cut copper cut from it; #202: 4 sand a sandstone, its cut pieces cut from it);
+ *  charged by command with the cut. */
+export const FORGE: Record<string, { input: string; n: number }> = { copper_block: { input: 'copper_ingot', n: 9 }, sandstone: { input: 'sand', n: 4 } };
 
 /** The most input a carver carries to the stonecutter at a time (three stacks, half its inventory). */
 export const CUT_LOAD = 192;

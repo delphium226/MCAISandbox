@@ -38,9 +38,9 @@ import { villageHome, type Area, type Monument, type Village } from './village';
 import { KILN, kilnHolds } from './kiln';
 import { CUTTER, needsCutting, type CutStep, type CutterRecord } from './cutter';
 import type { DyeBed } from './dyeBed';
-import { FURNISH_STAGE, furnishKindOf, furnishKinds, furnishOn, furnishTrade, type FurnishKind } from './furnish';
+import { FURNISH_STAGE, furnishItem, furnishKindOf, furnishKinds, furnishOn, furnishTrade, type FurnishKind } from './furnish';
 import { aKind, civicEntries, civicEntry, drawCivic } from './civic';
-import { PICKS, drawOrder } from './shortlist';
+import { PICKS, drawOrder, suppliable } from './shortlist';
 import { DRESSING, dress, supplyOf } from './dressing';
 
 export { KILN };
@@ -155,6 +155,29 @@ export function dyeStandIn(m: Monument, dye: string): number {
   const r = m3(m);
   Object.assign(r.standIns ??= {}, { [pane]: 'glass_pane', [block]: 'glass' });
   Object.assign(r.standInFrom ??= {}, { [pane]: from, [block]: from });
+  return from;
+}
+/** #202: sandstone's stand-ins once the village has no more sand to make it from (4 a block): the stone brick forms the
+ *  dressing turned golden. */
+export const SANDSTONE_STAND_INS: Record<string, string> = {
+  sandstone: 'stone_bricks', cut_sandstone: 'stone_bricks', chiseled_sandstone: 'chiseled_stone_bricks',
+  sandstone_stairs: 'stone_brick_stairs', sandstone_slab: 'stone_brick_slab', sandstone_wall: 'stone_brick_wall',
+};
+/** #202: the record's sandstone stood in from the first open job the yard's sand and sandstone do not cover (null when
+ *  stood in already or none is wanted); returns that job. */
+export function sandstoneStandIn(m: Monument): number | null {
+  const r = m3(m);
+  if (r.standIns?.sandstone) return null;
+  const c = monumentPlan(m);
+  let left = Math.floor((m.yard.sand ?? 0) / 4) + Object.keys(SANDSTONE_STAND_INS).reduce((t, b) => t + (m.yard[b] ?? 0), 0), from = -1;
+  for (let i = 0; i < c.jobs.length && from < 0; i++) {
+    if (m.done.includes(i)) continue;
+    left -= Object.keys(SANDSTONE_STAND_INS).reduce((t, b) => t + (c.jobs[i].bill[b] ?? 0), 0);
+    if (left < 0) from = i;
+  }
+  if (from < 0) return null;
+  Object.assign(r.standIns ??= {}, SANDSTONE_STAND_INS);
+  Object.assign(r.standInFrom ??= {}, Object.fromEntries(Object.keys(SANDSTONE_STAND_INS).map((b) => [b, from])));
   return from;
 }
 /** A furnishing kind left out (its chores failed FURNISH_FAILS times: no iron for ingots or shears): not drawn, and
@@ -557,6 +580,18 @@ export function jobBuiltPlanned(m: Monument, index: number, plan: PlanOf, now: n
   jobBuilt(m, index, Object.fromEntries(Object.entries(took).map(([n, q]) => [rawName(m, n), q])), now);
 }
 
+/** #202: the raw items the yard has a way to: trips (logs, sand, the mine's cobblestone, the quarry's and the deep level's
+ *  stones), chores of their own (raw copper, amethyst, dyes) or the mine's stock, and stand-ins for the slow ones. Red sand
+ *  is not one: the sand trip digs sand. */
+export const YARD_ROUTE = /^(any:logs|.*_(log|stem)|sand|any:cobblestone|cobblestone|andesite|diorite|granite|cobbled_deepslate|tuff|amethyst_block|raw_copper|.*_dye)$/;
+
+/** #202: the raw items a record's blocks need (the furnishing's left to its own chores) that the yard has no way to. */
+export function unsuppliable(m: Monument, plan: PlanOf): string[] {
+  const c = monumentPlan(m), fs = furnishStage(m), bill: Record<string, number> = {};
+  for (const j of c.jobs) if (!fs || j.stage !== fs) for (const [n, q] of Object.entries(j.bill)) bill[n] = (bill[n] ?? 0) + q;
+  return Object.entries(plan(bill, {}).gather).filter(([n, q]) => q > 0 && !YARD_ROUTE.test(n) && !FLOWER_DYE[n] && !furnishItem(n)).map(([n]) => n);
+}
+
 /** Whether the yard covers a job's raw bill. */
 export function yardCovers(m: Monument, rawBill: Record<string, number>): boolean {
   return Object.entries(rawBill).every(([n, q]) => (m.yard[n] ?? 0) >= Math.ceil(q));
@@ -928,7 +963,9 @@ export function architectOptions(scales = M3.scales, village?: string): Architec
   const out: ArchitectFacts['options'] = [];
   // (MC_PICK_RANDOM, with the village: ARCHITECT_PICKS cathedrals drawn for this run and village, not all 24: the
   // architect took Chartres every time, #155)
-  const presets = village && PICKS.random ? drawOrder(Object.keys(GOTHIC_PRESETS), `cathedral|${village}`, (p) => p).slice(0, ARCHITECT_PICKS) : Object.keys(GOTHIC_PRESETS);
+  // (#202: a cathedral with a block the yard cannot get is left out)
+  const ok = Object.keys(GOTHIC_PRESETS).filter((p) => suppliable('cathedral', p, scales[0], village));
+  const presets = village && PICKS.random ? drawOrder(ok, `cathedral|${village}`, (p) => p).slice(0, ARCHITECT_PICKS) : ok;
   for (const preset of presets)
     for (const scale of scales) {
       const c = generateCathedral(GOTHIC_PRESETS[preset], scale);

@@ -89,6 +89,8 @@ def commands():
     out["run_pause"] = ([node, TSX, "scripts/checks/run_pause.mts"], [])
     out["live_settings"] = ([node, TSX, "scripts/checks/live_settings.mts"], [])
     out["civic_gen"] = ([node, TSX, "scripts/checks/civic_gen.mts"], [])
+    # (#202: every civic building and cathedral has a way into the yard for each of its blocks)
+    out["supply_check"] = ([node, TSX, "scripts/checks/supply_check.mts"], [])
     return out
 
 

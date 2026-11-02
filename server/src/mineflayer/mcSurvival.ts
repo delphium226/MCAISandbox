@@ -3,6 +3,7 @@
  * sticks and the crafting table on the way, like the sandbox), smelting, eating, fighting, exploring and trading.
  * Arguments and names match the sandbox's skills (skills.ts).
  */
+import { acrossWater } from './mcSandTrips';
 import { Vec3 } from 'vec3';
 import type { Block } from 'prismarine-block';
 import type { Entity } from 'prismarine-entity';
@@ -757,14 +758,15 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
   const have = () => items.reduce((s, id) => s + countItem(a, id), 0);
   // A farm slot's start (a chore, opportunistic farming 10-08) collects where it walked to: no walk home first, and as far
   // as its trip may go (FARM_TRIP_RANGE); every other collect stays within the village's range
-  const here = args.here === true;
-  const range = here ? Math.min(FARM_TRIP_RANGE, Math.max(VILLAGE_RANGE, Number(args.range) || VILLAGE_RANGE)) : VILLAGE_RANGE;
+  const here = args.here === true || typeof args.far === 'number';
+  // (#202, MC_SAND_TRIPS: an expedition's `far`, its sand spot's distance from home and a margin, code's only)
+  const range = typeof args.far === 'number' ? Math.min(480, Math.max(VILLAGE_RANGE, args.far)) : here ? Math.min(FARM_TRIP_RANGE, Math.max(VILLAGE_RANGE, Number(args.range) || VILLAGE_RANGE)) : VILLAGE_RANGE;
   const start = have();
   // A village with a mine digs its stone there (V.5), not in pits around the plot; what the mine cannot give at all
   // (its tunnels ended) is looked for outside as before
   const home = a.village();
   // Sand no gatherer found near the village is not searched for again (F96: each futile search held the event loop)
-  if (home?.unavailable?.includes(label.replace(/s$/, '')) || home?.unavailable?.includes(label))
+  if (typeof args.far !== 'number' && (home?.unavailable?.includes(label.replace(/s$/, '')) || home?.unavailable?.includes(label)))
     throw new Error(`no ${label} within 96 blocks of the village (found none before): it cannot be gathered here (a building that needs it goes without, or the task is handed back)`);
   // M2 (#145, MC_QUARRY): the cathedral's cobblestone from its quarry, not the mine (what the pit cannot give comes as before)
   if (home && a.memory.monumentGather === 'cobblestone' && label.replace(/s$/, '') === 'cobblestone' && quarryFeeds(home, 'cobblestone')) {
@@ -819,6 +821,23 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
   const fallen = new Map<string, Vec3[]>();
   // Logs of the standing trees looked at in this call, with the tree's size (R.4: giant jungle trees for small tasks)
   const treeSize = new Map<string, number>();
+  // (#202: sand with no dry cell to stand in beside it, level or one up: bank sand at the water line, under water or
+  // walled by it. Train 17's Zytglogge run had 13 of its 15 stalls walking to such sand, 10-17 s each)
+  const sandy = /^(red_)?sand$/.test(label);
+  const standBeside = (p: Vec3): boolean => {
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]])
+      for (const dy of [0, 1]) {
+        const q = p.offset(dx, dy, dz);
+        const feet = a.bot.blockAt(q)?.name ?? '', head = a.bot.blockAt(q.offset(0, 1, 0))?.name ?? '';
+        if (!/^(air|cave_air|short_grass|tall_grass|fern)$/.test(feet) || !/^(air|cave_air|short_grass|tall_grass|fern)$/.test(head)) continue;
+        if (a.bot.blockAt(q.offset(0, -1, 0))?.boundingBox === 'block' && !wetAt(a, q)) return true;
+      }
+    return false;
+  };
+  let noStand = 0;
+  // (#202: nor sand across open water from home: run 6's shore trips to the far bank left two members swimming in the
+  // river with their loads, mcSandTrips' acrossWater)
+  const across = sandy && base ? acrossWater(a.world.atlas, base, range + 16) : null;
   const skipBuilt = (p: Vec3, near: (q: Vec3) => boolean): boolean => {
     if (!isTreeLog(a.bot.blockAt(p)?.name) || fallen.has(at(p))) return false;
     // (another log of a group already passed over: not counted again)
@@ -836,7 +855,8 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
     skipped++;
     return true;
   };
-  const passedOver = () => (skipped ? ` (passed over ${skipped} group${skipped > 1 ? 's' : ''} of logs without leaves as built)` : '');
+  const passedOver = () => (skipped ? ` (passed over ${skipped} group${skipped > 1 ? 's' : ''} of logs without leaves as built)` : '')
+    + (noStand ? ` (passed over ${noStand} ${label} with nowhere dry to stand beside it, or across open water)` : '');
   // Stepped off village ground once to look for buried blocks beside it
   let steppedOff = false;
   // Other materials the village needs, taken on the way (V.4)
@@ -904,6 +924,12 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
         if (++outOfReach >= 60) break;
         continue;
       }
+      if (sandy && (!standBeside(p) || across?.(p.x, p.z))) {
+        bad.set(at(p), Date.now() + 10 * 60000);
+        noStand++;
+        if (++outOfReach >= 60) break;
+        continue;
+      }
       if ((treeSize.get(at(p)) ?? 0) > tooBig) {
         giant ??= p;
         continue;
@@ -929,7 +955,7 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
       const p0 = a.bot.entity.position;
       // (cheapest first: most matches are buried, and near() goes through every village's areas)
       // (nor one another gatherer is on its way to: the check's #10)
-      next = nearestBlocks(a, blocks, 128, 512, (p) => p.distanceTo(p0) > 48 && exposed(a, p) && near(p) && stalk(p) && !failed.has(at(p)) && !bad.has(at(p)) && !takenByOther(p), ys).find((p) => !skipBuilt(p, near) && (!leaves || leafInReach(a, p)));
+      next = nearestBlocks(a, blocks, 128, 512, (p) => p.distanceTo(p0) > 48 && exposed(a, p) && near(p) && stalk(p) && !failed.has(at(p)) && !bad.has(at(p)) && !takenByOther(p), ys).find((p) => !skipBuilt(p, near) && (!leaves || leafInReach(a, p)) && (!sandy || (standBeside(p) && !across?.(p.x, p.z)) || (bad.set(at(p), Date.now() + 10 * 60000), noStand++, false)));
       if (next) {
         const far = Math.round(next.distanceTo(a.bot.entity.position));
         const t1 = Date.now();

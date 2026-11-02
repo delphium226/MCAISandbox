@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-282 settings.
+283 settings.
 
 ## Game speed
 
@@ -282,6 +282,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_PICK_RANDOM` | flag | `on` |  |  | MC_PICK_RANDOM=on (the user's, 11-01: the buildings picked more random): the lists a village picks buildings from are drawn per run and per village: the civic tier's shortlist (5, one of a kind), the monument architect's cathedrals (5 of 24) and the public works vote's order within the village's biome (not the cheapest first). The model still picks. Off: the fixed lists before 11-01. |
 | `MC_PICK_SEED` | string | (unset) |  | `MC_PICK_RANDOM` | The run's seed for MC_PICK_RANDOM's draws; unset: drawn at start and logged as "[pick] seed X". Set it to a run's seed to draw the same lists (with MC_MODEL_REPLAY). |
 | `MC_QUARRY` | flag | `on` |  | `MC_MONUMENT` | MC_QUARRY=on (M2, #145; off by default): the cathedral's cobblestone trips dig a terrace pit beside its pad (sized from the bill, chosen by the first trip near the storage hut) instead of the village mine, one member a row; the pit is kept ground like a building. |
+| `MC_SAND_TRIPS` | flag | `on` |  | `MC_MONUMENT` | MC_SAND_TRIPS=on (#202; off turns it off): when a monument or civic building still wants 128 sand or more for its sandstone and the sand within the village range has run out, one member at a time fetches a full inventory from the nearest dry sand the atlas knows (beach or desert) up to 400 blocks from home, and brings it to the lodge ([sand] expedition lines). In a world with monsters only in the morning and within the curfew. Two trips that bring nothing end them, and the sandstone stands in as stone bricks. The short lists leave out a sandstone building when the sand the atlas knows in that range is short of it. |
 
 ## Needs and food
 

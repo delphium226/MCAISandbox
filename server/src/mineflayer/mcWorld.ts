@@ -110,13 +110,14 @@ import { FURNISH_FAILS, bannerStandIn, furnishKindOf, refurnishReady, furnishBat
 import { FLOWER_DYE, KILN, MONUMENT, capShare, currentStage, furnishStage, standInFrom, dyeFlowers, glassColours, ironReached, jobBuilt, jobBuiltPlanned, jobReady, monumentLine, monumentPlan, newMonument, openJobs, stageWants, stageWantsPlanned, yardCovers, M3, TRADE_WEIGHT, noteTrade, tradeOfStep, tradeOf, progressLine as monumentProgress, partLine, cathedralName, presetWords, stageNames as monumentStages, monumentNoun, m3, architectOptions, dyesOnOffer, ARCHITECT_SYSTEM, ARCHITECT_TOOL, architectPrompt, checkArchitect, newMonumentPicked, type ArchitectFacts, type ArchitectPick, type Trade } from '../monument';
 import { kilnOn, laneWork, planOf } from './mcKiln';
 import { BULK_LANES, LODGE, TRIP_MIN, bulkTrip } from '../lodge';
+import { SAND_TRIPS, sandInReach, sandSpot, sandTripMin, sandstoneSand, tripBarred } from './mcSandTrips';
 import { cutWork, cutterOn } from './mcCutter';
 import { bedBuilding, dyeBedOn } from './mcDyeBed';
 import { DYE_BED, DYE_FLOWERS, DYE_REACH, TALL_FLOWERS, dyeRecipes, makeableColours, windowColours } from '../dyeBed';
 import { DETAIL_COLOURS } from '../gothicGen';
-import { PICKS, drawRank } from '../shortlist';
+import { PICKS, drawRank, setSupplyCheck } from '../shortlist';
 import { CIVIC, CIVIC_KEEP, aKind, civicOptions, civicsStanding, civicDone, civicKit, codePick, CIVIC_SYSTEM, CIVIC_TOOL, CIVIC_SITE_FAILS, checkCivic, civicPrompt, civicLine, civicEntry, civicScale, civicsOf, type CivicBuilt, type CivicOption } from '../civic';
-import { newCivic, monumentType } from '../monument';
+import { newCivic, monumentType, sandstoneStandIn, unsuppliable } from '../monument';
 import { TALK_DESIGNS, askedName, castPublic, civicIdOf, civicPiece, failWords, matchDesign, publicWords, sampler, shortlist, type DesignOffer, type PublicResult } from '../talkDesign';
 import { stoneStandIn, DEEP_BLOCKS, deepStandIn, GEM_STAND, DYE_FAILS, DYE_WAIT_MIN, dyeStandIn, dyeStood, furnishLeaveOut, leftOutItems, refurnishOn, COPPER_ROOF, COPPER_BLOCKS, copperFrom, copperOn, copperReached, copperStandIn, reroofReturns } from '../monument';
 import { DEEP_KEEP, deepenForStone, setKeepCopper } from './mcMine';
@@ -192,7 +193,7 @@ type ChoiceState = {
   /** s36: an initiative's gathering trip (its own field: the workshop's demand must not count it as incoming). */
   initiative?: { id: string; material: Material | 'flowers' | 'saplings' | 'sandstone'; n: number; item?: string };
   /** M1 (#144): a monument chore: a gathering trip's item, material and amount, a job's index, or the site. */
-  monument?: { item?: string; material?: Material | 'flowers'; n?: number; job?: number; site?: boolean; kiln?: number; cut?: boolean; dye?: boolean; furnish?: boolean };
+  monument?: { item?: string; material?: Material | 'flowers'; n?: number; trip?: { dist: number; at: number; key: string }; job?: number; site?: boolean; kiln?: number; cut?: boolean; dye?: boolean; furnish?: boolean };
   /** S.9: a works furnace placement's k (its 8 cobblestone earmarked, so gathering's demand leaves it out). */
   furnace?: number;
   /** B.4: a light chore's part and its torches. */
@@ -323,6 +324,28 @@ export class MineflayerWorld implements WorldAdapter {
     this.registry = minecraftData(version);
     this.materials = new Materials(this.registry);
     this.villages = VillageRegistry.forWorld(dataDir);
+    // (#202: the short lists leave out a building with a block the yard cannot get; drawn as a new record would be)
+    // (and, with the village, a sandstone building whose sand the atlas does not show in reach: MC_SAND_TRIPS' range, or
+    // the village's own without the trips; the stone-brick stand-in stays the last resort)
+    const supply = new Map<string, { ok: boolean; sand: number }>(), reach = new Map<string, { at: number; sand: number }>();
+    setSupplyCheck((type, preset, scale, village) => {
+      const key = `${type}|${preset}|${scale}`;
+      let r = supply.get(key);
+      if (!r) {
+        const m = type === 'civic' ? newCivic(preset, scale, 'oak', 0) : Object.assign(newMonument('oak', 0, 'cathedral'), { preset, scale });
+        const short = unsuppliable(m, planOf(this, m));
+        supply.set(key, (r = { ok: !short.length, sand: sandstoneSand(monumentPlan(m).bill) }));
+        if (short.length) console.log(`[pick] ${preset} left off the ${type === 'civic' ? 'civic' : 'cathedral'} list: the yard has no way to ${short.join(', ')}`);
+      }
+      const v = village ? this.villages.villages.get(village.toLowerCase()) : undefined, home = v && villageHome(v);
+      if (!r.ok || !r.sand || !v || !home) return r.ok;
+      let have = reach.get(v.name);
+      if (!have || Date.now() - have.at > 5 * 60000)
+        reach.set(v.name, (have = { at: Date.now(), sand: sandInReach(this.atlas, home, SAND_TRIPS.on ? SAND_TRIPS.range : VILLAGE_RANGE) + Math.floor(storageContents(v).sand ?? 0) }));
+      if (have.sand >= r.sand) return true;
+      console.log(`[pick] ${v.name}: ${preset} left off the ${type === 'civic' ? 'civic' : 'cathedral'} list: its sandstone takes ${r.sand} sand and the map shows ${have.sand} within ${SAND_TRIPS.on ? SAND_TRIPS.range : VILLAGE_RANGE} blocks`);
+      return false;
+    });
     // (G1: members' memory, social.json beside villages.json)
     initMemory(dataDir);
     initCharacter(dataDir);
@@ -4411,7 +4434,8 @@ export class MineflayerWorld implements WorldAdapter {
   /** M1 (#144): a bill of the monument's blocks as the items members gather for it (logs as its wood's). */
   monumentRaw(m: Monument, bill: Counts): Counts {
     const out: Counts = {};
-    for (const [n, q] of Object.entries(this.materials.plan(bill).gather)) {
+    // (#202: the yard's plan, sandstone made from sand)
+    for (const [n, q] of Object.entries(planOf(this, m)(bill, {}).gather)) {
       if (q <= 0) continue;
       const item = n === 'any:logs' ? `${m.wood}_log` : n.replace(/^any:/, '');
       out[item] = (out[item] ?? 0) + q;
@@ -4428,6 +4452,9 @@ export class MineflayerWorld implements WorldAdapter {
   /** Dye chores failed, by village and dye (the dyes' stand-in). */
   private dyeFails = new Map<string, number>();
   private stoneWait = new Map<string, { since: number; last: number }>();
+  /** #202 (MC_SAND_TRIPS): sand spots whose expedition brought nothing, and such trips, by village. */
+  private sandSkip = new Map<string, Set<string>>();
+  private sandFails = new Map<string, number>();
 
   /** M1 (#144, MC_MONUMENT): the cathedral begun once the iron age is complete (no vote: the user's, 10-25), and its
    *  progress logged every 5 minutes. */
@@ -5665,7 +5692,7 @@ export class MineflayerWorld implements WorldAdapter {
         // (#162, the detail palette: a quarry trip's andesite, diorite and granite are the yard's too, as far as the stage
         // wants them: T2a's collect trips for them failed 16 of 22 on stone under water)
         if (dep?.state === 'done' && m3(m).detail && mon.material === 'cobblestone') {
-          const wants = stageWantsPlanned(m, planOf(this));
+          const wants = stageWantsPlanned(m, planOf(this, m));
           for (const st of ['andesite', 'diorite', 'granite']) {
             const k = Math.min(wants[st] ?? 0, depositedOf(dep.message ?? '', 'flowers', st));
             if (k > 0) {
@@ -5680,10 +5707,20 @@ export class MineflayerWorld implements WorldAdapter {
           this.villages.save();
           console.log(`[monument] ${c.village}: ${c.agent} brings ${n} ${mon.item} to the yard (${monumentLine(m)})`);
         }
+        // (#202: an expedition's line; one that brought nothing passes its spot over, and SAND_TRIPS.fails of them end the trips)
+        if (mon.trip) {
+          console.log(`[sand] expedition ${vm.name}: ${c.agent} brought ${n} sand from ${mon.trip.dist} blocks in ${((Date.now() - mon.trip.at) / 60000).toFixed(1)} min${n ? '' : ` (${(c.status.find((x) => x.state === 'failed')?.message ?? 'nothing found').slice(0, 160)})`}`);
+          if (!n) {
+            let skip = this.sandSkip.get(vm.name);
+            if (!skip) this.sandSkip.set(vm.name, (skip = new Set()));
+            skip.add(mon.trip.key);
+            this.sandFails.set(vm.name, (this.sandFails.get(vm.name) ?? 0) + 1);
+          }
+        }
       } else if (mon.job !== undefined && ok) {
         const st0 = currentStage(m);
         // (M2, MC_KILN: the yard holds made goods, and the job takes what its plan took)
-        if (KILN.on) jobBuiltPlanned(m, mon.job, planOf(this), Date.now());
+        if (KILN.on) jobBuiltPlanned(m, mon.job, planOf(this, m), Date.now());
         else jobBuilt(m, mon.job, this.monumentRaw(m, monumentPlan(m).jobs[mon.job].bill), Date.now());
         this.villages.save();
         // (#162 tier 3, chain B: a re-roof's old blocks back to storage)
@@ -8609,7 +8646,7 @@ export class MineflayerWorld implements WorldAdapter {
           }, { kind: 'monument', step: 'site' });
       } else {
         // (M2, #145, MC_KILN: a plan of the stage's bill against the yard and the kiln's load: the yard holds made goods)
-        const wants = KILN.on ? stageWantsPlanned(m, planOf(this)) : stageWants(m, (b) => this.monumentRaw(m, b));
+        const wants = KILN.on ? stageWantsPlanned(m, planOf(this, m)) : stageWants(m, (b) => this.monumentRaw(m, b));
         // (#162 tier 3, chain B: the iron mine keeps the copper ore it meets while the roof wants raw copper)
         if (COPPER_ROOF.on) setKeepCopper(!!m3(m).copper && (wants.raw_copper ?? 0) > 0);
         // (#199: until the kiln stands, the yard wants its furnaces' cobblestone (kilnStone) too, claimed or gathered as the
@@ -8662,7 +8699,8 @@ export class MineflayerWorld implements WorldAdapter {
           // (#162, the detail palette: andesite and diorite collected where they lie, as flowers are picked; first what
           // storage holds of them (the mine's and the quarry's by-products, 256 each at iron_age_g1), claimed for the yard:
           // T2a and T2b's trips to the open stone 50-70 out failed 32 of 40)
-          const stone = !!m3(m).detail && /^(andesite|diorite|granite)$/.test(item);
+          // (#202: a civic building's polished diorite and granite too: it had no way to them but storage)
+          const stone = (!!m3(m).detail || monumentType(m) === 'civic') && /^(andesite|diorite|granite)$/.test(item);
           // (#162 C-E: never the furnishing's own pieces here; they have their own chores after the cathedral stands)
           if (furnishItem(item)) continue;
           // (#162 tier 3, MC_DEEP_STONE: the roof's cobbled deepslate and the plinth's tuff: storage's claimed first, then
@@ -8864,7 +8902,34 @@ export class MineflayerWorld implements WorldAdapter {
           // (M2, #145: or from the cathedral's quarry, MC_QUARRY)
           const quarry = mat === 'cobblestone' && quarryFeeds(v, 'cobblestone');
           if (mat === 'cobblestone' && !mineCanGive(v, 'cobblestone') && !quarry) continue;
-          if ((mat === 'sand' || mat === 'flowers') && v.unavailable?.includes(item)) continue;
+          // (#202, MC_SAND_TRIPS: the sand near home run out (marked unavailable, or a trip found none): one member at a
+          // time fetches a full load from the nearest dry sand the atlas knows, out to SAND_TRIPS.range; while one can go,
+          // or waits for the morning, the sandstone does not stand in)
+          if (item === 'sand' && SAND_TRIPS.on && q >= SAND_TRIPS.min && (this.sandFails.get(v.name) ?? 0) < SAND_TRIPS.fails
+            && (v.unavailable?.includes('sand') || (this.monumentBack.get(`${v.name}:gather:sand`) ?? 0) > now)) {
+            const home = villageHome(v);
+            const spot = home && sandSpot(this.atlas, home, VILLAGE_RANGE, this.sandSkip.get(v.name) ?? new Set());
+            if (spot) {
+              if (!busy.has('monument:sandtrip') && !tripBarred(spot.dist, this.timeOfDay(), curfewBand(v.name)))
+                add({
+                  id: 'monument:sandtrip', kind: 'monument', key: 'monument:sandtrip', excludes: ['monument:sandtrip='], rank: 160,
+                  name: `Fetch sand from ${spot.dist} blocks away for the ${N} (stage ${st}: ${stageName})`,
+                  facts: `the ${N}'s stage ${st} still wants ${q} sand for its sandstone; none is left within ${VILLAGE_RANGE} blocks of the village; the map shows dry sand at ${spot.x},${spot.z}`,
+                  effect: `a full load of sand in the ${N}'s yard`,
+                }, { kind: 'monument', step: 'sandtrip', x: spot.x, y: spot.y, z: spot.z, dist: spot.dist, key: spot.key, amount: q });
+              continue;
+            }
+          }
+          if ((mat === 'sand' || mat === 'flowers') && v.unavailable?.includes(item)) {
+            // (#202: no more sand near home: the sandstone made from it stands in as stone bricks)
+            const from = item === 'sand' ? sandstoneStandIn(m) : null;
+            if (from !== null) {
+              this.villages.save();
+              console.log(`[monument] ${v.name}: the ${N}'s sandstone stands in as stone bricks from job ${from} (no sand to be had near home)`);
+              if (M3.news) this.monumentNews(v, `The ${N} goes on in stone bricks: no more sand to be had for its sandstone`, a.name);
+            }
+            continue;
+          }
           // (a quarry trip digs 64: its walk down the steps is the same for any load)
           const spec = mat === 'flowers' ? { trip: stone ? 32 : 12, block: () => item, deposit: () => item } : quarry ? { ...GATHER_KINDS.cobblestone, trip: 64 } : GATHER_KINDS[mat];
           let lanes = Math.min(6, Math.ceil(q / spec.trip)), amount = Math.min(spec.trip, q);
@@ -8881,7 +8946,7 @@ export class MineflayerWorld implements WorldAdapter {
             lanes = m.kiln?.state === 'ready' ? BULK_LANES : 6;
           }
           const n = Array.from({ length: lanes }, (_, i) => i + 1).find((i) => !busy.has(`monument:gather:${item}:${i}`));
-          if (!n) continue;
+          if (!n || (this.monumentBack.get(`${v.name}:gather:${item}`) ?? 0) > now) continue;
           const key = `monument:gather:${item}:${n}`;
           add({
             id: `monument:gather:${item}`, kind: 'monument', key, excludes: [`${key}=`], rank: 160,
@@ -8896,7 +8961,7 @@ export class MineflayerWorld implements WorldAdapter {
           const key = `monument:job:${i}`;
           if (busy.has(key) || (this.monumentBack.get(`${v.name}:${i}`) ?? 0) > now) continue;
           const j = c.jobs[i];
-          if (KILN.on ? !jobReady(m, i, planOf(this)) : !yardCovers(m, this.monumentRaw(m, j.bill))) continue;
+          if (KILN.on ? !jobReady(m, i, planOf(this, m)) : !yardCovers(m, this.monumentRaw(m, j.bill))) continue;
           shown++;
           add({
             id: key, kind: 'monument', key, excludes: [`${key}=`], rank: 158,
@@ -8924,7 +8989,7 @@ export class MineflayerWorld implements WorldAdapter {
           for (let lane = 1; lane <= kilnLanes(kl); lane++) {
             const key = `monument:kiln:${lane}`;
             if (busy.has(key) || (this.monumentBack.get(`${v.name}:kiln:${lane}`) ?? 0) > now) continue;
-            const w = laneWork(v, lane, planOf(this), now);
+            const w = laneWork(v, lane, planOf(this, m), now);
             // (a few done with nothing more to load are taken out too: Kiln152's 19 stone over 3 lanes held stage 1's
             // last job, which wanted 300 with 281 in the yard)
             // (#199: and a small load when the stage wants fewer than 16 smelts in all: the windmill's 6 sand never made 16)
@@ -8939,10 +9004,10 @@ export class MineflayerWorld implements WorldAdapter {
       }
       // #162 (MC_MONUMENT_DETAIL): the carver's load at the stonecutter, once the kiln's stone is out
       if (cutterOn(v) && !busy.has('monument:cut') && (this.monumentBack.get(`${v.name}:cut`) ?? 0) <= now) {
-        const work = cutWork(v, planOf(this));
+        const work = cutWork(v, planOf(this, m));
         const n = work.reduce((t, w) => t + w.makes, 0);
         // (a load of 64 at least, or what there is when no job can go on without it: T2a's 19 loads of 43-60 at 1:4)
-        if (n >= 64 || (n > 0 && openJobs(m).every((i) => !jobReady(m, i, planOf(this)))))
+        if (n >= 64 || (n > 0 && openJobs(m).every((i) => !jobReady(m, i, planOf(this, m)))))
           add({
             id: 'monument:cut', kind: 'monument', key: 'monument:cut', excludes: ['monument:cut='], rank: 159,
             name: `Cut stone at the ${N}'s stonecutter (${n} pieces: ${[...new Set(work.map((w) => w.item))].slice(0, 3).join(', ')})`,
@@ -10573,6 +10638,19 @@ export class MineflayerWorld implements WorldAdapter {
           console.log(`[monument] ${v.name}: ${worker.name} works the geode for ${d.amount} ${d.item} (stage ${currentStage(m)})`);
           return;
         }
+        if (d.step === 'sandtrip') {
+          // (#202, MC_SAND_TRIPS: out to the spot, its inventory's room filled there, the load to the lodge)
+          const amount = Math.max(64, Math.min(d.amount, worker.bot.inventory.emptySlotCount() * 64));
+          const go = worker.enqueue('move_to', { x: d.x, y: d.y, z: d.z, range: 6 });
+          const collect = worker.enqueue('collect', { block: 'sand', count: amount, chore: true, far: d.dist + 48, trip: sandTripMin(d.dist) });
+          const deposit = worker.enqueue('deposit', { item: 'sand', also: GATHER_ALSO, chore: true });
+          worker.memory.monumentGather = 'sand';
+          this.setChore(v, worker, opt.key, [go, collect, deposit], `fetch sand from ${d.dist} blocks away for the ${N}`, undefined, meta, opt.holds, opt);
+          const c = this.chores.get(worker.name.toLowerCase());
+          if (c) c.choice.monument = { item: 'sand', material: 'sand', n: amount, trip: { dist: d.dist, at: Date.now(), key: d.key } };
+          console.log(`[sand] expedition ${v.name}: ${worker.name} sets out for sand at ${d.x},${d.z} (${d.dist} blocks from home; room for ${amount})`);
+          return;
+        }
         if (d.step === 'cut') {
           const st = worker.enqueue('cut_stone', { chore: true });
           const failed = (why: string) => {
@@ -10608,7 +10686,25 @@ export class MineflayerWorld implements WorldAdapter {
         const deposit = worker.enqueue('deposit', { item: d.deposit, also: d.material === 'cobblestone' && quarryFeeds(v, 'cobblestone') ? `${GATHER_ALSO},andesite,diorite,granite,tuff` : GATHER_ALSO, chore: true });
         // (its load is the cathedral's: the bulk cap leaves it, mcStorage.ts spoilSurplus)
         worker.memory.monumentGather = d.item;
-        this.setChore(v, worker, opt.key, [collect, deposit], `gather ${d.amount} ${d.material} for the ${N}`, undefined, meta, opt.holds, opt);
+        // (#202: none of it near the village: the trip backs off, and for sand a second member's answer GATHER_NONE_APART
+        // later marks it unavailable, as the workshop's gathering does, so the sandstone stands in; Z1's members walked out
+        // for sand 40 times after it ran out)
+        const failed = (why: string) => {
+          if (why === 'cancelled' || collect.code || !/cannot be gathered here/.test(collect.message ?? '')) return;
+          const now = Date.now();
+          this.monumentBack.set(`${v.name}:gather:${d.item}`, now + 5 * 60000);
+          if (d.material !== 'sand') return;
+          const gk = `${v.name}:sand`, first = this.gatherNone.get(gk);
+          if (first && first.agent !== worker.name && now - first.at >= GATHER_NONE_APART) {
+            this.gatherNone.delete(gk);
+            if (!v.unavailable?.includes('sand')) {
+              v.unavailable = [...(v.unavailable ?? []), 'sand'];
+              this.villages.note(v, `no sand near the village (found none by ${first.agent} and ${worker.name}): the workshop makes no glass`);
+              this.villages.save();
+            }
+          } else if (!first || now - first.at > 2 * 60 * 60000) this.gatherNone.set(gk, { agent: worker.name, at: now });
+        };
+        this.setChore(v, worker, opt.key, [collect, deposit], `gather ${d.amount} ${d.material} for the ${N}`, failed, meta, opt.holds, opt);
         const c = this.chores.get(worker.name.toLowerCase());
         if (c) c.choice.monument = { item: d.item, material: d.material, n: d.amount };
         console.log(`[monument] ${v.name}: ${worker.name} gathers ${d.amount} ${d.material} for stage ${currentStage(m)}`);
@@ -11552,6 +11648,7 @@ type OptionRun =
   | { kind: 'initiate'; work: string; green?: boolean; mix?: string[] }
   | { kind: 'help'; id: string; step: InitiativeStep }
   | { kind: 'monument'; step: 'site' } | { kind: 'monument'; step: 'job'; job: number }
+  | { kind: 'monument'; step: 'sandtrip'; x: number; y: number; z: number; dist: number; key: string; amount: number }
   | { kind: 'monument'; step: 'gather'; item: string; material: Material | 'flowers'; amount: number; block: string; deposit: string; bulk?: true }
   | { kind: 'monument'; step: 'kiln'; lane: number } | { kind: 'monument'; step: 'cut' } | { kind: 'monument'; step: 'dye'; item: string; amount: number } | { kind: 'monument'; step: 'deep'; item: string } | { kind: 'monument'; step: 'gem'; item: string; amount: number } | { kind: 'monument'; step: 'furnish'; item: string; amount: number }
   | { kind: 'grow'; houseless: number }

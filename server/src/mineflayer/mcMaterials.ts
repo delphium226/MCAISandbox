@@ -57,6 +57,10 @@ const GATHER = new Set(['coal', 'raw_iron', 'raw_copper', 'raw_gold', 'white_woo
   // (#104, MC_VANILLA_ALL: diorite, the snowy pieces' stand-in for snow and ice, mined as it lies, not made from quartz)
   ...(!/^(off|0|false|no)$/i.test(rawSetting('MC_VANILLA_ALL') ?? 'on') ? ['diorite'] : [])]);
 
+/** #202: gathered elsewhere, but made for the monument's yard (4 sand a sandstone; red sandstone from red sand, which no
+ *  trip brings, so a record wanting it stays off the shortlists). */
+export const YARD_MADE = ['sandstone', 'red_sandstone'];
+
 /** Gathered items that take finding (ores underground, animals): charcoal from logs beats coal ore, for example. */
 const GATHER_COST: Record<string, number> = { coal: 2, raw_iron: 3, raw_copper: 3, raw_gold: 4, leather: 3, white_wool: 2, clay_ball: 2, sugar_cane: 2, vine: 2, cod: 3, salmon: 3,
   ...Object.fromEntries(FLOWER_ITEMS.map((f) => [f, 2])), cactus: 2 };
@@ -363,11 +367,14 @@ export class Materials {
    * `opts.cut` (#162, the monument's tier 2): an item the stonecutter makes is cut there, never crafted (its options
    * only: the carver's work is the cutting), and the quarry's stones are gathered as they lie. `opts.dyes` (#162's dye
    * bed): every dye is gathered (the dyer makes it, make_dye), so a plan asks for dyes, not for a flower. Off: the plans
-   * as before.
+   * as before. `opts.yard` (#202, the monument's yard): sandstone made from sand (YARD_MADE), since the yard has no
+   * sandstone trip: the Zytglogge's 108 sandstone pieces were planned as gathered and its stage waited for good; and the
+   * quarry's stones gathered as they lie, cut or not.
    */
-  constructor(private registry: Registry, private opts: { cut?: boolean; dyes?: boolean; gems?: boolean } = {}) {
+  constructor(private registry: Registry, private opts: { cut?: boolean; dyes?: boolean; gems?: boolean; yard?: boolean } = {}) {
     // (`gems`, #22's diamond forge: diamonds as mined, so a plan takes them from stock; the diamond block's recipe loops)
-    this.gathered = new Set([...GATHER, ...(opts.cut ? CUT_GATHER : []), ...(opts.dyes ? Object.keys(registry.itemsByName).filter((n) => /_dye$/.test(n)) : []), ...(opts.gems ? ['diamond'] : [])]);
+    this.gathered = new Set([...GATHER, ...(opts.cut || opts.yard ? CUT_GATHER : []), ...(opts.dyes ? Object.keys(registry.itemsByName).filter((n) => /_dye$/.test(n)) : []), ...(opts.gems ? ['diamond'] : [])]);
+    if (opts.yard) for (const n of YARD_MADE) this.gathered.delete(n);
   }
 
   /** Crafting recipes (variant recipes merged into "any:" ones) and smelting for an item. */
