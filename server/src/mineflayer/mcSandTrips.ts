@@ -63,9 +63,10 @@ export function sandSpot(atlas: AtlasLike, home: { x: number; z: number }, from:
   return best;
 }
 
-/** A test of sand across open water from home (WATER_CROSS cells or more on the line), for collect's sand: run 6's
- *  shore trips to the east bank left two members swimming in the river with their loads. */
-export const WATER_CROSS = 2;
+/** A test of sand across open water from home (WATER_CROSS cells or more on the line; the east bank's lines crossed
+ *  12-16, the near bank's 0-1), for collect's sand: run 6's shore trips to the east bank left two members swimming in
+ *  the river with their loads. */
+export const WATER_CROSS = 3;
 export function acrossWater(atlas: AtlasLike, home: { x: number; z: number }, range: number): (x: number, z: number) => boolean {
   const byChunk = new Map(atlas.near(home.x, home.z, range).map((c) => [`${c.cx},${c.cz}`, c] as const));
   return (x, z) => waterCrossed(byChunk, home, x, z) >= WATER_CROSS;
