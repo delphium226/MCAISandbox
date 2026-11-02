@@ -2545,3 +2545,21 @@ CLAUDE.md when a phase ends.
     answered house questions with an invented house ("all set and ready for you to move in"): #198.
   - [lag] 0 / 0, [stuck] 158 / 120, loop p99 median 68 / 61 ms; $1.52 + $1.34, and $1.23 more for a first try stopped
     at +50. Report: runs/2026-11-01/train16/report.md.
+- F350 (11-02, train17, G8/G7) **Train 17: the drawn civic shortlist can pick a building the village cannot supply.
+  R drew the Zytglogge (sandstone) on a plains site, stalled it at 1 of 6 jobs, and the cathedral never began (#202).**
+  R (MC_PICK_RANDOM, MC_CIVIC_VARIETY, MC_TALK_DESIGNS, MC_STORAGE_KEEP, MC_MONUMENT_STOCK on) against S (off). Train
+  16's P setup with MC_OWN and MC_DRESSING on in both; code f1b07da:
+  - **Picks:** R's seed was a487653b, its pick the Zytglogge (the first civic pick other than Pembridge Market Hall in
+    three trains). S picked Pembridge again.
+  - **The Zytglogge stalled:** stage 2 wants ~108 sandstone pieces. Sandstone is gathered as it is, the monument's
+    gather options cover only logs, sand, cobblestone and stone, and there is none near home ("411 wanted, found 0").
+    It stayed at 36 of 610 blocks from ~+3 to the end.
+  - **R's cost:** no cathedral; busy 80% against 85%; chore busy at 10-20 min 40% against 85%. A talk windmill
+    (MC_TALK_DESIGNS took Pitstone Windmill, which S refused) was queued 90 min behind it.
+  - **S:** the cathedral was finished at +97.1 (train 16 P: +106.5), so the wall dressing costs no pace. House layouts
+    took a median of 5.4 min (6.2).
+  - **Storage keep:** no spoil in R, against 4,696 blocks spoiled in S. Not a clean pair: R mined less without the
+    cathedral.
+  - **Loop:** p99 median 65.6 / 64.8 ms (train 16: 61-68), still over the 50 ms mark; the larger storage did not move it.
+    R had one 2.6 s `[lag]` as the talk house request came in. [stuck] 175 / 171.
+  - $1.17 + $1.31. MC_MONUMENT_STOCK not judged. Report: runs/2026-11-02/train17/report.md.
