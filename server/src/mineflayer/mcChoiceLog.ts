@@ -10,6 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ChoiceContext, ChoiceSource, FallbackWhy } from '../world';
 import { rawSetting } from '../settings';
+import { noteChoice, noteChoiceEnd } from '../instincts';
 
 const ROOT = rawSetting('MCAI_ROOT') ? path.resolve(rawSetting('MCAI_ROOT')!) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -212,6 +213,8 @@ export function logChoice(rec: ChoiceRecord) {
     console.log(`[choice] ${JSON.stringify({ ...short, options: rec.options.map((o) => o.id) })}`);
     append({ type: 'choice', ...rec });
     paceNote(rec);
+    // (#205: the member's current chore, for its instincts' evidence)
+    noteChoice(rec);
   } catch {
     // (logging must never stop a chore)
   }
@@ -222,6 +225,8 @@ export function logChoiceEnd(rec: ChoiceEnd) {
     const r = { ...rec, message: rec.message.slice(0, 200) };
     console.log(`[choice-end] ${JSON.stringify(r)}`);
     append({ type: 'choice-end', ...r });
+    // (#205: E1's repeat failures and the grading of instincts in the chore's scope)
+    noteChoiceEnd({ ...rec, contention: rec.code });
   } catch {
     // (as above)
   }

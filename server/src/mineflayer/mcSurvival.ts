@@ -4,6 +4,8 @@
  * Arguments and names match the sandbox's skills (skills.ts).
  */
 import { acrossWater } from './mcSandTrips';
+import { placeLayer } from '../instincts';
+import { rawSetting } from '../settings';
 import { Vec3 } from 'vec3';
 import type { Block } from 'prismarine-block';
 import type { Entity } from 'prismarine-entity';
@@ -836,8 +838,11 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
   };
   let noStand = 0;
   // (#202: nor sand across open water from home: run 6's shore trips to the far bank left two members swimming in the
-  // river with their loads, mcSandTrips' acrossWater)
-  const across = sandy && base ? acrossWater(a.world.atlas, base, range + 16) : null;
+  // river with their loads, mcSandTrips' acrossWater; not on an expedition, whose spot was chosen so and whose shore sand
+  // the line from home can pass a water cell or two to: run 7's first trips passed over 128 sand there)
+  const across = sandy && base && typeof args.far !== 'number' && rawSetting('MCAI_SAND_ACROSS') !== 'allow' ? acrossWater(a.world.atlas, base, range + 16) : null;
+  // (#205: targets in an area the member's instinct avoids go to the back, used only when nothing else is in range)
+  const shun = placeLayer(a.village()?.name, a.name, `collect:${label.replace(/s$/, '')}`);
   const skipBuilt = (p: Vec3, near: (q: Vec3) => boolean): boolean => {
     if (!isTreeLog(a.bot.blockAt(p)?.name) || fallen.has(at(p))) return false;
     // (another log of a group already passed over: not counted again)
@@ -913,7 +918,7 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
     // A tree far bigger than what is still wanted (a 2x2 jungle giant: 97 logs and 6.7 min for a 10-log task, F100) waits
     // while an ordinary tree costs at most 40 blocks more to get to; giants stay the fallback, felled whole (F54)
     const tooBig = Math.max(40, 2 * (want - got) + 20);
-    let giant: Vec3 | undefined, passed = 0;
+    let giant: Vec3 | undefined, passed = 0, shunned: Vec3 | undefined;
     let next: Vec3 | undefined;
     let outOfReach = 0;
     for (const p of [...cost.keys()].sort((u, w) => cost.get(u)! - cost.get(w)!)) {
@@ -935,6 +940,10 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
         continue;
       }
       if (skipBuilt(p, near)) continue;
+      if (shun?.avoid(p.x, p.z)) {
+        shunned ??= p;
+        continue;
+      }
       if ((treeSize.get(at(p)) ?? 0) > tooBig) {
         giant ??= p;
         passed++;
@@ -944,6 +953,10 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
       break;
     }
     next ??= giant;
+    if (!next && shunned) {
+      next = shunned;
+      shun!.used(next.x, next.z);
+    }
     if (passed && next !== giant) console.log(`[trees] ${a.name}: passed over ${passed} tree${passed > 1 ? 's' : ''} of over ${tooBig} logs for one at ${at(next!)} (${want - got} ${label} still wanted)`);
     if (performance.now() - tPick > 300) console.log(`[search] ${a.name}: ${Math.round(performance.now() - tPick)} ms to choose the next ${label} (${found.length} candidates)`);
     if (next) targeted.set(at(next), { by: a.name, until: Date.now() + 90000 });
@@ -955,7 +968,14 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
       const p0 = a.bot.entity.position;
       // (cheapest first: most matches are buried, and near() goes through every village's areas)
       // (nor one another gatherer is on its way to: the check's #10)
-      next = nearestBlocks(a, blocks, 128, 512, (p) => p.distanceTo(p0) > 48 && exposed(a, p) && near(p) && stalk(p) && !failed.has(at(p)) && !bad.has(at(p)) && !takenByOther(p), ys).find((p) => !skipBuilt(p, near) && (!leaves || leafInReach(a, p)) && (!sandy || (standBeside(p) && !across?.(p.x, p.z)) || (bad.set(at(p), Date.now() + 10 * 60000), noStand++, false)));
+      const wide = nearestBlocks(a, blocks, 128, 512, (p) => p.distanceTo(p0) > 48 && exposed(a, p) && near(p) && stalk(p) && !failed.has(at(p)) && !bad.has(at(p)) && !takenByOther(p), ys);
+      const fits = (p: Vec3) => !skipBuilt(p, near) && (!leaves || leafInReach(a, p)) && (!sandy || (standBeside(p) && !across?.(p.x, p.z)) || (bad.set(at(p), Date.now() + 10 * 60000), noStand++, false));
+      // (#205: one outside an avoided area first, else the nearest as before)
+      next = shun ? wide.find((p) => fits(p) && !shun.avoid(p.x, p.z)) : undefined;
+      if (!next) {
+        next = wide.find(fits);
+        if (next && shun) shun.used(next.x, next.z);
+      }
       if (next) {
         const far = Math.round(next.distanceTo(a.bot.entity.position));
         const t1 = Date.now();

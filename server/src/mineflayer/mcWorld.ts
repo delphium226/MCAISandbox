@@ -71,6 +71,7 @@ import { LOW, NEED_TRAIT, needWeight, readNeeds, stepNeed, type NeedKind, type N
 import { UtilClock, type UtilView } from '../utilisation';
 import { FARMSTEAD_ON, NEED_WORKS, addFlow, addMineFlow, farmsteadDue, fieldDue, foodTarget, foodflowReading, madePoints, mineflowReading, stepShort, storedPoints } from '../needWorks';
 import { vanillaJar } from '../vanillaData';
+import { applyInstincts, initInstincts, placeLayer } from '../instincts';
 import { MEMORY, agentMemory, rosterOf, contentWords as contentWordsOf, focusOf, initMemory, lastLines, logAct, noteEnd as memoryEnd, noteIntent, noteSpawn, recall } from '../memory';
 import { tick as clockTick } from '../society';
 import { SOCIAL, blockOn, awareness, noteChoice, noteHelp, observe, observing, roleLine, roleNoun, roleOf, socialOff, type Presence } from '../social';
@@ -349,6 +350,8 @@ export class MineflayerWorld implements WorldAdapter {
     // (G1: members' memory, social.json beside villages.json)
     initMemory(dataDir);
     initCharacter(dataDir);
+    // (#205: members' instincts, instincts.json beside villages.json)
+    initInstincts(dataDir);
     // (M3, MC_MONUMENT_NEWS: a member's own part in the cathedral, in what it remembers)
     if (MONUMENT.on && M3.news)
       setProjectLines((village, agent) => {
@@ -6297,7 +6300,10 @@ export class MineflayerWorld implements WorldAdapter {
       const pl = promiseLines(v.name, a.name, facts.t);
       if (pl.length) ctx.inbox = [...pl, ...(ctx.inbox ?? [])];
     }
-    return { menu: { agent: a.name, village: v.name, t: facts.t, options: r.options, guarded: r.guarded, reasons: r.reasons, ctx, ...(open ? { open: true } : {}) }, feasible: r.feasible, skips: r.effects.skips, dropped: r.dropped };
+    const menu: ChoiceMenu = { agent: a.name, village: v.name, t: facts.t, options: r.options, guarded: r.guarded, reasons: r.reasons, ctx, ...(open ? { open: true } : {}) };
+    // (#205: the member's instincts' weight on matching options, read by the fixed pick)
+    applyInstincts(menu);
+    return { menu, feasible: r.feasible, skips: r.effects.skips, dropped: r.dropped };
   }
 
   /**
@@ -8908,7 +8914,19 @@ export class MineflayerWorld implements WorldAdapter {
           if (item === 'sand' && SAND_TRIPS.on && q >= SAND_TRIPS.min && (this.sandFails.get(v.name) ?? 0) < SAND_TRIPS.fails
             && (v.unavailable?.includes('sand') || (this.monumentBack.get(`${v.name}:gather:sand`) ?? 0) > now)) {
             const home = villageHome(v);
-            const spot = home && sandSpot(this.atlas, home, VILLAGE_RANGE, this.sandSkip.get(v.name) ?? new Set());
+            let spot = home && sandSpot(this.atlas, home, VILLAGE_RANGE, this.sandSkip.get(v.name) ?? new Set());
+            // (#205: a spot in an area the member's instinct avoids gives way to the next (4 at most), else it is used)
+            const shun = spot && placeLayer(v.name, a.name, 'trip:sand');
+            if (shun && spot && home && shun.avoid(spot.x, spot.z)) {
+              const skip = new Set(this.sandSkip.get(v.name) ?? []);
+              let alt: ReturnType<typeof sandSpot> = spot;
+              for (let k = 0; k < 4 && alt && shun.avoid(alt.x, alt.z); k++) {
+                skip.add(alt.key);
+                alt = sandSpot(this.atlas, home, VILLAGE_RANGE, skip);
+              }
+              if (alt && !shun.avoid(alt.x, alt.z)) spot = alt;
+              else shun.used(spot.x, spot.z);
+            }
             if (spot) {
               if (!busy.has('monument:sandtrip') && !tripBarred(spot.dist, this.timeOfDay(), curfewBand(v.name)))
                 add({

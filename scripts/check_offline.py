@@ -89,6 +89,10 @@ def commands():
     out["run_pause"] = ([node, TSX, "scripts/checks/run_pause.mts"], [])
     out["live_settings"] = ([node, TSX, "scripts/checks/live_settings.mts"], [])
     out["civic_gen"] = ([node, TSX, "scripts/checks/civic_gen.mts"], [])
+    # (#205: the instincts' grading, cap, fade and xw in the fixed pick; and run 6's log, where Kai and Jonah learn the
+    # river crossing by their 3rd stall there)
+    out["instinct_unit"] = ([node, TSX, "scripts/checks/instinct_unit.mts"], [])
+    out["instinct_replay"] = ([node, TSX, "scripts/checks/instinct_replay.mts", "--quiet"], ["runs/2026-11-02/testagents-154746.log"])
     # (#202: every civic building and cathedral has a way into the yard for each of its blocks)
     out["supply_check"] = ([node, TSX, "scripts/checks/supply_check.mts"], [])
     return out

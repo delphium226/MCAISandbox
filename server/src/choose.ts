@@ -38,6 +38,7 @@ import { capFloor, characterAny } from './character';
 import { PROMPT_SELF, basicTag } from './promptSelf';
 import { onSetting, rawSetting } from './settings';
 import { harmLine } from './worldMode';
+import { noteAct } from './instincts';
 import { SKILL_WORDS, skillOf } from './palette';
 
 export const MENU_MAX = 8, PER_KIND_MAX = 2;
@@ -191,14 +192,14 @@ export function shuffled<T>(xs: T[], seed: string): T[] {
 
 /** Whether an option carries any weight (tw, nw, ww or gw): the fixed pick reads the weights only then. */
 export const weighted = (o: ChoiceOption) => o.tw !== undefined || o.nw !== undefined || o.ww !== undefined || o.gw !== undefined || o.iw !== undefined || o.sw !== undefined || o.cf !== undefined || o.vw !== undefined || o.rw !== undefined
-  || o.pmw !== undefined || o.imw !== undefined || o.dbw !== undefined || o.rpw !== undefined;
+  || o.pmw !== undefined || o.imw !== undefined || o.dbw !== undefined || o.rpw !== undefined || o.xw !== undefined;
 /** #79: the cap on an option's weights' product (temperament's top, 2.5 squared), applied when a life goal weighs on it. */
 export const WEIGHT_CAP = 6.25;
 /** An option's weights' product (tw x nw x ww x gw; capped where a goal weighs, so goals off leave it as it was). */
 export const weights = (o: ChoiceOption) => {
   // (the wants spec: the pursuit's step, the admired member's way, a repayment and pointless repetition beside them)
   const p = (o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * (o.gw ?? 1) * (o.iw ?? 1) * (o.sw ?? 1) * (o.cf ?? 1) * (o.vw ?? 1) * (o.rw ?? 1)
-    * (o.pmw ?? 1) * (o.imw ?? 1) * (o.dbw ?? 1) * (o.rpw ?? 1);
+    * (o.pmw ?? 1) * (o.imw ?? 1) * (o.dbw ?? 1) * (o.rpw ?? 1) * (o.xw ?? 1);
   // (character v2's B1: with any layer on, every product capped at 6.25 and floored at 0.16)
   if (characterAny()) return capFloor(p);
   return o.gw !== undefined || o.pmw !== undefined ? Math.min(WEIGHT_CAP, p) : p;
@@ -229,12 +230,22 @@ export function fixedPick(menu: ChoiceMenu): ChoiceOption | undefined {
   // (N.1: a need's weight beside the temperament's)
   // (#69: the member's own wants beside both)
   // (#79, the user's: a life goal's options exempt from the decay)
-  const score = (o: ChoiceOption) => weights(o) * KIND_DECAY ** (o.gw !== undefined || o.pmw !== undefined ? 0 : place.get(o.kind) ?? 0);
-  for (const o of menu.options) {
-    const d = score(o) - score(best);
-    if (d > 1e-9 || (Math.abs(d) <= 1e-9 && o.rank < best.rank)) best = o;
+  // (#205: the member's instincts' weight beside them; `without` leaves it out, for the act line)
+  const score = (o: ChoiceOption, without = false) => (weights(o) / (without ? o.xw ?? 1 : 1)) * KIND_DECAY ** (o.gw !== undefined || o.pmw !== undefined ? 0 : place.get(o.kind) ?? 0);
+  const top = (without: boolean) => {
+    let b = best!;
+    for (const o of menu.options) {
+      const d = score(o, without) - score(b, without);
+      if (d > 1e-9 || (Math.abs(d) <= 1e-9 && o.rank < b.rank)) b = o;
+    }
+    return b;
+  };
+  const pick = top(false);
+  if (menu.options.some((o) => o.xw !== undefined)) {
+    const plain = top(true);
+    if (plain !== pick) noteAct(menu.village, menu.agent, plain.id, pick.id);
   }
-  return best;
+  return pick;
 }
 
 const SYSTEM = 'You are a member of a Minecraft village. The village is built; now you choose your next chore yourself. '

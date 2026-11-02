@@ -315,6 +315,9 @@ export interface ChoiceOption {
   wantTag?: string;
   /** The pursuit's next step (in the menu-only arm too, untagged and unweighted): the trim keeps one. */
   step?: boolean;
+  /** #205 (MC_INSTINCTS): the member's instincts' weight on the option, 0.5..1.3 (instincts.ts' weightFor); the fixed pick
+   *  reads it. */
+  xw?: number;
 }
 
 export interface ChoiceContext {

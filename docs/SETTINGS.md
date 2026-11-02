@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-283 settings.
+285 settings.
 
 ## Game speed
 
@@ -213,6 +213,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_GOALS_ONLY` | string | (unset) |  |  | Only these goals (comma list) in members' goal lines. |
 | `MC_HEXACO` | flag | `off` |  |  | The character model's HEXACO traits (default: MC_CHARACTER). |
 | `MC_IDENTITY` | flag | `off` |  |  | The character model's identity layer (default: MC_CHARACTER). |
+| `MC_INSTINCTS` | flag | `on` |  |  | MC_INSTINCTS=on (#205; off turns it off): each member keeps up to 5 short rules learned from its own outcomes ("When gathering sand, keep to the village's side; avoid the water east at -1500,62"), found by code: the same chore failing twice with one message, or three walk stalls at one spot. Each has a confidence (1.0 learned, +0.25 when an outcome agrees, -0.25 when one contradicts it, 0.25 off when untested for 2 village days, dropped at 0). They act through a weight on matching chore options in the fixed pick (0.5-1.3) and by passing over gather and sand-trip targets in an avoided area (used when nothing else is in range). [instinct] lines; instincts.json beside villages.json. Off: none of it, no file. |
 | `MC_MEMORY` | flag | `off` |  |  | Members' memory (notes carried between calls). |
 | `MC_MEMORY_CARRY` | flag | `off` |  |  | Memory carried across restarts. |
 | `MC_MEMORY_CHARS` | number | `2000` |  |  | A member's memory, at most this many characters. |
@@ -344,3 +345,4 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | --- | --- | --- | --- | --- | --- |
 | `MC_DEBUG` | flag | `off` |  |  | Debug lines (the sandbox: rejected digs). |
 | `MCAI_EXIT_AFTER_MIN` | string | (unset) |  |  | Stop the agent server after this many minutes (profiling runs). |
+| `MCAI_SAND_ACROSS` | string | (unset) |  |  | Tests only (#205): allow skips #202's across-water test on sand gathers, so a staged run can reproduce #204 (members gathering sand on the far bank of a river). Never set outside that test. |
