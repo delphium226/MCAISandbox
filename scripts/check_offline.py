@@ -68,6 +68,8 @@ def commands():
     out["monument_unit"] = ([node, TSX, "scripts/checks/monument_unit.mts"], ["mc/testcheckpoints/im2_mine/villages.json"])
     # (MC_MONUMENT_STOCK, 11-01: the monument's yard claimed from storage's spare cobblestone before any trip)
     out["monument_stock"] = ([node, TSX, "scripts/checks/monument_unit.mts"], ["mc/testcheckpoints/im2_mine/villages.json"])
+    # (#199: the kiln offered once the yard holds its furnaces' cobblestone, a timber civic building's too)
+    out["monument_kiln"] = ([node, TSX, "scripts/checks/monument_unit.mts"], ["mc/testcheckpoints/im2_mine/villages.json"])
     # (M2, #145: the quarry's pit, its rows, stands and site search)
     out["quarry_unit"] = ([node, TSX, "scripts/checks/quarry_unit.mts"], [])
     # (M2, #145: the kiln's ledger and the full palette's plan, the 1:4 cathedral through the planned yard)
@@ -111,6 +113,7 @@ CHECK_ENV["policy_options"] = {**CHECK_ENV["policy_options"], **OWN_OFF}
 for _n in ("monument_unit", "monument_m3", "castle_monument"):
     CHECK_ENV[_n] = {**CHECK_ENV[_n], **STOCK_OFF}
 CHECK_ENV["monument_stock"] = {**CIVIC_OFF, "MC_MONUMENT_STOCK": "on", "MONUMENT_STOCK_ONLY": "1"}
+CHECK_ENV["monument_kiln"] = {**CIVIC_OFF, "MC_MONUMENT_STOCK": "on", "MC_KILN": "on", "MC_GLAZING": "on", "MC_MONUMENT_PALETTE": "full", "MONUMENT_KILN_ONLY": "1"}
 
 
 def run(name, cmd, needs, logdir):

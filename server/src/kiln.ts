@@ -44,6 +44,13 @@ export function kilnSize(smelts: number): number {
   return Math.max(4, Math.min(40, Math.ceil(smelts / 200)));
 }
 
+/** #199: the cobblestone the yard holds before the kiln is offered: its own furnaces' (8 a furnace), 64 at most as before,
+ *  and none (no kiln) for a record with nothing to smelt. A timber civic building wanting a little glass held 2
+ *  cobblestone, never reached 64, and its glass stage waited 20+ minutes while storage held 446. */
+export function kilnStone(smelts: number): number {
+  return smelts > 0 ? Math.min(64, 8 * kilnSize(smelts)) : 0;
+}
+
 /** Rows of furnaces: one up to 16, two beyond (a strip of 40 in a row found no room near the hut). */
 const kilnRows = (k: number) => (k > 16 ? 2 : 1);
 

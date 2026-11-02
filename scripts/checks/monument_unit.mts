@@ -125,7 +125,8 @@ mute(); w.monumentTick(v); unmute();
 ok(v.monument === first, 'a second monument begun');
 const plan = mon.monumentPlan(m);
 quiet.log(`plan: ${plan.design.width}x${plan.depth ?? plan.design.depth}x${plan.design.height}, ${plan.design.blocks} blocks, ${plan.jobs.length} jobs; bill ${Object.entries(plan.bill).map(([n, q]) => `${q} ${n}`).join(', ')}`);
-ok(Object.keys(plan.bill).every((n) => /^(cobblestone(_stairs|_slab|_wall)?|[a-z_]+_(stairs|slab|planks)|glass_pane)$/.test(n)), `today's palette has ${Object.keys(plan.bill).join(', ')}`);
+// (monument_kiln runs with the full palette: its cathedral's stone is smelted)
+ok(!!process.env.MONUMENT_KILN_ONLY || Object.keys(plan.bill).every((n) => /^(cobblestone(_stairs|_slab|_wall)?|[a-z_]+_(stairs|slab|planks)|glass_pane)$/.test(n)), `today's palette has ${Object.keys(plan.bill).join(', ')}`);
 
 // 2. The site option
 const siteOn = agents.filter((a) => monOpts(a).some((o) => o.id === 'monument:site'));
@@ -145,6 +146,36 @@ let opts = monOpts(probe);
 // (MC_MONUMENT_STOCK, check_offline's monument_stock: im2_mine's storage holds thousands of cobblestone, so the stage's
 // cobblestone is claimed for the yard on the first look and a job is offered with no trip; the claim leaves the workshop's
 // keeps, and makeSpare no longer counts what was claimed; the rest of this check runs with the flag off)
+// (#199, monument_kiln: the kiln offered once the yard holds its furnaces' cobblestone (64 at most), claimed from storage:
+// the cathedral's as before at 64; a timber civic building wanting a little glass (Pitstone Windmill) gets its kiln too)
+if (process.env.MONUMENT_KILN_ONLY) {
+  const kiln = await import('../../server/src/kiln');
+  const kilnOpt = () => monOpts(probe).some((o) => o.id === 'monument:kiln:0');
+  ok(kiln.kilnStone(0) === 0 && kiln.kilnStone(100) === 32 && kiln.kilnStone(5000) === 64, `kilnStone: ${kiln.kilnStone(0)}, ${kiln.kilnStone(100)}, ${kiln.kilnStone(5000)}`);
+  const cs = w.monumentSmelts(m);
+  ok(cs > 0 && kiln.kilnStone(cs) === 64, `the cathedral's kiln wants 64 cobblestone (${cs} smelts, ${kiln.kilnStone(cs)})`);
+  ok(kilnOpt() && (m.yard.cobblestone ?? 0) >= 64, `the cathedral's kiln offered with its yard's ${m.yard.cobblestone} cobblestone`);
+  const mill = mon.newCivic('pitstone_windmill', 1, 'oak', clock);
+  const ms = (() => { mute(); const s = w.monumentSmelts(mill); unmute(); return s; })();
+  const need = kiln.kilnStone(ms);
+  quiet.log(`Pitstone Windmill: ${ms} smelts, ${kiln.kilnSize(ms)} furnaces, its kiln wants ${need} cobblestone; bill ${Object.entries(mon.monumentPlan(mill).bill).map(([n, q]) => `${q} ${n}`).join(', ')}`);
+  const { w: mw, d: md } = mon.siteSize(mill, 0);
+  mill.site = { x1: sx, z1: sz, x2: sx + mw - 1, z2: sz + md - 1, y: home.y - 1, rotate: 0, prepared: true };
+  mill.state = 'building';
+  mill.yard = { cobblestone: 2 };
+  v.monument = mill;
+  ok(ms > 0 && need > 0 && need < 64, `the windmill wants smelting and a small kiln (${ms} smelts, ${need} cobblestone)`);
+  // (storage with none to spare: the kiln's cobblestone gathered, the kiln not offered yet)
+  const claim = w.claimForYard;
+  w.claimForYard = () => 0;
+  const dry = monOpts(probe).map((o) => o.id);
+  w.claimForYard = claim;
+  ok(dry.includes('monument:gather:cobblestone') && !dry.includes('monument:kiln:0'), `with storage dry, a cobblestone trip for the kiln: ${dry.join(', ')}`);
+  ok(kilnOpt(), `the windmill's kiln offered:${monOpts(probe).map((o) => o.id).join(', ')}`);
+  ok((mill.yard.cobblestone ?? 0) >= need, `the windmill's yard holds its kiln's cobblestone: ${mill.yard.cobblestone} of ${need}`);
+  quiet.log(failures ? `FAIL monument_kiln: ${failures} of ${checks} checks` : `PASS monument_kiln: ${checks} checks, 0 failures`);
+  process.exit(failures ? 1 : 0);
+}
 if (process.env.MONUMENT_STOCK_ONLY) {
   const claimed = m.yard.cobblestone ?? 0;
   ok(claimed > 0 && claimed <= wants1.cobblestone, `stage 1's cobblestone claimed from storage: ${claimed} of ${wants1.cobblestone}`);

@@ -709,3 +709,9 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    46 over 200 ms in 4 minutes). A search now gets two slices in one turn of the loop (three at 2x), one after a stall.
    Look at what a library does per tick, not per call, under catch-up. And libraries pay for errors: protodef threw a
    PartialReadError (stack captured) for nearly every TCP chunk, 10% of the busy time.
+181. **A gate sized for the big record blocks the small one** (#199): the kiln waited for 64 cobblestone in the yard and
+   a lane was tended only for a load of 16, both measured on cathedrals. A timber civic building wanting 2 cobblestone
+   and 6 sand met neither, and its glass stage waited 20+ minutes. Size a gate to what the record itself needs (8 a
+   furnace; a load is worth tending when the stage wants fewer than 16 in all), and make sure the shortfall is wanted
+   somewhere: claiming from storage got 1 of 27 in a village keeping 32, so the kiln's cobblestone joined the stage's
+   wants and was gathered. Fix the first blocker, then run to the end: the second only showed once the kiln stood.

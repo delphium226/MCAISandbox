@@ -534,6 +534,14 @@ export function kilnWants(m: Monument, plan: PlanOf): Record<string, number> {
   return out;
 }
 
+/** #199: the kiln's smelts the current stage still wants in all, whatever the yard holds (kilnWants' runs uncapped). */
+export function kilnLeft(m: Monument, plan: PlanOf): number {
+  let n = 0;
+  for (const s of plan(stageBill(m, AHEAD), hadWithKiln(m)).steps)
+    if (s.do === 'smelt' && s.input && ['cobblestone', 'sand', 'raw_copper', 'stone'].includes(rawName(m, s.input))) n += s.runs;
+  return n;
+}
+
 /** Whether a job can be built from the yard (MC_KILN): nothing to gather and nothing to smelt (the kiln's work), its
  *  crafts (bricks, stairs, walls, panes from what is made) done at the build. */
 export function jobReady(m: Monument, index: number, plan: PlanOf): boolean {

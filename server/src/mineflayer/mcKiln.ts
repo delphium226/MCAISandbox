@@ -18,7 +18,7 @@ import type { Village } from '../village';
 import { VILLAGE_RANGE, areaText } from '../village';
 import { KILN, KILN_SMELTS, SLOT, cookedBy, fuelFor, kilnLanes, loadView, type KilnFurnace, kilnLine, kilnSize, kilnStrip, laneFurnaces, loadFurnace, newKiln, spreadLoad, unloadFurnace } from '../kiln';
 import { searchQuarry } from '../quarry';
-import { MONUMENT, kilnWants, monumentNoun, monumentPlan, siteTaken, stageBill, AHEAD, type PlanOf } from '../monument';
+import { MONUMENT, kilnLeft, kilnWants, monumentNoun, monumentPlan, siteTaken, stageBill, AHEAD, type PlanOf } from '../monument';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { mineAreas } from './mcMine';
@@ -372,13 +372,13 @@ async function tendKiln(a: BotAgent, args: Record<string, unknown>, signal: Abor
 }
 
 /** What a lane can do now: input the stage wants smelted that the yard holds (and room for it), or output ready. */
-export function laneWork(v: Village, lane: number, plan: PlanOf, now: number): { load: number; ready: number } {
+export function laneWork(v: Village, lane: number, plan: PlanOf, now: number): { load: number; ready: number; left: number } {
   const m = v.monument!, kl = m.kiln!;
   const fs = laneFurnaces(kl, lane, kilnLanes(kl));
   const wants = kilnWants(m, plan);
   const load = spreadLoad(loadView(fs, now, timeScale()), wants).reduce((t, p) => t + p.n, 0);
   const ready = fs.reduce((t, f) => t + cookedBy(f, now, timeScale()), 0);
-  return { load, ready };
+  return { load, ready, left: kilnLeft(m, plan) };
 }
 
 /** The kiln's input names (for the menu's words). */

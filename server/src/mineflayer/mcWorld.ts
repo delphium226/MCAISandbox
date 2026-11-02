@@ -141,7 +141,7 @@ const UNDER_MS = 8 * 60000;
 const UNDER_IDLE = new Set(['wait', 'experiment']);
 /** #140 (F324): minutes (game time) a village leaves a bed flower it ran out of out of new mixes. */
 const FLOWER_OUT_MIN = 60;
-import { kilnHolds, kilnLanes, kilnLine, kilnSize } from '../kiln';
+import { kilnHolds, kilnLanes, kilnLine, kilnSize, kilnStone } from '../kiln';
 import { quarryLine } from '../quarry';
 
 /** Brains that only use the world interface (the scripted ones in brains.ts are sandbox-only). */
@@ -1081,6 +1081,33 @@ export class MineflayerWorld implements WorldAdapter {
       return { count, bill: b.bill, inputs, smelts: p.fuel.smelts > 0, ...(b.craft ? { craft: b.craft } : {}) };
     }
     return { why: 'inputs short' };
+  }
+
+  /** A monument's smelts in all (its whole bill planned; kilnSize's measure), kept per bill. */
+  private monumentSmeltsOf = new WeakMap<object, number>();
+  monumentSmelts(m: Monument): number {
+    const bill = monumentPlan(m).bill;
+    let s = this.monumentSmeltsOf.get(bill);
+    if (s === undefined) this.monumentSmeltsOf.set(bill, (s = this.materials.plan(bill, {}).fuel.smelts));
+    return s;
+  }
+
+  /** Up to q of an item in storage claimed for a monument's yard (the claim is the yard's ledger; returns how many): a
+   *  civic building takes what storage holds less CIVIC_KEEP; a monument (MC_MONUMENT_STOCK) its cobblestone, logs and
+   *  sand that storage can spare beyond the workshop's want and STOCK_KEEP. */
+  claimForYard(v: Village, m: Monument, item: string, q: number, stock: { w?: GatherWanted } = {}): number {
+    let k = 0;
+    // (MC_CIVIC: its bill is small, and the staged run's mill waited on a quarry for cobblestone storage held)
+    if (monumentType(m) === 'civic') k = Math.min(q, Math.floor((storageContents(v)[item] ?? 0) - (m.yard[item] ?? 0) - CIVIC_KEEP));
+    else if (MONUMENT_STOCK && /_log$|^cobblestone$|^(red_)?sand$/.test(item)) {
+      const mat: Material = /_log$/.test(item) ? 'logs' : item === 'cobblestone' ? 'cobblestone' : 'sand';
+      stock.w ??= this.gatherWanted(v);
+      k = Math.min(q, Math.floor((this.makeSpare(v, '')[item] ?? 0) - Math.max(STOCK_KEEP, stock.w[mat]?.need ?? 0)));
+    }
+    if (k <= 0) return 0;
+    m.yard[item] = (m.yard[item] ?? 0) + k;
+    this.villages.save();
+    return k;
   }
 
   /**
@@ -8444,28 +8471,19 @@ export class MineflayerWorld implements WorldAdapter {
         const wants = KILN.on ? stageWantsPlanned(m, planOf(this)) : stageWants(m, (b) => this.monumentRaw(m, b));
         // (#162 tier 3, chain B: the iron mine keeps the copper ore it meets while the roof wants raw copper)
         if (COPPER_ROOF.on) setKeepCopper(!!m3(m).copper && (wants.raw_copper ?? 0) > 0);
-        let stockWant: GatherWanted | undefined;
+        // (#199: until the kiln stands, the yard wants its furnaces' cobblestone (kilnStone) too, claimed or gathered as the
+        // stage's: a timber civic building's stage wanted 2 and the kiln waited on 64)
+        // (before the kiln's record: its build takes the furnaces' cobblestone off the yard before it is ready)
+        if (kilnOn(v) && !m.kiln) {
+          const short = kilnStone(this.monumentSmelts(m)) - (m.yard.cobblestone ?? 0);
+          if (short > 0) wants.cobblestone = Math.max(wants.cobblestone ?? 0, short);
+        }
+        const stockWant: { w?: GatherWanted } = {};
         for (const [item, q] of Object.entries(wants)) {
-          // (MC_CIVIC: a civic building takes what storage holds first, CIVIC_KEEP of each left for the village's chores;
-          // its bill is small, and the staged run's mill waited on a quarry for cobblestone storage held)
-          if (monumentType(m) === 'civic') {
-            const k = Math.min(q, Math.floor((storageContents(v)[item] ?? 0) - (m.yard[item] ?? 0) - CIVIC_KEEP));
-            if (k > 0) {
-              m.yard[item] = (m.yard[item] ?? 0) + k;
-              this.villages.save();
-              console.log(`[civic] ${v.name}: ${k} ${item} in storage claimed for the ${N}'s yard`);
-              if (k >= q) continue;
-            }
-          } else if (MONUMENT_STOCK && /_log$|^cobblestone$|^(red_)?sand$/.test(item)) {
-            const mat: Material = /_log$/.test(item) ? 'logs' : item === 'cobblestone' ? 'cobblestone' : 'sand';
-            stockWant ??= this.gatherWanted(v);
-            const k = Math.min(q, Math.floor((this.makeSpare(v, '')[item] ?? 0) - Math.max(STOCK_KEEP, stockWant[mat]?.need ?? 0)));
-            if (k > 0) {
-              m.yard[item] = (m.yard[item] ?? 0) + k;
-              this.villages.save();
-              console.log(`[monument] ${v.name}: ${k} ${item} in storage claimed for the ${N}'s yard (stock first)`);
-              if (k >= q) continue;
-            }
+          const k = this.claimForYard(v, m, item, q, stockWant);
+          if (k > 0) {
+            console.log(monumentType(m) === 'civic' ? `[civic] ${v.name}: ${k} ${item} in storage claimed for the ${N}'s yard` : `[monument] ${v.name}: ${k} ${item} in storage claimed for the ${N}'s yard (stock first)`);
+            if (k >= q) continue;
           }
           // (#162, MC_DYE_BED: a dye the stage wants, made by the dyer: up to 8 a chore, 2 at once)
           if (/_dye$/.test(item) && dyeBedOn(v)) {
@@ -8751,7 +8769,10 @@ export class MineflayerWorld implements WorldAdapter {
       if (kilnOn(v)) {
         const kl = m.kiln;
         if (kl?.state !== 'ready') {
-          if ((m.kilnBackoff ?? 0) <= now && !busy.has('monument:kiln:0') && (m.yard.cobblestone ?? 0) >= 64)
+          // #199: once the yard holds its furnaces' cobblestone (kilnStone; claimed or gathered with the stage's wants above)
+          const need = kilnStone(this.monumentSmelts(m));
+          // (a kiln begun and left unfinished again whatever the yard holds: its furnaces' cobblestone is withdrawn at the build)
+          if (need && (m.kilnBackoff ?? 0) <= now && !busy.has('monument:kiln:0') && (kl || (m.yard.cobblestone ?? 0) >= need))
             add({
               id: 'monument:kiln:0', kind: 'monument', key: 'monument:kiln:0', excludes: ['monument:kiln:0='], rank: 157,
               name: `Build the ${N}'s kiln (a row of furnaces for its stone bricks)`,
@@ -8765,7 +8786,8 @@ export class MineflayerWorld implements WorldAdapter {
             const w = laneWork(v, lane, planOf(this), now);
             // (a few done with nothing more to load are taken out too: Kiln152's 19 stone over 3 lanes held stage 1's
             // last job, which wanted 300 with 281 in the yard)
-            if (w.load < 16 && w.ready < 16 && !(w.ready > 0 && !w.load)) continue;
+            // (#199: and a small load when the stage wants fewer than 16 smelts in all: the windmill's 6 sand never made 16)
+            if (w.load < 16 && w.ready < 16 && !(w.ready > 0 && !w.load) && !(w.load > 0 && w.left < 16)) continue;
             add({
               id: key, kind: 'monument', key, excludes: [`${key}=`], rank: 159,
               name: `Tend the ${N}'s kiln (load ${w.load}, take out ${w.ready})`,
