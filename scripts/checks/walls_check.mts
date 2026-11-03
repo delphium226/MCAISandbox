@@ -74,7 +74,10 @@ for (const v of villages) {
   const seg = w.segs.find((s) => s.cells.includes(plain))!;
   ok(!segDone(w, seg), `${v.name}: a segment is not done with one cell built`);
   const hood: Box = { x1: h.x2 + 14, z1: plain.z - 10, x2: h.x2 + 34, z2: plain.z + 10 };
-  v.layouts = [...(v.layouts ?? []), { ...hood, buildings: [] } as never];
+  // (#203: a layout of public works alone leaves the ring be; one with a house extends it)
+  v.layouts = [...(v.layouts ?? []), { ...hood, buildings: ['plains_fletcher_house_1'] } as never];
+  ok(regrowWall(v, all) === '' && w.rects.length === 1, `${v.name}: a neighbourhood of public works past the ring does not extend it`);
+  v.layouts = [...v.layouts!.slice(0, -1), { ...hood, buildings: ['plains_fletcher_house_1', 'plains_small_house_1'] } as never];
   const line = regrowWall(v, all);
   const cells2 = w.segs.flatMap((s) => s.cells);
   ok(!!line && w.rects.length === 2 && covered(w.rects, hood), `${v.name}: growth past the ring adds a rectangle (${line})`);
@@ -82,6 +85,14 @@ for (const v of villages) {
   ok(w.built[key(g.x, g.z)] ? cells2.some((c) => c.x === g.x && c.z === g.z && c.gate === g.gate) : true, `${v.name}: a built gate still on the ring stays a gate`);
   ok(cells2.every((c) => !inBox(growBox(hood, WALL_MARGIN - 1), c.x, c.z)), `${v.name}: the new ring keeps ${WALL_MARGIN} off the new neighbourhood (${cells2.length} cells)`);
   ok(regrowWall(v, all) === '', `${v.name}: nothing changes the second time`);
+  // (#203: a small work or civic building outside the ring leaves it be; one standing on the ring's cells extends it)
+  const h2 = hull(w.rects)!;
+  const st = (id: string, b: Box) => ({ id, kind: 'small_front_bed_birch', ...b, y: 70 }) as never;
+  v.structures = [...v.structures, st('bed1', { x1: h2.x1 - 20, z1: h2.z1, x2: h2.x1 - 14, z2: h2.z1 + 4 })];
+  ok(regrowWall(v, all) === '' && w.rects.length === 2, `${v.name}: a flower bed outside the ring does not extend it`);
+  const c0 = w.segs[0].cells[0];
+  v.structures = [...v.structures, st('bed2', { x1: c0.x - 2, z1: c0.z - 2, x2: c0.x + 2, z2: c0.z + 2 })];
+  ok(!!regrowWall(v, all) && w.rects.length === 3, `${v.name}: a work standing on the ring extends it`);
 }
 const runs = ringRuns([{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 2, z: 0 }, { x: 0, z: 1 }, { x: 0, z: 2 }]);
 ok(runs.length === 2, `ring runs: a row and a column (${JSON.stringify(runs)})`);

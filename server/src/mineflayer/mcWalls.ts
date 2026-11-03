@@ -1,7 +1,7 @@
 /**
  * Survival (d) spec 5 (MC_WALLS, on; with monsters only): the village wall on the ground. walls.ts plans the ring; here
  * its segments are built (build_wall, a chore: fence on cobblestone charged to the builder, a fence gate on the ground,
- * torches on the fences), the region grows with the village (a new neighbourhood past the ring adds a rectangle; the
+ * torches on the fences), planned once growth is done (#203: mcWorld's wallVoteTick), the region grows with the village (a new neighbourhood past the ring adds a rectangle; the
  * ring's cells now inside are taken down), and the gates are kept shut: walks open a wall gate (botAgent's hook makes
  * it "openable" to the pathfinder), and the gatekeeper closes each open one once no player stands within 2.5 blocks
  * (zombies do not open gates; an open one lets them in).
@@ -15,6 +15,7 @@ import { WALL_MARGIN, growRegion, hull, inRegion, ringRuns, segBill, straightAxi
 import { blockName, runJob, surfaceAt, type Target } from './mcBuild';
 import { NATURAL } from './mcBlocks';
 import { storageContents } from './mcStorage';
+import { isDwelling } from '../grow';
 import { isHostile, phaseOf } from './mcCombat';
 import { checkAbort, goals, walk } from './mcUtil';
 
@@ -63,7 +64,17 @@ export function startWall(v: Village, all: Iterable<Village>, vote?: string): Wa
 export function regrowWall(v: Village, all: Iterable<Village>): string {
   const w = v.wall;
   if (!w || w.state !== 'voted') return '';
-  const rects = growRegion(w.rects, wallBoxes(v));
+  // (#203: only homes extend it: a neighbourhood with a house, a house, or a work standing on the ring's own cells. Small
+  // works, the bell tower and public works outside it stay outside: N2's ring, planned once growth was done, grew 434 ->
+  // 568 cells round flower beds and the tower's pad, its built segments planned again; N3's 488 -> 716 round the public
+  // works laid out after the houses)
+  const ring = new Set(w.segs.flatMap((s) => s.cells.map((c) => key(c.x, c.z))));
+  const onRing = (b: Box) => {
+    for (let x = b.x1 - 1; x <= b.x2 + 1; x++) for (let z = b.z1 - 1; z <= b.z2 + 1; z++) if (ring.has(key(x, z))) return true;
+    return false;
+  };
+  const grows = [...(v.layouts ?? []).filter((l) => l.buildings.some(isDwelling) || onRing(l)), ...(v.structures ?? []).filter((s) => isDwelling(s.kind) || onRing(s))].map((b) => ({ x1: b.x1, z1: b.z1, x2: b.x2, z2: b.z2 }));
+  const rects = growRegion(w.rects, grows);
   if (rects.length === w.rects.length) return '';
   const p = wallPlan(rects, { keep: keepBoxes(all, v) });
   const added = rects.length - w.rects.length;
@@ -197,7 +208,8 @@ export async function buildWall(a: BotAgent, args: Record<string, unknown>, sign
   const id = Math.floor(Number(args.seg));
   const s = w?.segs.find((x) => x.id === id);
   if (!v || !w || !s) throw new Error(`build_wall: no wall segment ${id}`);
-  const wood = v.wood ?? 'oak';
+  // (as the menu offered it: the village's goods wood, #203's N6)
+  const wood = a.world.catalogWoodOf(v);
   const box = segBox(s);
   const mx = Math.floor((box.x1 + box.x2) / 2), mz = Math.floor((box.z1 + box.z2) / 2);
   const home = v.storage?.chests[0];

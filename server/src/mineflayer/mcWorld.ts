@@ -2822,6 +2822,17 @@ export class MineflayerWorld implements WorldAdapter {
     const deaths = DIST_BINS.reduce((n, b) => n + (d.deaths[b] ?? 0), 0);
     if (!deaths && d.peak48 < 5) return;
     if (w?.state === 'refused' && deaths <= (w.deaths ?? 0)) return;
+    // (#203, option a: only once growth is done, its region planned then: a ring planned earlier chased each new
+    // neighbourhood and never closed (1168 cells planned, 209 built in 60 min); nights rely on the curfew, beds and hunters
+    // until then)
+    const grown = this.growthDone(v);
+    if (!grown.done) {
+      if (!this.wallWaitLogged.has(v.name)) {
+        this.wallWaitLogged.add(v.name);
+        console.log(`[wall] ${v.name}: the wall waits for growth (${grown.why})`);
+      }
+      return;
+    }
     const plan = startWall(v, all);
     if (!plan) return;
     const cells = plan.segs.reduce((n, s) => n + s.cells.length, 0);
@@ -2857,6 +2868,24 @@ export class MineflayerWorld implements WorldAdapter {
       console.log(`[vote] ${v.name}: wall ballots failed: ${String((e as Error)?.message ?? e).slice(0, 200)}`);
       r.done = true;
     });
+  }
+
+  /** #203: villages whose wall waits for growth, logged once. */
+  private wallWaitLogged = new Set<string>();
+
+  /**
+   * #203 (option a): growth is done when every member has a house and no street is asked for or on the board, or when
+   * growth stopped for good (nothing left to lay out); without MC_GROW, at once.
+   */
+  growthDone(v: Village): { done: boolean; why: string } {
+    const g = v.growth;
+    if (g?.stop) return { done: true, why: `growth stopped: ${g.stop}` };
+    if (g?.active) return { done: false, why: 'a street of houses is on the board' };
+    if (g?.request) return { done: false, why: 'a street of houses is asked for' };
+    if (!GROW.on) return { done: true, why: 'growth off' };
+    const members = this.growMembers(v).length;
+    const without = HOUSING ? this.homeless(v).length : Math.max(0, members - housesOf(v));
+    return { done: without === 0, why: `${without} of ${members} members without a house` };
   }
 
   /** The wall's vote decided: planned, or refused until another death. */
@@ -8092,7 +8121,8 @@ export class MineflayerWorld implements WorldAdapter {
       const s = on < wallCap(members) ? nextSeg(v, a, (id) => excluded([`wall:${id}=`], busy)) : null;
       if (on >= wallCap(members)) reasons.wall = 'busy';
       if (s) {
-        const wood = v.wood ?? 'oak', bill = segBill(s, wood), st = storageContents(v);
+        // (the wood the village makes its goods in: N6's last segment asked oak fence of a birch village with no v.wood)
+        const wood = this.catalogWoodOf(v), bill = segBill(s, wood), st = storageContents(v);
         const planks = Object.entries(st).reduce((n, [k, q]) => n + (/_log$/.test(k) ? 4 * q : /_planks$/.test(k) ? q : 0), 0);
         const fences = Math.max(0, (bill[`${wood}_fence`] ?? 0) - (st[`${wood}_fence`] ?? 0));
         const needPlanks = Math.ceil((fences * 5) / 3) + 4 * (bill[`${wood}_fence_gate`] ?? 0);

@@ -40,6 +40,7 @@ import { CUTTER, needsCutting, type CutStep, type CutterRecord } from './cutter'
 import type { DyeBed } from './dyeBed';
 import { FURNISH_STAGE, furnishItem, furnishKindOf, furnishKinds, furnishOn, furnishTrade, type FurnishKind } from './furnish';
 import { aKind, civicEntries, civicEntry, drawCivic } from './civic';
+import { ringRuns } from './walls';
 import { PICKS, drawOrder, suppliable } from './shortlist';
 import { DRESSING, dress, supplyOf } from './dressing';
 
@@ -779,7 +780,10 @@ export function siteTaken(v: Village, others: Village[], mineBoxes: Area[], now:
   const ins = (q: Area, x: number, z: number, n = 0) => x >= q.x1 - n && x <= q.x2 + n && z >= q.z1 - n && z <= q.z2 + n;
   const claims = v.reservations.filter((r) => r.until > now && r.by !== by);
   const fields = (v.layouts ?? []).flatMap((l) => [...(l.farm ? [l.farm] : []), ...(l.slots ?? [])]);
-  return (x, z) => v.structures.some((q) => ins(q, x, z, 3)) || v.plots.some((q) => ins(q, x, z, 3))
+  // (survival (d), MC_WALLS: the voted wall's ring, 3 off as structures: N6's masons' lodge was placed by it and the ring
+  // grew round it, #203)
+  const ring = v.wall?.state === 'voted' ? ringRuns(v.wall.segs.flatMap((s) => s.cells)) : [];
+  return (x, z) => v.structures.some((q) => ins(q, x, z, 3)) || ring.some((q) => ins(q, x, z, 3)) || v.plots.some((q) => ins(q, x, z, 3))
     || (v.layouts ?? []).some((q) => ins(q, x, z, 3)) || fields.some((q) => ins(q, x, z, 2)) || mineBoxes.some((b) => ins(b, x, z, 2))
     || claims.some((q) => ins(q, x, z))
     || others.some((o) => o.plots.some((q) => ins(q, x, z, 5)) || (o.layouts ?? []).some((q) => ins(q, x, z, 5)) || o.structures.some((q) => ins(q, x, z, 5)));

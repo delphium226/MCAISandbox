@@ -4361,7 +4361,11 @@ async function layOutOutward(a: BotAgent, v: Village, houses: string[], project:
   const claims = v.reservations.filter((r) => r.until > now && r.by !== a.name);
   // (a layout of this village not on pads, a neighbourhood from before: all of it)
   const plainLays = v.layouts!.filter((l) => !l.pads);
+  // (survival (d), MC_WALLS: the wall's ring kept free, padded 5 as growTaken pads it: N5's butcher shop was placed across
+  // the ring, which then grew round it, #203)
+  const ring = wallTaken(v);
   const taken = (x: number, z: number) => pads.some((q) => ins(q, x, z)) || pathCells.has(`${x},${z}`) || fields.some((q) => ins(q, x, z, 1))
+    || ring.some((q) => ins(q, x, z, 5))
     || marks.some((c) => Math.abs(c.x - x) <= 1 && Math.abs(c.z - z) <= 1) || v.structures.some((q) => ins(q, x, z, 2))
     || sides.some((q) => ins(q, x, z, 2)) || sideRecs.some((q) => ins(q, x, z, 2)) || plainLays.some((q) => ins(q, x, z, 2))
     || mineBoxes.some((b) => ins(b, x, z, 1)) || claims.some((q) => ins(q, x, z))
