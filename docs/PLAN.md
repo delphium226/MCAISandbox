@@ -71,7 +71,11 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
   1. Check survival-211-203's commits; then **train 20**: train 19's setup in `MC_WORLD_MODE=hostile` with
      `MC_WALLS` on, I1 vs I0 (instincts on/off), customs on, both arms equal; report the lessons learned (right/wrong),
      tags in model choices, deaths, failures, busy.
-  2. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
+  2. **#217 castle walls** (the user's, 11-03: "an outer castle wall that the members can patrol and fire arrows
+     from"): spec once survival-211-203 is done with the wall code (patrol chores, shooting, stone cost against the
+     quarry, the fence ring as a first stage, water crossings: the fence ring leaves 88 water cells open), then a
+     work session.
+  3. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
      (#150-#163); #164 steps 3-5.
 
 ## Earlier phases
