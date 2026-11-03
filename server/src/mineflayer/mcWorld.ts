@@ -8123,11 +8123,25 @@ export class MineflayerWorld implements WorldAdapter {
       if (s) {
         // (the wood the village makes its goods in: N6's last segment asked oak fence of a birch village with no v.wood)
         const wood = this.catalogWoodOf(v), bill = segBill(s, wood), st = storageContents(v);
-        const planks = Object.entries(st).reduce((n, [k, q]) => n + (/_log$/.test(k) ? 4 * q : /_planks$/.test(k) ? q : 0), 0);
+        // (#203: only the wood the segment is built in counts: logs of any kind offered segments whose fences could not be
+        // made, N6's and N7's three failures "16 birch_fence short")
+        const planks = 4 * (st[`${wood}_log`] ?? 0) + (st[`${wood}_planks`] ?? 0);
         const fences = Math.max(0, (bill[`${wood}_fence`] ?? 0) - (st[`${wood}_fence`] ?? 0));
-        const needPlanks = Math.ceil((fences * 5) / 3) + 4 * (bill[`${wood}_fence_gate`] ?? 0);
+        const needPlanks = Math.ceil((fences * 5) / 3) + 4 * Math.max(0, (bill[`${wood}_fence_gate`] ?? 0) - (st[`${wood}_fence_gate`] ?? 0));
         const done = w.segs.filter((x) => x.cells.every((c) => w.built[`${c.x},${c.z}`])).length;
-        if ((st.cobblestone ?? 0) >= bill.cobblestone && planks >= needPlanks) {
+        if ((st.cobblestone ?? 0) >= bill.cobblestone && planks < needPlanks) {
+          // (the segment's wood short: a trip for it, the wall's own, as the workshop's tree felling)
+          const logs = Math.max(GATHER_MIN_TRIP.logs, Math.min(GATHER_KINDS.logs.trip, Math.ceil((needPlanks - planks) / 4)));
+          let n = 1;
+          while (busy.has(`gather:logs:${n}`)) n++;
+          if (!excluded(['wallwood='], busy))
+            add({
+              id: 'wall:wood', kind: 'gather', key: `gather:logs:${n}`, holds: ['wallwood'], excludes: [`gather:logs:${n}=`, 'wallwood='], name: `Fell ${wood} trees for the village wall`, rank: 405,
+              facts: `part ${s.id} of the wall wants ${needPlanks} ${wood} planks for its fences and gate; storage holds ${planks} in ${wood} logs and planks`,
+              effect: `+${logs} ${wood} logs toward the wall's next part (monsters kept out at night)`,
+            }, { kind: 'gather', material: 'logs', n, amount: logs, block: `${wood}_log`, deposit: 'logs', need: needPlanks - planks, incoming: 0, for: ['the village wall'] });
+          reasons.wall = `storage short of ${wood} wood`;
+        } else if ((st.cobblestone ?? 0) >= bill.cobblestone) {
           add({
             id: `wall:${s.id}`, kind: 'wall', key: `wall:${s.id}`, excludes: [`wall:${s.id}=`], name: 'Build the village wall', rank: 400,
             facts: `part ${s.id} of ${w.segs.length} (${done} done): ${s.cells.length} blocks of fence on cobblestone with a gate; takes ${bill.cobblestone} cobblestone and ~${Math.ceil(needPlanks / 4)} logs' wood from storage`,
