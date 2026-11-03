@@ -2563,3 +2563,32 @@ CLAUDE.md when a phase ends.
   - **Loop:** p99 median 65.6 / 64.8 ms (train 16: 61-68), still over the 50 ms mark; the larger storage did not move it.
     R had one 2.6 s `[lag]` as the talk house request came in. [stuck] 175 / 171.
   - $1.17 + $1.31. MC_MONUMENT_STOCK not judged. Report: runs/2026-11-02/train17/report.md.
+- F351 (11-03, train18, G8/G1) **Train 18: the sand chain ran end to end in one arm. I1 finished the Zytglogge in 64
+  min and began the cathedral. In I0 it stalled 32 sand short, because the yard's sand count is not storage's (#208).
+  Instincts made no measurable difference in 2 hours and learned two wrong lessons from one walk stall (#210).**
+  I1 (MC_INSTINCTS and MC_INSTINCT_SHARE on) against I0 (off). Train 17's R setup with #199, #202, #204, #206 and #205
+  at their defaults, and `MCAI_SAND_ACROSS=allow` in both; code 4446b83. Both were pinned to the Zytglogge:
+  `MC_PICK_SEED=0180003b` draws it first, and `MC_CIVIC_CHOOSE=code` takes it.
+  - **Sand trips:** 8 / 7 trips, 820 / 931 sand, about 24-25 sand a minute while trips ran. Up to 3 were out at once,
+    145-299 blocks out, median 9 min a trip; 0 lost.
+  - **I1:** the stone-brick stand-in fired at +48.8 ("no sand to be had near home") while sand was still arriving, and
+    475 sand stayed unused. The tower was finished at +63.8, then the talk windmill (+83.7), then Notre-Dame 1:3 from
+    +83.7: 5 of 16 jobs, 998 of 3,587 blocks by +120.
+  - **I0:** job 2 needs 488 sand, and storage held 456 of the yard's 504. No trip was offered after +51.5, and the job
+    failed 6 times to the end. The tower stayed at 316 of 610, and the cathedral never began (#208).
+  - **Instincts:** 4 learned. 36 borrows (23 at the storage, 13 side by side; the dusk channel was off with
+    MC_CUSTOMS). One sapling rule reached all 25 in minutes, and 24 copies faded after 2 days.
+    - Only 3 options carried an instinct weight all run, all in code-made picks. No "[your instinct: avoid]" tag reached
+      the model.
+    - Two wrong lessons came from Xavier's stall: avoid the storage hut, and avoid eating (#210). They did no harm, by
+      chance.
+    - Busy 83 / 81%, failures 221 / 212, houses 26 / 25: noise.
+  - **Stalls:** I1's 216 `[stuck]` / 225 `[repath]` (I0 82 / 4) are one member. Rescues teleported Xavier back to the
+    hut cell he was stuck in, 49 times (#209).
+    - Water: `[swim]` 35 / 14, no pinned teleport (#204 holds).
+    - Kiln: 72 / 11 tends, 1 failure from the walk loop (#199 holds).
+  - **Survival slot** (hostile, walls now, scripted, 30 min): no errors from the walls, the hunt or the curfew; no death
+    after dawn (#201). One night death came from an initiate whose new green was placed 100 out: the curfew's filter
+    cannot see its site (#211). #203 showed as known.
+  - Loop p99 median 55.9 / 53.2 ms. One `[lag]` in each arm at the talk house request (2.3 / 2.5 s). $1.35 + $1.26 +
+    $0.02. Report: runs/2026-11-03/train18/report.md.
