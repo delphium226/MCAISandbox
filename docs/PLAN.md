@@ -51,16 +51,22 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
   recount 597 -> 442, two trips out, no stand-in; job 2's rebuild and the undo not seen live). STRATEGY.md refreshed.
 - **Decided 11-03 (planning):** #203's wall takes option (a): plan and build the ring once growth is done (houses >=
   members or nothing left to lay out); `MC_WALLS_NOW` still forces it.
-- **In flight (started 11-03 ~14:45, report to the planning session):** train19
-  (local_deb1ec98-fadc-4d34-a395-a2813e5d59f5: train 18's setup on 60360db+, `MC_CUSTOMS` on in both arms, worlds 4/5,
-  no survival slot, F352) and survival-211-203 (local_07899354-6a53-4b35-9c68-6df0c2f90cef: world 2, #189 if time).
+- **Train 19 done (F352, 06d8c02, `runs/2026-11-03/train19/report.md`; checked against the logs by the planning
+  session):** both arms finished the Zytglogge in sandstone after #208's recounts (I1 +70.8, I0 +115.5), no stand-in;
+  only I1 began the cathedral (I0 slowed by a frozen member, #214). **Instincts changed behaviour for the first time,
+  but only on broken chores:** 24 lessons, all right or plausible; the avoid tag reached 843 model-made choices and
+  halved the model's pick of the tagged option (11.8% vs 25.4%); stone attempts -38%. Busy, houses and initiatives
+  within noise. The lessons were all about broken customs (#213). New: #212, #213, #214.
+- **#211 fixed** (82b5536, survival-211-203). **In flight:** survival-211-203
+  (local_07899354-6a53-4b35-9c68-6df0c2f90cef, world 2): #203 (the wall plans after growth: 434-480 cells against
+  1,168; slow to build because the civic tower takes the cobblestone), N0 to run. **Proposed card:** fixes #212, #213,
+  #214 (task_08180adf, world 1).
 - **Next:**
-  1. Check train 19's report against its logs (job 2 in sandstone in both arms, the cathedral begun, instincts learned
-     and whether a tag reached a model-made choice).
-  2. If instincts still change almost nothing in 2 h, bring it to the user as G2's design question with numbers
-     (longer runs, more learning, more weight on menus; STRATEGY "The order now"); do not decide it.
-  3. Check the survival session's #211/#203 commits; #189 after a measurement.
-  4. #193 (smelt over 64), the monument follow-ups (#150-#163), #164 steps 3-5.
+  1. Check survival-211-203's #203 commit and its pair's report; then #189 after a measurement.
+  2. Once #212-#214 are in: the G2 question for the user (instincts work end to end but find little to learn on this
+     checkpoint once the bugs are gone): longer runs, harder ground, or leave instincts as they are and move on.
+  3. #208 follow-up: the yard over-counts sand by 12-140 at each recount (report (a)); #193, monument follow-ups
+     (#150-#163), #164 steps 3-5.
 
 ## Earlier phases
 
