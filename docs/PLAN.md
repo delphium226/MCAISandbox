@@ -62,12 +62,17 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
   `runs/2026-11-03/fix212-214/notes.md`; checked). **In flight:** survival-211-203
   (local_07899354-6a53-4b35-9c68-6df0c2f90cef, world 2): #203 option (a) committed as 45f5049 (Refs), its runs N6/N7
   going (wall voted at 480 cells after growth).
+- **Decided by the user 11-03 evening:** instincts go on to **harder ground** (train 20: instincts on vs off in the
+  hostile survival world); in survival, an unfinished wall **ranks like a village project** after a death or 5+
+  monsters inside at night (one builder per 6). survival-211-203 builds that and the wall's own-wood check (#189 needed
+  no fix; its notes `runs/2026-11-03/survival-211-203/notes.md`; new issues for the night watch outside the ring and
+  the daytime skeleton deaths).
 - **Next:**
-  1. Check survival-211-203's #203 commit and its pair's report; then #189 after a measurement.
-  2. #212-#214 are in: the G2 question for the user (instincts work end to end but find little to learn on this
-     checkpoint once the bugs are gone): longer runs, harder ground, or leave instincts as they are and move on.
-  3. #208 follow-up: the yard over-counts sand by 12-140 at each recount (report (a)); #193, monument follow-ups
-     (#150-#163), #164 steps 3-5.
+  1. Check survival-211-203's commits; then **train 20**: train 19's setup in `MC_WORLD_MODE=hostile` with
+     `MC_WALLS` on, I1 vs I0 (instincts on/off), customs on, both arms equal; report the lessons learned (right/wrong),
+     tags in model choices, deaths, failures, busy.
+  2. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
+     (#150-#163); #164 steps 3-5.
 
 ## Earlier phases
 
