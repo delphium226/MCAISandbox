@@ -1,5 +1,5 @@
 diff --git a/node_modules/mineflayer-pathfinder/index.js b/node_modules/mineflayer-pathfinder/index.js
-index b38bd30..68266aa 100644
+index b38bd30..fcbc162 100644
 --- a/node_modules/mineflayer-pathfinder/index.js
 +++ b/node_modules/mineflayer-pathfinder/index.js
 @@ -61,7 +61,10 @@ function inject (bot) {
@@ -23,15 +23,27 @@ index b38bd30..68266aa 100644
      if (optimizePath) result.path = postProcessPath(result.path)
      yield { result, astarContext }
      while (result.status === 'partial') {
-@@ -130,6 +133,7 @@ function inject (bot) {
+@@ -130,6 +133,11 @@ function inject (bot) {
      }
      placing = false
      pathUpdated = false
++    // MCAISandbox (#209): a new goal, a stop or new movements drop the step back to a placed block's node. Kept, it was
++    // never reached once the bot fell or was teleported away, and the bot walked at it forever without planning again
++    // (Xavier, 114 walks with no path, 49 teleports)
++    if (reason !== 'block_updated') returningPos = null
 +    if (astarContext) AStar.forget(astarContext) // MCAISandbox (E.1): a dropped search stops asking for the allowance
      astarContext = null
      lockEquipItem.release()
      lockPlaceBlock.release()
-@@ -440,12 +444,16 @@ function inject (bot) {
+@@ -391,6 +399,7 @@ function inject (bot) {
+     stopPathing = false
+     stateGoal = null
+     path = []
++    returningPos = null // MCAISandbox (#209)
+     bot.emit('path_stop')
+     fullStop()
+   }
+@@ -440,14 +449,24 @@ function inject (bot) {
      }
  
      if (astarContext && astartTimedout) {
@@ -53,8 +65,16 @@ index b38bd30..68266aa 100644
 +      }
      }
  
++    // MCAISandbox (#209): a node more than a step away (across or up) cannot be reached by walking straight at it
++    if (returningPos && (Math.abs(returningPos.y - bot.entity.position.y) > 1 ||
++        Math.hypot(returningPos.x + 0.5 - bot.entity.position.x, returningPos.z + 0.5 - bot.entity.position.z) > 1.5)) {
++      returningPos = null
++      bot.setControlState('forward', false)
++    }
      if (bot.pathfinder.LOSWhenPlacingBlocks && returningPos) {
-@@ -530,6 +538,14 @@ function inject (bot) {
+       if (!moveToBlock(returningPos)) return
+       returningPos = null
+@@ -530,6 +549,14 @@ function inject (bot) {
          })
          return
        }

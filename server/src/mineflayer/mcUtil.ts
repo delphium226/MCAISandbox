@@ -279,6 +279,9 @@ export async function outFromUnder(a: BotAgent, goal: InstanceType<typeof goals.
   if (typeof g.x !== 'number' || typeof g.y !== 'number' || typeof g.z !== 'number') return null;
   const p = a.bot.entity.position.floored();
   if (p.y > g.y - 6 || !covered(a, p)) return null;
+  // (#209: not on the storage hut's floor, under its roof: that is home, not under ground)
+  const hut = a.village()?.storageHut, c0 = a.village()?.storage?.chests[0];
+  if (hut && c0 && p.x >= hut.x1 && p.x <= hut.x2 && p.z >= hut.z1 && p.z <= hut.z2 && p.y >= c0.y - 2) return null;
   const boxes = a.protectedGround();
   // (village ground over the bot, not the mine's: walks within the mine go between its levels and tunnels)
   const gx = Math.floor(g.x), gy = Math.floor(g.y), gz = Math.floor(g.z);

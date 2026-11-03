@@ -282,10 +282,41 @@ export async function rescue(a: BotAgent, signal: AbortSignal): Promise<{ how: '
 
 /** A teleport beside home (the storage hut's aisle, the chest, the plot); null with no home. */
 export async function teleportHome(a: BotAgent, signal: AbortSignal): Promise<string | null> {
-  const h = home(a);
+  let h = home(a);
   if (!h) return null;
+  // #209: never back to where it stalled (Xavier was teleported 49 times onto his own cell in the hut): a cell just
+  // outside the storage hut, else on top of the chest
+  const from = a.bot.entity.position;
+  if (Math.hypot(h.x + 0.5 - from.x, h.z + 0.5 - from.z) <= 2.5) h = awayFromHome(a, from) ?? h;
   await a.world.rcon.command(h.y !== undefined ? `tp ${a.name} ${h.x + 0.5} ${h.y} ${h.z + 0.5}` : `spreadplayers ${h.x} ${h.z} 0 3 false ${a.name}`);
   await sleep(1000, signal);
   await a.bot.waitForChunksToLoad();
+  // (a teleport leaves the pathfinder's last plan behind: drop it, so the next walk plans from here)
+  a.bot.pathfinder.setGoal(null);
   return `teleported to ${h.what} at ${at(a.bot.entity.position)}`;
+}
+
+/**
+ * #209: where a teleport home lands when the member stands at home already: the first cell 2 blocks outside the storage
+ * hut's sides (south, north, west, east, each side's middle) with solid ground, two free blocks and no water, more than
+ * 2.5 blocks from `from`. Null if none.
+ */
+function awayFromHome(a: BotAgent, from: Vec3): { x: number; y: number; z: number; what: string } | null {
+  const v = a.village();
+  const h = v?.storageHut;
+  const c = v?.storage?.chests[0];
+  if (!h || !c) return null;
+  const mx = Math.floor((h.x1 + h.x2) / 2), mz = Math.floor((h.z1 + h.z2) / 2);
+  const free = (p: Vec3) => {
+    const b = a.bot.blockAt(p);
+    return !!b && b.boundingBox === 'empty' && b.name !== 'water' && b.name !== 'lava';
+  };
+  for (const [x, z] of [[mx, h.z2 + 2], [mx, h.z1 - 2], [h.x1 - 2, mz], [h.x2 + 2, mz]]) {
+    if (Math.hypot(x + 0.5 - from.x, z + 0.5 - from.z) <= 2.5) continue;
+    for (let y = c.y + 3; y >= c.y - 4; y--) {
+      const p = new Vec3(x, y, z);
+      if (solid(a, p.offset(0, -1, 0)) && free(p) && free(p.offset(0, 1, 0))) return { x, y, z, what: 'outside the storage hut' };
+    }
+  }
+  return null;
 }
