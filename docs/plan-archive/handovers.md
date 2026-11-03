@@ -3,6 +3,31 @@
 The "Next session starts with" notes of earlier sessions, newest first, moved here from `docs/PLAN.md` on
 2026-10-15. PLAN.md keeps only the latest one.
 
+## Handover of 2026-11-01
+
+(updated 2026-11-01 ~10:00 by the planning session; the user: "make your own decisions and continue progressing";
+the strategy is `docs/STRATEGY.md`; the logs are `runs/2026-10-27/planning/state.md` and
+`runs/2026-10-31/planning/briefs.md`)
+
+- **How work runs:** unchanged (the planning session briefs and checks work sessions; the context rule; the test
+  train; pushes to `private` without asking; LAN addresses beside 127.0.0.1). **New flags default on** (10-30);
+  survival modes are the exception (peaceful stays the default). **Shared checkout: commit with
+  `git commit -- <paths>`** (three commits swept or overwrote other sessions' hunks on 10-31/11-01: 9fb86d3, 15bbf43,
+  3e87f5e).
+- **Done 10-31/11-01 (all pushed):** train 15 (F347, 4ecd01f); loop lag at 25 (F348, 40d74cd: true p99 28-36 ms, the
+  176 ms was the meter); fixes #186-#188, #168/#169 (3cdca2c: beds from sheep, the lava reflex); civic tier
+  (13e1641..25c5105, 80 buildings, variety steer); survival (c) hostile mobs (15bbf43); #190-#192 (7917505..2586917:
+  a monument gets its own kiln, iron give-up retried in 5 min, place claims by the far end); #189 partly (bucket pour
+  does not work in Mineflayer; open); survival (d) sections 0-3 (3e87f5e, bf0b322, db76d2a; report
+  `runs/2026-10-31/survival/report_d.md`: safety rule, watch and loop passed; deaths 8 vs 5 in night 1, +21% model
+  calls, curfew marks failed; #194-#197).
+- **In flight:** test train 16 (local_3aae4e4c; from db76d2a, worlds 4-5, ends ~11:55): P all flags against Q
+  (`MC_CIVIC`, `MC_WANTS_TUNE` off); judges #190 in a full run and the wants tuning's second pair.
+- **Next:** check train 16; then survival (d) fixes #194-#197 (night-1 far trips, the watch count, the curfew's reach,
+  model calls), then sections 4 (hunters) and 5 (walls); the wants tuning village-wide if trains 15-16 agree; #189;
+  #164 steps 3-5; the street-placement leftover of #179. STRATEGY.md has not been refreshed since 10-22.
+
+
 (written 2026-10-24 ~16:30 by the planning session local_81ead10e; the strategy is `docs/STRATEGY.md`; the live state
 (sessions and their ids, the queue, what waits on the user) is in `runs/2026-10-24/planning/state.md`)
 

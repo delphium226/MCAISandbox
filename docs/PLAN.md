@@ -34,27 +34,36 @@ each phase's goal and design, and links to its issues; it no longer carries chec
 
 ## Next session starts with
 
-(updated 2026-11-01 ~10:00 by the planning session; the user: "make your own decisions and continue progressing";
-the strategy is `docs/STRATEGY.md`; the logs are `runs/2026-10-27/planning/state.md` and
-`runs/2026-10-31/planning/briefs.md`)
+(updated 2026-11-03 ~14:10 by the planning session, handing over to a fresh planning session; the user: "make your
+own decisions and continue progressing"; the strategy is `docs/STRATEGY.md`)
 
 - **How work runs:** unchanged (the planning session briefs and checks work sessions; the context rule; the test
-  train; pushes to `private` without asking; LAN addresses beside 127.0.0.1). **New flags default on** (10-30);
-  survival modes are the exception (peaceful stays the default). **Shared checkout: commit with
-  `git commit -- <paths>`** (three commits swept or overwrote other sessions' hunks on 10-31/11-01: 9fb86d3, 15bbf43,
-  3e87f5e).
-- **Done 10-31/11-01 (all pushed):** train 15 (F347, 4ecd01f); loop lag at 25 (F348, 40d74cd: true p99 28-36 ms, the
-  176 ms was the meter); fixes #186-#188, #168/#169 (3cdca2c: beds from sheep, the lava reflex); civic tier
-  (13e1641..25c5105, 80 buildings, variety steer); survival (c) hostile mobs (15bbf43); #190-#192 (7917505..2586917:
-  a monument gets its own kiln, iron give-up retried in 5 min, place claims by the far end); #189 partly (bucket pour
-  does not work in Mineflayer; open); survival (d) sections 0-3 (3e87f5e, bf0b322, db76d2a; report
-  `runs/2026-10-31/survival/report_d.md`: safety rule, watch and loop passed; deaths 8 vs 5 in night 1, +21% model
-  calls, curfew marks failed; #194-#197).
-- **In flight:** test train 16 (local_3aae4e4c; from db76d2a, worlds 4-5, ends ~11:55): P all flags against Q
-  (`MC_CIVIC`, `MC_WANTS_TUNE` off); judges #190 in a full run and the wants tuning's second pair.
-- **Next:** check train 16; then survival (d) fixes #194-#197 (night-1 far trips, the watch count, the curfew's reach,
-  model calls), then sections 4 (hunters) and 5 (walls); the wants tuning village-wide if trains 15-16 agree; #189;
-  #164 steps 3-5; the street-placement leftover of #179. STRATEGY.md has not been refreshed since 10-22.
+  train; pushes to `private` without asking; LAN addresses beside 127.0.0.1). New flags default on (10-30); survival
+  modes are the exception (peaceful stays the default). Shared checkout: commit with `git commit -- <paths>`.
+  Sessions can only be started from a message typed in the desktop app (not over Remote Control).
+- **Done 11-01..11-03 (all pushed):** trains 16 (F349) and 17 (F350); survival (d) fixes #194-#197, the hunt (s4),
+  walls (s5, 3fbd59e); civic variety, random shortlists, talk designs, wall dressing (MC_DRESSING, on); #199 kiln;
+  #202 sand trips (MC_SAND_TRIPS); #206 sand parties (3 at once, fc4b91b); #204 river swim (df8c8c2); #205 instincts
+  builds 1-2 (e2896a1, 4446b83: MC_INSTINCTS, MC_INSTINCT_SHARE, on); #207 even-width roofs centred (029ad12);
+  **train 18 (F351, 109f5fb; report `runs/2026-11-03/train18/report.md`)**: the sand chain works end to end (3 out at
+  once, ~25 sand/min, no trips lost); the Zytglogge finished in 64 min in I1 by the stone-brick stand-in and stuck at
+  316/610 in I0 (#208); instincts on vs off made no difference beyond noise (4 lessons in 2 h, 2 of them wrong, from
+  one member's walk stalls: #209, #210); #209 (c677b04) and #210 (f3158f0) fixed.
+- **In flight at handover:** fix208 (local_2b90f75d-96cb-4168-b1ba-493b24363ebe): #208, the sand count covering the
+  bill so trips stop and the job stays short (and the stand-in firing while sand is coming); its staged run on test
+  world 1 was going at 13:46, nothing committed yet. Check its commit and run when it reports; it reports to the old
+  planning session, so look at `git log` and `gh issue view 208`.
+- **Next:**
+  1. Once #208 is in: **train 19** = train 18's setup (`runs/2026-11-03/train18/make_specs.py`, Zytglogge pinned by
+     `MC_PICK_SEED=0180003b`, `MCAI_SAND_ACROSS=allow`) with #208-#210 in: instincts on vs off on equal footing (both
+     arms should reach the cathedral). Turn `MC_CUSTOMS` on in both arms so the dusk gathering channel runs. Watch
+     whether an `[your instinct: avoid]` tag reaches a model-made choice, and whether any lesson is wrong.
+  2. If instincts still change almost nothing in 2 h, that is a design question for the user (longer runs, more
+     learning, more weight on menus): bring it with numbers, do not decide it.
+  3. Survival: #211 (night initiative past the curfew; a death), #203 (the wall chases growth), #189 (lava burn).
+  4. #193 (smelt over 64), the monument follow-ups (#150-#163), #164 steps 3-5.
+  5. **STRATEGY.md has not been refreshed since 10-22**: refresh it (the goals' milestones against what trains 12-18
+     showed) early in the next planning session.
 
 ## Earlier phases
 
