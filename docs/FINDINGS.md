@@ -2592,3 +2592,39 @@ CLAUDE.md when a phase ends.
     cannot see its site (#211). #203 showed as known.
   - Loop p99 median 55.9 / 53.2 ms. One `[lag]` in each arm at the talk house request (2.3 / 2.5 s). $1.35 + $1.26 +
     $0.02. Report: runs/2026-11-03/train18/report.md.
+- F352 (11-03, train19, G8/G1/G2) **Train 19: both arms finished the Zytglogge in sandstone after #208's recounts, with
+  no stand-in (I1 +70.8, I0 +115.5); only I1 began the cathedral. Instincts changed behaviour for the first time: the
+  "[your instinct: avoid]" tag reached 843 model-made choices and halved the model's pick rate of the option it tagged.
+  But every lesson that mattered was about a broken custom (#213).**
+  I1 (MC_INSTINCTS and MC_INSTINCT_SHARE on) against I0 (off), train 18's setup with MC_CUSTOMS and MC_CUSTOM_FACTS on
+  in both, so the dusk channel ran; code e9ade01 (git-archive snapshot), worlds 4 / 5, talk18.py on time.
+  - **False start:** world 4's instincts.json still held train 18's store. A checkpoint reset keeps it, and a spawn
+    with reset does not clear it, so I1 began with train 18's lessons, and the wrong "avoid eating" (i39) spread to 7
+    members in 3 min. The run was restarted with the file moved aside (#212).
+  - **Civic:** recounts brought trips back 3 times in each arm (job 2 short 134 and 12 in I1; 370, 86 and 12 in I0).
+    The yard over-counted storage by 12-140 sand each time (not traced: not the kiln, 60 / 36 sand, nor windows).
+    - I1: tower +70.8, talk windmill +96.1, then Notre-Dame 1:3, 605 of 3,587 blocks by +113.
+    - I0: job 2's last 12 sand waited 38 min, because Finn froze on the way back (#214), and the tower was done only at
+      +115.5. Its trips were spread out: 981 sand from +13.4 to +109.2, against I1's 875 from +24.2 to +67.1.
+  - **Stalls:** #209's loop is gone (I1 0 rescues, `[repath]` 3). A new freeze in I0: Finn's pathfinder stayed
+    mining/building on every tick (moved 0, path planned), and the rescue moved him 12 times between the hut cell and
+    the one outside it. 14 rescues in all (#214).
+  - **Customs:** the green's custom stone never finds ground, because grass_block is not in #minecraft:dirt on 26.1.
+    It failed 1,082 / 1,800 times, most picks a menu's only option (79 agent-min in each arm). The dusk tools custom is
+    offered to members carrying only their own tools (72 / 52 failures), and the door flower fails on grass (#213). The
+    dusk gathering worked: 12 / 10 non-seeded members.
+  - **Instincts:** 24 learned, 86 borrows (storage 52, side by side 27, dusk 7), 64 fades.
+    - Right lessons: avoid the custom stone (12 members in 3 min), the tools custom (7, borrowed by 13 more) and the
+      door flower (2).
+    - Two E2 walk lessons, far from home and plausible, and one doubtful lesson from a shortage (a flower garden).
+    - None near home or the hut (#210 holds).
+    - **The tag:** the model took the tagged stone in 96 of 813 shown (11.8%), against 25.4% (230 of 906) untagged in
+      I0. Stone picks by the model fell 87 against 222, and all stone attempts 1,179 against 1,888. The tools tag did
+      not hold (24 of 26).
+  - Busy 84 / 81%, houses 26 / 25, initiatives built 90 / 77: noise. Failures 1,573 / 2,197, about 490 / 400 without
+    the stone.
+  - **Verdict:** the mechanism works end to end (learn, tag, the model mostly obeys, share, fade), but its effect is
+    bounded by what fails often enough to teach. Here that was a code bug. Judging it on a working village needs
+    longer runs or harder ground.
+  - Loop p99 median 69.5 / 60.6 ms. One `[lag]` each at the talk house request (2.9 / 2.1 s). $1.47 + $1.43.
+    Report: runs/2026-11-03/train19/report.md.
