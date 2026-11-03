@@ -111,7 +111,7 @@ import { FURNISH_FAILS, bannerStandIn, furnishKindOf, refurnishReady, furnishBat
 import { FLOWER_DYE, KILN, MONUMENT, capShare, currentStage, furnishStage, standInFrom, dyeFlowers, glassColours, ironReached, jobBuilt, jobBuiltPlanned, jobReady, monumentLine, monumentPlan, newMonument, openJobs, stageWants, stageWantsPlanned, yardCovers, M3, TRADE_WEIGHT, noteTrade, tradeOfStep, tradeOf, progressLine as monumentProgress, partLine, cathedralName, presetWords, stageNames as monumentStages, monumentNoun, m3, architectOptions, dyesOnOffer, ARCHITECT_SYSTEM, ARCHITECT_TOOL, architectPrompt, checkArchitect, newMonumentPicked, type ArchitectFacts, type ArchitectPick, type Trade } from '../monument';
 import { kilnOn, laneWork, planOf } from './mcKiln';
 import { BULK_LANES, LODGE, TRIP_MIN, bulkTrip } from '../lodge';
-import { SAND_TRIPS, sandInReach, sandSpot, sandTripMin, sandstoneSand, tripBarred } from './mcSandTrips';
+import { SAND_TRIPS, sandInReach, sandLoad, sandSpot, sandTripMin, sandstoneSand, tripBarred } from './mcSandTrips';
 import { cutWork, cutterOn } from './mcCutter';
 import { bedBuilding, dyeBedOn } from './mcDyeBed';
 import { DYE_BED, DYE_FLOWERS, DYE_REACH, TALL_FLOWERS, dyeRecipes, makeableColours, windowColours } from '../dyeBed';
@@ -194,7 +194,7 @@ type ChoiceState = {
   /** s36: an initiative's gathering trip (its own field: the workshop's demand must not count it as incoming). */
   initiative?: { id: string; material: Material | 'flowers' | 'saplings' | 'sandstone'; n: number; item?: string };
   /** M1 (#144): a monument chore: a gathering trip's item, material and amount, a job's index, or the site. */
-  monument?: { item?: string; material?: Material | 'flowers'; n?: number; trip?: { dist: number; at: number; key: string }; job?: number; site?: boolean; kiln?: number; cut?: boolean; dye?: boolean; furnish?: boolean };
+  monument?: { item?: string; material?: Material | 'flowers'; n?: number; trip?: { dist: number; at: number; key: string; x: number; z: number }; job?: number; site?: boolean; kiln?: number; cut?: boolean; dye?: boolean; furnish?: boolean };
   /** S.9: a works furnace placement's k (its 8 cobblestone earmarked, so gathering's demand leaves it out). */
   furnace?: number;
   /** B.4: a light chore's part and its torches. */
@@ -8908,13 +8908,25 @@ export class MineflayerWorld implements WorldAdapter {
           // (M2, #145: or from the cathedral's quarry, MC_QUARRY)
           const quarry = mat === 'cobblestone' && quarryFeeds(v, 'cobblestone');
           if (mat === 'cobblestone' && !mineCanGive(v, 'cobblestone') && !quarry) continue;
-          // (#202, MC_SAND_TRIPS: the sand near home run out (marked unavailable, or a trip found none): one member at a
-          // time fetches a full load from the nearest dry sand the atlas knows, out to SAND_TRIPS.range; while one can go,
-          // or waits for the morning, the sandstone does not stand in)
+          // (#202, MC_SAND_TRIPS: the sand near home run out (marked unavailable, or a trip found none): members (#206:
+          // up to MC_SAND_PARTY at once) fetch full loads from the nearest dry sand the atlas knows, out to
+          // SAND_TRIPS.range; while one can go, or waits for the morning, the sandstone does not stand in)
           if (item === 'sand' && SAND_TRIPS.on && q >= SAND_TRIPS.min && (this.sandFails.get(v.name) ?? 0) < SAND_TRIPS.fails
             && (v.unavailable?.includes('sand') || (this.monumentBack.get(`${v.name}:gather:sand`) ?? 0) > now)) {
             const home = villageHome(v);
-            let spot = home && sandSpot(this.atlas, home, VILLAGE_RANGE, this.sandSkip.get(v.name) ?? new Set());
+            // (#206, MC_SAND_PARTY: several at once, while the stage wants more after the trips out, each counted at its
+            // expected load (sandLoad), and each to a spot SAND_TRIPS.apart from the others' where the map has one)
+            let out = 0;
+            const away: { x: number; z: number }[] = [];
+            for (const ch of this.chores.values()) {
+              const cm = ch.choice.monument;
+              if (ch.village !== v.name || ch.choice.ended || cm?.item !== 'sand') continue;
+              out += cm.n ?? 0;
+              if (cm.trip) away.push(cm.trip);
+            }
+            const left = q - out;
+            const spotOf = (skip: Set<string>) => home && (sandSpot(this.atlas, home, VILLAGE_RANGE, skip, away) ?? sandSpot(this.atlas, home, VILLAGE_RANGE, skip));
+            let spot = spotOf(this.sandSkip.get(v.name) ?? new Set());
             // (#205: a spot in an area the member's instinct avoids gives way to the next (4 at most), else it is used)
             const shun = spot && placeLayer(v.name, a.name, 'trip:sand');
             if (shun && spot && home && shun.avoid(spot.x, spot.z)) {
@@ -8922,19 +8934,23 @@ export class MineflayerWorld implements WorldAdapter {
               let alt: ReturnType<typeof sandSpot> = spot;
               for (let k = 0; k < 4 && alt && shun.avoid(alt.x, alt.z); k++) {
                 skip.add(alt.key);
-                alt = sandSpot(this.atlas, home, VILLAGE_RANGE, skip);
+                alt = spotOf(skip);
               }
               if (alt && !shun.avoid(alt.x, alt.z)) spot = alt;
               else shun.used(spot.x, spot.z);
             }
             if (spot) {
-              if (!busy.has('monument:sandtrip') && !tripBarred(spot.dist, this.timeOfDay(), curfewBand(v.name)))
+              const lanes = Math.min(SAND_TRIPS.party, Math.ceil(q / sandLoad(spot.dist)));
+              const n = Array.from({ length: lanes }, (_, i) => i + 1).find((i) => !busy.has(`monument:sandtrip:${i}`));
+              if (n && left > 0 && !(out > 0 && left < 64) && !tripBarred(spot.dist, this.timeOfDay(), curfewBand(v.name))) {
+                const key = `monument:sandtrip:${n}`;
                 add({
-                  id: 'monument:sandtrip', kind: 'monument', key: 'monument:sandtrip', excludes: ['monument:sandtrip='], rank: 160,
+                  id: 'monument:sandtrip', kind: 'monument', key, excludes: [`${key}=`], rank: 160,
                   name: `Fetch sand from ${spot.dist} blocks away for the ${N} (stage ${st}: ${stageName})`,
-                  facts: `the ${N}'s stage ${st} still wants ${q} sand for its sandstone; none is left within ${VILLAGE_RANGE} blocks of the village; the map shows dry sand at ${spot.x},${spot.z}`,
+                  facts: `the ${N}'s stage ${st} still wants ${left} sand for its sandstone${out ? ` after the ${out} on its way` : ''}; none is left within ${VILLAGE_RANGE} blocks of the village; the map shows dry sand at ${spot.x},${spot.z}`,
                   effect: `a full load of sand in the ${N}'s yard`,
-                }, { kind: 'monument', step: 'sandtrip', x: spot.x, y: spot.y, z: spot.z, dist: spot.dist, key: spot.key, amount: q });
+                }, { kind: 'monument', step: 'sandtrip', x: spot.x, y: spot.y, z: spot.z, dist: spot.dist, key: spot.key, amount: left });
+              }
               continue;
             }
           }
@@ -10665,8 +10681,10 @@ export class MineflayerWorld implements WorldAdapter {
           worker.memory.monumentGather = 'sand';
           this.setChore(v, worker, opt.key, [go, collect, deposit], `fetch sand from ${d.dist} blocks away for the ${N}`, undefined, meta, opt.holds, opt);
           const c = this.chores.get(worker.name.toLowerCase());
-          if (c) c.choice.monument = { item: 'sand', material: 'sand', n: amount, trip: { dist: d.dist, at: Date.now(), key: d.key } };
-          console.log(`[sand] expedition ${v.name}: ${worker.name} sets out for sand at ${d.x},${d.z} (${d.dist} blocks from home; room for ${amount})`);
+          // (#206: counted at its expected load while it is out, so the others' trips are sized to what is left)
+          if (c) c.choice.monument = { item: 'sand', material: 'sand', n: Math.min(amount, sandLoad(d.dist)), trip: { dist: d.dist, at: Date.now(), key: d.key, x: d.x, z: d.z } };
+          const party = [...this.chores.values()].filter((ch) => ch.village === v.name && !ch.choice.ended && ch.choice.monument?.trip).length;
+          console.log(`[sand] expedition ${v.name}: ${worker.name} sets out for sand at ${d.x},${d.z} (${d.dist} blocks from home; room for ${amount}; ${opt.key.split(':')[2] ?? 1} of ${party} out)`);
           return;
         }
         if (d.step === 'cut') {

@@ -113,6 +113,10 @@ for (const [n, ids] of [...made].sort()) console.log(`  ${n}: ${[...new Set(ids)
   const a = sandSpot(atlas, home, 144, new Set()), b = sandSpot(atlas, home, 144, new Set([a ? a.key : '']));
   console.log(`sand spots: ${a?.x},${a?.z} (${a?.dist}), then ${b?.x},${b?.z} (${b?.dist}); in reach ${sandInReach(atlas, home)}; Zytglogge's sandstone takes ${sandstoneSand(monumentPlan(newCivic('zytglogge', civicScale('zytglogge'), 'oak', 0)).bill)} sand`);
   if (a?.x !== 162 || a?.z !== 2 || b?.x !== 326 || sandInReach(atlas, home) !== 3 * 48) fail('sandSpot or sandInReach is off');
+  // (#206: a second expedition's spot keeps SAND_TRIPS.apart from the first's)
+  const apart = sandSpot(atlas, home, 144, new Set(), a ? [a] : []);
+  console.log(`a second expedition's spot: ${apart?.x},${apart?.z}`);
+  if (apart?.x !== 326) fail('a second expedition was sent to the first one\'s spot');
   // (a river between: chunk 5,0 all water, so the spot past it is passed over for the one north, out of range here: none)
   const river = { near: () => [...atlas.near(), { cx: 5, cz: 0, surface: {}, h: Array(16).fill(null), s: '~'.repeat(16) } as any] };
   const c = sandSpot(river, home, 144, new Set());

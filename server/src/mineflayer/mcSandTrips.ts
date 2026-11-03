@@ -7,6 +7,9 @@
  * over; after SAND_TRIPS.fails such trips the sandstone stands in as stone bricks (monument.ts' sandstoneStandIn). The
  * short lists count the sand the atlas knows in that range (sandInReach): train 17's Zytglogge wanted ~1300 sand on a
  * plains site whose river banks gave 267.
+ * #206 (MC_SAND_PARTY): up to SAND_TRIPS.party members go at once while the stage wants that many loads (sandLoad) after
+ * the trips out, each to a spot SAND_TRIPS.apart from the others' where the map has one: run 8's Zytglogge stage 2 waited
+ * on ~580 sand dug by one member at a time.
  */
 import { rawSetting } from '../settings';
 import { modeSpec } from '../worldMode';
@@ -20,11 +23,17 @@ export const SAND_TRIPS = {
   min: 128,
   /** Trips that brought nothing before the sandstone stands in. */
   fails: 2,
+  /** Expeditions out at once (MC_SAND_PARTY). */
+  party: Math.max(1, Math.floor(Number(rawSetting('MC_SAND_PARTY') ?? 3) || 1)),
+  /** Blocks between one expedition's spot and another's, where the map has a spot that far apart. */
+  apart: 32,
 };
 /** An expedition's digging minutes (collect's `trip`; it ends sooner when the load is full): 6, and twice the walk out at
  *  ~250 blocks a minute, so a far trip's load is worth its walk (the first, 145 blocks out on the bulk trip's 5 minutes,
  *  brought 148 of the 1151 it had room for). */
 export const sandTripMin = (dist: number): number => 6 + 2 * dist / 250;
+/** The sand an expedition is counted to bring while it is out: ~25 a minute of its digging (run 8's brought 137-238). */
+export const sandLoad = (dist: number): number => Math.round(25 * sandTripMin(dist));
 /** Sand under a dry sand column, counted for what lies in reach (beaches and deserts are 3-5 deep). */
 export const SAND_DEPTH = 3;
 
@@ -43,10 +52,11 @@ export function waterCrossed(byChunk: Map<string, ChunkSummary>, home: { x: numb
   return n;
 }
 
-/** The nearest map cell mostly of dry sand beyond `from` blocks and within the range, not in `skip` (cell keys), and on
- *  the village's side of open water: a line from home crossing 2 water cells or more is passed over (run 5's east-bank
- *  spot stranded its member in the river for 33 minutes on the way back). */
-export function sandSpot(atlas: AtlasLike, home: { x: number; z: number }, from: number, skip: Set<string>): SandSpot | null {
+/** The nearest map cell mostly of dry sand beyond `from` blocks and within the range, not in `skip` (cell keys), not
+ *  within SAND_TRIPS.apart of a spot in `away` (the other expeditions'), and on the village's side of open water: a line
+ *  from home crossing 2 water cells or more is passed over (run 5's east-bank spot stranded its member in the river for
+ *  33 minutes on the way back). */
+export function sandSpot(atlas: AtlasLike, home: { x: number; z: number }, from: number, skip: Set<string>, away: { x: number; z: number }[] = []): SandSpot | null {
   let best: SandSpot | null = null;
   const near = atlas.near(home.x, home.z, SAND_TRIPS.range), byChunk = new Map(near.map((c) => [`${c.cx},${c.cz}`, c] as const));
   for (const c of near) {
@@ -57,6 +67,7 @@ export function sandSpot(atlas: AtlasLike, home: { x: number; z: number }, from:
       const x = c.cx * 16 + (i % 4) * 4 + 2, z = c.cz * 16 + Math.floor(i / 4) * 4 + 2, key = `${x},${z}`;
       const dist = Math.round(Math.hypot(x - home.x, z - home.z));
       if (dist < from || dist > SAND_TRIPS.range || skip.has(key) || (best && dist >= best.dist) || waterCrossed(byChunk, home, x, z) >= WATER_CROSS) continue;
+      if (away.some((p) => Math.hypot(p.x - x, p.z - z) < SAND_TRIPS.apart)) continue;
       best = { x, y: Math.round(y), z, dist, key };
     }
   }
