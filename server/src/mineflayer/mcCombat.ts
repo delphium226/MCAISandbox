@@ -624,6 +624,17 @@ export function homeBand(v: Pick<Village, 'layouts' | 'structures'>): SafetyBand
 /** Whether (x, z) lies past the band (from home, or past its box + 16). */
 export const pastBand = (band: SafetyBand, home: { x: number; z: number }, x: number, z: number): boolean =>
   band.box ? beyond(band.box, x, z) > 0 : Math.hypot(x - home.x, z - home.z) > band.dist;
+/**
+ * #211: while the curfew acts for a member's village, whether (x, z) lies past its band (a gather keeps its targets
+ * inside it: a night gather's flowers took members 50-80 out); null when no band acts now.
+ */
+export function bandNow(a: BotAgent): { past: (x: number, z: number) => boolean; band: SafetyBand } | null {
+  const v = a.village();
+  const home = v?.storage?.chests[0];
+  const band = v && home ? a.world.safetyBand(v) : null;
+  if (!band || !home || !curfewActs(a.bot.time?.timeOfDay, band.phase)) return null;
+  return { past: (x, z) => pastBand(band, home, x, z), band };
+}
 /** The band's words for a dropped option and the walk's line. */
 export const bandWords = (band: SafetyBand): string => band.code
   ? 'home by dusk: no member has a bed yet, so the night runs its length'

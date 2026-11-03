@@ -16,7 +16,7 @@ import { quarryFeeds, quarryFor } from './mcQuarry';
 import { STORAGE_SKILLS, hutY, partBurn, storageContents, withdrawItems } from './mcStorage';
 import type { McSkill } from './mcSkills';
 import { timeScale } from './mcRules';
-import { melee } from './mcCombat';
+import { bandNow, bandWords, melee } from './mcCombat';
 import { teleportHome } from './mcRescue';
 import { nearTrap } from './mcHazard';
 import { FARM_TRIP_RANGE, SCOUT_RANGE, STATION_NAMES, STATIONS_TASK, VILLAGE_RANGE, villageHome, type StationName, type Village } from '../village';
@@ -780,6 +780,9 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
     if (home.monument?.quarry && home.monument.quarry.state !== 'done') throw new Error(`the cathedral's quarry gave no cobblestone this time (${r.why}); collect again`);
   }
   if (home && items.length && mineCanGive(home, label.replace(/s$/, ''))) {
+    // (#211: nor down a mine past the curfew's band: the walk home would fetch the miner back out of it)
+    const night = bandNow(a);
+    if (night && home.mine && night.past(home.mine.top.x, home.mine.top.z)) throw new Error(`the village mine lies past the band now (${bandWords(night.band)}): collect ${label} again by day`);
     const { got, why, busy } = await mineFor(a, home, want, have, signal);
     if (got >= want) return `collected ${got} ${label} in the village mine (${home.mine!.dug} tunnel cells dug so far)`;
     // Not outside while the mine still gives: pits and tunnels around the village were the trouble (F75, F76). What is
@@ -884,7 +887,10 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
     // (never in a village building, on or under a plot, nor far below home: collectFilter)
     const vil = a.village();
     const homeY = vil?.plots[0]?.y ?? vil?.storage?.chests[0]?.y;
-    const near = collectFilter(a, range);
+    // (#211: while the curfew acts, only targets inside its band: night gathers walked members 50-80 out)
+    const night = typeof args.far !== 'number' ? bandNow(a) : null;
+    const nearAll = collectFilter(a, range);
+    const near = night ? (p: { x: number; y: number; z: number }) => !night.past(p.x, p.z) && nearAll(p) : nearAll;
     // Dry: no water comes in from above (through falling sand too), and a buried block (dug to) has none beside it either:
     // the Mayor tunnelled to sand under a lake bed and the lake poured in (F137). Shore sand in the open stays fine
     // (wetSide before exposedAt: it is almost always false, and buried stone matches by the ten thousand)
@@ -1011,6 +1017,8 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
       // goes back on the board)
       if (taken && !got) throw new ContentionError(`the ${taken} ${label} left ${where} are being taken by other gatherers (${[...takers].join(', ')}): hand the task back and collect again in a few minutes`, 'taken', `block:${label}`);
       if (got > 0) throw new Error(`only found ${got} ${label}; none left ${where}${taken ? ` (${taken} more held by other gatherers: ${[...takers].join(', ')})` : ''}${passedOver()}: deposit what you have${base ? '; the rest has to come from farther away' : ', explore 100 blocks or more in one direction, then collect again'}`);
+      // (#211: not "cannot be gathered here": that marks the material unavailable for the village)
+      if (night) throw new Error(`no ${label} inside the band now (${bandWords(night.band)})${passedOver()}: collect it again by day`);
       throw new Error(base
         ? `no ${label} within ${range} blocks of the village${passedOver()}: it cannot be gathered here (a building that needs it goes without, or the task is handed back)${lastError ? ` (last problem: ${lastError})` : ''}`
         : `no ${label} within 128 blocks${passedOver()}; explore 100 blocks or more in one direction, then collect again${lastError ? ` (last problem: ${lastError})` : ''}`);

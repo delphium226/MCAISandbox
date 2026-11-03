@@ -9315,8 +9315,19 @@ export class MineflayerWorld implements WorldAdapter {
     if (band && home && curfewActs(this.timeOfDay(), band.phase)) {
       for (let i = out.length - 1; i >= 0; i--) {
         const o = out[i];
-        const d = OPTION_RUN.get(o) as { x?: number; z?: number } | undefined;
-        const site = o.at ?? (d && typeof d.x === 'number' && typeof d.z === 'number' ? { x: d.x, z: d.z } : undefined);
+        const d = OPTION_RUN.get(o);
+        // (#211: an option whose spot is found only after the pick (a new green, a street of houses, the monument's pad)
+        // leaves the menu until day: a night initiate put its green 100 out and Uma died on the way)
+        if (d && siteFoundLater(d)) {
+          pal.drop(o, 'law', `${bandWords(band)} (its spot is found by day)`);
+          const k = `curfew|${a.name}|${o.id}|${Math.floor(now / 3600000)}`;
+          if (!this.ruleLogged.has(k)) {
+            this.ruleLogged.add(k);
+            console.log(`[curfew] ${a.name} ${v.name}: ${o.id} off the menu (its spot is found by day)`);
+          }
+          continue;
+        }
+        const site = o.at ?? (d && 'x' in d && 'z' in d && typeof d.x === 'number' && typeof d.z === 'number' ? { x: d.x, z: d.z } : d ? this.runSite(v, d) : undefined);
         if (!site || !pastBand(band, home, site.x, site.z)) continue;
         pal.drop(o, 'law', bandWords(band));
       }
@@ -9439,6 +9450,26 @@ export class MineflayerWorld implements WorldAdapter {
       emeralds: v.homes?.[name]?.chest?.items?.emerald ?? 0, inventions, ringLeft, own: OWN.on,
       ...(adm ? { admired: { name: adm.name, ...(ap ? { pursuit: { template: ap.template, ...(ap.param ? { param: ap.param } : {}) } } : {}) } } : {}),
     };
+  }
+
+  /**
+   * #211: where a run without a spot of its own walks to, for the curfew's band: the mine for its digs (the iron level, the
+   * deep level, the geode's tunnels), the monument's pad for a job and its kiln for the masons' work. Gathers have none
+   * (collect keeps inside the band itself); the rest work in the village.
+   */
+  private runSite(v: Village, d: OptionRun): { x: number; z: number } | undefined {
+    // (the mine's ground farthest from home, its tunnels with it: N1's iron diggers left a top inside the band and were
+    // fetched home from 51 out under ground)
+    if ((d.kind === 'iron' && d.stage === 'dig') || (d.kind === 'monument' && (d.step === 'deep' || d.step === 'gem'))) {
+      const home = v.storage?.chests[0];
+      if (!v.mine || !home) return v.mine?.top;
+      const corners = mineAreas(v.mine).flatMap((q) => [{ x: q.x1, z: q.z1 }, { x: q.x1, z: q.z2 }, { x: q.x2, z: q.z1 }, { x: q.x2, z: q.z2 }]);
+      return corners.reduce((f, c) => (Math.hypot(c.x - home.x, c.z - home.z) > Math.hypot(f.x - home.x, f.z - home.z) ? c : f), v.mine.top);
+    }
+    const m = v.monument;
+    if (d.kind !== 'monument' || !m) return undefined;
+    const box = (d.step === 'kiln' || d.step === 'cut') && m.kiln ? m.kiln : d.step === 'job' ? m.site : undefined;
+    return box ? { x: Math.floor((box.x1 + box.x2) / 2), z: Math.floor((box.z1 + box.z2) / 2) } : undefined;
   }
 
   /** An ended chore's goal facts, from its option id and name (the run data is gone by then). */
@@ -11740,6 +11771,9 @@ type OptionRun =
   | { kind: 'board'; what: 'report'; text: string }
   | { kind: 'custom'; custom: CustomId; x: number; y: number; z: number; item?: string; tools: string[]; avoid?: { x1: number; z1: number; x2: number; z2: number } };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
+/** #211: a run whose spot is found only once it runs (a new green, its prepare, a street of houses, the monument's pad). */
+const siteFoundLater = (d: OptionRun): boolean => (d.kind === 'initiate' && !!d.green) || (d.kind === 'help' && d.step.what === 'prepare')
+  || d.kind === 'grow' || (d.kind === 'monument' && d.step === 'site');
 /** #164: the posted report an option's facts cite (the pick counts as a trip that used it). */
 const REPORT_OF = new WeakMap<ChoiceOption, Report>();
 /** #164: the small flowers a custom places (one from storage). */
