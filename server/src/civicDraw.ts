@@ -143,15 +143,17 @@ export function roundShell(g: Grid, cx: number, cz: number, y0: number, y1: numb
   for (let y = y0; y <= y1; y++) {
     const r = r0 + (r1 - r0) * (y1 > y0 ? (y - y0) / (y1 - y0) : 0);
     const R = Math.ceil(r) + 1;
-    for (let dx = -R; dx <= R; dx++)
-      for (let dz = -R; dz <= R; dz++) {
+    // (the integer cells around the centre, each measured from it: a half-block centre gives an even, symmetric ring)
+    for (let x = Math.floor(cx - R); x <= Math.ceil(cx + R); x++)
+      for (let z = Math.floor(cz - R); z <= Math.ceil(cz + R); z++) {
+        const dx = x - cx, dz = z - cz;
         const d = dist(dx, dz);
         if (d > r + 0.5) continue;
         const shell = d > r + 0.5 - thick;
         const floor = opts.floorEvery && (y - y0) % opts.floorEvery === 0;
         if (!shell && !floor) continue;
-        const b = shell ? block(cx + dx, y, cz + dz, Math.round(((Math.atan2(dz, dx) + Math.PI) / (2 * Math.PI)) * 16) % 16) : opts.floor ?? C.planks;
-        if (b) g.set(cx + dx, y, cz + dz, b, stage(y));
+        const b = shell ? block(x, y, z, Math.round(((Math.atan2(dz, dx) + Math.PI) / (2 * Math.PI)) * 16) % 16) : opts.floor ?? C.planks;
+        if (b) g.set(x, y, z, b, stage(y));
       }
   }
 }
@@ -163,16 +165,20 @@ export function cone(g: Grid, cx: number, cz: number, y0: number, y1: number, r:
   for (let y = y0; y <= y1; y++) {
     const rr = r * (1 - (y - y0) / H);
     const R = Math.ceil(r) + 1;
-    for (let dx = -R; dx <= R; dx++)
-      for (let dz = -R; dz <= R; dz++) {
+    // (the integer cells around the centre, each measured from it, as in roundShell; the cells nearest the centre, one
+    // or a 2x2 on a half-block centre, are always drawn so the top is never empty)
+    for (let x = Math.floor(cx - R); x <= Math.ceil(cx + R); x++)
+      for (let z = Math.floor(cz - R); z <= Math.ceil(cz + R); z++) {
+        const dx = x - cx, dz = z - cz;
         const d = dist(dx, dz);
-        if (d > rr + 0.5 || (y < y1 && d < rr - 0.6)) continue;
+        const middle = Math.abs(dx) <= 0.5 && Math.abs(dz) <= 0.5;
+        if ((d > rr + 0.5 && !middle) || (y < y1 && d < rr - 0.6)) continue;
         // (facing toward the axis: the stair's back is its high side)
         const f = Math.abs(dx) >= Math.abs(dz) ? (dx > 0 ? 'west' : 'east') : dz > 0 ? 'north' : 'south';
-        g.set(cx + dx, y, cz + dz, (dx === 0 && dz === 0) || rr < 0.8 ? mat.full : mat.stair(f), stage);
+        g.set(x, y, z, middle || rr < 0.8 ? mat.full : mat.stair(f), stage);
       }
   }
-  if (finial) g.set(cx, y1 + 1, cz, finial, stage);
+  if (finial) g.set(Math.floor(cx), y1 + 1, Math.floor(cz), finial, stage);
 }
 
 /** A square tower's shell (x0..x1, z0..z1, y0..y1) with floors every `floorEvery` and windows from `win`. */
