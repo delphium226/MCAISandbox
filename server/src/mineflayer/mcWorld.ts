@@ -46,7 +46,7 @@ import { TaskBrain } from '../taskBrain';
 import type { AgentBrain } from '../world';
 import type { Area, Design, Initiative, Monument, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
-import { PART_RE, STORAGE_KEEP, freeSpots, storageContents, storageFlow, storageGross, storageSlots, storageStrays } from './mcStorage';
+import { PART_RE, STORAGE_KEEP, freeSpots, ownTools, storageContents, storageFlow, storageGross, storageSlots, storageStrays } from './mcStorage';
 import { HOME_BASICS, basicsCost, basicsFacts, basicsLeft, basicsOf, bedsOwed, freeDecorSlots, houseDecorOf, sheepPlace, woolInHand, type BasicsCells } from './mcHome';
 import { HOUSE_DECOR, decorPicks, decorWants } from '../houseDecor';
 import { contractOf, deliveriesOf, deliveryWords, earmarked, levyOwed, levySweep, markAtEnd, reconcilePay, startPay, storeByCommand, type PayWorld } from './mcPay';
@@ -58,9 +58,9 @@ import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 import { Atlas } from './mcAtlas';
 import { VILLAGE_BIOMES, listPieces, pieceToDesign, readPiece, vanillaLibrary, vanillaLights, vanillaShelves, villageBiome } from '../vanillaPieces';
-import { buildingDecor, buildingLights, decorSlots, type DecorSlot, type HomeBasics, placedDoor, signLabel, type DecorSpot, type LightSpot, type SignPlace, type SignSpot } from '../streetPlan';
+import { buildingDecor, buildingLights, decorSlots, type DecorSlot, type HomeBasics, placedDoor, placedOutside, signLabel, type DecorSpot, type LightSpot, type SignPlace, type SignSpot } from '../streetPlan';
 import { buildCatalog, type ActivitySpec } from '../activities';
-import { LETTERS_PACE } from '../ladderFlags';
+import { LETTERS_PACE, OWN_TOOLS } from '../ladderFlags';
 import { isPaused } from '../runClock';
 import { BED_FLOWERS, FLOWER_MIX, GARDENS, GREENS_MIX, cappedGreens, flowerMix, gardenSpots, greenCounts, greenReserves, greensMixOrder, isFlowerWork, isGarden, menuWorks, mixWords, parterreShapeOf, reserveAreas, smallWorkKind, smallWorkKindOf, smallWorkSpots, smallWorkWood, type GardenSpot, type GreenArea, type GreenReserve, type SmallWorkKind } from '../smallWorks';
 import { FLOWER_ITEMS } from './mcMaterials';
@@ -9926,19 +9926,37 @@ export class MineflayerWorld implements WorldAdapter {
         else if (!flower) why.push('no flower in storage');
         else {
           at = { x: door.x + door.ox, z: door.z + door.oz };
-          run = { kind: 'custom', custom: id, x: at.x, y: st.y, z: at.z, item: flower, tools: [], avoid: { x1: st.x1, z1: st.z1, x2: st.x2, z2: st.z2 } };
+          // (#213: the ground round the door outside the box, or on the home's own porch inside it: a door 1-2 cells inside its
+          // box had only the street's path left, Grace's 14 'no free ground for a flower beside your door' in C2)
+          const porch = placedOutside(place!);
+          const cells: Array<{ x: number; z: number }> = [];
+          for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
+            const c = { x: at.x + dx, z: at.z + dz };
+            const inBox = c.x >= st.x1 && c.x <= st.x2 && c.z >= st.z1 && c.z <= st.z2;
+            if ((dx || dz) && (!inBox || porch.has(`${c.x},${c.z}`))) cells.push(c);
+          }
+          cells.sort((p, q) => Math.max(Math.abs(p.x - at!.x), Math.abs(p.z - at!.z)) + Math.hypot(p.x - at!.x, p.z - at!.z) / 10
+            - Math.max(Math.abs(q.x - at!.x), Math.abs(q.z - at!.z)) - Math.hypot(q.x - at!.x, q.z - at!.z) / 10);
+          run = { kind: 'custom', custom: id, x: at.x, y: st.y, z: at.z, item: flower, tools: [], cells };
         }
       } else if (id === 'green_stone' || id === 'dusk_gathering') {
         if (!green) why.push('no green yet');
         else if (id === 'green_stone' && !flower && (store.torch ?? 0) < 1) why.push('no flower or torch in storage');
+        // (#213: no free ground was left round the stone when last kept: off the menu for a village day)
+        else if (id === 'green_stone' && now - ((v as Village & { customStone?: { fullAt?: number } }).customStone?.fullAt ?? -Infinity) < MEMORY.dayMs) why.push('the green\'s stone has flowers all round');
         else {
           at = { x: Math.floor((green.x1 + green.x2) / 2), z: Math.floor((green.z1 + green.z2) / 2) };
           const y = v.plots[0]?.y ?? Math.floor(a.bot.entity?.position.y ?? 64);
           run = { kind: 'custom', custom: id, x: at.x, y, z: at.z, item: id === 'green_stone' ? flower ?? 'torch' : undefined, tools: [], avoid: green };
         }
       } else if (id === 'tools_dusk') {
-        const tools = [...new Set((a.bot.inventory?.items() ?? []).map((i) => i.name).filter((n) => /(_pickaxe|_axe|_shovel|_hoe|^shears|^fishing_rod|^bucket)$/.test(n)))];
-        if (!tools.length) why.push('no tools carried');
+        // (#213: a member's own kept tools stay with it, so a member carrying only those has nothing to return: train 19's
+        // 124 "not carrying ... beyond your own tools")
+        const keep = OWN_TOOLS ? ownTools(v, a.name) : {};
+        const held: Record<string, number> = {};
+        for (const i of a.bot.inventory?.items() ?? []) if (/(_pickaxe|_axe|_shovel|_hoe|^shears|^fishing_rod|^bucket)$/.test(i.name)) held[i.name] = (held[i.name] ?? 0) + i.count;
+        const tools = Object.keys(held).filter((n) => held[n] > (keep[n] ?? 0));
+        if (!tools.length) why.push(Object.keys(held).length ? 'only your own tools carried' : 'no tools carried');
         else if (v.storageHut) {
           at = { x: Math.floor((v.storageHut.x1 + v.storageHut.x2) / 2), z: Math.floor((v.storageHut.z1 + v.storageHut.z2) / 2) };
           run = { kind: 'custom', custom: id, x: at.x, y: v.plots[0]?.y ?? 64, z: at.z, tools };
@@ -10284,7 +10302,7 @@ export class MineflayerWorld implements WorldAdapter {
           : d.custom === 'dusk_gathering'
           ? [worker.enqueue('move_to', { x: d.x, y: d.y, z: d.z, range: 4, chore: true }), worker.enqueue('wait', { seconds: Math.max(10, Math.round(60 / timeScale())), chore: true })]
           : [...(d.item ? [worker.enqueue('withdraw', { item: d.item, count: 1, chore: true })] : []),
-            worker.enqueue('keep_custom', { custom: d.custom, x: d.x, y: d.y, z: d.z, item: d.item ?? '', ...(d.avoid ? { avoid: d.avoid } : {}), chore: true })];
+            worker.enqueue('keep_custom', { custom: d.custom, x: d.x, y: d.y, z: d.z, item: d.item ?? '', ...(d.avoid ? { avoid: d.avoid } : {}), ...(d.cells ? { cells: d.cells } : {}), chore: true })];
         this.setChore(v, worker, opt.key, steps, `keep a custom: ${TEMPLATES[d.custom].name.toLowerCase()}`, undefined, meta, opt.holds, opt);
         console.log(`[custom] ${v.name}: ${worker.name} goes to ${TEMPLATES[d.custom].name.toLowerCase()}`);
         return;
@@ -11805,7 +11823,7 @@ type OptionRun =
   | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number; needs: Counts; gives: string[]; own?: string[] }
   // (#164: posting one's find on the board; a village custom, its spot and the flower it takes, the tools it returns)
   | { kind: 'board'; what: 'report'; text: string }
-  | { kind: 'custom'; custom: CustomId; x: number; y: number; z: number; item?: string; tools: string[]; avoid?: { x1: number; z1: number; x2: number; z2: number } };
+  | { kind: 'custom'; custom: CustomId; x: number; y: number; z: number; item?: string; tools: string[]; avoid?: { x1: number; z1: number; x2: number; z2: number }; cells?: Array<{ x: number; z: number }> };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
 /** #211: a run whose spot is found only once it runs (a new green, its prepare, a street of houses, the monument's pad). */
 const siteFoundLater = (d: OptionRun): boolean => (d.kind === 'initiate' && !!d.green) || (d.kind === 'help' && d.step.what === 'prepare')

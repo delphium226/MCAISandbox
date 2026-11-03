@@ -988,6 +988,21 @@ export function placedDoor(p: SignPlace): { x: number; z: number; ox: number; oz
   return p.noSign ? null : placedGrid(p).door;
 }
 
+/** #213: the cells of the placed footprint outside the building's walls at feet level ("x,z"): a generated home's porch
+ *  inside its own box, where its door opens. */
+export function placedOutside(p: SignPlace): Set<string> {
+  const d = p.design, rot = ((p.rot % 4) + 4) % 4, l1 = d.layers[1];
+  const { area } = placedGrid(p);
+  const out = new Set<string>();
+  if (!l1 || l1.length !== d.depth) return out;
+  for (const k of outsideCells(l1)) {
+    const [i, j] = k.split(',').map(Number);
+    const [u, v] = turnCell(i, j, d.width, d.depth, rot);
+    out.add(`${area.x1 + u},${area.z1 + v}`);
+  }
+  return out;
+}
+
 /**
  * #164: where the village board's signs may stand by the storage hut (writeBoard checks each against the world): two cells
  * out from each side, from the middle of the south side outward, then north, east and west; each sign faces away from the

@@ -5952,16 +5952,21 @@ async function keepCustom(a: BotAgent, args: Record<string, unknown>, signal: Ab
     return `placed 1 ${block} at ${cx},${cy},${cz} (checked)`;
   };
   const flower = item !== 'torch';
+  // (#213: on 26.1 #minecraft:dirt holds only dirt, coarse and rooted dirt, no grass_block, so no green or door found
+  // ground; the overworld's substrate is grass, podzol, mycelium, moss and mud as well, never farmland)
+  const SOIL = '#minecraft:substrate_overworld';
   if (custom === 'door_flower') {
     await near(x, z);
-    for (const c of ringCells(x, z, 2, avoid)) {
-      const y = await groundY(c.x, c.z, '#minecraft:dirt');
+    // (#213: the cells the chore names, the porch of a door inside its box included; else the ring off `avoid`)
+    const given = Array.isArray(args.cells) ? (args.cells as Array<{ x: number; z: number }>).filter((c) => Number.isFinite(c?.x) && Number.isFinite(c?.z)) : null;
+    for (const c of given ?? ringCells(x, z, 2, avoid)) {
+      const y = await groundY(c.x, c.z, SOIL);
       if (y !== null) return put(c.x, y, c.z, item);
     }
     throw new Error('keep_custom: no free ground for a flower beside your door');
   }
   if (custom === 'green_stone') {
-    const rec = v as Village & { customStone?: { x: number; y: number; z: number } };
+    const rec = v as Village & { customStone?: { x: number; y: number; z: number; fullAt?: number } };
     if (!rec.customStone) {
       // (the green's edge, the middle of each side first, one cell in; never inside a structure)
       const g = avoid ?? { x1: x - 7, z1: z - 7, x2: x + 7, z2: z + 7 };
@@ -5970,7 +5975,7 @@ async function keepCustom(a: BotAgent, args: Record<string, unknown>, signal: Ab
       const spots = [{ x: mx, z: g.z1 + 1 }, { x: mx, z: g.z2 - 1 }, { x: g.x1 + 1, z: mz }, { x: g.x2 - 1, z: mz }, { x: g.x1 + 1, z: g.z1 + 1 }, { x: g.x2 - 1, z: g.z2 - 1 }];
       for (const p of spots) {
         if (inside(p.x, p.z)) continue;
-        const y = await groundY(p.x, p.z, '#minecraft:dirt');
+        const y = await groundY(p.x, p.z, SOIL);
         if (y === null) continue;
         await rcon(`setblock ${p.x} ${y} ${p.z} minecraft:mossy_cobblestone keep`);
         if (await ask(`execute if block ${p.x} ${y} ${p.z} minecraft:mossy_cobblestone`)) {
@@ -5987,9 +5992,15 @@ async function keepCustom(a: BotAgent, args: Record<string, unknown>, signal: Ab
     if (!flower && (await ask(`execute if block ${s.x} ${s.y + 1} ${s.z} minecraft:air`))) return put(s.x, s.y + 1, s.z, 'torch');
     for (const c of ringCells(s.x, s.z, 3)) {
       if (v.structures.some((q) => c.x >= q.x1 && c.x <= q.x2 && c.z >= q.z1 && c.z <= q.z2)) continue;
-      const y = await groundY(c.x, c.z, flower ? '#minecraft:dirt' : '#minecraft:mineable/pickaxe');
-      if (y !== null) return put(c.x, y, c.z, item);
+      const y = await groundY(c.x, c.z, flower ? SOIL : '#minecraft:mineable/pickaxe');
+      if (y !== null) {
+        delete s.fullAt;
+        return put(c.x, y, c.z, item);
+      }
     }
+    // (#213: the ring dressed all round: the chore leaves the menu for a village day, C2's 7 failures)
+    s.fullAt = Date.now();
+    a.world.villages.save();
     throw new Error('keep_custom: no free ground left round the green\'s stone');
   }
   throw new Error(`keep_custom: ${custom} places no block`);
