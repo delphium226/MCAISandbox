@@ -1,8 +1,16 @@
 diff --git a/node_modules/mineflayer-pathfinder/index.js b/node_modules/mineflayer-pathfinder/index.js
-index b38bd30..fcbc162 100644
+index b38bd30..8be0627 100644
 --- a/node_modules/mineflayer-pathfinder/index.js
 +++ b/node_modules/mineflayer-pathfinder/index.js
-@@ -61,7 +61,10 @@ function inject (bot) {
+@@ -24,6 +24,7 @@ function inject (bot) {
+   let path = []
+   let pathUpdated = false
+   let digging = false
++  let digGen = 0 // MCAISandbox (#214): a dig's path, ended by every reset
+   let placing = false
+   let placingBlock = null
+   let lastNodeTime = performance.now()
+@@ -61,7 +62,10 @@ function inject (bot) {
    }
  
    bot.pathfinder.getPathTo = (movements, goal, timeout) => {
@@ -14,7 +22,7 @@ index b38bd30..fcbc162 100644
      const { value: { result, astarContext: context } } = generator.next()
      astarContext = context
      return result
-@@ -91,7 +94,7 @@ function inject (bot) {
+@@ -91,7 +95,7 @@ function inject (bot) {
        movements.updateCollisionIndex()
      }
      const astarContext = new AStar(start, movements, goal, timeout, tickTimeout, searchRadius)
@@ -23,8 +31,15 @@ index b38bd30..fcbc162 100644
      if (optimizePath) result.path = postProcessPath(result.path)
      yield { result, astarContext }
      while (result.status === 'partial') {
-@@ -130,6 +133,11 @@ function inject (bot) {
+@@ -127,9 +131,18 @@ function inject (bot) {
+       bot.on('diggingAborted', detectDiggingStopped)
+       bot.on('diggingCompleted', detectDiggingStopped)
+       bot.stopDigging()
++      // MCAISandbox (#214): no dig under way on mineflayer's side (the tool still being equipped, or a dig that never
++      // settled): nothing will say it stopped, so it is over now, and a dig still to start is not started (digGen)
++      if (!bot.targetDigBlock) detectDiggingStopped()
      }
++    digGen++
      placing = false
      pathUpdated = false
 +    // MCAISandbox (#209): a new goal, a stop or new movements drop the step back to a placed block's node. Kept, it was
@@ -35,7 +50,7 @@ index b38bd30..fcbc162 100644
      astarContext = null
      lockEquipItem.release()
      lockPlaceBlock.release()
-@@ -391,6 +399,7 @@ function inject (bot) {
+@@ -391,6 +404,7 @@ function inject (bot) {
      stopPathing = false
      stateGoal = null
      path = []
@@ -43,7 +58,7 @@ index b38bd30..fcbc162 100644
      bot.emit('path_stop')
      fullStop()
    }
-@@ -440,14 +449,24 @@ function inject (bot) {
+@@ -440,14 +454,24 @@ function inject (bot) {
      }
  
      if (astarContext && astartTimedout) {
@@ -74,7 +89,25 @@ index b38bd30..fcbc162 100644
      if (bot.pathfinder.LOSWhenPlacingBlocks && returningPos) {
        if (!moveToBlock(returningPos)) return
        returningPos = null
-@@ -530,6 +549,14 @@ function inject (bot) {
+@@ -488,14 +512,16 @@ function inject (bot) {
+         const tool = bot.pathfinder.bestHarvestTool(block)
+         fullStop()
+ 
++        const gen = digGen
+         const digBlock = () => {
++          if (gen !== digGen) return // MCAISandbox (#214): the path was reset while the tool was equipped
+           bot.dig(block, true)
+             .catch(_ignoreError => {
+               resetPath('dig_error')
+             })
+             .then(function () {
+               lastNodeTime = performance.now()
+-              digging = false
++              if (gen === digGen) digging = false
+             })
+         }
+ 
+@@ -530,6 +556,14 @@ function inject (bot) {
          })
          return
        }

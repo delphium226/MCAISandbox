@@ -723,3 +723,10 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    so a swim-out fought the pathfinder's steering too (`setGoal(null)` halts at once). Now no move ends with the head
    under water (`moves()`), a water stall swims straight to dry ground, and three stalls in water at one spot within 5
    minutes teleport the member home (`[swim]`, `[rescue] ... stalled 3 times`; `scripts/checks/river_swim.py`).
+183. **A promise that waits for an event from a chunk the bot no longer has never settles** (#214, 2026-11-03): mineflayer's
+   dig ends by writing air into its own world and waiting for that block update; a rescue teleported Finn 200 blocks
+   while the pathfinder dug, the chunk was gone when the dig's timer ran, `setBlockStateId` returned without an event,
+   and the dig never settled. Its `targetDigBlock` was already cleared, so `stopDigging()` did nothing, and the
+   pathfinder's `digging` flag held every later path ("busy" on every tick, moved 0, 20 minutes, 12 teleports). Now a dig
+   whose chunk is gone aborts, and any path reset ends a dig mineflayer no longer runs. Read `busy` in `[stuck]` as the
+   pathfinder's own flags, not as work; a teleport mid-action leaves library state behind (`scripts/checks/dig_teleport.cjs`).
