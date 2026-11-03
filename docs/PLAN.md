@@ -34,36 +34,33 @@ each phase's goal and design, and links to its issues; it no longer carries chec
 
 ## Next session starts with
 
-(updated 2026-11-03 ~14:10 by the planning session, handing over to a fresh planning session; the user: "make your
-own decisions and continue progressing"; the strategy is `docs/STRATEGY.md`)
+(updated 2026-11-03 ~14:40 by the planning session (local_14fb6824); the user: "make your own decisions and continue
+progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
 
 - **How work runs:** unchanged (the planning session briefs and checks work sessions; the context rule; the test
   train; pushes to `private` without asking; LAN addresses beside 127.0.0.1). New flags default on (10-30); survival
   modes are the exception (peaceful stays the default). Shared checkout: commit with `git commit -- <paths>`.
-  Sessions can only be started from a message typed in the desktop app (not over Remote Control).
-- **Done 11-01..11-03 (all pushed):** trains 16 (F349) and 17 (F350); survival (d) fixes #194-#197, the hunt (s4),
-  walls (s5, 3fbd59e); civic variety, random shortlists, talk designs, wall dressing (MC_DRESSING, on); #199 kiln;
-  #202 sand trips (MC_SAND_TRIPS); #206 sand parties (3 at once, fc4b91b); #204 river swim (df8c8c2); #205 instincts
-  builds 1-2 (e2896a1, 4446b83: MC_INSTINCTS, MC_INSTINCT_SHARE, on); #207 even-width roofs centred (029ad12);
-  **train 18 (F351, 109f5fb; report `runs/2026-11-03/train18/report.md`)**: the sand chain works end to end (3 out at
-  once, ~25 sand/min, no trips lost); the Zytglogge finished in 64 min in I1 by the stone-brick stand-in and stuck at
-  316/610 in I0 (#208); instincts on vs off made no difference beyond noise (4 lessons in 2 h, 2 of them wrong, from
-  one member's walk stalls: #209, #210); #209 (c677b04) and #210 (f3158f0) fixed.
-- **In flight at handover:** fix208 (local_2b90f75d-96cb-4168-b1ba-493b24363ebe): #208, the sand count covering the
-  bill so trips stop and the job stays short (and the stand-in firing while sand is coming); its staged run on test
-  world 1 was going at 13:46, nothing committed yet. Check its commit and run when it reports; it reports to the old
-  planning session, so look at `git log` and `gh issue view 208`.
+  Sessions can only be started from a message typed in the desktop app: a planning session started by another
+  session can only propose cards, which the user starts with a click.
+- **Done 11-01..11-03 (all pushed):** trains 16 (F349), 17 (F350) and **18 (F351, `runs/2026-11-03/train18/report.md`)**;
+  survival (d) fixes #194-#197, the hunt, walls; civic variety, random shortlists, talk designs, wall dressing; #199
+  kiln; #202 sand trips; #206 sand parties; #204 river swim; #205 instincts builds 1-2 (MC_INSTINCTS,
+  MC_INSTINCT_SHARE, on); #207 even-width roofs; **#209** rescue loop (c677b04), **#210** instincts skip walk stalls
+  (f3158f0), **#208** sand recount (60360db: a short build recounts the yard, trips go below the minimum while the
+  sandstone is short, no stand-in while sand is coming, a stand-in is undone; staged run `runs/2026-11-03/fix208`:
+  recount 597 -> 442, two trips out, no stand-in; job 2's rebuild and the undo not seen live). STRATEGY.md refreshed.
+- **Decided 11-03 (planning):** #203's wall takes option (a): plan and build the ring once growth is done (houses >=
+  members or nothing left to lay out); `MC_WALLS_NOW` still forces it.
+- **Proposed, waiting for the user's click:** "Test train 19" (task_45eefbee: train 18's setup on 60360db+,
+  `MC_CUSTOMS` on in both arms, worlds 4/5, no survival slot, F352) and "Survival fixes #211 and #203" (task_9d2fb528,
+  world 2, #189 if time). Both briefs are on the cards.
 - **Next:**
-  1. Once #208 is in: **train 19** = train 18's setup (`runs/2026-11-03/train18/make_specs.py`, Zytglogge pinned by
-     `MC_PICK_SEED=0180003b`, `MCAI_SAND_ACROSS=allow`) with #208-#210 in: instincts on vs off on equal footing (both
-     arms should reach the cathedral). Turn `MC_CUSTOMS` on in both arms so the dusk gathering channel runs. Watch
-     whether an `[your instinct: avoid]` tag reaches a model-made choice, and whether any lesson is wrong.
-  2. If instincts still change almost nothing in 2 h, that is a design question for the user (longer runs, more
-     learning, more weight on menus): bring it with numbers, do not decide it.
-  3. Survival: #211 (night initiative past the curfew; a death), #203 (the wall chases growth), #189 (lava burn).
+  1. Check train 19's report against its logs (job 2 in sandstone in both arms, the cathedral begun, instincts learned
+     and whether a tag reached a model-made choice).
+  2. If instincts still change almost nothing in 2 h, bring it to the user as G2's design question with numbers
+     (longer runs, more learning, more weight on menus; STRATEGY "The order now"); do not decide it.
+  3. Check the survival session's #211/#203 commits; #189 after a measurement.
   4. #193 (smelt over 64), the monument follow-ups (#150-#163), #164 steps 3-5.
-  5. **STRATEGY.md has not been refreshed since 10-22**: refresh it (the goals' milestones against what trains 12-18
-     showed) early in the next planning session.
 
 ## Earlier phases
 
