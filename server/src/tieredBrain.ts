@@ -36,6 +36,7 @@ import { TaskBrain, taskCalls, taskSkillNames } from './taskBrain';
 import { usage, BudgetExceeded, REASONING, parseReasoning, thinkFor, type CallKind, type Reasoning, type ReasoningLevel } from './modelUsage';
 import { CallWithdrawn, callModel, isTransient, label, parseSpec, type CallPriority, type ModelSpec, type Reply, type ToolCall } from './modelCall';
 import { MEMORY, noteEnd as memoryEnd, noteIntent, recall } from './memory';
+import { instinctSection } from './instincts';
 import { rawSetting } from './settings';
 
 /** G1: a plan is the agent's intent (the panel's line and its memory). */
@@ -1407,11 +1408,14 @@ export class TieredBrain implements AgentBrain {
     const notes = typeof a.memory.notes === 'string' ? a.memory.notes : '';
     // (G1: the member's memory, without the chooser's earlier-today line)
     const remembered = MEMORY.on && a.village() ? recall(a.village()!.name, a.name, Date.now(), { cap: 1000, earlierToday: false })?.text ?? '' : '';
+    // (#205: its instincts, the chooser's section; only on replans)
+    const instincts = a.village() ? instinctSection(a.village()!.name, a.name) : '';
     let user = [
       `You are planning for ${a.name}, role: ${a.role}, game mode: ${a.gamemode}. Replanning because ${why}.`,
       typeof a.memory.objective === 'string' ? `Objective: ${a.memory.objective}` : '',
       notes ? `Long-term notes:\n${notes}` : '',
       remembered,
+      instincts,
       formatPlots(a, villageRole(a) !== 'mayor'),
       villageRole(a) === 'mayor' ? boardStatus(a) : '',
       `Previous plan:\n${formatPlan(old)}`,

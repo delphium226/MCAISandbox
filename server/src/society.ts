@@ -22,6 +22,7 @@ import { refusedSince } from './acts';
 import { RULES, addLaw, backLaw, classOf, lawFrom, laws, putClassOf, ruleResults, rulesInForce, safetyOn, type Law } from './rules';
 import { rawSetting } from './settings';
 import { pursuitNight } from './pursuits';
+import { INSTINCTS, nightCandidates, nightInstinct, setInstinctRider } from './instincts';
 
 /** #164 (MC_LAW_BACKING=failures): a back also counts when the backer's failed chores that day name the law's target. */
 const LAW_BACKING = (rawSetting('MC_LAW_BACKING') ?? '').toLowerCase();
@@ -45,6 +46,9 @@ const duskHooks: Array<(village: string, day: number) => void> = [];
 export function onDusk(fn: (village: string, day: number) => void): void {
   duskHooks.push(fn);
 }
+
+/** #205: with the night's reflection running, members' new instincts wait for it (instincts.ts' rider, spec 1.2). */
+setInstinctRider(() => MEMORY.on && MEMORY.clock && MEMORY.reflect && CHOOSE.mode !== 'scripted' && !(councilOn() && councilScripted()));
 
 /** Reflections in flight, by village|agent (one at a time per member). */
 const reflecting = new Set<string>();
@@ -178,8 +182,16 @@ export function reflectPrompt(village: string, m: Member, day: number, now: numb
   if (pr) lines.push(proposeLine(pr.others));
   // (#164, MC_CUSTOMS: the night's custom field, the customs code can keep named)
   if (CUSTOMS.on) lines.push(customLine());
-  const tools = reflectTools({ live: live.map((n) => n.id), people: people.map((p) => p.of), openLaws: councilOn() ? openLaws.map((l) => l.id) : null, propose: pr ? pr.others.slice(0, 3).map((p) => p.id) : null, custom: CUSTOMS.on });
+  // (#205, MC_INSTINCTS: the lessons code saw in the member's work, one to keep as an instinct, in its own words)
+  const lessons = nightCandidates(village, m.name);
+  if (lessons.length) lines.push(instinctLine(lessons));
+  const tools = reflectTools({ live: live.map((n) => n.id), people: people.map((p) => p.of), openLaws: councilOn() ? openLaws.map((l) => l.id) : null, propose: pr ? pr.others.slice(0, 3).map((p) => p.id) : null, custom: CUSTOMS.on, instinct: lessons.map((l) => l.id) });
   return { system: REFLECT_SYSTEM, user: scrub(village, m.name, lines.join('\n\n')), tools };
+}
+
+/** #205: the night prompt's lessons (pure): code's candidates, by id, and the instinct field's use. */
+export function instinctLine(lessons: Array<{ id: string; text: string }>): string {
+  return `Lessons code saw in your work today (you may keep one as an instinct, a short rule you will follow on later days: give its id in \`instinct\` and, if you like, your own words for it, 22 words at most, naming what it is about):\n${lessons.map((l) => `- [${l.id}] ${l.text}`).join('\n')}`;
 }
 
 /** The night prompt's council paragraph (pure: rulebench puts it into recorded prompts): the rules in force, the open laws
@@ -195,7 +207,7 @@ export function lawLines(inForce: string[], openLaws: Array<Pick<Law, 'id' | 'te
 
 /** The reflect tool for a night (pure:rulebench rebuilds it from a recorded prompt): the note ids it may replace or keep,
  *  the members it may write profiles of, the council's fields (open laws' ids, or null with the council off) and G5's. */
-export function reflectTools(o: { live: string[]; people: string[]; openLaws: string[] | null; propose: string[] | null; custom?: boolean }): ToolDef[] {
+export function reflectTools(o: { live: string[]; people: string[]; openLaws: string[] | null; propose: string[] | null; custom?: boolean; instinct?: string[] }): ToolDef[] {
   const tools: ToolDef[] = [{
     name: 'reflect',
     description: 'Keep up to 2 notes and set your intention for tomorrow.',
@@ -234,6 +246,8 @@ export function reflectTools(o: { live: string[]; people: string[]; openLaws: st
   }
   // (#164, MC_CUSTOMS: a custom a member starts, one sentence)
   if (o.custom) (tools[0].input_schema as { properties: Record<string, unknown> }).properties.custom = { type: 'string', maxLength: 140, description: 'Optional, and rare: a village custom you start, one sentence.' };
+  // (#205: one of code's lessons kept as an instinct, by id, in the member's own words or the lesson's)
+  if (o.instinct?.length) (tools[0].input_schema as { properties: Record<string, unknown> }).properties.instinct = { type: 'object', description: 'Optional: one lesson above to keep as an instinct.', properties: { from: { type: 'string', enum: o.instinct, description: 'The lesson id.' }, text: { type: 'string', maxLength: 160, description: 'Optional: the rule in your own words, 22 words at most.' } }, required: ['from'] };
   if (!o.propose) return tools;
   const withP = withPropose(tools);
   if (o.propose.length) {
@@ -282,6 +296,8 @@ async function reflect(village: string, m: Member, day: number, now: number): Pr
   if (!spec) return;
   if ((isCloudModel(spec.model) && !usage.allows('reflection')) || usage.blocked(spec.model, m.name)) {
     logAct({ type: 'reflect', village, agent: m.name, day, skipped: 'budget' });
+    // (#205: no night call: code keeps the lesson with the most evidence)
+    if (INSTINCTS.on) nightInstinct(village, m.name, null, Date.now());
     return;
   }
   const p = reflectPrompt(village, m, day, now);
@@ -303,11 +319,14 @@ async function reflect(village: string, m: Member, day: number, now: number): Pr
     if (councilOn()) done.push(...applyLaws(village, m.name, c?.input ?? null, day, Date.now()));
     // (#164, MC_CUSTOMS: the night's custom, read as one the village can keep or refused with the reason)
     if (CUSTOMS.on) done.push(...applyCustom(village, m.name, c?.input ?? null, Date.now()));
+    // (#205, MC_INSTINCTS: the lesson the night picked and worded, else code's)
+    if (INSTINCTS.on) done.push(...nightInstinct(village, m.name, c?.input ?? null, Date.now()));
     logAct({ type: 'reflect', village, agent: m.name, day, system: p.system, prompt: p.user, reply: got ?? { text: r.reply.text.slice(0, 400) }, done, ms: r.ms, waitMs: r.waitMs, promptTokens: r.reply.promptTokens, outputTokens: r.reply.outputTokens });
     console.log(`[reflect] ${village}: ${m.name} day ${day}: ${done.join(', ') || 'nothing kept'}${got?.intention ? `; tomorrow: ${got.intention.slice(0, 100)}` : ''}`);
   } catch (e) {
     logAct({ type: 'reflect', village, agent: m.name, day, error: String((e as Error)?.message ?? e).slice(0, 200), ms: Date.now() - t0 });
     console.log(`[reflect] ${village}: ${m.name} day ${day}: the call failed: ${String((e as Error)?.message ?? e).slice(0, 160)}`);
+    if (INSTINCTS.on) nightInstinct(village, m.name, null, Date.now());
   } finally {
     reflecting.delete(k);
   }

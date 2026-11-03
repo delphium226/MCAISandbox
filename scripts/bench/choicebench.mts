@@ -74,7 +74,7 @@ function option(o: any, i: number): ChoiceOption {
     effect: String(o.effect ?? ''), rank: Number.isFinite(o.rank) ? o.rank : i, ...(o.lp !== undefined ? { lp: o.lp } : {}),
     // (#117: the weights and tags the prompt renders, as the run showed them: "[you enjoy this]", "[toward your goal]", a
     // request's, a rule's, the ladder's and a basic need's)
-    ...Object.fromEntries(['tw', 'gw', 'nw', 'vw', 'need', 'social', 'mark', 'ruleTag', 'ladderTag', 'tradeTag', 'brief', 'basic', 'basicNeed'].filter((k) => o[k] !== undefined).map((k) => [k, o[k]])),
+    ...Object.fromEntries(['tw', 'gw', 'nw', 'vw', 'xw', 'need', 'social', 'mark', 'ruleTag', 'ladderTag', 'tradeTag', 'brief', 'basic', 'basicNeed'].filter((k) => o[k] !== undefined).map((k) => [k, o[k]])),
   };
 }
 const ctxOf = (c: any): ChoiceContext => ({ ...EMPTY_CTX, ...(c ?? {}), outcomes: Array.isArray(c?.outcomes) ? c.outcomes : [] });

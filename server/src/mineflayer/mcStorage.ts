@@ -26,6 +26,7 @@ import { OWN_TOOLS } from '../ladderFlags';
 import { rawSetting } from '../settings';
 import { monumentPlan } from '../monument';
 import { lodgeKeeps } from '../lodge';
+import { noteDeposit } from '../instincts';
 
 type Window = Awaited<ReturnType<BotAgent['bot']['openContainer']>>;
 
@@ -498,6 +499,9 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
     spoiledBy.delete(a.name);
     for (const [n, q] of Object.entries(before)) if (q - (spoiled[n] ?? 0) > (after[n] ?? 0)) put[n] = q - (spoiled[n] ?? 0) - (after[n] ?? 0);
     flow(a.name, put, 1);
+    // (#205, MC_INSTINCT_SHARE: members depositing together pass instincts on)
+    const pos = a.bot.entity?.position;
+    if (pos && Object.keys(put).length) noteDeposit(a.village()?.name, a.name, pos.x, pos.z);
   }
 }
 

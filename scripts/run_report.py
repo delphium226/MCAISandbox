@@ -6,7 +6,7 @@ Usage: python scripts/run_report.py LOG [LOG ...]
 Each LOG is a stage_village.py log. The agent server's log of the same run is found through reset_NAME.log beside it
 (run_series.py and stage_runs.py write one) for the [lag], [stuck], [stuck-world], [repath] and [dig] counts.
 Rows: how the run started and stopped, completion and total minutes, failed actions before and after completion, busy
-shares (and chore busy by 10 minutes from NAME.choices.jsonl, as scripts/scorecard.py counts it), the mine's rate, growth, food, tokens and cost, the agent server's warning lines, and the load figures run_series.py
+shares (and chore busy by 10 minutes from NAME.choices.jsonl, as scripts/scorecard.py counts it), repeat failures of one key a member, the mine's rate, growth, food, tokens and cost, the agent server's warning lines (with #205's instinct counts and [stuck] at one 8x8 cell), and the load figures run_series.py
 sampled (NAME.perf.jsonl: event loop, tick, Paper's mspt, RCON, memory). A row no run has is left out.
 """
 import json, os, re, sys
@@ -50,6 +50,74 @@ def danger_summary(text):
     return r
 
 
+def instinct_summary(text):
+    """#205's instincts (spec 4.2, 6.4): the [instinct] lines by op, borrows by channel, the largest lineage's holders and the
+    deepest copy, the night's picks, lessons learned on their own by 3 or more members (a bug candidate), and [stuck] lines
+    at one 8x8 cell (the most for one member, the most for one cell)."""
+    r = {}
+    lines = [l for l in text.splitlines() if "[instinct] " in l]
+    if lines:
+        ops = {}
+        for l in lines:
+            m = re.search(r"\[instinct\] \S+: \S+? (\S+)", l)
+            if m:
+                op = m.group(1).rstrip(":")
+                ops[op] = ops.get(op, 0) + 1
+        r["instinct ops"] = ", ".join(f"{k} {n}" for k, n in sorted(ops.items(), key=lambda x: -x[1]))
+        via = {}
+        holders, depth = {}, 0
+        learned_by = {}
+        for l in lines:
+            m = re.search(r"\] \S+: (\S+) learns (i\d+) \"([^\"]*)\"", l)
+            if m:
+                key = re.sub(r"-?\d+", "#", m.group(3))
+                learned_by.setdefault(key, set()).add(m.group(1))
+            b = re.search(r"\] \S+: (\S+) borrows i\d+ from (\S+) \((side by side|storage|dusk); (\S+) gen (\d+)", l)
+            if b:
+                via[b.group(3)] = via.get(b.group(3), 0) + 1
+                holders.setdefault(b.group(4), {b.group(4).split(":")[0]}).add(b.group(1))
+                depth = max(depth, int(b.group(5)))
+        if via:
+            r["instinct borrows by channel"] = ", ".join(f"{k} {n}" for k, n in via.items())
+            top = max(holders.items(), key=lambda x: len(x[1]))
+            r["instinct largest lineage / depth"] = f"{top[0]} {len(top[1])} members / gen {depth}"
+        nights = re.findall(r"night picks c\d+ \(([a-z]+)", text)
+        if nights:
+            r["instinct night picks"] = ", ".join(f"{k} {nights.count(k)}" for k in sorted(set(nights))) + f"; field filled {text.count(', field filled)')}"
+        bugs = [f"{len(ms)}: {k[:40]}" for k, ms in learned_by.items() if len(ms) >= 3]
+        if bugs:
+            r["instinct bug candidates (3+ learned)"] = "; ".join(bugs)
+    cells = {}
+    for m in re.finditer(r"\[stuck\] (\S+) (?:stuck|timed out) at (-?[\d.]+),-?[\d.]+,(-?[\d.]+)", text):
+        k = (m.group(1), int(float(m.group(2))) >> 3, int(float(m.group(3))) >> 3)
+        cells[k] = cells.get(k, 0) + 1
+    if cells:
+        by_cell = {}
+        for (a, x, z), n in cells.items():
+            by_cell[(x, z)] = by_cell.get((x, z), 0) + n
+        (who, x, z), n = max(cells.items(), key=lambda kv: kv[1])
+        (cx, cz), cn = max(by_cell.items(), key=lambda kv: kv[1])
+        r["[stuck] at one 8x8 cell: member / all"] = f"{n} ({who} {x * 8},{z * 8}) / {cn} ({cx * 8},{cz * 8})"
+    return r
+
+
+def repeat_failures(rows):
+    """A member's failures of a chore key it had failed before in the run (#205's measure; contention and cut ends left out),
+    with the members who repeated one."""
+    keys = {x["id"]: (x.get("agent"), re.sub(r"^(.+:.+):\d+$", r"", x.get("key", ""))) for x in rows if x.get("type") == "choice"}
+    seen, rep, who, fails = set(), 0, set(), 0
+    for x in rows:
+        if x.get("type") != "choice-end" or x.get("ok") or x.get("cut") or x.get("code") or x.get("id") not in keys:
+            continue
+        fails += 1
+        k = keys[x["id"]]
+        if k in seen:
+            rep += 1
+            who.add(k[0])
+        seen.add(k)
+    return f"{rep} of {fails} failures ({len(who)} members)" if fails else None
+
+
 def agent_log_counts(log):
     reset = os.path.join(os.path.dirname(log), "reset_" + os.path.basename(log))
     m = re.search(r"log (\S*testagents-\S+\.log)", read(reset))
@@ -63,6 +131,7 @@ def agent_log_counts(log):
         return {}
     r = {k: text.count(k) for k in ("[lag]", "[stuck]", "[stuck-world]", "[repath]", "[dig]")}
     r.update(danger_summary(text))
+    r.update(instinct_summary(text))
     # (initiatives, N.0: started, joins, steps, and how they ended)
     ini = [l for l in text.splitlines() if "[initiative]" in l]
     if ini:
@@ -146,6 +215,7 @@ def report(log):
         span = (max(x["t"] for x in starts) - min(x["t"] for x in starts)) / 60000
         bins = chore_busy_bins(rows, len({x.get("agent") for x in starts}), span)
         r["chore busy by 10 min"] = ", ".join(f"{10 * k}-{10 * k + 10} {b:g}%" for k, b in enumerate(bins))
+        r["repeat failures of one key"] = repeat_failures(rows)
     r["mine rate"] = first(r"^MINE rate: (.*)$", t)
     r["critical path"] = first(r"^CRITICAL PATH (.*)$", t)
     g = first(r"^GROW layouts (.*)$", t)

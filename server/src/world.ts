@@ -377,6 +377,8 @@ export interface ChoiceContext {
   harm?: string;
   /** #117 (MC_PROMPT_SELF): what is short and what is made for nothing yet. */
   scarcity?: string;
+  /** #205 (MC_INSTINCTS): "Your instincts (...):" and one line an instinct (instincts.ts' instinctSection). */
+  instincts?: string;
 }
 
 export interface ChoiceMenu {

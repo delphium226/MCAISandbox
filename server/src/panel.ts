@@ -26,6 +26,8 @@
  *                       chores and tokens per bin since the first chore, and per member; kept 30 s
  *   GET /api/civic      ?village=: civic buildings, the monument's jobs, stages, yard and kiln (tends, failures, bans), the
  *                       ladder's stage, homes, laws and pursuits
+ *   GET /api/instincts  #205 (MC_INSTINCTS): ?village= (or every village): each member's instincts and the lineages with
+ *                       their holders (the spread)
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -36,6 +38,7 @@ import { readJson, sendJson } from './api';
 import { OLLAMA_ROUTES, gate, recentCalls } from './modelCall';
 import { usage, isCloudModel } from './modelUsage';
 import { elevations } from './designs';
+import { INSTINCTS, allInstincts, lineages } from './instincts';
 import { neighbourhoodNames } from './placeNames';
 import type { Design, Village } from './village';
 import { APPETITE, foodItems, foodPoints, stateOf } from './appetite';
@@ -649,6 +652,11 @@ export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: Se
     return sendJson(res, 200, w.utilisation(bin, points)), true;
   }
   // The Overview console: the village's run by bins (?village=&bin= minutes, default 10), and its projects
+  // #205: members' instincts and their lineages
+  if (url.pathname === '/api/instincts') {
+    const vn = url.searchParams.get('village') || undefined;
+    return sendJson(res, 200, { on: INSTINCTS.on, share: INSTINCTS.share, members: allInstincts(vn), lineages: lineages(vn) }), true;
+  }
   if (url.pathname === '/api/timeline' || url.pathname === '/api/civic') {
     const vn = url.searchParams.get('village') ?? '';
     const body = url.pathname === '/api/timeline' ? timeline(w, vn, Number(url.searchParams.get('bin') ?? 10)) : civicView(w, vn);
@@ -683,6 +691,11 @@ export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: Se
       chores: w.choiceHistory?.(a) ?? [],
       // (G1: its journal)
       journal: vn ? agentMemory(vn, a.name) ?? null : null, clock: vn ? phaseLine(vn) : '',
+      // (#205: its instincts, and how many members hold each one's lineage)
+      instincts: vn && INSTINCTS.on ? (() => {
+        const reach = new Map(lineages(vn).map((l) => [l.lineage, l.holders.length]));
+        return { share: INSTINCTS.share, held: (allInstincts(vn).find((m) => m.agent === a.name.toLowerCase())?.instincts ?? []).map((i) => ({ ...i, holders: reach.get(i.lineage) ?? 1 })) };
+      })() : null,
       // (G2: its inbox, promises and requests, with the settings that made them)
       social: vn ? { mode: SOCIAL.mode, acts: ACTS.on, ...socialView(vn, a.name, Date.now()) } : null,
       character: { ...CHARACTER },

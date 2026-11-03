@@ -15,19 +15,40 @@
  * range. `[instinct]` lines log every learn, confirm, contradict, fade, drop, replace and act.
  * Stored in `instincts.json` beside villages.json, debounced, renamed into place, flushed at exit (memory.ts' pattern).
  *
- * Settings (read once): MC_INSTINCTS on (default) | off: none of it, and no file written.
+ * Build session 2 (spec 1.2, 2.1, 4): with the night's reflection running (society.ts sets the rider), a new E1 lesson waits
+ * for the night, whose call picks one and may word it (<= 22 words naming its item or kind; else the template); a night
+ * that names none keeps the one with the most evidence. Members pass instincts on (MC_INSTINCT_SHARE): working side by
+ * side on the same kind or item, depositing at the storage together, and at the dusk gathering; only one held at 0.75 or
+ * more passes, the copy starts at 0.5 with the same lineage and one generation more (`borrows`, `echo` lines). In model
+ * mode the chooser shows the member's instincts as a section and tags matching options (choose.ts).
+ *
+ * Settings (read once): MC_INSTINCTS on (default) | off: none of it, and no file written. MC_INSTINCT_SHARE on (default) |
+ * off: no spread.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { clockOf } from './memory';
 import { rawSetting } from './settings';
 
-export const INSTINCTS = { on: !/^(off|0|false|no)$/i.test(rawSetting('MC_INSTINCTS') ?? 'on') };
-/** Test hook. */
+const OFF = /^(off|0|false|no)$/i;
+export const INSTINCTS = {
+  on: !OFF.test(rawSetting('MC_INSTINCTS') ?? 'on'),
+  /** MC_INSTINCT_SHARE (session 2): the spread channels of spec 4.1. */
+  share: !OFF.test(rawSetting('MC_INSTINCT_SHARE') ?? 'on'),
+};
+/** Test hooks. */
 export function setInstinctsOn(on: boolean): void { INSTINCTS.on = on; }
+export function setInstinctShare(on: boolean): void { INSTINCTS.share = on; }
+/** Whether a village's night reflection words its members' new instincts (society.ts sets it: memory, clock and reflect
+ *  on, a model chooser); otherwise code promotes a candidate at once, worded by its template. */
+let rider: (village: string) => boolean = () => false;
+export function setInstinctRider(f: (village: string) => boolean): void { rider = f; }
 
 /** The spec's constants (section 5: kept in code). */
 export const CAP = 5, LEARNED = 1, BORROWED = 0.5, STEP = 0.25, FADE_DAYS = 2, XW_MIN = 0.5, XW_MAX = 1.3, MAX_WORDS = 22;
+/** Sharing (4.1): the least a giver holds an instinct at to pass it; the storage meeting's reach (blocks) and window (s);
+ *  the night's list of candidates; how long a candidate waits for a night (village days). */
+export const SHARE_MIN = 0.75, HUT_NEAR = 8, HUT_SECS = 20, NIGHT_LIST = 3, PENDING_DAYS = 2;
 /** E1's and E2's windows (village minutes), E2's count and reach (blocks), an area's scope radius and merge distance. */
 const FAIL_WINDOW = 30, STALL_WINDOW = 10, STALL_N = 3, STALL_NEAR = 12, AREA_R = 6, AREA_MAX_R = 12, MERGE = 8;
 
@@ -63,6 +84,13 @@ export interface Instinct {
   cls?: string;
   /** E4: the key that worked for the same need after the failures. */
   instead?: string;
+  /** The avoided chore and E4's instead in words (the menu's), for the template. */
+  what?: string;
+  insteadWhat?: string;
+  /** The night's reflection worded it: E4 leaves its text alone. */
+  worded?: boolean;
+  /** The kind of the chore that taught it: side by side, it passes to a member on a chore of that kind. */
+  ofKind?: string;
   text: string;
   conf: number;
   source: 'learned' | 'borrowed';
@@ -73,10 +101,15 @@ export interface Instinct {
   evidence: string[];
 }
 interface Candidate {
+  /** Its id in the night's list ('c12'), while it waits for the reflection. */
+  cid?: string;
   kind: 'avoid';
   how: 'E1' | 'E2';
   trigger: Trigger;
   cls?: string;
+  ofKind?: string;
+  what?: string;
+  worded?: boolean;
   evidence: string[];
   count: number;
   at: number;
@@ -88,6 +121,8 @@ interface MemberState {
   instincts: Instinct[];
   /** Candidates waiting for a free slot or the next day (kept 1 day). */
   waiting: Candidate[];
+  /** Candidates waiting for the night's reflection to pick and word one (the rider on; at most PENDING_DAYS). */
+  pending?: Candidate[];
   fails: Array<{ key: string; cls: string; t: number; ref: string }>;
   stalls: Array<{ x: number; z: number; t: number; ref: string; wet: boolean }>;
   /** The village day of the last instinct learned (one a day). */
@@ -117,6 +152,9 @@ export function initInstincts(dataDir: string | null): void {
   store = { version: 1, seq: 0, epochs: {}, members: {} };
   chores.clear();
   current.clear();
+  past.clear();
+  met.clear();
+  deposits.clear();
   file = INSTINCTS.on && dataDir ? path.join(dataDir, 'instincts.json') : null;
   if (file && fs.existsSync(file)) {
     try {
@@ -192,6 +230,8 @@ export const normKey = (k: string): string => {
 };
 /** The item a key or menu text names: 'monument:gather:sand:1' -> 'sand', 'start:pumpkin' -> 'pumpkin'. */
 export function itemOf(key: string, what?: string): string | undefined {
+  // (#206's sand trips, 'monument:sandtrip:2', name their item only in words)
+  if (/(?:^|:)sandtrip(?::|$)/.test(key)) return 'sand';
   const m = /(?:^|:)(?:gather|start|collect|make):([a-z_]+)/.exec(key) ?? (what ? /\bgather (?:\d+ )?([a-z_]+)/.exec(what) : null);
   return m?.[1];
 }
@@ -213,15 +253,18 @@ function fit(s: string): string {
   return words(bare) <= MAX_WORDS ? bare : `${bare.split(/\s+/).slice(0, MAX_WORDS).join(' ').replace(/[,;.]$/, '')}.`;
 }
 /** The template's wording of a candidate or instinct (code's, until session 2's reflection rider words some). */
-export function template(c: { how: 'E1' | 'E2'; trigger: Trigger; cls?: string; instead?: string; count: number; wet?: boolean }): string {
+export function template(c: { how: 'E1' | 'E2'; trigger: Trigger; cls?: string; instead?: string; count: number; wet?: boolean; what?: string; insteadWhat?: string }): string {
   const t = c.trigger;
-  const doing = t.item ? `gathering ${t.item.replace(/_/g, ' ')}` : c.how === 'E2' ? 'walking out' : 'choosing your next chore';
+  // (the verb by the key: 'make:torch' is made, not gathered)
+  const verb = /(?:^|:)make:/.test(t.keys[0] ?? '') ? 'making' : /(?:^|:)start:/.test(t.keys[0] ?? '') ? 'starting' : 'gathering';
+  const doing = t.item ? `${verb} ${t.item.replace(/_/g, ' ')}` : c.how === 'E2' ? 'walking out' : 'choosing your next chore';
   if (c.how === 'E2' && t.area) {
     const where = t.area.from ? `${compass(t.area.from, t.area)} ` : '';
     return fit(`When ${doing}, keep to the village's side; avoid the ${c.wet ? 'water' : 'spot'} ${where}at ${Math.round(t.area.x)},${Math.round(t.area.z)} (stuck ${c.count} times).`);
   }
-  const what = t.keys[0] ?? t.kinds[0] ?? 'it';
-  const instead = c.instead ? `do ${c.instead} instead` : 'pick another';
+  // (the chore in the menu's words where the record had them: the model reads options by name, not by key)
+  const what = c.what?.trim() || (t.keys[0] ?? t.kinds[0] ?? 'it');
+  const instead = c.instead ? `${c.insteadWhat?.trim() || `do ${c.instead}`} instead` : 'pick another';
   return fit(`When ${doing}, ${instead}; avoid ${what} (failed ${c.count} times: ${(c.cls ?? '').split(' ').slice(0, 5).join(' ')}).`);
 }
 
@@ -267,12 +310,26 @@ function grade(st: MemberState, village: string, agent: string, i: Instinct, sig
 }
 
 /** A candidate becomes an instinct (3.2): a duplicate confirms the one held, one a day, the cap of 5 replacing the
- *  least sure below 1.0, else it waits (a day at most). */
-function promote(st: MemberState, village: string, agent: string, c: Candidate, now: number): Instinct | null {
+ *  least sure below 1.0, else it waits (a day at most). With the night's reflection running (the rider, 1.2), a new
+ *  lesson waits for the night instead (`direct`: the night's own pick, a waiting one it picked earlier, or a place lesson). */
+function promote(st: MemberState, village: string, agent: string, c: Candidate, now: number, direct = false): Instinct | null {
   const dup = st.instincts.find((i) => sameTrigger(i.trigger, c.trigger));
   if (dup) {
     if (dup.conf < LEARNED) grade(st, village, agent, dup, 1, `learned again: ${c.evidence.at(-1) ?? ''}`, now);
     else dup.graded = now;
+    return null;
+  }
+  if (!direct && rider(village)) {
+    const pend = (st.pending ??= []);
+    const same = pend.find((w) => sameTrigger(w.trigger, c.trigger));
+    if (same) {
+      // (more evidence for a lesson already waiting: the night sees the larger count)
+      if (c.count > same.count) Object.assign(same, { count: c.count, evidence: c.evidence, text: c.text, wet: c.wet });
+    } else {
+      pend.push({ ...c, cid: `c${++store.seq}` });
+      log(village, `${agent} keeps a candidate for the night's reflection (${pend.at(-1)!.cid}): "${c.text}"`);
+    }
+    save();
     return null;
   }
   const day = dayOf(village, now);
@@ -291,7 +348,7 @@ function promote(st: MemberState, village: string, agent: string, c: Candidate, 
   }
   const id = `i${++store.seq}`;
   const i: Instinct = {
-    id, lineage: `${agent}:${id}`, gen: 0, kind: c.kind, how: c.how, trigger: c.trigger, cls: c.cls, text: c.text,
+    id, lineage: `${agent}:${id}`, gen: 0, kind: c.kind, how: c.how, trigger: c.trigger, cls: c.cls, ...(c.ofKind ? { ofKind: c.ofKind } : {}), ...(c.what ? { what: c.what } : {}), ...(c.worded ? { worded: true } : {}), text: c.text,
     conf: LEARNED, source: 'learned', at: now, graded: now, evidence: c.evidence.slice(-6),
   };
   if (victim) {
@@ -318,37 +375,55 @@ function sweep(st: MemberState, village: string, agent: string, now: number): vo
     save();
   }
   st.waiting = st.waiting.filter((c) => now - c.at < dayMs());
-  if (st.waiting.length && st.learnDay !== dayOf(village, now)) promote(st, village, agent, st.waiting[0], now);
+  if (st.waiting.length && st.learnDay !== dayOf(village, now)) promote(st, village, agent, st.waiting[0], now, true);
+  // (a lesson no night picked in PENDING_DAYS goes: if its evidence repeats, it comes back)
+  if (st.pending?.length) {
+    const old = st.pending.filter((c) => now - c.at >= PENDING_DAYS * dayMs());
+    for (const c of old) log(village, `${agent} lets ${c.cid} go (no night picked it in ${PENDING_DAYS} days)`);
+    if (old.length) st.pending = st.pending.filter((c) => !old.includes(c));
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
 // Evidence from the world: chores (mcChoiceLog) and walk stalls (mcUtil)
 // ---------------------------------------------------------------------------------------------
 
-interface Chore { id: string; village: string; agent: string; key: string; kind: string; item?: string; t: number; graded: Set<string>; stalls: Map<string, number>; touched: Set<string> }
-/** Chores by decision id, and each member's current one (its stalls and place picks count against it). */
+interface Chore { id: string; village: string; agent: string; key: string; kind: string; opt?: string; what?: string; item?: string; t: number; graded: Set<string>; stalls: Map<string, number>; touched: Set<string> }
+/** Chores by decision id, and each member's current one (its stalls and place picks count against it); ended ones kept a
+ *  while for the side-by-side channel (a chore end's `with` names chores that may have ended before it). */
 const chores = new Map<string, Chore>();
 const current = new Map<string, Chore>();
+const past = new Map<string, Chore>();
 
 /** A `[choice]` record: the member's current chore. */
-export function noteChoice(rec: { id: string; agent: string; village: string; key: string; kind: string; what?: string; t?: number }): void {
+export function noteChoice(rec: { id: string; agent: string; village: string; key: string; kind: string; what?: string; chosen?: string; t?: number }): void {
   if (!INSTINCTS.on || !rec.agent || !rec.village) return;
-  const c: Chore = { id: rec.id, village: rec.village, agent: rec.agent, key: rec.key, kind: rec.kind, item: itemOf(rec.key, rec.what), t: rec.t ?? Date.now(), graded: new Set(), stalls: new Map(), touched: new Set() };
+  // (the lesson's key is the option's id where the record has it: a key may be a member's own exclusion key, 'own:lena'
+  // for every own chore of hers, and a lesson on it would weigh them all)
+  const c: Chore = { id: rec.id, village: rec.village, agent: rec.agent, key: rec.chosen || rec.key, kind: rec.kind, opt: rec.chosen, what: rec.what, item: (rec.chosen && itemOf(rec.chosen)) || itemOf(rec.key, rec.what), t: rec.t ?? Date.now(), graded: new Set(), stalls: new Map(), touched: new Set() };
   chores.set(rec.id, c);
   current.set(rec.agent.toLowerCase(), c);
   if (chores.size > 2000) chores.delete(chores.keys().next().value!);
 }
 
 /** A `[choice-end]` record: E1's failures, E4's successes and the grading of instincts in the chore's scope. Cut
- *  chores and contention (another agent's work in the way) are not evidence. */
-export function noteChoiceEnd(rec: { id: string; ok: boolean; message: string; tEnd?: number; cut?: boolean; contention?: string }): void {
+ *  chores and contention (another agent's work in the way) are not evidence. Then the side-by-side and dusk channels
+ *  (MC_INSTINCT_SHARE) with the chores that overlapped it (`yield.with`). */
+export function noteChoiceEnd(rec: { id: string; ok: boolean; message: string; tEnd?: number; cut?: boolean; contention?: string; yield?: { with?: string[] } }): void {
   if (!INSTINCTS.on) return;
   const c = chores.get(rec.id);
   if (!c) return;
   chores.delete(rec.id);
+  past.set(rec.id, c);
+  if (past.size > 500) past.delete(past.keys().next().value!);
   if (current.get(c.agent.toLowerCase()) === c) current.delete(c.agent.toLowerCase());
-  if (rec.cut || rec.contention) return;
+  if (rec.cut) return;
   const now = rec.tEnd ?? Date.now();
+  if (!rec.contention) learnAtEnd(c, rec, now);
+  if (INSTINCTS.share) shareAtEnd(c, rec.ok, rec.yield?.with ?? [], now);
+}
+
+function learnAtEnd(c: Chore, rec: { ok: boolean; message: string }, now: number): void {
   const st = member(c.village, c.agent);
   sweep(st, c.village, c.agent, now);
   const key = normKey(c.key), cls = msgClass(rec.message);
@@ -371,7 +446,8 @@ export function noteChoiceEnd(rec: { id: string; ok: boolean; message: string; t
       if (i.how !== 'E1' || i.instead || i.trigger.keys.includes(key) || now - i.at > vmin(FAIL_WINDOW)) continue;
       if ((i.trigger.item && i.trigger.item === c.item) || (!i.trigger.item && i.trigger.kinds.includes(c.kind))) {
         i.instead = key;
-        i.text = template({ how: i.how, trigger: i.trigger, cls: i.cls, instead: key, count: 2 });
+        i.insteadWhat = c.what;
+        if (!i.worded) i.text = template({ how: i.how, trigger: i.trigger, cls: i.cls, instead: key, count: 2, what: i.what, insteadWhat: c.what });
         log(c.village, `${c.agent} fills ${i.id}'s instead: ${key} (${c.id})`);
         save();
       }
@@ -386,7 +462,7 @@ export function noteChoiceEnd(rec: { id: string; ok: boolean; message: string; t
   if (st.fails.length > 40) st.fails.splice(0, st.fails.length - 40);
   if (same.length + 1 < 2) return;
   const trigger: Trigger = { keys: [key], kinds: [], item: c.item };
-  const cand: Candidate = { kind: 'avoid', how: 'E1', trigger, cls, evidence: [...same.map((f) => f.ref), ref], count: same.length + 1, at: now, text: '' };
+  const cand: Candidate = { kind: 'avoid', how: 'E1', trigger, cls, ofKind: c.kind, what: c.what, evidence: [...same.map((f) => f.ref), ref], count: same.length + 1, at: now, text: '' };
   cand.text = template(cand);
   promote(st, c.village, c.agent, cand, now);
 }
@@ -439,12 +515,192 @@ export function noteStall(line: string, opts: { village?: string; home?: { x: nu
   const r = Math.min(AREA_MAX_R, Math.max(AREA_R, ...near.map((q) => Math.hypot(q.x - cx, q.z - cz) + 2)));
   const area: Area = { x: Math.round(cx * 10) / 10, z: Math.round(cz * 10) / 10, r: Math.round(r * 10) / 10, ...(opts.home ? { from: { x: opts.home.x, z: opts.home.z } } : {}) };
   const trigger: Trigger = { keys: chore ? [normKey(chore.key)] : [], kinds: [], item: chore?.item, area };
-  const cand: Candidate = { kind: 'avoid', how: 'E2', trigger, evidence: near.map((q) => q.ref), count: near.length, at: now, text: '', wet: near.filter((q) => q.wet).length * 2 > near.length };
+  const cand: Candidate = { kind: 'avoid', how: 'E2', trigger, ofKind: chore?.kind, evidence: near.map((q) => q.ref), count: near.length, at: now, text: '', wet: near.filter((q) => q.wet).length * 2 > near.length };
   cand.text = template(cand);
-  const i = promote(st, village, s.agent, cand, now);
-  // (the stalls that taught it are used: the next ones grade it)
+  // (a place lesson is learned at once, the night's reflection or not: it guards the next trips the same day, spec 6.4's
+  // prediction; its words are code's geometry, which the night would not improve)
+  const i = promote(st, village, s.agent, cand, now, true);
+  // (the stalls that taught it are used: the next ones grade it; a lesson waiting for the night keeps counting them)
   if (i) st.stalls = st.stalls.filter((q) => !near.includes(q));
   return i;
+}
+
+// ---------------------------------------------------------------------------------------------
+// The night's reflection (1.2): it picks one waiting lesson and may word it
+// ---------------------------------------------------------------------------------------------
+
+/** The lessons waiting for a member's night, most evidence first (the reflect prompt shows them, society.ts). */
+export function nightCandidates(village: string, agent: string): Array<{ id: string; text: string; count: number }> {
+  if (!INSTINCTS.on) return [];
+  const st = store.members[mkey(village, agent)];
+  return [...(st?.pending ?? [])].sort((a, b) => b.count - a.count || a.at - b.at).slice(0, NIGHT_LIST)
+    .map((c) => ({ id: c.cid!, text: c.text, count: c.count }));
+}
+
+/** The words a candidate's own wording must name one of: its item, the words of its keys and kinds, and for an area
+ *  the water or the spot (a wording that names none of them cannot be matched to the lesson by a reader). */
+function names(text: string, c: Candidate): boolean {
+  const s = text.toLowerCase();
+  const t = c.trigger;
+  const terms = [t.item?.replace(/_/g, ' '), ...t.kinds, ...t.keys.flatMap((k) => k.split(':')).filter((w) => w.length > 3 && !/^(monument|activity|initiative|choice|lib)$/.test(w)).map((w) => w.replace(/_/g, ' '))];
+  if (t.area) terms.push('water', 'river', 'bank', 'stream', 'stuck', 'spot', `${Math.round(t.area.x)}`, `${Math.round(t.area.z)}`);
+  return terms.some((w) => !!w && s.includes(w));
+}
+
+/** The reply's instinct field, by shape (lesson 158: gpt-oss fills optional fields wrongly): {from, text}, a bare id
+ *  ("c3"), or text alone. */
+function parseNight(input: unknown): { filled: boolean; from?: string; text?: string } {
+  let o = input as Record<string, unknown> | string | null;
+  if (typeof o === 'string') {
+    try { o = JSON.parse(o) as Record<string, unknown>; } catch { /* (a string, not JSON) */ }
+  }
+  if (!o || typeof o !== 'object') return { filled: false };
+  for (const k of ['arguments', 'parameters', 'input']) if (o[k] && !('instinct' in o)) return parseNight(o[k]);
+  const f = o.instinct as unknown;
+  if (f === undefined || f === null || f === '') return { filled: false };
+  const ID = /^\s*\[?(c\d+)\]?\s*$/i;
+  if (typeof f === 'string') return ID.test(f) ? { filled: true, from: ID.exec(f)![1].toLowerCase() } : { filled: true, text: f };
+  const r = f as Record<string, unknown>;
+  const from = [r.from, r.id, r.candidate].find((x) => typeof x === 'string') as string | undefined;
+  const text = [r.text, r.words, r.instinct].find((x) => typeof x === 'string') as string | undefined;
+  return { filled: true, from: from && ID.test(from) ? ID.exec(from)![1].toLowerCase() : undefined, text: text?.trim() || undefined };
+}
+
+/**
+ * The night's pick (society.ts, after the reflect call; `input` null when the call failed or was skipped): the candidate
+ * it names, worded by it when the words are <= 22 and name the lesson, else by the template; none named: the one with
+ * the most evidence. Promoted at once (the cap and one-a-day still hold); the others wait for later nights. Returns the
+ * reflect line's words ('instinct c3 (worded)').
+ */
+export function nightInstinct(village: string, agent: string, input: unknown, now: number): string[] {
+  if (!INSTINCTS.on) return [];
+  const st = store.members[mkey(village, agent)];
+  if (!st?.pending?.length) return [];
+  const list = nightCandidates(village, agent);
+  const p = input === null ? { filled: false } : parseNight(input);
+  let c = p.from ? st.pending.find((q) => q.cid === p.from && list.some((l) => l.id === q.cid)) : undefined;
+  let how = 'worded';
+  if (c && !(p.text && words(p.text) <= MAX_WORDS && names(p.text, c))) how = p.text ? 'template: words refused' : 'template';
+  if (!c) {
+    c = st.pending.find((q) => q.cid === list[0].id)!;
+    how = input === null ? 'code: no reply' : p.filled ? 'code: field not matched' : 'code: none named';
+  }
+  const text = how === 'worded' ? p.text!.replace(/\s+/g, ' ') : c.text;
+  st.pending = st.pending.filter((q) => q !== c);
+  log(village, `${agent}'s night picks ${c.cid} (${how}${p.filled ? ', field filled' : ''})`);
+  const i = promote(st, village, agent, { ...c, text, worded: how === 'worded' }, now, true);
+  save();
+  return [`instinct ${c.cid} (${i ? how : st.waiting.some((w) => w.cid === c!.cid) ? 'waits' : 'merged'})`];
+}
+
+// ---------------------------------------------------------------------------------------------
+// Spread between members (4.1; MC_INSTINCT_SHARE): side by side, at the storage, at the dusk gathering
+// ---------------------------------------------------------------------------------------------
+
+/** Who passed what to whom, by channel, once a village day (pair and channel) once something passed or echoed. */
+const met = new Map<string, number>();
+/** Recent deposits by village (the storage meeting). */
+const deposits = new Map<string, Array<{ agent: string; x: number; z: number; t: number }>>();
+
+/** Whether an instinct bears on a chore: its key, kind or item, or the kind of chore that taught it. */
+const bears = (i: Instinct, c: Pick<Chore, 'key' | 'kind' | 'item'>) => i.trigger.keys.includes(normKey(c.key)) || i.trigger.kinds.includes(c.kind) || (!!i.trigger.item && i.trigger.item === c.item) || (!!i.ofKind && i.ofKind === c.kind);
+
+/** The instinct a member would pass on: held at SHARE_MIN or more (learned, or borrowed and confirmed by its own
+ *  outcomes), the surest first, then the most recently graded. */
+function best(village: string, agent: string, filter: (i: Instinct) => boolean = () => true): Instinct | undefined {
+  return instinctsOf(village, agent).filter((i) => i.conf >= SHARE_MIN - 1e-9 && filter(i)).sort((a, b) => b.conf - a.conf || b.graded - a.graded)[0];
+}
+
+/** A copy of the giver's instinct into the receiver's (a free slot, or over one below 0.5); one with the same trigger
+ *  held is an echo. Returns whether anything passed or echoed (the channel's once-a-day mark). */
+function borrow(village: string, giver: string, receiver: string, i: Instinct, via: string, now: number): boolean {
+  const st = member(village, receiver);
+  sweep(st, village, receiver, now);
+  const dup = st.instincts.find((q) => sameTrigger(q.trigger, i.trigger));
+  if (dup) {
+    log(village, `${receiver} echo ${dup.id}: ${giver} offers ${i.id} (${via}; ${i.lineage}, held ${pct(dup.conf)})`);
+    return true;
+  }
+  let victim: Instinct | undefined;
+  if (st.instincts.length >= CAP) {
+    victim = st.instincts.filter((q) => q.conf < BORROWED).sort((a, b) => a.conf - b.conf || a.graded - b.graded)[0];
+    if (!victim) return false;
+  }
+  const id = `i${++store.seq}`;
+  const copy: Instinct = {
+    ...i, id, gen: i.gen + 1, trigger: JSON.parse(JSON.stringify(i.trigger)) as Trigger, conf: BORROWED, source: 'borrowed',
+    from: giver, at: now, graded: now, evidence: [`from ${giver} (${via})`],
+  };
+  if (victim) {
+    st.instincts = st.instincts.filter((q) => q !== victim);
+    log(village, `${receiver} replaces ${victim.id} (${pct(victim.conf)}) with ${id}`);
+  }
+  st.instincts.push(copy);
+  log(village, `${receiver} borrows ${id} from ${giver} (${via}; ${i.lineage} gen ${copy.gen}, ${pct(BORROWED)}) "${copy.text}"`);
+  save();
+  return true;
+}
+
+/** One pass from a giver to a receiver on a channel, once a village day for the pair. */
+function pass(village: string, giver: string, receiver: string, via: string, now: number, filter?: (i: Instinct) => boolean): void {
+  if (giver.toLowerCase() === receiver.toLowerCase()) return;
+  const k = `${village.toLowerCase()}|${giver.toLowerCase()}|${receiver.toLowerCase()}|${via}`;
+  const day = dayOf(village, now);
+  if (met.get(k) === day) return;
+  const i = best(village, giver, filter);
+  if (i && borrow(village, giver, receiver, i, via, now)) met.set(k, day);
+}
+
+/** A chore's end: the chores that overlapped it in the village (`with`). The dusk gathering: each offers its best to
+ *  each other one there. Side by side (the same kind or item): each passes one bearing on the other's chore. */
+function shareAtEnd(c: Chore, ok: boolean, withIds: string[], now: number): void {
+  for (const id of withIds) {
+    const o = chores.get(id) ?? past.get(id);
+    if (!o || o.village !== c.village || o.agent.toLowerCase() === c.agent.toLowerCase()) continue;
+    if (c.opt === 'custom:dusk_gathering' && o.opt === c.opt) {
+      if (!ok) continue;
+      pass(c.village, c.agent, o.agent, 'dusk', now);
+      pass(c.village, o.agent, c.agent, 'dusk', now);
+    } else if (o.kind === c.kind || (!!c.item && o.item === c.item)) {
+      pass(c.village, c.agent, o.agent, 'side by side', now, (i) => bears(i, o));
+      pass(c.village, o.agent, c.agent, 'side by side', now, (i) => bears(i, c));
+    }
+  }
+}
+
+/** A deposit into the village storage (mcStorage's deposit): two members depositing within HUT_NEAR blocks and
+ *  HUT_SECS of each other pass their best on (once a pair a village day). */
+export function noteDeposit(village: string | undefined, agent: string, x: number, z: number, now = Date.now()): void {
+  if (!INSTINCTS.on || !INSTINCTS.share || !village) return;
+  const list = (deposits.get(village) ?? []).filter((d) => now - d.t <= (HUT_SECS * 1000) / scale() && d.agent !== agent);
+  for (const d of list) {
+    if (Math.hypot(d.x - x, d.z - z) > HUT_NEAR) continue;
+    pass(village, agent, d.agent, 'storage', now);
+    pass(village, d.agent, agent, 'storage', now);
+  }
+  list.push({ agent, x, z, t: now });
+  deposits.set(village, list.slice(-50));
+}
+
+/** The lineages of one village (or all): each with its origin, text and current holders (the API, the panel, the
+ *  simulator's spread counts). */
+export function lineages(village?: string): Array<{ lineage: string; text: string; how: string; holders: Array<{ agent: string; id: string; conf: number; gen: number; source: string; from?: string }> }> {
+  const out = new Map<string, { lineage: string; text: string; how: string; holders: Array<{ agent: string; id: string; conf: number; gen: number; source: string; from?: string }> }>();
+  for (const m of allInstincts(village)) {
+    for (const i of m.instincts) {
+      const l = out.get(i.lineage) ?? { lineage: i.lineage, text: i.text, how: i.how, holders: [] };
+      l.holders.push({ agent: m.agent, id: i.id, conf: i.conf, gen: i.gen, source: i.source, ...(i.from ? { from: i.from } : {}) });
+      out.set(i.lineage, l);
+    }
+  }
+  return [...out.values()].sort((a, b) => b.holders.length - a.holders.length);
+}
+
+/** The chooser's and the planner's section (2.1, 2.3): the member's instincts, surest first; '' with none. */
+export function instinctSection(village: string, agent: string): string {
+  if (!INSTINCTS.on) return '';
+  const held = [...instinctsOf(village, agent)].filter((i) => i.conf > 0).sort((a, b) => b.conf - a.conf).slice(0, CAP);
+  return held.length ? `Your instincts (lessons from your own work; the number is how sure you are):\n${held.map((i) => `- (${pct(i.conf)}) ${i.text}`).join('\n')}` : '';
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -480,17 +736,26 @@ export function weightFor(village: string, agent: string, o: { id: string; key: 
   return hit ? Math.min(XW_MAX, Math.max(XW_MIN, w)) : undefined;
 }
 
-/** Sets `xw` on a menu's options (the world calls it where it builds the menu). */
-export function applyInstincts(menu: { agent: string; village: string; options: Array<{ id: string; key: string; kind: string; at?: { x: number; z: number }; xw?: number }> }): void {
+/** Sets `xw` on a menu's options and the instincts section in its context (the world calls it where it builds the
+ *  menu; the model mode shows both, the fixed pick reads `xw`). */
+export function applyInstincts(menu: { agent: string; village: string; options: Array<{ id: string; key: string; kind: string; at?: { x: number; z: number }; xw?: number }>; ctx?: { instincts?: string } }): void {
   if (!INSTINCTS.on) return;
   for (const o of menu.options) {
     const w = weightFor(menu.village, menu.agent, o);
     if (w !== undefined) o.xw = w;
   }
+  const s = instinctSection(menu.village, menu.agent);
+  if (s && menu.ctx) menu.ctx.instincts = s;
 }
 
 /** The fixed pick changed by an instinct: what would have been chosen, and what was. */
+const actLast = new Map<string, number>();
 export function noteAct(village: string, agent: string, without: string, withIt: string): void {
+  // (once for the same change within a few seconds: a sweep may build a member's menu twice)
+  const k = `${village}|${agent}|${without}|${withIt}`, t = Date.now();
+  if (t - (actLast.get(k) ?? -Infinity) < 5000) return;
+  actLast.set(k, t);
+  if (actLast.size > 500) actLast.delete(actLast.keys().next().value!);
   log(village, `${agent} act: picks ${withIt}, not ${without} (the fixed pick's instinct weight)`);
 }
 

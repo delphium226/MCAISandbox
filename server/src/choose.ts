@@ -80,9 +80,9 @@ export function trimMenu(options: ChoiceOption[], ambition = PROMPT_SELF, pinSte
   // so does a basic need of the member's own house)
   // (#117, MC_PROMPT_SELF: and one option for the village's ambition, its best by weight, unless a pinned one feeds it)
   const amb = ambition && !options.some((o) => (o.social || o.basic) && o.vw)
-    ? options.filter((o) => o.vw && !o.social && !o.basic).sort((a, b) => (b.lp ?? 1) * weights(b) - (a.lp ?? 1) * weights(a) || byRank(a, b))[0] : undefined;
+    ? options.filter((o) => o.vw && !o.social && !o.basic).sort((a, b) => (b.lp ?? 1) * weights(b, false) - (a.lp ?? 1) * weights(a, false) || byRank(a, b))[0] : undefined;
   // (the wants spec: and the pursuit's next step, its best one, which a trim would otherwise hide)
-  const step = pinStep && !options.some((o) => (o.social || o.basic || o === amb) && o.step) ? options.filter((o) => o.step && !o.social && !o.basic && o !== amb).sort((a, b) => weights(b) - weights(a) || byRank(a, b))[0] : undefined;
+  const step = pinStep && !options.some((o) => (o.social || o.basic || o === amb) && o.step) ? options.filter((o) => o.step && !o.social && !o.basic && o !== amb).sort((a, b) => weights(b, false) - weights(a, false) || byRank(a, b))[0] : undefined;
   const pinned = options.filter((o) => o.social || o.basic || o === amb || o === step);
   if (pinned.length) {
     const rest = trimMenu(options.filter((o) => !pinned.includes(o)), false, false);
@@ -101,7 +101,8 @@ export function trimMenu(options: ChoiceOption[], ambition = PROMPT_SELF, pinSte
   if (kept.length <= MENU_MAX) return kept;
   // (a missing lp or tw counts as the neutral weight, 1; A.3p: a kind its agent dislikes, tw below DISLIKED, gets no
   // reserved place and competes for the rest of the room)
-  const w = (o: ChoiceOption) => (o.lp ?? 1) * weights(o);
+  // (#205: not the instincts' weight: the model sees its tag and picks, spec 2.1)
+  const w = (o: ChoiceOption) => (o.lp ?? 1) * weights(o, false);
   const order = [...kept].sort((a, b) => w(b) - w(a) || a.rank - b.rank);
   const seen = new Set<string>();
   // (#79: a goal's option keeps its place though its kind is disliked)
@@ -196,10 +197,10 @@ export const weighted = (o: ChoiceOption) => o.tw !== undefined || o.nw !== unde
 /** #79: the cap on an option's weights' product (temperament's top, 2.5 squared), applied when a life goal weighs on it. */
 export const WEIGHT_CAP = 6.25;
 /** An option's weights' product (tw x nw x ww x gw; capped where a goal weighs, so goals off leave it as it was). */
-export const weights = (o: ChoiceOption) => {
+export const weights = (o: ChoiceOption, instincts = true) => {
   // (the wants spec: the pursuit's step, the admired member's way, a repayment and pointless repetition beside them)
   const p = (o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * (o.gw ?? 1) * (o.iw ?? 1) * (o.sw ?? 1) * (o.cf ?? 1) * (o.vw ?? 1) * (o.rw ?? 1)
-    * (o.pmw ?? 1) * (o.imw ?? 1) * (o.dbw ?? 1) * (o.rpw ?? 1) * (o.xw ?? 1);
+    * (o.pmw ?? 1) * (o.imw ?? 1) * (o.dbw ?? 1) * (o.rpw ?? 1) * (instincts ? o.xw ?? 1 : 1);
   // (character v2's B1: with any layer on, every product capped at 6.25 and floored at 0.16)
   if (characterAny()) return capFloor(p);
   return o.gw !== undefined || o.pmw !== undefined ? Math.min(WEIGHT_CAP, p) : p;
@@ -231,7 +232,7 @@ export function fixedPick(menu: ChoiceMenu): ChoiceOption | undefined {
   // (#69: the member's own wants beside both)
   // (#79, the user's: a life goal's options exempt from the decay)
   // (#205: the member's instincts' weight beside them; `without` leaves it out, for the act line)
-  const score = (o: ChoiceOption, without = false) => (weights(o) / (without ? o.xw ?? 1 : 1)) * KIND_DECAY ** (o.gw !== undefined || o.pmw !== undefined ? 0 : place.get(o.kind) ?? 0);
+  const score = (o: ChoiceOption, without = false) => weights(o, !without) * KIND_DECAY ** (o.gw !== undefined || o.pmw !== undefined ? 0 : place.get(o.kind) ?? 0);
   const top = (without: boolean) => {
     let b = best!;
     for (const o of menu.options) {
@@ -253,8 +254,9 @@ const SYSTEM = 'You are a member of a Minecraft village. The village is built; n
   + '`choose` with a short reason (one sentence) and the exact name of one option. Never invent an option.';
 /** A.3p: added when a persona line is shown. */
 const SYSTEM_PERSONA = ' Choose as the person described would.';
-/** G1: added when a memory section is shown. */
+/** G1: added when a memory section is shown (#205: or an instincts section). */
 const SYSTEM_MEMORY = ' Use what you remember where it bears on the choice.';
+const SYSTEM_INSTINCTS = ' Use what you remember and your instincts where they bear on the choice.';
 /** #172 (MC_PRIMER=on): how the member's world works, in its own terms (both modes; ~250 tokens). */
 export const PRIMER_ON = /^(on|1|true|yes)$/i.test(rawSetting('MC_PRIMER') ?? '');
 export const PRIMER = ` How your world works: ${harmLine()} `
@@ -280,7 +282,9 @@ export interface PromptMemory {
  * scale's top for every houseless member, not the member's temperament.
  */
 const tag = (o: ChoiceOption) => (o.tw === undefined || o.kind === 'grow' ? '' : o.tw >= ENJOYED ? ' [you enjoy this]' : o.tw <= DULL ? ' [you find this dull]' : '')
-  + (o.gw !== undefined && o.pmw === undefined ? ' [toward your goal]' : '') + (o.wantTag ? ` ${o.wantTag}` : '') + (o.basic ? ` ${o.basicNeed ? basicTag(o.basicNeed) : '[a basic need: your own house]'}` : '') + (o.social ? ` ${o.social}` : '') + (o.mark ? ` ${o.mark}` : '') + (o.ruleTag ? ` ${o.ruleTag}` : '') + (o.ladderTag ? ` ${o.ladderTag}` : '') + (o.tradeTag ? ` ${o.tradeTag}` : '');
+  + (o.gw !== undefined && o.pmw === undefined ? ' [toward your goal]' : '') + (o.wantTag ? ` ${o.wantTag}` : '') + (o.basic ? ` ${o.basicNeed ? basicTag(o.basicNeed) : '[a basic need: your own house]'}` : '') + (o.social ? ` ${o.social}` : '') + (o.mark ? ` ${o.mark}` : '') + (o.ruleTag ? ` ${o.ruleTag}` : '') + (o.ladderTag ? ` ${o.ladderTag}` : '') + (o.tradeTag ? ` ${o.tradeTag}` : '')
+  // (#205: the member's instincts on the option, from its weight; F273: a tag on the option steers where text does not)
+  + (o.xw === undefined ? '' : o.xw < 1 ? ' [your instinct: avoid]' : o.xw > 1 ? ' [your instinct: try this]' : '');
 
 /** A context line with its label, unless the world wrote the label already. */
 const labelled = (label: string, text: string) => (text.toLowerCase().startsWith(label.toLowerCase()) ? text : `${label}: ${text}`);
@@ -320,6 +324,8 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
   const outcomes = ctx.outcomes?.length ? ctx.outcomes : mem?.outcomes ?? [];
   lines.push(`Your last chores: ${outcomes.length ? outcomes.join(' | ') : 'none yet'}`);
   if (rc) lines.push(rc.text);
+  // (#205: after the memory section, before the options)
+  if (ctx.instincts?.trim()) lines.push(ctx.instincts.trim());
   if (ctx.share) lines.push(`Your last chores brought new goods into the village storage; your share of them is ${ctx.share.total}. Say in \`share\` how much of it you leave in the village storage: ${ctx.share.answers.map((a) => `"${a.text}"`).join(', ')}.`);
   if (ctx.inbox?.length) lines.push(`Your inbox:\n${ctx.inbox.map((l) => `- ${l}`).join('\n')}`);
   // (#107: news heard and answers to the member's questions, each its own section beside the inbox)
@@ -387,7 +393,7 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
       required: rc?.dawn ? ['reason', 'choice', 'intention', 'focus'] : ['reason', 'choice'],
     },
   }];
-  return { system: (ctx.persona?.trim() ? SYSTEM + SYSTEM_PERSONA : SYSTEM) + (rc ? SYSTEM_MEMORY : '') + (PRIMER_ON ? PRIMER : ''), user: lines.join('\n'), tools };
+  return { system: (ctx.persona?.trim() ? SYSTEM + SYSTEM_PERSONA : SYSTEM) + (ctx.instincts?.trim() ? SYSTEM_INSTINCTS : rc ? SYSTEM_MEMORY : '') + (PRIMER_ON ? PRIMER : ''), user: lines.join('\n'), tools };
 }
 
 /** #172: an open option's facts are cut to this in the prompt (the menu shows them whole, <= 240). */

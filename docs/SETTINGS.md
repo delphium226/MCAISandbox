@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-286 settings.
+287 settings.
 
 ## Game speed
 
@@ -163,6 +163,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_CUSTOM_FACTS` | flag | `off` |  | `MC_CUSTOMS` | #164: a custom's option says who did it yesterday and when the member last did ("done yesterday by Ben, Kai and 2 others; you: never"); the channel the test's off arm removes. |
 | `MC_CUSTOMS` | flag | `off` |  | `MC_RULES` | #164 (G4): customs, acts with a world effect code counts and no reward (a flower by your door, a torch or flower on the green's custom stone, tools back to storage at dusk, meeting at the green at dusk): the ledger (did, started, exposed), seeded members, a norm naming one starts it. |
 | `MC_DELIBERATE` | flag | `off` |  |  | #107, deliberation's zero-cost form (MC_DELIBERATE, off): a later voter's ballot shows earlier voters' reasons for each item, attributed, both sides when both were given (the staggered offsets order the voters). |
+| `MC_INSTINCT_SHARE` | flag | `on` |  | `MC_INSTINCTS` | MC_INSTINCT_SHARE=on (#205; off turns it off): members pass instincts on, by code and with no model call: working side by side on the same kind of chore, depositing at the storage within 8 blocks and 20 s of each other (once a pair a village day), and at the dusk gathering (MC_CUSTOMS). Only an instinct the giver holds at 0.75 or more passes; the copy starts at 0.5 and keeps its lineage. [instinct] borrows and echo lines. Off: each member keeps only what it learns itself. |
 | `MC_LAW_BACKING` | string | (unset) |  |  | #164 (off by default): failures counts a night's back of a law also when the backer's failed chores that day name the law's target (their messages, not only the chore lines; train 7 refused 85-92% of backs). |
 | `MC_LEVY` | string | (unset) |  |  | A levy in force from the start, set by code (Experiment 2's imposed base, `MC_LEVY=0.2`), until a voted one replaces it. |
 | `MC_LEVY_MIN` | string | (unset) |  |  | Experiment 2: a pending share is asked once it holds at least this many items (MC_LEVY_MIN, default 1: G3m1's shares were 1-4 items, the levy of 1 the same as all, so every answer paid). |

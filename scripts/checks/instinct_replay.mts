@@ -15,6 +15,8 @@
  *      for `collect:sand` and `trip:sand`, and not the village-side goals they were walking home to (-1555,43,
  *      -1608,63);
  *   3. an option with no place gets no weight from an area instinct (`xw` undefined), and the flag off forms nothing.
+ *   4. (session 2) with MC_INSTINCT_SHARE on: members pass instincts side by side, every copy at 0.5 with a generation,
+ *      a giver and a learned lineage, and Kai and Jonah still hold the river area. It prints the passes and lineages.
  * Home (the area's `from`) is the storage hut, read from the log's "teleported to the storage hut at X,Y,Z" unless given.
  * Any other log: prints what forms and checks nothing. Exit 1 on a failed check.
  */
@@ -51,8 +53,9 @@ const check = (ok: boolean, what: string) => {
 };
 
 interface Learned { agent: string; id: string; line: number; stallNo: number; spotNo: number; text: string }
-function replay(on: boolean) {
+function replay(on: boolean, share = false) {
   I.setInstinctsOn(on);
+  I.setInstinctShare(share);
   I.initInstincts(null);
   const out: string[] = [];
   let lineNo = 0;
@@ -139,6 +142,30 @@ if (isRun6) {
   }
   const off = replay(false);
   check(off.out.length === 0 && off.learned.length === 0, 'MC_INSTINCTS=off: no [instinct] line and nothing learned');
+}
+
+// Session 2: the same log with sharing on (MC_INSTINCT_SHARE): the side-by-side and dusk passes that would have happened
+// (a log carries no deposit positions: the storage channel is the unit check's)
+const sh = replay(true, true);
+const borrows = sh.out.filter((l) => / borrows i\d+ from /.test(l));
+const echoes = sh.out.filter((l) => / echo i\d+: /.test(l));
+const by = new Map<string, number>();
+for (const l of borrows) {
+  const via = /\((side by side|dusk|storage);/.exec(l)?.[1] ?? '?';
+  by.set(via, (by.get(via) ?? 0) + 1);
+}
+console.log(`sharing on: ${borrows.length} borrows (${[...by].map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}), ${echoes.length} echoes; areas learned from own stalls ${sh.learned.length} (sharing off: ${r.learned.length})`);
+if (!quiet) for (const l of [...borrows, ...echoes]) console.log(l);
+const lin = I.lineages('P1');
+for (const l of lin.filter((q) => q.holders.length > 1)) console.log(`lineage ${l.lineage}: ${l.holders.map((h) => `${h.agent} ${h.conf.toFixed(2)} gen ${h.gen}`).join(', ')}`);
+if (isRun6) {
+  const copies = I.allInstincts('P1').flatMap((m) => m.instincts.filter((i) => i.source === 'borrowed').map((i) => ({ agent: m.agent, i })));
+  check(borrows.length > 0, `sharing on: members pass instincts side by side (${borrows.length} borrows)`);
+  check(copies.every(({ i }) => i.gen >= 1 && !!i.from && lin.some((l) => l.lineage === i.lineage && l.holders.some((h) => h.source === 'learned'))),
+    'every copy has a generation, a giver, and a lineage some member learned');
+  check(borrows.every((l) => / 0\.50\) "/.test(l)), 'every copy starts at 0.5');
+  check(['Kai', 'Jonah'].every((w) => I.instinctsOf('P1', w).some((i) => i.trigger.area && Math.hypot(i.trigger.area.x + 1496, i.trigger.area.z - 63) <= 8)),
+    'Kai and Jonah still hold the river area with sharing on');
   console.log(failed ? `instinct_replay: ${failed} FAILED` : 'instinct_replay: all checks passed');
 }
 process.exit(failed ? 1 : 0);

@@ -2,7 +2,10 @@
  * The instincts' unit check (#205, spec runs/2026-11-02/instincts/spec.md 6.1; no server): E1 from repeat failures, the
  * grading table (3.1), E4's instead, the drop at 0, one new instinct a day, the cap of 5 and its replacement (3.2),
  * duplicate areas merging, the untested fade, the template's 22 words, `xw` (an avoid at 1.0 halves an option's weight;
- * the fixed pick takes the other, and a meal still comes first), the place layer, and the flag off.
+ * the fixed pick takes the other, and a meal still comes first), the place layer, and the flag off. Session 2: sharing
+ * (side by side on the same kind, the storage meeting, the dusk gathering; 0.5 copies with the lineage, not passed on
+ * below 0.75, echoes, 2 contradictions, a full receiver, the flag off), the reflection rider (the night's words, the
+ * template when they name nothing, a bare id, code's pick), the section and its place in the menu context.
  *
  *   node node_modules/tsx/dist/cli.mjs scripts/checks/instinct_unit.mts
  */
@@ -140,6 +143,103 @@ check(fixedPick(m1)?.id === 'make:chest' && lines.some((l) => /Fay act: picks ma
 const m2 = menu([opt('eat', 'eat', 0), opt('make:torch', 'make', 1, { tw: 1 }), opt('make:chest', 'make', 2, { tw: 1 })]);
 I.applyInstincts(m2);
 check(fixedPick(m2)?.id === 'eat', 'a meal still comes first');
+
+// Session 2, sharing (4.1): side by side on the same kind, at the storage, at the dusk gathering
+fresh();
+I.setInstinctShare(true);
+/** A chore that overlapped others (`with`, the world's yield list). */
+function choreWith(agent: string, key: string, kind: string, ok: boolean, message: string, t: number, withIds: string[], chosen?: string): string {
+  const id = `U1#${++seq}`;
+  I.noteChoice({ id, agent, village: V, key, kind, t, chosen });
+  I.noteChoiceEnd({ id, ok, message, tEnd: t + MIN, yield: { with: withIds } });
+  return id;
+}
+fail2('Hal', 'make:torch', T0);
+const hal = held('Hal')[0];
+const ivyId = `U1#${++seq}`;
+I.noteChoice({ id: ivyId, agent: 'Ivy', village: V, key: 'make:chest', kind: 'make', t: T0 + 5 * MIN });
+choreWith('Hal', 'make:barrel', 'make', true, 'made a barrel', T0 + 5 * MIN, [ivyId]);
+const ivy = held('Ivy')[0];
+check(!!ivy && ivy.source === 'borrowed' && ivy.conf === I.BORROWED && ivy.lineage === hal.lineage && ivy.gen === 1 && ivy.from === 'Hal' && ivy.text === hal.text,
+  `side by side on the same kind: Ivy borrows Hal's at 0.5, same lineage, gen 1 (${ivy?.source}, ${ivy?.conf}, gen ${ivy?.gen})`);
+check(lines.some((l) => / Ivy borrows i\d+ from Hal \(side by side;/.test(l)), 'a borrows line');
+I.noteChoiceEnd({ id: ivyId, ok: true, message: 'made a chest', tEnd: T0 + 6 * MIN, yield: { with: [] } });
+const joId = `U1#${++seq}`;
+I.noteChoice({ id: joId, agent: 'Jo', village: V, key: 'make:torch', kind: 'make', t: T0 + 7 * MIN });
+choreWith('Ivy', 'make:chest', 'make', true, 'made a chest', T0 + 7 * MIN, [joId]);
+check(held('Jo').length === 0, 'a copy at 0.5 is not passed on (the giver needs 0.75)');
+const kenId = `U1#${++seq}`;
+I.noteChoice({ id: kenId, agent: 'Ken', village: V, key: 'farm:plant', kind: 'farm', t: T0 + 8 * MIN });
+choreWith('Hal', 'make:chest', 'make', true, 'made a chest', T0 + 8 * MIN, [kenId]);
+check(held('Ken').length === 0, 'side by side on another kind: nothing passes');
+const ivy2 = `U1#${++seq}`;
+I.noteChoice({ id: ivy2, agent: 'Ivy', village: V, key: 'make:chest', kind: 'make', t: T0 + DAY + MIN });
+choreWith('Hal', 'make:chest', 'make', true, 'made a chest', T0 + DAY + MIN, [ivy2]);
+check(held('Ivy').length === 1 && lines.some((l) => / Ivy echo i\d+: Hal offers/.test(l)), 'the next day the same pass is an echo, no second copy');
+chore('Ivy', 'make:torch', 'make', true, 'made 4 torches', T0 + DAY + 3 * MIN);
+chore('Ivy', 'make:torch', 'make', true, 'made 4 torches', T0 + DAY + 5 * MIN);
+check(held('Ivy').length === 0, 'a borrowed instinct goes after 2 contradictions');
+// (the storage: deposits within 8 blocks and 20 s, once a pair a day)
+I.noteDeposit(V, 'Hal', 0, 0, T0 + 2 * DAY);
+I.noteDeposit(V, 'Lea', 30, 0, T0 + 2 * DAY + 5000);
+check(held('Lea').length === 0, 'a deposit 30 blocks off: nothing passes');
+I.noteDeposit(V, 'Max', 3, 4, T0 + 2 * DAY + 10000);
+check(held('Max').length === 1 && lines.some((l) => / Max borrows i\d+ from Hal \(storage;/.test(l)), 'two deposits within 8 blocks and 20 s: the best passes');
+I.noteDeposit(V, 'Nia', 2, 2, T0 + 2 * DAY + 60000);
+check(held('Nia').length === 0, 'a deposit a minute later: nothing passes');
+// (the dusk gathering: anything at 0.75 or more, whatever the chore)
+const duskId = `U1#${++seq}`;
+I.noteChoice({ id: duskId, agent: 'Oli', village: V, key: 'oli', kind: 'tidy', t: T0 + 2 * DAY + 5 * MIN, chosen: 'custom:dusk_gathering' });
+choreWith('Hal', 'hal', 'tidy', true, 'waited 30 s', T0 + 2 * DAY + 5 * MIN, [duskId], 'custom:dusk_gathering');
+check(held('Oli').length === 1 && lines.some((l) => / Oli borrows i\d+ from Hal \(dusk;/.test(l)), 'at the dusk gathering the best passes');
+// (a full receiver: a borrowed one enters only over one below 0.5)
+for (let d = 0; d < 5; d++) fail2('Pam', `make:thing${d}`, T0 + d * DAY);
+I.noteDeposit(V, 'Hal', 0, 0, T0 + 5 * DAY);
+I.noteDeposit(V, 'Pam', 1, 1, T0 + 5 * DAY + 1000);
+check(held('Pam').length === 5 && !held('Pam').some((i) => i.lineage === hal.lineage), 'a member holding 5 at 0.5 or more takes no borrowed one');
+// (sharing off)
+I.setInstinctShare(false);
+I.noteDeposit(V, 'Hal', 0, 0, T0 + 6 * DAY);
+I.noteDeposit(V, 'Quin', 1, 1, T0 + 6 * DAY + 1000);
+check(held('Quin').length === 0, 'MC_INSTINCT_SHARE=off: nothing passes');
+I.setInstinctShare(true);
+check(I.itemOf('monument:sandtrip:2') === 'sand', "#206's sand trips name sand");
+
+// Session 2, the reflection rider (1.2): a lesson waits for the night, which picks one and may word it
+fresh();
+I.setInstinctRider(() => true);
+fail2('Rae', 'make:torch', T0);
+check(held('Rae').length === 0 && I.nightCandidates(V, 'Rae').length === 1, 'with the night running, a lesson waits for it');
+const rc = I.nightCandidates(V, 'Rae')[0];
+const own = 'When making torches, fetch planks from storage first; avoid make torch while short.';
+I.nightInstinct(V, 'Rae', { notes: [], instinct: { from: rc.id, text: own } }, T0 + 10 * MIN);
+check(held('Rae')[0]?.text === own && lines.some((l) => /night picks c\d+ \(worded, field filled\)/.test(l)), `the night's words kept (${held('Rae')[0]?.text})`);
+fail2('Sol', 'make:torch', T0);
+I.nightInstinct(V, 'Sol', { instinct: { from: I.nightCandidates(V, 'Sol')[0].id, text: 'Be careful out there and think before acting every single time.' } }, T0 + 10 * MIN);
+check(held('Sol')[0]?.text === I.template({ how: 'E1', trigger: held('Sol')[0].trigger, cls: held('Sol')[0].cls, count: 2 }), 'words that name nothing of the lesson: the template');
+fail2('Tia', 'make:torch', T0);
+I.nightInstinct(V, 'Tia', { instinct: ` [${I.nightCandidates(V, 'Tia')[0].id}] ` }, T0 + 10 * MIN);
+check(held('Tia').length === 1, 'a bare id is read');
+fail2('Uma', 'make:torch', T0);
+for (let k = 0; k < 3; k++) chore('Uma', 'make:chest', 'make', false, 'cannot make make:chest: short of planks', T0 + (3 + k) * MIN);
+I.nightInstinct(V, 'Uma', { notes: [], intention: 'rest' }, T0 + 10 * MIN);
+check(held('Uma')[0]?.trigger.keys[0] === 'make:chest' && I.nightCandidates(V, 'Uma').length === 1, 'none named: the most evidence is kept, the other waits');
+fail2('Vic', 'make:torch', T0);
+I.nightInstinct(V, 'Vic', null, T0 + 10 * MIN);
+check(held('Vic').length === 1 && lines.some((l) => /Vic's night picks c\d+ \(code: no reply\)/.test(l)), 'no reply (failed or skipped): code keeps it');
+chore('Uma', 'make:barrel', 'make', true, 'made a barrel', T0 + 3 * DAY);
+check(I.nightCandidates(V, 'Uma').length === 0 && lines.some((l) => /Uma lets c\d+ go/.test(l)), 'a lesson no night picked in 2 days goes');
+I.noteChoice({ id: 'U1#w1', agent: 'Wes', village: V, key: 'monument:gather:sand:1', kind: 'monument', t: T0 });
+for (let k = 0; k < 3; k++) I.noteStall(stuck('Wes', -1497 + k, 63), { village: V, home, now: T0 + (1 + k) * MIN });
+check(held('Wes').length === 1 && !!held('Wes')[0].trigger.area, 'a place lesson (E2) is learned at once with the night running');
+I.setInstinctRider(() => false);
+// (the section the chooser and planner show)
+const sec = I.instinctSection(V, 'Rae');
+check(/^Your instincts \(lessons from your own work; the number is how sure you are\):\n- \(1\.00\) When making torches/.test(sec), 'the instincts section');
+const m4 = menu([opt('make:torch', 'make', 0)]);
+m4.agent = 'Rae';
+I.applyInstincts(m4);
+check(m4.ctx.instincts === sec, 'applyInstincts puts the section in the menu context');
 
 // The flag off: nothing learned, no weight
 fresh();

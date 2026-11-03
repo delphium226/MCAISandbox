@@ -497,7 +497,7 @@ const L1 = [['overview', 'Overview'], ['village', 'Village'], ['members', 'Membe
 const L2 = {
   village: [['buildings', 'Buildings'], ['tasks', 'Tasks'], ['storage', 'Storage'], ['life', 'Life'], ['tech', 'Tech'], ['ladder', 'Ladder'], ['land', 'Land']],
   members: [['now', 'Now'], ['mind', 'Mind'], ['social', 'Social'], ['character', 'Character'], ['chores', 'Chores'], ['model', 'Model'], ['log', 'Log']],
-  society: [['votes', 'Votes'], ['initiatives', 'Initiatives'], ['proposals', 'Proposals'], ['talk', 'Talk'], ['rules', 'Rules'], ['people', 'People'], ['relations', 'Relations'], ['needs', 'Needs'], ['culture', 'Culture']],
+  society: [['votes', 'Votes'], ['initiatives', 'Initiatives'], ['proposals', 'Proposals'], ['talk', 'Talk'], ['rules', 'Rules'], ['people', 'People'], ['relations', 'Relations'], ['needs', 'Needs'], ['instincts', 'Instincts'], ['culture', 'Culture']],
   economy: [['market', 'Market'], ['wealth', 'Wealth'], ['board', 'Board'], ['research', 'Research'], ['goals', 'Goals']],
   run: [['busy', 'Busy'], ['scorecard', 'Scorecard'], ['choices', 'Choices'], ['cost', 'Models and cost'], ['events', 'Events'], ['foundry', 'Foundry'], ['flags', 'Flags'], ['settings', 'Settings']],
 };
@@ -657,7 +657,7 @@ function memberView(a) {
           <i style="background:rgba(140,90,40,.55);border:1px solid #8c5a28"></i><span>building</span>
           <i style="border:2px dashed #f39c34"></i><span>ground being worked</span>
         </div></div></div>`;
-  } else if (sub === 'mind') body = mind.state || `${mind.persona}${mind.journal || '<div class="empty">no journal (MC_MEMORY off)</div>'}${mind.fields}`;
+  } else if (sub === 'mind') body = mind.state || `${mind.persona}${mind.instincts}${mind.journal || '<div class="empty">no journal (MC_MEMORY off)</div>'}${mind.fields}`;
   else if (sub === 'social') body = (mind.state || mind.social || '<div class="empty">nothing social recorded (MCAI_SOCIAL off, or nobody met yet)</div>')
     + (a.village ? `${label('Its ballots')}${votesBody(a.village, a.name)}` : '');
   else if (sub === 'character') body = characterBody(a);
@@ -929,6 +929,7 @@ async function refreshExtras() {
   // (the village's proposals and rules come with any member's memory view; Run > Flags reads its modes from it too)
   const v = curVillage(lastData), sub = route.sub[route.top];
   if (v && route.top === 'society' && sub === 'votes') jobs.push(votes(v.name));
+  if (v && route.top === 'society' && sub === 'instincts') jobs.push(fetchExtra(`instincts:${v.name}`, `/api/instincts?village=${encodeURIComponent(v.name)}`));
   if (v && route.top === 'society' && sub === 'talk') jobs.push(fetchExtra(`talk:${v.name}`, `/api/requests?village=${encodeURIComponent(v.name)}`));
   fillTalkTo();
   // (G8: the ladder of ages)
@@ -1161,14 +1162,30 @@ function mindParts(a) {
   // (G3: the village's rules and laws)
   const ru = d.rules;
   const rulesCard = ru && (ru.inForce.length || ru.laws.length) ? `<div class="label">Rules <span class="sub">(G3; the village's)</span></div>${ru.council ? `<div class="sub">${esc(ru.council)}</div>` : ''}<ul class="list">${ru.inForce.map((r) => `<li class="sub"><b>${esc(r.id)}</b> in force: ${esc(r.text)}${r.votes ? ` <span class="sub">(${r.votes.yes} to ${r.votes.no})</span>` : ''}</li>`).join('')}${ru.laws.map((l) => `<li class="sub"><b>${esc(l.id)}</b> ${esc(l.by)}: ${esc(l.text)} <span class="sub">${esc(l.status)}${l.refused ? ` (${esc(l.refused)})` : ''}, backers ${l.backers}${l.opposers ? `, against ${l.opposers}` : ''}${l.result ? `; voted ${l.result.yes} to ${l.result.no}` : ''}</span></li>`).join('')}</ul>` : '';
+  // (#205: its instincts, surest first: a confidence bar, learned or borrowed and from whom, last graded, the lineage's reach)
+  const ins = d.instincts;
+  const instincts = ins ? `<div class="label">Instincts <span class="sub">(#205; lessons from its own work${ins.share ? ', shared' : ''})</span></div>`
+    + (ins.held.length ? `<ul class="list">${[...ins.held].sort((x, y) => y.conf - x.conf).map((i) => `<li>${confBar(i.conf)} <b>${Number(i.conf).toFixed(2)}</b> ${esc(i.text)} <span class="sub">${esc(i.id)}, ${i.source === 'borrowed' ? `borrowed from ${esc(i.from || '?')} (gen ${i.gen})` : `learned (${esc(i.how)})`}, graded ${ago(i.graded)} ago${i.holders > 1 ? `, held by ${i.holders}` : ''}</span></li>`).join('')}</ul>` : '<div class="empty">none yet</div>') : '';
   return {
-    data: d, social, props, rulesCard,
+    data: d, social, props, rulesCard, instincts,
     persona: t.persona ? `<div class="label">Persona</div><div>${esc(t.persona)}</div>` : '',
     journal,
     temper: traits ? `<div class="label">Temperament <span class="sub">(${esc(t.mode)})</span></div><div class="sub">${traits}</div><div class="sub">chore weights: ${weights}</div>` : '',
     chores: `<div class="label">Chores it has done <span class="sub">(newest first)</span></div>${chores ? `<ul class="list">${chores}</ul>` : '<div class="empty">none yet</div>'}`,
     fields: det(`mind:fields:${a.name}`, 'Every memory field it keeps (raw: plan, notes, site, stats...)', fields || '<div class="empty">empty</div>'),
   };
+}
+
+/** #205: an instinct's confidence, 0-1, as a short bar. */
+const confBar = (c) => `<span style="display:inline-block;width:48px;height:8px;vertical-align:middle;border-radius:4px;background:var(--panel-2);border:1px solid var(--line);overflow:hidden"><span style="display:block;height:100%;width:${Math.round(100 * Math.max(0, Math.min(1, c)))}%;background:var(--accent)"></span></span>`;
+/** #205: the village's instinct lineages, most held first: the text, its origin, and each holder's copy. */
+function instinctsBody(v) {
+  const st = extraState(`instincts:${v.name}`);
+  if (st) return st;
+  const d = extraData.get(`instincts:${v.name}`).data;
+  if (!d.on) return offBox('Instincts are off in this run', '<span class="mono">MC_INSTINCTS=off</span>. With them on: the short rules members learn from their own outcomes, and how they spread.');
+  if (!d.lineages.length) return offBox('No instincts yet', 'Members learn one from a chore failing twice the same way, or from three walk stalls at one spot.');
+  return card(`Lineages, most held first${d.share ? '' : ' (sharing off)'}`, `<ul class="list">${d.lineages.map((l) => `<li><b>${l.holders.length}</b> ${esc(l.text)} <span class="sub">${esc(l.lineage)} (${esc(l.how)}), deepest gen ${Math.max(...l.holders.map((h) => h.gen))}</span><div class="sub">${l.holders.map((h) => `${esc(h.agent)} ${confBar(h.conf)} ${Number(h.conf).toFixed(2)}${h.from ? ` from ${esc(h.from)}` : ''}`).join(' · ')}</div></li>`).join('')}</ul>`);
 }
 
 /** The storage hut's table and furnace once they stand (S.5: placed before the hut), for the storage tab's line. */
@@ -1341,6 +1358,7 @@ function societyTab(v, tab) {
       : parts.rulesCard ? card('', parts.rulesCard) : offBox('No rules yet', 'Laws members propose and back show here, with the council\'s line.');
   }
   if (tab === 'talk') return talkBody(v);
+  if (tab === 'instincts') return instinctsBody(v);
   if (tab === 'people') return peopleBody(v);
   if (tab === 'relations') return relationsBody(v);
   if (tab === 'needs') {

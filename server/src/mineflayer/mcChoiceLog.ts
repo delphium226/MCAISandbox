@@ -30,6 +30,8 @@ export interface ChoiceLogOption {
   nw?: number;
   /** 1-based position shown to the model. */
   shown?: number;
+  /** #205: the member's instincts' weight. */
+  xw?: number;
 }
 
 /** A chore chosen: who, where, what, and the options it was chosen from. */

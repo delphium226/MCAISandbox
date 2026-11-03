@@ -253,6 +253,15 @@ reset_site.py on a locked world only warns. CLI: `scripts/goal_map.mts catalogue
   wood that covers them, make and fishing times by batch, durations by whether the member's last action left it out at
   the edge (AWAY), the furnace's fuel carried over; `sim.events.log` adds `[works]`, `[work]`, `[grow]`, `[vote]` and a
   `[stock]` line a minute (logs, cobblestone, sand, glass) to set beside the stage log's STOCK lines. Same seed, same run.
+  #205's instincts: the report's `instincts` lines (ops, borrows by channel, repeat failures of one key a member, reach
+  by 10 minutes, depth, copies' survival, bug candidates); `--fault KEYRE=P,...` makes chores whose key matches fail at
+  their first step with chance P, one message, so there is something to learn (`--fault '^start:=0.8,^gather:cobblestone=0.8'`
+  on train 17's S spec: runs/2026-11-03/instincts/session2_note.md). A deposit counts as the storage meeting.
+- **Instincts** (#205, `MC_INSTINCTS`, `MC_INSTINCT_SHARE`): `scripts/checks/instinct_unit.mts` and `instinct_replay.mts
+  [LOG]` (both in check:offline); `GET /api/instincts?village=`, the member's Mind tab and Society > Instincts on the
+  panel; `run_report.py` rows "instinct ...", "repeat failures of one key" and "[stuck] at one 8x8 cell". The tag's bench:
+  `scripts/bench/instinct_cases.mts OUT.json CHOICES.jsonl ...` (pairs off/on from model-driven decision logs), then
+  `choicebench.mts OUT.json` and `instinct_bench_sum.mts OUT.json SUMMARY.json`.
   In check:offline (20 minutes). Fidelity: F260, F262, F263 (Lng1 9.7 vs 9.6%, Rch1 17/16 vs 17%).
 - **The thriving scorecard** (#80, M1 of `docs/STRATEGY.md`): `python scripts/scorecard.py RUN [RUN ...] [--json OUT]`
   prints it for a simulator output folder or a live run (`DIR/NAME` as run_series.py writes it), in 10-minute and 1-hour

@@ -58,6 +58,9 @@ const STEP = Number(opt('--step') ?? 5) * 1000;
 const SEED = Number(opt('--seed') ?? 1);
 const OUT = opt('--out') ?? fs.mkdtempSync(path.join(os.tmpdir(), 'village-sim-'));
 const LOG = flag('--log');
+/** #205's experiment: `--fault KEYRE=P,...`: a chore whose key matches fails at its first step with chance P, always with the
+ *  same message (a broken chore: a code bug, or a place that defeats the walk), so instincts have something to learn. */
+const FAULTS = (opt('--fault') ?? '').split(',').filter(Boolean).map((f) => ({ re: new RegExp(f.slice(0, f.lastIndexOf('='))), p: Number(f.slice(f.lastIndexOf('=') + 1)) }));
 const STUB_I = argv.indexOf('--stub-models');
 const STUB = STUB_I >= 0;
 const P_STEP = STUB && /^\d*\.?\d+$/.test(argv[STUB_I + 1] ?? '') ? Number(argv.splice(STUB_I + 1, 1)[0]) : 0.7;
@@ -140,7 +143,7 @@ const stamp = () => `+${((clock - T0) / 60000).toFixed(2)}m`;
 console.log = (...a: unknown[]) => {
   const s = a.map(String).join(' ');
   if (LOG) logLines.push(`${stamp()} ${s.slice(0, 400)}`);
-  if (/^\[(choice-none|merchant|initiative|food|activity|needwork|need|light|work|grow|vote|own|barter|claim|innovate)\]/.test(s)) keep.push({ t: clock, s: s.slice(0, 2000) });
+  if (/^\[(choice-none|merchant|initiative|food|activity|needwork|need|light|work|grow|vote|own|barter|claim|innovate|instinct)\]/.test(s)) keep.push({ t: clock, s: s.slice(0, 2000) });
 };
 console.warn = () => {};
 console.info = () => {};
@@ -161,6 +164,7 @@ const { LIBRARY: LIB } = await import('../../server/src/tech');
 const LIB_ITEMS = new Set(LIB.flatMap((e) => e.goods.map((g) => g.item)));
 const { designBill } = await import('../../server/src/mineflayer/mcMaterials');
 const { scoreSample } = await import('../../server/src/scorecard');
+const INS = await import('../../server/src/instincts');
 
 // ---- the world ---------------------------------------------------------------------------------------------------------
 
@@ -284,6 +288,8 @@ let nextId = 1;
 let boardSig = -1;
 const unknown = new Map<string, number>();
 let fromRef = 0;
+let faults = 0;
+const frng = S.rngOf(SEED + 11);
 const boardRun = new Map<string, number>();
 const actionsRun = new Map<string, number>();
 const carries = new Map<string, Counts>();
@@ -557,6 +563,15 @@ function start(a: SimAgent) {
   s.startedTick = w.ticks;
   const x = sampleFor(s, a.away);
   if (x.fail) s._fail = x.fail;
+  // (--fault: the chore's first step fails, by its key)
+  if (FAULTS.length && !s._fail && s.args?.chore) {
+    const ch = [...w.chores.values()].find((c: Any) => c.status[0] === s);
+    const f = ch && FAULTS.find((q) => q.re.test(ch.key));
+    if (f && frng() < f.p) {
+      s._fail = `${s.type}: it went wrong here again (a simulated fault on ${String(ch.key).replace(/:\d+$/, '')})`;
+      faults++;
+    }
+  }
   a.current = { status: s, endAt: clock + Math.max(500, Math.round(x.m * 60000)) };
 }
 function finish(a: SimAgent) {
@@ -591,6 +606,8 @@ function finish(a: SimAgent) {
       out = { ok: false, message: `${s.type} failed in the simulator` };
     }
   Object.assign(s, { state: out.ok ? 'done' : 'failed', message: out.message, endedAt: clock, ...(out.code ? { code: out.code } : {}) });
+  // (#205, MC_INSTINCT_SHARE: a deposit at the storage hut is the storage meeting; the model has no place, so the hut's middle)
+  if (s.type === 'deposit' && out.ok && hutMid) INS.noteDeposit(v.name, a.name, hutMid.x, hutMid.z, clock);
   // (the public works' layouts and sites, as the stage log's lines: where the room runs out)
   if (s.type === 'lay_out_houses' || s.type === 'prepare_site') keep.push({ t: clock, s: `[works] ${a.name} ${s.type} ${out.ok ? 'finished' : 'failed'}: ${out.message.slice(0, 200)}` });
   a.history.push(s);
@@ -601,6 +618,7 @@ function finish(a: SimAgent) {
   else a.pushEvent('action_failed', `${s.type} failed: ${out.message}`, { action: s.id, type: s.type, args: s.args, message: out.message, ...(out.code ? { code: out.code } : {}) });
 }
 const flush = () => new Promise((r) => setImmediate(r));
+const hutMid = v.storageHut ? { x: (v.storageHut.x1 + v.storageHut.x2) / 2, z: (v.storageHut.z1 + v.storageHut.z2) / 2 } : null;
 
 const END = T0 + minutes * 60000;
 let lastTick = T0 - STEP;
@@ -612,7 +630,12 @@ const binMs = Array.from({ length: Math.ceil(minutes / 10) }, () => 0);
 /** #80: the scorecard's samples, at the start and every 10 simulated minutes (reading only: no decision sees them). */
 const scores: Any[] = [];
 const scoreWorld = { members: (x: Any) => w.growMembers(x).length, lightParts: (x: Any) => w.lightParts(x), decorParts: (x: Any) => (CHOOSE.families.has('furnish') ? w.decorParts(x) : []) };
-const score = () => scores.push({ minute: Math.round((clock - T0) / 60000), ...scoreSample(scoreWorld, v, clock) });
+/** #205: the instincts' lineages at each score sample (holders, deepest generation): the spread curves. */
+const spreadBins: Array<{ minute: number; members: number; lineages: Array<{ lineage: string; holders: number; learned: number; gen: number }> }> = [];
+const score = () => {
+  scores.push({ minute: Math.round((clock - T0) / 60000), ...scoreSample(scoreWorld, v, clock) });
+  spreadBins.push({ minute: Math.round((clock - T0) / 60000), members: INS.allInstincts(v.name).filter((m) => m.instincts.length).length, lineages: INS.lineages(v.name).map((l) => ({ lineage: l.lineage, holders: l.holders.length, learned: l.holders.filter((h) => h.source === 'learned').length, gen: Math.max(...l.holders.map((h) => h.gen)) })) });
+};
 score();
 const realStart = realNow();
 while (clock < END) {
@@ -686,6 +709,58 @@ const byKind = (xs: Any[]) => {
   for (const x of xs) m[x.kind] = (m[x.kind] ?? 0) + 1;
   return m;
 };
+/** #205: the instincts' measures (spec 4.2, 6.3): ops, channels, repeat failures of one key a member, reach by bin, depth,
+ *  copies' survival, lessons learned independently by 3+ members. */
+function instinctReport() {
+  const lines = keep.filter((k) => k.s.startsWith('[instinct]'));
+  const ops: Counts = {}, via: Counts = {};
+  const born = new Map<string, number>();
+  let copies = 0, copiesDropped = 0, lifeSum = 0, learned = 0, learnedDropped = 0;
+  const learnedIds = new Set<string>();
+  const lessons = new Map<string, Set<string>>();
+  for (const k of lines) {
+    const m = /^\[instinct\] \S+: (\S+?)(?:'s)? (\S+)/.exec(k.s);
+    if (!m) continue;
+    const op = m[2].replace(/:$/, '');
+    ops[op] = (ops[op] ?? 0) + 1;
+    const b = / borrows (i\d+) from \S+ \((side by side|storage|dusk);/.exec(k.s);
+    if (b) { via[b[2]] = (via[b[2]] ?? 0) + 1; born.set(b[1], k.t); copies++; }
+    const l = / learns (i\d+) "([^"]*)"/.exec(k.s);
+    if (l) {
+      learned++;
+      learnedIds.add(l[1]);
+      // (the lesson without its numbers: the same text learned by several members on their own)
+      const key = l[2].replace(/-?\d+/g, '#');
+      lessons.set(key, (lessons.get(key) ?? new Set()).add(m[1]));
+    }
+    const d = / drops (i\d+)/.exec(k.s);
+    if (d && born.has(d[1])) { copiesDropped++; lifeSum += k.t - born.get(d[1])!; }
+    else if (d && learnedIds.has(d[1])) learnedDropped++;
+  }
+  // (repeat failures: a member's failures of a key it had failed before in this run)
+  const seen = new Set<string>();
+  const ids = new Map<string, Any>();
+  for (const r of rows) if (r.type === 'choice') ids.set(r.id, r);
+  let repeats = 0, failures = 0;
+  const repeatMembers = new Set<string>();
+  for (const r of rows) {
+    if (r.type !== 'choice-end' || r.ok || r.cut || r.code) continue;
+    const c = ids.get(r.id);
+    if (!c) continue;
+    failures++;
+    const k = `${c.agent}|${INS.normKey(c.key)}`;
+    if (seen.has(k)) { repeats++; repeatMembers.add(c.agent); }
+    seen.add(k);
+  }
+  const reach = spreadBins.map((b) => ({ minute: b.minute, top: Math.max(0, ...b.lineages.map((l) => l.holders)), held: b.members, lineages: b.lineages.length }));
+  const lin = INS.lineages(v.name);
+  return {
+    on: INS.INSTINCTS.on, share: INS.INSTINCTS.share, ops, via, repeats, failures, repeatMembers: repeatMembers.size, reach, bins: spreadBins,
+    depth: Math.max(0, ...spreadBins.flatMap((b) => b.lineages.map((l) => l.gen))), lineages: lin.length, multi: lin.filter((l) => l.holders.length > 1).length,
+    copies, copiesDropped, copyLife: copiesDropped ? Math.round(lifeSum / copiesDropped / 6000) / 10 : 0, learned, learnedDropped,
+    bugCandidates: [...lessons].filter(([, ms]) => ms.size >= 3).map(([t, ms]) => `"${t.slice(0, 80)}" by ${[...ms].join(', ')}`),
+  };
+}
 const its = (v.initiatives ?? []) as Any[];
 const itsNew = its.filter((i) => i.at >= T0);
 const report = {
@@ -794,7 +869,8 @@ const report = {
     }));
     return { unlocked: t.unlocked.map((id: string) => `${id} @${Math.round((t.at[id] - T0) / 60000)}m by ${t.inventor[id]}`), attempts: Object.values(attempts).reduce((s, q) => s + q, 0), research, credit: Object.fromEntries(Object.entries(t.credit ?? {}).map(([m, q]: Any) => [m, q.length])), pledgesOpen: Object.values(t.pledges).reduce((s: number, q: Any) => s + q.length, 0), madeChoices: made };
   })(),
-  failsFromReference: fromRef, errors: errors.length, saves, rcon: Object.fromEntries(rconCounts),
+  instincts: instinctReport(),
+  failsFromReference: fromRef, faults, errors: errors.length, saves, rcon: Object.fromEntries(rconCounts),
 };
 fs.writeFileSync(path.join(OUT, 'sim.report.json'), JSON.stringify(report, null, 2));
 if (process.env.SIM_TASKS) fs.writeFileSync(path.join(OUT, 'sim.tasks.txt'), v.tasks.filter((t: Any) => Number(/\d+/.exec(t.id)?.[0]) > T0_TASK).map((t: Any) => `${t.id} [${t.status}] ${t.title} after ${t.after.join(',')}${t.result ? ': ' + String(t.result).slice(0, 90) : ''}`).join('\n') + '\n');
@@ -805,6 +881,7 @@ if (errors.length) fs.writeFileSync(path.join(OUT, 'sim.errors.log'), errors.joi
 // (the record as the run left it, for offline checks and the panel's harness)
 w.villages.flushSync?.();
 fs.copyFileSync(path.join(SCRATCH, 'villages.json'), path.join(OUT, 'villages.json'));
+INS.flushInstincts();
 fs.rmSync(SCRATCH, { recursive: true, force: true });
 
 const kv = (c: Counts) => Object.entries(c).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(', ');
@@ -831,7 +908,15 @@ say(`  food: ${report.food ? `made ${kv(report.food.made)}; eaten ${kv(report.fo
 say(`  storage flows: ${kv(flows)}`);
 say(`  choice-none: ${report.choiceNone.length} lines${report.choiceNone.length ? `; first ${report.choiceNone[0].slice(0, 200)}` : ''}`);
 say(`  light parts: ${JSON.stringify(report.lightParts)}`);
-say(`  failures repeated from the reference: ${fromRef}`);
+say(`  failures repeated from the reference: ${fromRef}${FAULTS.length ? `; simulated faults ${faults} (${FAULTS.map((f) => `${f.re.source}=${f.p}`).join(', ')})` : ''}`);
+if (report.instincts) {
+  const ir = report.instincts;
+  say(`  instincts (${ir.on ? 'on' : 'off'}, sharing ${ir.share ? 'on' : 'off'}): ${kv(ir.ops) || 'no [instinct] line'}; borrowed by ${kv(ir.via) || 'none'}`);
+  say(`    repeat failures of one key a member: ${ir.repeats} (${ir.failures} failures in all, ${ir.repeatMembers} members repeating); act lines ${ir.ops.act ?? 0}`);
+  say(`    reach (members holding a lineage) by 10 min: ${ir.reach.map((b: Any) => `${b.minute}m ${b.top}/${b.held}`).join(' ')} (largest lineage / members holding any)`);
+  say(`    depth ${ir.depth}; lineages ${ir.lineages}, ${ir.multi} held by 2+; copies borrowed ${ir.copies}, dropped ${ir.copiesDropped} (mean life ${ir.copyLife} min), learned dropped ${ir.learnedDropped} of ${ir.learned}`);
+  if (ir.bugCandidates.length) say(`    bug candidates (one lesson learned by 3+ members): ${ir.bugCandidates.join('; ')}`);
+}
 say(`  errors ${errors.length}${errors.length ? ` (first: ${errors[0].slice(0, 300)})` : ''}; saves ${saves}`);
 say(`  out: ${OUT}`);
 // (a failure for check:offline: the world threw, or nobody picked a chore)
