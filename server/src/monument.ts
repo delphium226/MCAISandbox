@@ -165,20 +165,56 @@ export const SANDSTONE_STAND_INS: Record<string, string> = {
 };
 /** #202: the record's sandstone stood in from the first open job the yard's sand and sandstone do not cover (null when
  *  stood in already or none is wanted); returns that job. */
-export function sandstoneStandIn(m: Monument): number | null {
+export function sandstoneStandIn(m: Monument, plan?: PlanOf): number | null {
   const r = m3(m);
   if (r.standIns?.sandstone) return null;
-  const c = monumentPlan(m);
-  let left = Math.floor((m.yard.sand ?? 0) / 4) + Object.keys(SANDSTONE_STAND_INS).reduce((t, b) => t + (m.yard[b] ?? 0), 0), from = -1;
-  for (let i = 0; i < c.jobs.length && from < 0; i++) {
-    if (m.done.includes(i)) continue;
-    left -= Object.keys(SANDSTONE_STAND_INS).reduce((t, b) => t + (c.jobs[i].bill[b] ?? 0), 0);
-    if (left < 0) from = i;
-  }
-  if (from < 0) return null;
+  const from = sandstoneShort(m, plan);
+  if (from === null) return null;
   Object.assign(r.standIns ??= {}, SANDSTONE_STAND_INS);
   Object.assign(r.standInFrom ??= {}, Object.fromEntries(Object.keys(SANDSTONE_STAND_INS).map((b) => [b, from])));
+  r.sandStoodAt = m.done.length;
   return from;
+}
+/** #208: the first open job whose sandstone the yard's sand and sandstone (4 sand a piece) do not cover, or null. With a
+ *  `plan`, a job's sand is what its sandstone's crafts take (train 18's job 2: 107 pieces, 122 sandstone made, 488 sand),
+ *  else 4 a piece. */
+export function sandstoneShort(m: Monument, plan?: PlanOf): number | null {
+  const c = monumentPlan(m), kinds = Object.keys(SANDSTONE_STAND_INS);
+  let left = (m.yard.sand ?? 0) + 4 * kinds.reduce((t, b) => t + (m.yard[b] ?? 0), 0);
+  for (let i = 0; i < c.jobs.length; i++) {
+    if (m.done.includes(i)) continue;
+    const bill = Object.fromEntries(kinds.filter((b) => c.jobs[i].bill[b]).map((b) => [b, c.jobs[i].bill[b]]));
+    if (!Object.keys(bill).length) continue;
+    left -= plan ? plan(bill, {}).gather.sand ?? 0 : 4 * Object.values(bill).reduce((t, q) => t + q, 0);
+    if (left < 0) return i;
+  }
+  return null;
+}
+/** #208: what a failed build's message says to gather ("To get them: withdraw ...; gather 32 sand; craft ..."), by item. */
+export function buildGathers(message: string): Record<string, number> {
+  const out: Record<string, number> = {};
+  const gather = /To get them: (?:[^;]*; )*?gather ([^;]+)/.exec(message)?.[1] ?? '';
+  for (const part of gather.split(', ')) {
+    const g = /^(\d+) (\S+)$/.exec(part.trim());
+    if (g) out[g[2]] = (out[g[2]] ?? 0) + Number(g[1]);
+  }
+  return out;
+}
+/** #208: the sandstone stand-in undone while no job has been built since it and the yard's sand now covers every open
+ *  job's sandstone (train 18's I1 stood it in with trips still out, then left 475 sand unused); true when undone. */
+export function sandstoneStandBack(m: Monument, plan?: PlanOf): boolean {
+  const r = m3(m);
+  if (!r.standIns?.sandstone || r.sandStoodAt === undefined || m.done.length !== r.sandStoodAt) return false;
+  const standIns = { ...r.standIns }, standInFrom = { ...(r.standInFrom ?? {}) };
+  for (const b of Object.keys(SANDSTONE_STAND_INS)) {
+    delete standIns[b];
+    delete standInFrom[b];
+  }
+  if (sandstoneShort({ ...m, standIns, standInFrom } as Monument, plan) !== null) return false;
+  r.standIns = standIns;
+  r.standInFrom = standInFrom;
+  delete r.sandStoodAt;
+  return true;
 }
 /** A furnishing kind left out (its chores failed FURNISH_FAILS times: no iron for ingots or shears): not drawn, and
  *  recorded for the re-furnish. */
@@ -827,6 +863,8 @@ export type MonumentM3 = Monument & {
   standIns?: Record<string, string>;
   /** #165: the job a stand-in applies from (by index; jobs before it keep the block the yard's own stone covers). */
   standInFrom?: Record<string, number>;
+  /** #208: the jobs built when the sandstone stood in (it may be undone until another is built). */
+  sandStoodAt?: number;
   /** #162 C-E: the furnishing kinds drawn (kept on the record as `detail` is), absent: no furnishing stage. */
   furnish?: { lanterns: boolean; banners: boolean; candles: boolean; bell: boolean };
   trades?: Record<string, TradeRecord>;

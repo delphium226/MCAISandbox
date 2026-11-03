@@ -118,7 +118,7 @@ import { DYE_BED, DYE_FLOWERS, DYE_REACH, TALL_FLOWERS, dyeRecipes, makeableColo
 import { DETAIL_COLOURS } from '../gothicGen';
 import { PICKS, drawRank, setSupplyCheck } from '../shortlist';
 import { CIVIC, CIVIC_KEEP, aKind, civicOptions, civicsStanding, civicDone, civicKit, codePick, CIVIC_SYSTEM, CIVIC_TOOL, CIVIC_SITE_FAILS, checkCivic, civicPrompt, civicLine, civicEntry, civicScale, civicsOf, type CivicBuilt, type CivicOption } from '../civic';
-import { newCivic, monumentType, sandstoneStandIn, unsuppliable } from '../monument';
+import { buildGathers, newCivic, monumentType, sandstoneShort, sandstoneStandBack, sandstoneStandIn, unsuppliable } from '../monument';
 import { TALK_DESIGNS, askedName, castPublic, civicIdOf, civicPiece, failWords, matchDesign, publicWords, sampler, shortlist, type DesignOffer, type PublicResult } from '../talkDesign';
 import { stoneStandIn, DEEP_BLOCKS, deepStandIn, GEM_STAND, DYE_FAILS, DYE_WAIT_MIN, dyeStandIn, dyeStood, furnishLeaveOut, leftOutItems, refurnishOn, COPPER_ROOF, COPPER_BLOCKS, copperFrom, copperOn, copperReached, copperStandIn, reroofReturns } from '../monument';
 import { DEEP_KEEP, deepenForStone, setKeepCopper } from './mcMine';
@@ -8651,6 +8651,11 @@ export class MineflayerWorld implements WorldAdapter {
             effect: `the ${N}'s pad, level and ready for its foundations`,
           }, { kind: 'monument', step: 'site' });
       } else {
+        // (#208: a sandstone stand-in undone once the yard's sand covers it again, before another job is built)
+        if (sandstoneStandBack(m, planOf(this, m))) {
+          this.villages.save();
+          console.log(`[monument] ${v.name}: the ${N}'s sandstone back from stone bricks (the yard's ${m.yard.sand ?? 0} sand cover its open jobs)`);
+        }
         // (M2, #145, MC_KILN: a plan of the stage's bill against the yard and the kiln's load: the yard holds made goods)
         const wants = KILN.on ? stageWantsPlanned(m, planOf(this, m)) : stageWants(m, (b) => this.monumentRaw(m, b));
         // (#162 tier 3, chain B: the iron mine keeps the copper ore it meets while the roof wants raw copper)
@@ -8911,7 +8916,10 @@ export class MineflayerWorld implements WorldAdapter {
           // (#202, MC_SAND_TRIPS: the sand near home run out (marked unavailable, or a trip found none): members (#206:
           // up to MC_SAND_PARTY at once) fetch full loads from the nearest dry sand the atlas knows, out to
           // SAND_TRIPS.range; while one can go, or waits for the morning, the sandstone does not stand in)
-          if (item === 'sand' && SAND_TRIPS.on && q >= SAND_TRIPS.min && (this.sandFails.get(v.name) ?? 0) < SAND_TRIPS.fails
+          // (#208: under SAND_TRIPS.min too while the yard's sand is short of the sandstone: train 18's I1 wanted 83 more
+          // and stood the sandstone in with trips still out)
+          const sandOut = item === 'sand' && [...this.chores.values()].some((ch) => ch.village === v.name && !ch.choice.ended && ch.choice.monument?.item === 'sand');
+          if (item === 'sand' && SAND_TRIPS.on && (q >= SAND_TRIPS.min || sandstoneShort(m, planOf(this, m)) !== null) && (this.sandFails.get(v.name) ?? 0) < SAND_TRIPS.fails
             && (v.unavailable?.includes('sand') || (this.monumentBack.get(`${v.name}:gather:sand`) ?? 0) > now)) {
             const home = villageHome(v);
             // (#206, MC_SAND_PARTY: several at once, while the stage wants more after the trips out, each counted at its
@@ -8956,7 +8964,8 @@ export class MineflayerWorld implements WorldAdapter {
           }
           if ((mat === 'sand' || mat === 'flowers') && v.unavailable?.includes(item)) {
             // (#202: no more sand near home: the sandstone made from it stands in as stone bricks)
-            const from = item === 'sand' ? sandstoneStandIn(m) : null;
+            // (#208: never while sand is on its way)
+            const from = item === 'sand' && !sandOut ? sandstoneStandIn(m, planOf(this, m)) : null;
             if (from !== null) {
               this.villages.save();
               console.log(`[monument] ${v.name}: the ${N}'s sandstone stands in as stone bricks from job ${from} (no sand to be had near home)`);
@@ -10589,6 +10598,23 @@ export class MineflayerWorld implements WorldAdapter {
           const st = worker.enqueue('build_monument', { job, chore: true });
           const failed = (why: string) => {
             if (why !== 'cancelled' && !st.code) this.monumentBack.set(`${v.name}:${job}`, Date.now() + 5 * 60000);
+            // (#208: what the build found short to gather is short in the yard too: its count recounted down to storage's,
+            // so the trips and gathers come back. Other chores take from storage past the yard's count: train 18's I0 yard
+            // read 504 sand, storage held 456, and the job failed six times on the same 32 sand with nothing offered)
+            const gather = buildGathers(st.message ?? why);
+            const store = storageContents(v);
+            const fixed: string[] = [];
+            for (const [item, q] of Object.entries(gather)) {
+              if (!(m.yard[item] > 0)) continue;
+              // (at most what storage and the builder's hands hold: a build may fail with withdrawn items still carried)
+              const was = m.yard[item], held = worker.bot.inventory.items().filter((it) => it.name === item).reduce((t, it) => t + it.count, 0);
+              m.yard[item] = Math.max(0, Math.min(was - q, Math.floor(store[item] ?? 0) + held));
+              if (!m.yard[item]) delete m.yard[item];
+              fixed.push(`${item} ${was} -> ${m.yard[item] ?? 0}`);
+            }
+            if (!fixed.length) return;
+            this.villages.save();
+            console.log(`[monument] ${v.name}: job ${job} short to gather ${Object.entries(gather).map(([n, q]) => `${q} ${n}`).join(', ')}: the yard recounted (${fixed.join(', ')})`);
           };
           this.setChore(v, worker, opt.key, [st], `build the ${N}'s job ${job}`, failed, meta, opt.holds, opt);
           const c = this.chores.get(worker.name.toLowerCase());

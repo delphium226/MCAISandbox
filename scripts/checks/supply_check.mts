@@ -16,7 +16,7 @@ import minecraftData from 'minecraft-data';
 import { Materials, YARD_MADE } from '../../server/src/mineflayer/mcMaterials';
 import { planOf } from '../../server/src/mineflayer/mcKiln';
 import { civicEntries, civicOptions, civicScale } from '../../server/src/civic';
-import { M3, architectOptions, monumentPlan, newCivic, newMonument, sandstoneStandIn, unsuppliable, type MonumentM3 } from '../../server/src/monument';
+import { M3, architectOptions, buildGathers, m3, monumentPlan, newCivic, newMonument, sandstoneShort, sandstoneStandBack, sandstoneStandIn, unsuppliable, type MonumentM3 } from '../../server/src/monument';
 import { GOTHIC_PRESETS } from '../../server/src/gothicGen';
 import { CASTLE_PRESETS } from '../../server/src/castleGen';
 import { cutWants, type CutStep } from '../../server/src/cutter';
@@ -76,6 +76,32 @@ for (const [n, ids] of [...made].sort()) console.log(`  ${n}: ${[...new Set(ids)
   console.log(`zytglogge, no sand: stands in from job ${from} (${kept} sandstone pieces kept before it); ${Object.entries(p.bill).filter(([n]) => /stone_brick/.test(n)).map(([n, q]) => `${q} ${n}`).join(', ')}`);
   if (from === null || left || kept > 40) fail('the Zytglogge\'s sandstone does not stand in as the jobs past the yard\'s sand');
   if (sandstoneStandIn(z) !== null) fail('the sandstone stood in twice');
+  // (#208: the yard's sand covering the open jobs again undoes it, until a job is built after it)
+  z.yard = { sand: 4 * 2000 };
+  if (!sandstoneStandBack(z) || m3(z).standIns?.sandstone || !Object.keys(monumentPlan(z).bill).some((n) => /sandstone/.test(n))) fail('the sandstone stand-in is not undone with the yard\'s sand');
+  z.yard = { sand: 4 * 40 };
+  sandstoneStandIn(z);
+  z.done.push(0);
+  z.yard = { sand: 4 * 2000 };
+  if (sandstoneStandBack(z)) fail('the sandstone stand-in undone after a job was built with it');
+}
+// #208, train 18's I0: job 2 (the upper shaft) wants 122 sandstone; the yard read 504 sand, storage held 456
+{
+  const z = newCivic('zytglogge', 2, 'birch', 0);
+  const c = monumentPlan(z);
+  z.done = [0, 1, 3];
+  const ss = (i: number) => (plan(z)(Object.fromEntries(Object.entries(c.jobs[i].bill).filter(([n]) => /sandstone/.test(n))), {}).gather.sand ?? 0) / 4;
+  z.yard = { sand: 504 };
+  const covered = sandstoneShort(z, plan(z));
+  z.yard = { sand: 456 };
+  const short = sandstoneShort(z, plan(z));
+  const g = buildGathers('short of materials for the clock tower\'s upper shaft (job 2): 41 cut_sandstone (carrying 1, storage has 0). To get them: withdraw 9 birch_log, 456 sand; gather 32 sand; craft 122 sandstone, 41 cut_sandstone; then build again');
+  console.log(`#208: job 2 takes ${ss(2)} sandstone; with 504 sand short from ${covered}, with 456 from job ${short}; the failure gathers ${JSON.stringify(g)}`);
+  if (Math.abs(ss(2) - 122) > 2) fail(`the Zytglogge 1:2's job 2 takes ${ss(2)} sandstone, not about train 18's 122`);
+  if (covered !== null) fail('504 sand do not cover job 2\'s sandstone');
+  if (short !== 2) fail('456 sand are not short of job 2\'s sandstone (the trips would not come back)');
+  if (g.sand !== 32 || Object.keys(g).length !== 1) fail('the failure\'s gather is not read as 32 sand');
+  if (Object.keys(buildGathers('short of materials for x: 3 glass. To get them: gather 3 sand, 1 coal; then build again')).length !== 2) fail('a gather of two items is not read');
 }
 // A detail cathedral's cut sandstone from the yard's sand
 {
