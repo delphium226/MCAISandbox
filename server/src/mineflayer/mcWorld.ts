@@ -143,7 +143,7 @@ const UNDER_MS = 8 * 60000;
 const UNDER_IDLE = new Set(['wait', 'experiment']);
 /** #140 (F324): minutes (game time) a village leaves a bed flower it ran out of out of new mixes. */
 const FLOWER_OUT_MIN = 60;
-import { WALLS_NOW, WALL_NONE, WALL_VOTE, wallCap, gateTick, insideTick, nextSeg, noteGates, regrowWall, segBill, startWall, wallLine, wallsOn } from './mcWalls';
+import { WALLS_NOW, WALL_NONE, WALL_VOTE, wallCap, gateTick, inside as wallInside, insideTick, nextSeg, noteGates, regrowWall, segBill, startWall, wallLine, wallsOn } from './mcWalls';
 import { kilnHolds, kilnLanes, kilnLine, kilnSize, kilnStone } from '../kiln';
 import { quarryLine } from '../quarry';
 
@@ -8129,6 +8129,13 @@ export class MineflayerWorld implements WorldAdapter {
         const fences = Math.max(0, (bill[`${wood}_fence`] ?? 0) - (st[`${wood}_fence`] ?? 0));
         const needPlanks = Math.ceil((fences * 5) / 3) + 4 * Math.max(0, (bill[`${wood}_fence_gate`] ?? 0) - (st[`${wood}_fence_gate`] ?? 0));
         const done = w.segs.filter((x) => x.cells.every((c) => w.built[`${c.x},${c.z}`])).length;
+        // (#203, the user's "rank it high": after a death or 5+ hostiles inside the ring at night, the unfinished wall ranks as
+        // a village project (150) and weighs 2x (the scripted pick and the shortlist read weights, not rank: N8 at rank alone took
+        // 2 of 107), still one builder per 6 members; N7's segments were offered on 144 menus and taken 3 times)
+        const dg = dangerOf(v.name);
+        // (the vote's own trigger, the danger count's night peak within 48 of home, too: once members have beds the night is
+        // slept through in seconds and the ring gets no night sample, N9)
+        const urgent = DIST_BINS.some((x) => (dg.deaths[x] ?? 0) > 0) || dg.peak48 >= 5 || (wallInside.get(v.name)?.peak ?? 0) >= 5;
         if ((st.cobblestone ?? 0) >= bill.cobblestone && planks < needPlanks) {
           // (the segment's wood short: a trip for it, the wall's own, as the workshop's tree felling)
           const logs = Math.max(GATHER_MIN_TRIP.logs, Math.min(GATHER_KINDS.logs.trip, Math.ceil((needPlanks - planks) / 4)));
@@ -8136,18 +8143,31 @@ export class MineflayerWorld implements WorldAdapter {
           while (busy.has(`gather:logs:${n}`)) n++;
           if (!excluded(['wallwood='], busy))
             add({
-              id: 'wall:wood', kind: 'gather', key: `gather:logs:${n}`, holds: ['wallwood'], excludes: [`gather:logs:${n}=`, 'wallwood='], name: `Fell ${wood} trees for the village wall`, rank: 405,
+              id: 'wall:wood', kind: 'gather', key: `gather:logs:${n}`, holds: ['wallwood'], excludes: [`gather:logs:${n}=`, 'wallwood='], name: `Fell ${wood} trees for the village wall`, rank: urgent ? 155 : 405, ...(urgent ? { nw: 2 } : {}),
               facts: `part ${s.id} of the wall wants ${needPlanks} ${wood} planks for its fences and gate; storage holds ${planks} in ${wood} logs and planks`,
               effect: `+${logs} ${wood} logs toward the wall's next part (monsters kept out at night)`,
             }, { kind: 'gather', material: 'logs', n, amount: logs, block: `${wood}_log`, deposit: 'logs', need: needPlanks - planks, incoming: 0, for: ['the village wall'] });
           reasons.wall = `storage short of ${wood} wood`;
         } else if ((st.cobblestone ?? 0) >= bill.cobblestone) {
           add({
-            id: `wall:${s.id}`, kind: 'wall', key: `wall:${s.id}`, excludes: [`wall:${s.id}=`], name: 'Build the village wall', rank: 400,
+            id: `wall:${s.id}`, kind: 'wall', key: `wall:${s.id}`, excludes: [`wall:${s.id}=`], name: 'Build the village wall', rank: urgent ? 150 : 400, ...(urgent ? { nw: 2 } : {}),
             facts: `part ${s.id} of ${w.segs.length} (${done} done): ${s.cells.length} blocks of fence on cobblestone with a gate; takes ${bill.cobblestone} cobblestone and ~${Math.ceil(needPlanks / 4)} logs' wood from storage`,
             effect: 'monsters kept out of the village at night (zombies cannot open the gates)',
           }, { kind: 'wall', seg: s.id });
-        } else reasons.wall = 'storage short';
+        } else {
+          // (cobblestone short: a trip for it, the wall's own, as the workshop's (the mine first); N10's storage ran dry once
+          // the wall was taken more often)
+          const q = Math.max(GATHER_MIN_TRIP.cobblestone, Math.min(GATHER_KINDS.cobblestone.trip, bill.cobblestone - (st.cobblestone ?? 0)));
+          let n = 1;
+          while (busy.has(`gather:cobblestone:${n}`)) n++;
+          if (!excluded(['wallstone='], busy))
+            add({
+              id: 'wall:stone', kind: 'gather', key: `gather:cobblestone:${n}`, holds: ['wallstone'], excludes: [`gather:cobblestone:${n}=`, 'wallstone='], name: 'Mine cobblestone for the village wall', rank: urgent ? 155 : 405, ...(urgent ? { nw: 2 } : {}),
+              facts: `part ${s.id} of the wall takes ${bill.cobblestone} cobblestone; storage holds ${st.cobblestone ?? 0}`,
+              effect: `+${q} cobblestone toward the wall's next part (monsters kept out at night)`,
+            }, { kind: 'gather', material: 'cobblestone', n, amount: q, block: 'cobblestone', deposit: 'cobblestone', need: bill.cobblestone - (st.cobblestone ?? 0), incoming: 0, for: ['the village wall'] });
+          reasons.wall = 'storage short of cobblestone';
+        }
       }
     }
 
