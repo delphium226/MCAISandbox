@@ -519,7 +519,9 @@ async function walkOnce(a: BotAgent, goal: InstanceType<typeof goals.Goal>, targ
         console.log(line);
         // (#205: E2, a stall cluster at one spot teaches the member to keep its targets off it; home is the storage hut)
         const v = a.village(), c = v?.storage?.chests[0];
-        try { noteStall(line, { village: v?.name, home: c ? { x: c.x, z: c.z } : null }); } catch { /* (never stop a walk) */ }
+        // (#210: never an area on the storage hut or a structure: a stall there is the walk's fault)
+        const keepOff = v ? [...(v.storageHut ? [v.storageHut] : []), ...v.structures] : [];
+        try { noteStall(line, { village: v?.name, home: c ? { x: c.x, z: c.z } : null, keepOff }); } catch { /* (never stop a walk) */ }
       }
       // Set back by the server again and again: does its world differ from the bot's round the feet (F147's mine stalls)?
       if (tally.forced >= 20) void serverDiffers(a).then((d) => console.log(`[stuck-world] ${a.name} at ${at(bot.entity.position)}: ${d}`), () => {});

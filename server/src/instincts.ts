@@ -51,6 +51,10 @@ export const CAP = 5, LEARNED = 1, BORROWED = 0.5, STEP = 0.25, FADE_DAYS = 2, X
 export const SHARE_MIN = 0.75, HUT_NEAR = 8, HUT_SECS = 20, NIGHT_LIST = 3, PENDING_DAYS = 2;
 /** E1's and E2's windows (village minutes), E2's count and reach (blocks), an area's scope radius and merge distance. */
 const FAIL_WINDOW = 30, STALL_WINDOW = 10, STALL_N = 3, STALL_NEAR = 12, AREA_R = 6, AREA_MAX_R = 12, MERGE = 8;
+/** #210: the same failure confirms an instinct once per CONFIRM_WINDOW village minutes (a loop confirms once); no area
+ *  within HOME_NEAR blocks of home (the storage) or KEEP_NEAR of a village structure (a walk stall there is the walk's
+ *  fault, never the place's). */
+const CONFIRM_WINDOW = 10, HOME_NEAR = 10, KEEP_NEAR = 4;
 
 const scale = () => Math.max(0.1, Number(rawSetting('MC_TIME_SCALE') ?? 1) || 1);
 /** Village minutes as wall-clock ms. */
@@ -98,6 +102,8 @@ export interface Instinct {
   at: number;
   /** Last graded (or faded): the untested fade counts from here; ties in replacement go to the least recent. */
   graded: number;
+  /** #210: the last confirmation by a failure, and which (one per CONFIRM_WINDOW from the same failure). */
+  confirmed?: { by: string; t: number };
   evidence: string[];
 }
 interface Candidate {
@@ -238,6 +244,14 @@ export function itemOf(key: string, what?: string): string | undefined {
 /** A failure message's class: numbers and coordinates out, the first 8 words. */
 export const msgClass = (m: string): string => m.toLowerCase().replace(/-?\d+(\.\d+)?/g, '#').replace(/[^a-z#' ]+/g, ' ')
   .split(/\s+/).filter(Boolean).slice(0, 8).join(' ');
+/**
+ * #210: a failure the walk caused (a stall, no path, a timeout on the way, a rescue), not the chore: it neither teaches
+ * nor grades a chore lesson (Xavier's 17 "stuck at ... on the way to your own door" taught "avoid eat"). A gather that
+ * tried several targets and reached none is the item's failure, and still counts.
+ */
+export const walkFailure = (m: string): boolean =>
+  /\bstuck at\b|\bno path to\b|\btimed out at\b|\bcould not get to\b|\bteleported to\b|\bwalks? kept stalling\b|\bshort of your own door\b/i.test(m) &&
+  !/^could not reach [a-z_]+: \d+ tried/i.test(m);
 export const words = (s: string): number => s.split(/\s+/).filter(Boolean).length;
 
 const COMPASS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'];
@@ -301,7 +315,17 @@ function drop(st: MemberState, village: string, agent: string, i: Instinct, why:
 }
 
 /** Grade an instinct (+1 confirms, -1 contradicts): one step, capped at 1.0, dropped at 0. */
-function grade(st: MemberState, village: string, agent: string, i: Instinct, sign: 1 | -1, why: string, now: number): void {
+function grade(st: MemberState, village: string, agent: string, i: Instinct, sign: 1 | -1, why: string, now: number, failure?: string): void {
+  // (#210: Xavier's i36 was confirmed 5 times by one loop: the same failure (`failure`, its key and class, or 'stall')
+  // within CONFIRM_WINDOW of the last confirmation by it only keeps the instinct from the untested fade)
+  if (sign > 0 && failure !== undefined) {
+    const last = i.confirmed;
+    if (last && last.by === failure && now - last.t < vmin(CONFIRM_WINDOW)) {
+      i.graded = now;
+      return;
+    }
+    i.confirmed = { by: failure, t: now };
+  }
   i.conf = Math.min(LEARNED, i.conf + sign * STEP);
   i.graded = now;
   log(village, `${agent} ${sign > 0 ? 'confirms' : 'contradicts'} ${i.id} (${why}; ${pct(i.conf)})`);
@@ -315,7 +339,7 @@ function grade(st: MemberState, village: string, agent: string, i: Instinct, sig
 function promote(st: MemberState, village: string, agent: string, c: Candidate, now: number, direct = false): Instinct | null {
   const dup = st.instincts.find((i) => sameTrigger(i.trigger, c.trigger));
   if (dup) {
-    if (dup.conf < LEARNED) grade(st, village, agent, dup, 1, `learned again: ${c.evidence.at(-1) ?? ''}`, now);
+    if (dup.conf < LEARNED) grade(st, village, agent, dup, 1, `learned again: ${c.evidence.at(-1) ?? ''}`, now, c.how === 'E2' ? 'stall' : `${c.trigger.keys[0]} ${c.cls}`);
     else dup.graded = now;
     return null;
   }
@@ -427,10 +451,13 @@ function learnAtEnd(c: Chore, rec: { ok: boolean; message: string }, now: number
   const st = member(c.village, c.agent);
   sweep(st, c.village, c.agent, now);
   const key = normKey(c.key), cls = msgClass(rec.message);
+  const walked = !rec.ok && walkFailure(rec.message);
   // Grading (3.1): one grade per instinct per chore
   for (const i of [...st.instincts]) {
     if (c.graded.has(i.id)) continue;
     let sign: 1 | -1 | 0 = 0;
+    // (#210: a walk's failure says nothing of the chore)
+    if (walked && !i.trigger.area) continue;
     if (i.trigger.area) {
       // (the place layer fell back to an avoided target in this chore: its outcome grades the area)
       if (c.touched.has(i.id)) sign = rec.ok ? -1 : 1;
@@ -438,7 +465,7 @@ function learnAtEnd(c: Chore, rec: { ok: boolean; message: string }, now: number
     else if (i.trigger.keys.includes(key) || i.trigger.kinds.includes(c.kind)) sign = rec.ok ? -1 : cls === i.cls ? 1 : 0;
     if (!sign) continue;
     c.graded.add(i.id);
-    grade(st, c.village, c.agent, i, sign, `${c.id} ${rec.ok ? 'ok' : 'failed'}`, now);
+    grade(st, c.village, c.agent, i, sign, `${c.id} ${rec.ok ? 'ok' : 'failed'}`, now, rec.ok ? undefined : `${key} ${cls}`);
   }
   if (rec.ok) {
     // E4: a success at the same need by another key fills a recent E1 lesson's "instead"
@@ -454,7 +481,9 @@ function learnAtEnd(c: Chore, rec: { ok: boolean; message: string }, now: number
     }
     return;
   }
-  // E1: the same key failed twice within 30 village minutes with the same message class
+  // E1: the same key failed twice within 30 village minutes with the same message class; never from a walk's failure,
+  // which belongs to E2's stalls if anywhere (#210)
+  if (walked) return;
   st.fails = st.fails.filter((f) => now - f.t <= vmin(FAIL_WINDOW));
   const ref = `${c.id} "${rec.message.slice(0, 60)}"`;
   const same = st.fails.filter((f) => f.key === key && f.cls === cls);
@@ -478,7 +507,7 @@ export function parseStuck(line: string): Stall | null {
 }
 
 /** E2 and the area grades: a member's walk stalled (`line` is its `[stuck]` line; `home` the village's storage). */
-export function noteStall(line: string, opts: { village?: string; home?: { x: number; z: number } | null; now?: number } = {}): Instinct | null {
+export function noteStall(line: string, opts: { village?: string; home?: { x: number; z: number } | null; keepOff?: Array<{ x1: number; z1: number; x2: number; z2: number }>; now?: number } = {}): Instinct | null {
   if (!INSTINCTS.on) return null;
   const s = parseStuck(line);
   if (!s) return null;
@@ -501,7 +530,7 @@ export function noteStall(line: string, opts: { village?: string; home?: { x: nu
       chore.stalls.set(held.id, n);
       if (n >= STALL_N) {
         chore.graded.add(held.id);
-        grade(st, village, s.agent, held, 1, `${n} stalls in it during ${chore.id}`, now);
+        grade(st, village, s.agent, held, 1, `${n} stalls in it during ${chore.id}`, now, 'stall');
       }
     }
     return null;
@@ -512,6 +541,9 @@ export function noteStall(line: string, opts: { village?: string; home?: { x: nu
   const near = st.stalls.filter((q) => Math.hypot(q.x - s.x, q.z - s.z) <= STALL_NEAR);
   if (near.length < STALL_N) return null;
   const cx = near.reduce((a, q) => a + q.x, 0) / near.length, cz = near.reduce((a, q) => a + q.z, 0) / near.length;
+  // (#210: never an area at home or on the village's own works: Xavier, stuck in the storage hut, learned to avoid it)
+  if (opts.home && Math.hypot(cx - opts.home.x, cz - opts.home.z) <= HOME_NEAR) return null;
+  if (opts.keepOff?.some((b) => Math.max(b.x1 - cx, cx - b.x2, b.z1 - cz, cz - b.z2) <= KEEP_NEAR)) return null;
   const r = Math.min(AREA_MAX_R, Math.max(AREA_R, ...near.map((q) => Math.hypot(q.x - cx, q.z - cz) + 2)));
   const area: Area = { x: Math.round(cx * 10) / 10, z: Math.round(cz * 10) / 10, r: Math.round(r * 10) / 10, ...(opts.home ? { from: { x: opts.home.x, z: opts.home.z } } : {}) };
   const trigger: Trigger = { keys: chore ? [normKey(chore.key)] : [], kinds: [], item: chore?.item, area };

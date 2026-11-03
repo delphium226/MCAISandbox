@@ -241,6 +241,35 @@ m4.agent = 'Rae';
 I.applyInstincts(m4);
 check(m4.ctx.instincts === sec, 'applyInstincts puts the section in the menu context');
 
+// #210: walk failures teach and grade no chore lesson; no area at home or on a structure; a loop confirms once
+fresh();
+const walkMsg = 'stuck at -1630,65,21 on the way to your own door; try a different route or a nearer point';
+for (let k = 0; k < 17; k++) chore('Xav', 'eat_own', 'eat', false, walkMsg, T0 + k * 3 * MIN, 'eat 2 cooked_cod from your own chest');
+check(held('Xav').length === 0, 'Xavier\'s 17 "stuck at ... on the way to your own door" teach no "avoid eat"');
+check(I.walkFailure('no eggs in the chicken pen on annex slot 2 (walk: stuck at -1,2,3 on the way to the chicken pen\'s gate; try a different route)')
+  && I.walkFailure('no path to -1,2,3 from here (blocked by terrain, water or buildings); try a nearer point or explore first')
+  && !I.walkFailure('could not reach birch_leaves: 4 tried from -1,2,3 in 30 s; last problem: stuck at -1,2,3 on the way to birch_leaves')
+  && !I.walkFailure('no sand within 96 blocks of the village at -1500,63'), 'walkFailure: stalls and no path, not a gather that tried 4 targets');
+fail2('Xav', 'make:torch', T0 + DAY);
+const xt = held('Xav')[0];
+xt.conf = 0.5;
+chore('Xav', 'make:torch', 'make', false, walkMsg, T0 + DAY + 3 * MIN);
+check(xt.conf === 0.5, 'a walk failure of the avoided key does not confirm it');
+chore('Xav', 'make:torch', 'make', false, 'cannot make make:torch: short of planks', T0 + DAY + 4 * MIN);
+chore('Xav', 'make:torch', 'make', false, 'cannot make make:torch: short of planks', T0 + DAY + 6 * MIN);
+chore('Xav', 'make:torch', 'make', false, 'cannot make make:torch: short of planks', T0 + DAY + 8 * MIN);
+check(xt.conf === 0.75, `the same failure three times in 10 minutes confirms once (${xt.conf})`);
+chore('Xav', 'make:torch', 'make', false, 'cannot make make:torch: short of planks', T0 + DAY + 16 * MIN);
+check(xt.conf === 1, `and again after the window (${xt.conf})`);
+const hutStall = (x: number, z: number) => stuck('Xav', x, z, 0).replace('moved 1.20', 'moved 0.00');
+for (let k = 0; k < 4; k++) I.noteStall(hutStall(-1630, 21), { village: V, home, now: T0 + 2 * DAY + k * MIN });
+check(!held('Xav').some((i) => i.trigger.area), 'four stalls in the storage hut teach no area (home)');
+const house = { x1: -1400, z1: 100, x2: -1393, z2: 107 };
+for (let k = 0; k < 4; k++) I.noteStall(hutStall(-1391, 104), { village: V, home, keepOff: [house], now: T0 + 2 * DAY + (5 + k) * MIN });
+check(!held('Xav').some((i) => i.trigger.area), 'nor stalls 2 blocks from a house');
+for (let k = 0; k < 4; k++) I.noteStall(hutStall(-1380, 104), { village: V, home, keepOff: [house], now: T0 + 2 * DAY + (10 + k) * MIN });
+check(held('Xav').some((i) => i.trigger.area), 'stalls 13 blocks from it still teach one');
+
 // The flag off: nothing learned, no weight
 fresh();
 I.setInstinctsOn(false);
