@@ -51,9 +51,9 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
   recount 597 -> 442, two trips out, no stand-in; job 2's rebuild and the undo not seen live). STRATEGY.md refreshed.
 - **Decided 11-03 (planning):** #203's wall takes option (a): plan and build the ring once growth is done (houses >=
   members or nothing left to lay out); `MC_WALLS_NOW` still forces it.
-- **Proposed, waiting for the user's click:** "Test train 19" (task_45eefbee: train 18's setup on 60360db+,
-  `MC_CUSTOMS` on in both arms, worlds 4/5, no survival slot, F352) and "Survival fixes #211 and #203" (task_9d2fb528,
-  world 2, #189 if time). Both briefs are on the cards.
+- **In flight (started 11-03 ~14:45, report to the planning session):** train19
+  (local_deb1ec98-fadc-4d34-a395-a2813e5d59f5: train 18's setup on 60360db+, `MC_CUSTOMS` on in both arms, worlds 4/5,
+  no survival slot, F352) and survival-211-203 (local_07899354-6a53-4b35-9c68-6df0c2f90cef: world 2, #189 if time).
 - **Next:**
   1. Check train 19's report against its logs (job 2 in sandstone in both arms, the cathedral begun, instincts learned
      and whether a tag reached a model-made choice).
