@@ -57,13 +57,14 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
   but only on broken chores:** 24 lessons, all right or plausible; the avoid tag reached 843 model-made choices and
   halved the model's pick of the tagged option (11.8% vs 25.4%); stone attempts -38%. Busy, houses and initiatives
   within noise. The lessons were all about broken customs (#213). New: #212, #213, #214.
-- **#211 fixed** (82b5536, survival-211-203). **In flight:** survival-211-203
-  (local_07899354-6a53-4b35-9c68-6df0c2f90cef, world 2): #203 (the wall plans after growth: 434-480 cells against
-  1,168; slow to build because the civic tower takes the cobblestone), N0 to run. **Proposed card:** fixes #212, #213,
-  #214 (task_08180adf, world 1).
+- **#211 fixed** (82b5536). **#212** (ff58439), **#214** (4cff948, dig_teleport.cjs reproduces Finn's freeze) and
+  **#213** (83a430f; staged C4: 16 custom chores, 0 failures) fixed by fix212-214 (notes
+  `runs/2026-11-03/fix212-214/notes.md`; checked). **In flight:** survival-211-203
+  (local_07899354-6a53-4b35-9c68-6df0c2f90cef, world 2): #203 option (a) committed as 45f5049 (Refs), its runs N6/N7
+  going (wall voted at 480 cells after growth).
 - **Next:**
   1. Check survival-211-203's #203 commit and its pair's report; then #189 after a measurement.
-  2. Once #212-#214 are in: the G2 question for the user (instincts work end to end but find little to learn on this
+  2. #212-#214 are in: the G2 question for the user (instincts work end to end but find little to learn on this
      checkpoint once the bugs are gone): longer runs, harder ground, or leave instincts as they are and move on.
   3. #208 follow-up: the yard over-counts sand by 12-140 at each recount (report (a)); #193, monument follow-ups
      (#150-#163), #164 steps 3-5.
