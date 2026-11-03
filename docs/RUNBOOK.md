@@ -543,6 +543,9 @@ reset_site.py on a locked world only warns. CLI: `scripts/goal_map.mts catalogue
   Since 2026-10-24: `pad_halo.py WORLD X1 Z1 X2 Z2` (or `--villages FILE [--village NAME]`: a prepared plot's edge read
   offline against the pristine test world: steps over 1 and of 3+ in the ring out to the halo, cave air under the cut;
   passes over buildings and the mine; for fresh preparations, #136).
+  Since 2026-11-03: `river_swim.py LOG` (#204, test world 2 from `t12_zyt202`: a P1 member deposits sand from the far
+  bank of the river east of P1, from the water and mid-river, and collects sand in a shore channel; at most 4 `[stuck]`
+  lines a spot, landing or a `[rescue]`; prints the `[stuck]`, `[repath]`, `[swim]` and `[rescue]` counts).
   Since E.1 (2026-10-11): `scale_probe25.py AGENT_LOG` (25 bots of mixed work; `LEVELS`, `WORK`), `pf_share.mts` (the
   pathfinder's shared allowance offline), `human_line.cjs NAME PORT "TEXT"` (a plain player's chat line, for chat
   routing), `cdp_profile.cjs`/`profile_callers.cjs` (CPU profile of a running agent server, lesson 125),

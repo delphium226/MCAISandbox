@@ -3,6 +3,7 @@
  * so the same brains run here as in the sandbox. Skills (mcSkills.ts) are async functions that stop when their
  * AbortSignal fires; the queue runs them one at a time, like the sandbox's.
  */
+import { createRequire } from 'node:module';
 import mineflayer, { type Bot } from 'mineflayer';
 import pathfinderPkg from 'mineflayer-pathfinder';
 import { Vec3 } from 'vec3';
@@ -27,6 +28,8 @@ import { WALK_DIG } from './mcBlocks';
 import { GEODE_GROWTH, GEODE_GUARD, GEODE_LINING, geodeBreakCost, geodeStepCost, stateIds } from './mcGeode';
 
 const { pathfinder, Movements } = pathfinderPkg;
+/** The pathfinder's move (a neighbour in its search: a cell, the blocks left, a cost); not in its typings. */
+const Move = createRequire(import.meta.url)('mineflayer-pathfinder/lib/move') as new (x: number, y: number, z: number, remainingBlocks: number, cost: number) => unknown;
 
 // Our Mineflayer patch (patches/mineflayer+4.39.0.patch) runs the physics clock this many times faster (T.1)
 declare module 'mineflayer' {
@@ -401,6 +404,23 @@ export class BotAgent implements WorldAgent {
         if (m.getBlock(at, 0, y, dir.z).physical || m.getBlock(at, 0, y + 1, dir.z).physical) return;
         if (m.getBlock(at, dir.x, y, 0).physical || m.getBlock(at, dir.x, y + 1, 0).physical) return;
         diagonal(node, dir, neighbors);
+      };
+      // #204: no move ends with the head under water. Paths crossed rivers along the bed (feet and head in water, a node
+      // per cell of the bottom), but the pathfinder holds jump in any water: the bot floated at the surface over a node 1-2
+      // blocks down, never reached it, circled over it until the pathfinder's 3.5 s reset and got the same path again
+      // (Jonah and Kai, 24 and 33 stalls in a river in fix202's run 6). Paths through water swim its surface now; from a
+      // node already under water (a bot that sank, or one bobbing low at the start) the way on is straight up
+      const neighbours = m.getNeighbors.bind(m);
+      const wv = new Vec3(0, 0, 0);
+      m.getNeighbors = (node) => {
+        const out = neighbours(node);
+        let k = 0;
+        for (const mv of out) if (!wetAt(this, wv.set(mv.x, mv.y + 1, mv.z))) out[k++] = mv;
+        out.length = k;
+        const n = node as unknown as { x: number; y: number; z: number; remainingBlocks: number };
+        if (wetAt(this, wv.set(n.x, n.y + 1, n.z)) && !m.getBlock(node as unknown as Parameters<typeof m.getBlock>[0], 0, 2, 0).physical)
+          out.push(new Move(n.x, n.y + 1, n.z, n.remainingBlocks, 1) as (typeof out)[number]);
+        return out;
       };
       this.movements = m;
     }
@@ -993,6 +1013,28 @@ export class BotAgent implements WorldAgent {
       if (this.reflex === ac) this.reflex = null;
       this.halt();
     });
+  }
+
+  /** A rescue or another reflex is under way (its walks do not call for another rescue: mcUtil walk). */
+  get rescuing(): boolean {
+    return this.reflex !== null;
+  }
+
+  /**
+   * #204: a walk stalled `n` times at one spot without getting anywhere (mcUtil walk, PINNED_STALLS): a teleport home,
+   * charged nothing, logged as a rescue. Returns what it did, or null with no home to go to.
+   */
+  async rescuePinned(n: number, water: boolean, signal: AbortSignal): Promise<string | null> {
+    const from = this.bot.entity.position.clone();
+    const t = await teleportHome(this, signal);
+    if (!t) return null;
+    const how = water ? 'pinned-water' : 'pinned';
+    const stats = ((this.memory.rescues ??= {}) as Record<string, number | string>);
+    stats[how] = Number(stats[how] ?? 0) + 1;
+    stats.last = `${new Date().toISOString().slice(11, 19)} ${how}: ${t}`;
+    console.log(`[rescue] ${this.name} stalled ${n} times at ${at(from)}${water ? ' in water' : ''} without getting anywhere: teleported: ${t}`);
+    this.pushEvent('system', `Rescue: your walks kept stalling at ${at(from)}${water ? ' in the water' : ''}; ${t}. Carry on from here.`);
+    return t;
   }
 
   observe(radius = 16): Observation {

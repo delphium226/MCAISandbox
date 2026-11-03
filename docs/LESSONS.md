@@ -715,3 +715,11 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    furnace; a load is worth tending when the stage wants fewer than 16 in all), and make sure the shortfall is wanted
    somewhere: claiming from storage got 1 of 27 in a village keeping 32, so the kiln's cobblestone joined the stage's
    wants and was gathered. Fix the first blocker, then run to the end: the second only showed once the kiln stood.
+182. **A path node the bot cannot reach is a stall the watchdog sees as movement** (#204, 2026-11-03): mineflayer-
+   pathfinder planned river crossings along the bed (feet and head in water), but it holds jump in any water, so the bot
+   floated over a node 1-2 blocks down, never "arrived" (|dy| < 1), circled it until its 3.5 s reset and got the same
+   path: 24-33 stalls a member, each moving it 1-3 blocks, so `unmoved()` stayed false, the deposit walked on for 45
+   minutes, and the rescue (which starts on failed actions) never came. `pathfinder.stop()` halts only at the next node,
+   so a swim-out fought the pathfinder's steering too (`setGoal(null)` halts at once). Now no move ends with the head
+   under water (`moves()`), a water stall swims straight to dry ground, and three stalls in water at one spot within 5
+   minutes teleport the member home (`[swim]`, `[rescue] ... stalled 3 times`; `scripts/checks/river_swim.py`).

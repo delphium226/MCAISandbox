@@ -83,21 +83,52 @@ function pathError(e: Error, target: string): Error {
  * more allowing longer drops: a bot that climbed a tree for logs can stand on leaves 5 blocks up with no way down
  * within the usual 4-block drop.
  * A failure carries `moved`, in blocks, horizontally: the larger of how far the last attempt got from where it started
- * and how far the bot ended from where this walk started (so legs and a swim-out count); under 1 means it did not move.
+ * and how far the bot ended from where this walk started (so legs and a swim-out count); under 1 means it did not move
+ * (in water, under 4: a bot bobbing in place drifts 2-3 blocks, #204).
+ * #204: a walk that stalls a third time at one spot without getting anywhere, or in water (PINNED_STALLS within 5 minutes), has the
+ * member teleported home (BotAgent.rescuePinned, charged nothing), then tries once more from there. Jonah and Kai swam in
+ * place in a river for 24 and 33 stalls: each stall moved them 1-3 blocks, so their deposit walked on for 45 minutes and
+ * never failed, and the rescue, which starts on failed actions, never came.
  */
 export async function walk(a: BotAgent, goal: InstanceType<typeof goals.Goal>, target: string, signal: AbortSignal, timeoutMs = 60000, opts: { scaffold?: boolean } = {}) {
   const start = a.bot.entity.position.clone();
   try {
-    await walkRetrying(a, goal, target, signal, timeoutMs, opts);
+    try {
+      await walkRetrying(a, goal, target, signal, timeoutMs, opts);
+    } catch (e) {
+      const n = pinned(a);
+      if ((e as Error).message === 'cancelled' || !n || a.rescuing) throw e;
+      const t = await a.rescuePinned(n, (e as Error & { water?: boolean }).water === true, signal);
+      if (!t) throw e;
+      stalls.delete(a.name);
+      await walkRetrying(a, goal, target, signal, timeoutMs, opts);
+    }
   } catch (e) {
-    const err = e as Error & { moved?: number };
+    const err = e as Error & { moved?: number; water?: boolean };
     if (err.message !== 'cancelled') {
       const p = a.bot.entity.position;
-      err.moved = Math.max(err.moved ?? 0, Math.hypot(p.x - start.x, p.z - start.z));
+      const d = Math.hypot(p.x - start.x, p.z - start.z);
+      err.moved = Math.max(err.moved ?? 0, err.water && d < 4 ? 0 : d);
     }
     throw err;
   }
 }
+
+/** #204: each agent's recent stalls that got nowhere, or were spent in water (where the bot was, when), for `pinned`. */
+const stalls = new Map<string, Array<{ x: number; z: number; t: number }>>();
+const PINNED_STALLS = 3, PINNED_MS = 5 * 60000, PINNED_BLOCKS = 4;
+function noteStallAt(a: BotAgent, p: Vec3) {
+  const now = Date.now();
+  stalls.set(a.name, [...(stalls.get(a.name) ?? []).filter((s) => now - s.t < PINNED_MS), { x: p.x, z: p.z, t: now }]);
+}
+/** How many such stalls the agent had near where it is now, in the last 5 minutes, when that is PINNED_STALLS or more; else 0. */
+function pinned(a: BotAgent): number {
+  const p = a.bot.entity.position, now = Date.now();
+  const n = (stalls.get(a.name) ?? []).filter((s) => now - s.t < PINNED_MS && Math.hypot(s.x - p.x, s.z - p.z) <= PINNED_BLOCKS).length;
+  return n >= PINNED_STALLS ? n : 0;
+}
+/** A stall (stuck or timed out) mostly spent in water. */
+const wetStall = (e: unknown) => /^(stuck|timed out) at/.test((e as Error).message) && (e as { water?: boolean }).water === true;
 
 async function walkRetrying(a: BotAgent, goal: InstanceType<typeof goals.Goal>, target: string, signal: AbortSignal, timeoutMs: number, opts: { scaffold?: boolean }) {
   const moves = a.moves();
@@ -130,7 +161,9 @@ async function walkRetrying(a: BotAgent, goal: InstanceType<typeof goals.Goal>, 
           moved = true;
           break;
         } catch (e) {
-          if ((e as Error).message === 'cancelled') throw e;
+          if ((e as Error).message === 'cancelled' || pinned(a)) throw e;
+          // (#204: a leg stalled in water swims out before the next try; the legs never did, and every try began in it)
+          if (wetStall(e)) await swimToShore(a, g, signal);
         }
       }
       if (!moved) break;
@@ -139,9 +172,9 @@ async function walkRetrying(a: BotAgent, goal: InstanceType<typeof goals.Goal>, 
   try {
     await walkOnce(a, goal, target, signal, timeoutMs);
   } catch (e) {
-    // Stuck in water (the pathfinder swims badly): swim up and toward the goal for a few seconds, then try again
-    if (/^stuck/.test((e as Error).message) && (a.bot.entity as unknown as { isInWater?: boolean }).isInWater) {
-      await swimOut(a, g, signal);
+    // Stalled in water: out to the nearest dry ground, then try again
+    if ((wetStall(e) || (/^stuck/.test((e as Error).message) && (a.bot.entity as unknown as { isInWater?: boolean }).isInWater)) && !pinned(a)) {
+      await swimToShore(a, g, signal);
       return walkOnce(a, goal, target, signal, timeoutMs);
     }
     if (!/^no path/.test((e as Error).message)) throw e;
@@ -301,21 +334,84 @@ export async function outFromUnder(a: BotAgent, goal: InstanceType<typeof goals.
   return null;
 }
 
-/** Swim toward a point (or just up and forward) for up to 6 seconds, until out of the water. */
-async function swimOut(a: BotAgent, toward: { x?: number; z?: number }, signal: AbortSignal) {
+/**
+ * #204: the nearest dry cell within `r` blocks the bot can stand on (solid ground, feet and head open and dry), within 2
+ * blocks of its level; among cells about as near, the one that brings it nearer the goal. Null with none.
+ */
+function shoreCell(a: BotAgent, toward: { x?: number; z?: number }, r = 24): Vec3 | null {
+  const p = a.bot.entity.position;
+  const px = Math.floor(p.x), py = Math.floor(p.y), pz = Math.floor(p.z);
+  const reg = a.world.registry, { open, wet } = tables(a);
+  const solid = (s: number) => s > 0 && wet[s] !== 1 && reg.blocksByStateId[s]?.boundingBox === 'block';
+  const gx = toward.x, gz = toward.z;
+  const goalD = (x: number, z: number) => (typeof gx === 'number' && typeof gz === 'number' ? Math.hypot(gx - x, gz - z) : 0);
+  const here = goalD(px, pz);
+  let best: Vec3 | null = null, score = Infinity;
+  withColumnCache(a, () => {
+    for (let dx = -r; dx <= r; dx++)
+      for (let dz = -r; dz <= r; dz++) {
+        const d = Math.hypot(dx, dz);
+        if (d > r || d >= score) continue;
+        const x = px + dx, z = pz + dz;
+        for (let y = py - 2; y <= py + 2; y++) {
+          if (!solid(stateAt(a, x, y - 1, z)) || open[stateAt(a, x, y, z)] !== 1 || open[stateAt(a, x, y + 1, z)] !== 1) continue;
+          const s = d + 0.5 * (goalD(x, z) - here);
+          if (s < score) {
+            score = s;
+            best = new Vec3(x, y, z);
+          }
+          break;
+        }
+      }
+  });
+  return best;
+}
+
+/**
+ * Out of the water (#204): swim straight for the nearest dry cell the bot can stand on (shoreCell) for up to 30 seconds,
+ * with the pathfinder halted, until out on dry ground or no nearer for 4 seconds; with no such cell, up and toward the
+ * goal for 6 seconds. `pathfinder.stop()` halts only at the path's next node, and a node under water was never reached:
+ * the pathfinder went on steering the bot back over it for up to 3.5 s of each 6 s swim-out.
+ */
+async function swimToShore(a: BotAgent, toward: { x?: number; z?: number }, signal: AbortSignal) {
   const bot = a.bot;
-  const p = bot.entity.position;
-  if (typeof toward.x === 'number' && typeof toward.z === 'number') await bot.lookAt(new Vec3(toward.x, p.y + 1, toward.z)).catch(() => {});
-  bot.pathfinder.stop();
+  const wetNow = () => !!(bot.entity as unknown as { isInWater?: boolean }).isInWater;
+  bot.pathfinder.setGoal(null);
+  bot.clearControlStates();
+  const c = shoreCell(a, toward);
+  const p0 = bot.entity.position.clone();
+  console.log(`[swim] ${a.name} out of the water at ${at(p0)}${c ? ` toward dry ground at ${at(c)} (${Math.hypot(c.x + 0.5 - p0.x, c.z + 0.5 - p0.z).toFixed(1)} blocks)` : ', no dry ground within 24 blocks'}`);
+  const aim = (x: number, z: number) => {
+    const p = bot.entity.position;
+    return bot.look(Math.atan2(-(x - p.x), -(z - p.z)), 0, true).catch(() => {});
+  };
   bot.setControlState('jump', true);
   bot.setControlState('forward', true);
   try {
-    for (let i = 0; i < 30 && (bot.entity as unknown as { isInWater?: boolean }).isInWater; i++) await sleep(200, signal);
-    await sleep(600, signal);
+    if (!c) {
+      if (typeof toward.x === 'number' && typeof toward.z === 'number') await aim(toward.x, toward.z);
+      for (let i = 0; i < 30 && wetNow(); i++) await sleep(200, signal);
+      await sleep(600, signal);
+      return;
+    }
+    let best = Infinity, bestAt = Date.now();
+    const t0 = Date.now();
+    while (Date.now() - t0 < 30000) {
+      const p = bot.entity.position;
+      if (!wetNow() && bot.entity.onGround) break;
+      const d = Math.hypot(c.x + 0.5 - p.x, c.z + 0.5 - p.z);
+      if (d < best - 0.5) {
+        best = d;
+        bestAt = Date.now();
+      } else if (Date.now() - bestAt > 4000) break;
+      await aim(c.x + 0.5, c.z + 0.5);
+      await sleep(200, signal);
+    }
   } finally {
     bot.setControlState('jump', false);
     bot.setControlState('forward', false);
   }
+  console.log(`[swim] ${a.name} ${wetNow() ? 'still in the water' : 'out of the water'} at ${at(bot.entity.position)}`);
 }
 
 /** The `[stuck]` log line: where, what the physics did during the walk, the blocks round the feet, the pathfinder's events. */
@@ -426,7 +522,13 @@ async function walkOnce(a: BotAgent, goal: InstanceType<typeof goals.Goal>, targ
       if (tally.forced >= 20) void serverDiffers(a).then((d) => console.log(`[stuck-world] ${a.name} at ${at(bot.entity.position)}: ${d}`), () => {});
       const g = goal as unknown as { x?: number; z?: number };
       if (typeof g.x === 'number' && typeof g.z === 'number') a.lastStall = { x: g.x + 0.5, z: g.z + 0.5, t: Date.now(), at: { x: bot.entity.position.x, z: bot.entity.position.z } };
-      done(Object.assign(new Error(msg), { moved: far }));
+      // (#204: in water, bobbing in place drifts the bot 2-3 blocks: not getting anywhere either)
+      const water = tally.water * 2 > tally.ticks;
+      const moved = water && far < 4 ? 0 : far;
+      // (a stall in water counts toward a pinned member however far the walk came: one swum out to the bank walked 6
+      // blocks back into the river each time and stalled at the same spot, the rescue's live test with paths on the bed)
+      if ((moved < 1 || water) && (why !== 'timed out' || timeoutMs >= 10000)) noteStallAt(a, bot.entity.position);
+      done(Object.assign(new Error(msg), { moved, water }));
     };
     const arrived = () => atGoal(bot, goal);
     let repaths = 0;
