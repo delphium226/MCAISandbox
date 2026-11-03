@@ -6,7 +6,7 @@ file and PLAN.md's handover after each report. Work sessions read this file and 
 PLAN.md keeps the handover and each phase's design; GitHub issues keep the todo list, each issue under one of the
 milestones below.
 
-*Last updated 2026-10-22 (the planning session, overnight; G1 done, G6's loop runs on members' wishes, G2 and G3 under way, G3-G5 specs written).*
+*Last updated 2026-11-03 (the planning session, after test trains 7-18: G8's civic and monument tiers build, the sand chain works, survival modes under test, instincts on trial).*
 
 ## The goals
 
@@ -25,18 +25,19 @@ again 10-21).
 5. **Richer activities through a self-improving loop**: new activities and community goals learned automatically (the
    foundry, the innovation library, the outer loop), not one development cycle each.
 
-## Where we are (2026-10-21)
+## Where we are (2026-11-03)
 
 | Goal | State |
 | --- | --- |
-| 1. 25 agents, many activities | Largely there: 25 members run together; X1m did 60 distinct activities in 20 minutes. |
-| 2. Sid-style emergence | Mostly unbuilt (Phase E, #26-#34). Life goals already make distinct roles (F267, behind `MC_GOALS`). |
-| 3. Agents' proposals | Not built. Pieces: members' proposals for votes (#13), innovation demand (#73, #71). |
-| 4. Long-horizon memory | **G1 done** (`deea7ea`, F272): journals, intentions and a village clock behind `MC_MEMORY`/`MC_CLOCK` (off); members' later choices use what they remember. Quality left: #86. |
-| 5. Self-improving activities | **G6's first loop done** (10-22, F274-F275): a running village's wanted list made the honeycomb ticket, the foundry merged it (`9666366`), members researched, unlocked and harvested it. Then #89/#91 (F278, F281): the list ranks on members' own wishes (78-87% demand); wool was ticketed from 13 members' wishes, merged, researched, sheared (47 wool) and made into the banners, beds, paintings and carpets they wished for. Open: amethyst needs a tunnelling skill (#91), foundry gaps (#92), the unattended outer loop (#16). |
+| 1. 25 agents, many activities | **There**: every train runs 25 members for 2 hours at 1x, 80-83% busy after completion, ~$1.3 a run (F349-F351). The loop holds (p99 ~55 ms, one `[lag]` a run; F348). Walk stalls are the commonest fault left (#209 and #204 fixed; Support). |
+| 2. Sid-style emergence | **Pieces built, effects small.** Laws are read, voted and followed (G3 done, F298-F300); character v2, wants, pursuits, esteem and titles run by default. A typed village goal moved what members aimed at and said, not what they had (F346); the wants pull choices without raising persistence (F342, F345); the model chooser changes what members do, not how much (F328). Instincts (#205, learned and shared lessons) made no measurable difference in their first 2-hour trial (F351). No custom has yet spread on its own (customs off in recent trains). |
+| 3. Agents' proposals | Members' proposals reach the council and become laws (G3); talk-driven designs get built (train 18's windmill from a talk request). The triage loop with a Claude session (G5, #71) is not built. |
+| 4. Long-horizon memory | **G1 done** (F272): journals, intentions, the village clock, reflections, all on by default. Quality left: #86. |
+| 5. Self-improving activities | G6's first loop done (10-22: honeycomb, wool from members' wishes). **The foundry is parked** (the user's, 10-23); new activities since came by hand through G8. |
+| G8, the ladder | **Iron and letters reached** model-driven (10-24/25). Diamond works from a pinned start (`MC_LADDER_START=diamond`, #180 fixed). **The civic tier and monuments build**: a civic building then a 1:3 cathedral finish in one 2-hour run (F349); a drawn shortlist can pick an unsuppliable building (F350), fixed by sand trips and parties (#202, #206) up to #208's sand count (F351). |
+| Survival modes | Opt-in (peaceful stays the default). Damage costs little (0.04 deaths per member-hour, F344); hostile nights with the curfew, beds, hunters and walls under test: #211 (a night initiative past the curfew), #203 (the wall chases growth), #189 (lava burn). |
 
-Built on the way and kept behind flags: the economy (s43), innovation v2 and life goals (s44), works that grow as refits
-(`MC_WORKS_GROW`, F270). The village model is cheap to run with models (hour 1 of a live model-driven run: $0.17).
+The village model is cheap to run with models: a 25-member 2-hour model-driven run costs about $1.3 (gpt-oss cloud).
 
 ## The health check (not the target)
 
@@ -90,7 +91,15 @@ since 10-30, the user's), the offline checks, a staged run, then a model-driven 
    brewing and no End (to verify in game). Done for a rung when a model-driven village votes for it, works its four
    stages and reaches it. **Iron reached** (10-24, W4: model-driven from a blank map, ~31 min after completion);
    **letters reached** (10-24/25, test train 2's L1: model-driven from a blank map at 1x, voted at +34 min, reached at
-   vote +76 with `MC_LETTERS_PACE`; 886af89, F315); the village then voted for trade.
+   vote +76 with `MC_LETTERS_PACE`; 886af89, F315); the village then voted for trade. **The civic tier and monuments**
+   (10-26 to 11-03, trains 7-18): after iron the village picks a civic building from a drawn shortlist, then a monument
+   (cathedrals at 1:3) with a quarry, kiln, glazing, dye bed and masons' roles; both finish in a 2-hour run when the
+   materials can be had (F349). Open: the sand chain's last gap (#208), the follow-ups #150-#163, smelting over 64 (#193).
+
+**The order now (11-03):** finish G8's sand chain (#208) and prove it with instincts on against off (train 19); the
+survival fixes (#211, #203, #189); then G8's follow-ups. **The open question is G2's**: emergence pieces run but change
+little in 2-hour runs (F328, F342, F346, F351). Whether to answer it with longer runs, stronger learning or more weight on
+members' own choices is the user's call; the planning session brings it with numbers after train 19.
 
 **Why this order:** memory is goal 4 itself, and every behaviour in goal 2 needs agents that remember: profiles,
 promises, reputations, rules and customs all live in memory. G5 and G6 can run beside G1-G4 where their files do not
@@ -189,3 +198,6 @@ number rather than a goal.
 - 2026-10-24: **G8's iron rung reached** in a model-driven run (W4, `runs/2026-10-24/watch-all/report.md`); letters
   voted next and built, its cane pace at 1x the open problem.
 - 2026-10-25: **G8's letters rung reached** model-driven (test train 2, F315); the next vote chose the trade branch.
+- 2026-10-30 (the user's): new feature flags default on; control arms set them off. Survival modes stay opt-in.
+- 2026-11-03: refreshed after trains 7-18 (the planning session): goal 1 there; G8's civic tier and monuments build;
+  survival modes under test; emergence (G2) the open question, to bring to the user with train 19's numbers.
