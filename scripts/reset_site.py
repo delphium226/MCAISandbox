@@ -324,6 +324,25 @@ def clear_talk(villages):
     print(f"talk.json: {n} requests of the reset villages dropped")
 
 
+def clear_instincts(villages):
+    """#212: the instincts of the reset villages' members dropped (never in a checkpoint, as character.json: a run that
+    began with the last run's store spread its wrong lessons again). The agent server drops them too at a spawn with
+    reset; this keeps the file honest for a run that spawns without it."""
+    data = read_json(T.TEST / "instincts.json", None)
+    if not data:
+        return
+    vs = set(villages)
+    members = data.get("members", {})
+    keep = {k: m for k, m in members.items() if k.split("|")[0].lower() not in vs}
+    n = len(members) - len(keep)
+    epochs = {k: e for k, e in data.get("epochs", {}).items() if k.lower() not in vs}
+    if not n and len(epochs) == len(data.get("epochs", {})):
+        return
+    data["members"], data["epochs"] = keep, epochs
+    write_json(T.TEST / "instincts.json", data)
+    print(f"instincts.json: {n} members of the reset villages dropped")
+
+
 def save_checkpoint(site, regions, name, force):
     """Copy the site's regions as the stopped test world has them, the villages on them and their atlas summaries into
     mc/testcheckpoints/NAME (the servers must be stopped first, so Paper has saved every chunk)."""
@@ -512,7 +531,9 @@ def main():
         restore_atlas(regions, source)
         if source != T.SNAP:
             restore_records(source, [v["name"].lower() for v in read_json(source / "villages.json", {}).get("villages", [])])
-        clear_talk([v["name"].lower() for v in read_json(T.TEST / "villages.json", {}).get("villages", []) if any(in_regions(a, regions) for a in village_areas(v))])
+        reset = [v["name"].lower() for v in read_json(T.TEST / "villages.json", {}).get("villages", []) if any(in_regions(a, regions) for a in village_areas(v))]
+        clear_talk(reset)
+        clear_instincts(reset)
     if "--no-start" in opts:
         print(f"{'saved' if save else 'restored'}; not started (--no-start)")
         return

@@ -181,6 +181,24 @@ export function initInstincts(dataDir: string | null): void {
 export const serialiseInstincts = (): string => JSON.stringify(store);
 export function loadInstincts(json: string): void { store = JSON.parse(json) as Store; }
 
+/** A run begins (a spawn with reset, as character.json and G1's memory, #212): the village's members, its epoch and the
+ *  chores and meetings in memory are dropped, so a run never starts with the last run's lessons. Returns the members
+ *  dropped. */
+export function instinctsRunBegin(village: string): number {
+  const v = village.toLowerCase();
+  const mine = (k: string) => k.split('|')[0] === v;
+  const keys = Object.keys(store.members).filter(mine);
+  for (const k of keys) delete store.members[k];
+  delete store.epochs[v];
+  for (const m of [chores, past]) for (const [id, c] of m) if (c.village.toLowerCase() === v) m.delete(id);
+  for (const [a, c] of current) if (c.village.toLowerCase() === v) current.delete(a);
+  for (const k of met.keys()) if (mine(k)) met.delete(k);
+  deposits.delete(village);
+  if (keys.length) log(village, `run begins: ${keys.length} members' instincts of the last run dropped`);
+  save();
+  return keys.length;
+}
+
 function save(): void {
   dirty = true;
   if (!file || timer) return;

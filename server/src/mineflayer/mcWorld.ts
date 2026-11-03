@@ -71,7 +71,7 @@ import { LOW, NEED_TRAIT, needWeight, readNeeds, stepNeed, type NeedKind, type N
 import { UtilClock, type UtilView } from '../utilisation';
 import { FARMSTEAD_ON, NEED_WORKS, addFlow, addMineFlow, farmsteadDue, fieldDue, foodTarget, foodflowReading, madePoints, mineflowReading, stepShort, storedPoints } from '../needWorks';
 import { vanillaJar } from '../vanillaData';
-import { applyInstincts, initInstincts, placeLayer } from '../instincts';
+import { applyInstincts, initInstincts, instinctsRunBegin, INSTINCTS, placeLayer } from '../instincts';
 import { MEMORY, agentMemory, rosterOf, contentWords as contentWordsOf, focusOf, initMemory, lastLines, logAct, noteEnd as memoryEnd, noteIntent, noteSpawn, recall } from '../memory';
 import { tick as clockTick } from '../society';
 import { SOCIAL, blockOn, awareness, noteChoice, noteHelp, observe, observing, roleLine, roleNoun, roleOf, socialOff, type Presence } from '../social';
@@ -2316,6 +2316,11 @@ export class MineflayerWorld implements WorldAdapter {
       if (characterAny() && o.reset && typeof a.memory.village === 'string' && !this.characterBegun.has(a.memory.village)) {
         this.characterBegun.add(a.memory.village);
         characterRunBegin(a.memory.village, Date.now());
+      }
+      // (#212: a spawn with reset drops the village's instincts of the last run too, once in this process)
+      if (INSTINCTS.on && o.reset && !this.instinctsBegun.has(a.memory.village)) {
+        this.instinctsBegun.add(a.memory.village);
+        instinctsRunBegin(a.memory.village);
       }
       // (a respawn after a restart: the chooser's statistics, empty, refilled from the member's stored ends, so the option
       // facts, the pattern line, bans and cooldowns agree with what it remembers; the review's S4)
@@ -9786,6 +9791,7 @@ export class MineflayerWorld implements WorldAdapter {
 
   /** Character v2: villages whose run began in this process (a spawn with reset clears the state once). */
   private characterBegun = new Set<string>();
+  private instinctsBegun = new Set<string>();
 
   /** G3: refusals by a rule already logged (village|agent|option|hour). */
   private ruleLogged = new Set<string>();

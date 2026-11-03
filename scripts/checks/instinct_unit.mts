@@ -270,6 +270,18 @@ check(!held('Xav').some((i) => i.trigger.area), 'nor stalls 2 blocks from a hous
 for (let k = 0; k < 4; k++) I.noteStall(hutStall(-1380, 104), { village: V, home, keepOff: [house], now: T0 + 2 * DAY + (10 + k) * MIN });
 check(held('Xav').some((i) => i.trigger.area), 'stalls 13 blocks from it still teach one');
 
+// #212: a run begins (a spawn with reset): the village's members and epoch go, another village's stay
+fresh();
+fail2('Gus', 'make:torch', T0);
+const stored = JSON.parse(I.serialiseInstincts());
+stored.members['othervale|ada'] = { instincts: [], waiting: [], fails: [], stalls: [], learnDay: 0 };
+I.loadInstincts(JSON.stringify(stored));
+check(held('Gus').length === 1, 'before the run begins Gus holds his lesson');
+const dropped = I.instinctsRunBegin(V);
+const after = JSON.parse(I.serialiseInstincts());
+check(dropped === 1 && held('Gus').length === 0 && !after.epochs[V.toLowerCase()], `a run begins: the village's members and epoch dropped (${dropped})`);
+check(!!after.members['othervale|ada'], "another village's members kept");
+
 // The flag off: nothing learned, no weight
 fresh();
 I.setInstinctsOn(false);
