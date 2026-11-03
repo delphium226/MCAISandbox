@@ -34,7 +34,7 @@ each phase's goal and design, and links to its issues; it no longer carries chec
 
 ## Next session starts with
 
-(updated 2026-11-03 ~14:40 by the planning session (local_14fb6824); the user: "make your own decisions and continue
+(updated 2026-11-03 ~22:30 by the planning session (local_14fb6824), paused for the evening by the user; the user: "make your own decisions and continue
 progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
 
 - **How work runs:** unchanged (the planning session briefs and checks work sessions; the context rule; the test
@@ -67,8 +67,15 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
   monsters inside at night (one builder per 6). survival-211-203 builds that and the wall's own-wood check (#189 needed
   no fix; its notes `runs/2026-11-03/survival-211-203/notes.md`; new issues for the night watch outside the ring and
   the daytime skeleton deaths).
+- **Paused 11-03 ~22:30 (the user: "pause for the evening"):** every world and agent server is down (stopped
+  cleanly, worlds saved); nothing in flight. survival-211-203 is done: 4a18344 (a wall segment only on the village's
+  own wood, else a wood trip) and a37a58c (in danger the wall ranks 150 and weighs 2x, plus a cobblestone trip);
+  staged N11 from checkpoint w203_n9: 28 of 29 segments, 639 of 692 cells in 45 min (N7 before: 430 of 480 in ~95).
+  #203 stays open for the water crossings. New issues #215 (night watch walks to lamps outside the ring) and #216
+  (daytime skeleton deaths at one workshop spot). **Train 20's brief is written:** `runs/2026-11-03/train20/brief.md`
+  (code at a37a58c or later); start it from a message typed in the desktop app.
 - **Next:**
-  1. Check survival-211-203's commits; then **train 20**: train 19's setup in `MC_WORLD_MODE=hostile` with
+  1. **Train 20** from its brief: train 19's setup in `MC_WORLD_MODE=hostile` with
      `MC_WALLS` on, I1 vs I0 (instincts on/off), customs on, both arms equal; report the lessons learned (right/wrong),
      tags in model choices, deaths, failures, busy.
   2. **#217 castle walls** (the user's, 11-03: "an outer castle wall that the members can patrol and fire arrows
