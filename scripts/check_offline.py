@@ -93,6 +93,9 @@ def commands():
     # river crossing by their 3rd stall there)
     out["instinct_unit"] = ([node, TSX, "scripts/checks/instinct_unit.mts"], [])
     out["instinct_replay"] = ([node, TSX, "scripts/checks/instinct_replay.mts", "--quiet"], ["runs/2026-11-02/testagents-154746.log"])
+    # (#220: train 20's I1, the hostile world at 1x: no lesson from the night band or the hunt's health floor; deaths teach)
+    out["instinct_replay_t20"] = ([node, TSX, "scripts/checks/instinct_replay.mts", "runs/2026-11-04/testagents-w4-174352.log", "--quiet"],
+                                  ["runs/2026-11-04/testagents-w4-174352.log"])
     # (#202: every civic building and cathedral has a way into the yard for each of its blocks)
     out["supply_check"] = ([node, TSX, "scripts/checks/supply_check.mts"], [])
     return out
@@ -119,6 +122,7 @@ CHECK_ENV["policy_options"] = {**CHECK_ENV["policy_options"], **OWN_OFF}
 for _n in ("monument_unit", "monument_m3", "castle_monument"):
     CHECK_ENV[_n] = {**CHECK_ENV[_n], **STOCK_OFF}
 CHECK_ENV["monument_stock"] = {**CIVIC_OFF, "MC_MONUMENT_STOCK": "on", "MONUMENT_STOCK_ONLY": "1"}
+CHECK_ENV["instinct_replay_t20"] = {"MC_TIME_SCALE": "1"}
 CHECK_ENV["monument_kiln"] = {**CIVIC_OFF, "MC_MONUMENT_STOCK": "on", "MC_KILN": "on", "MC_GLAZING": "on", "MC_MONUMENT_PALETTE": "full", "MONUMENT_KILN_ONLY": "1"}
 
 

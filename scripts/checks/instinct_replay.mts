@@ -1,6 +1,6 @@
 /**
  * The instincts' replay check (#205, spec runs/2026-11-02/instincts/spec.md 6.2; no server, no world): feeds a run log's
- * `[choice]`, `[choice-end]` and `[stuck]` lines to instincts.ts in order and prints the `[instinct]` lines that form,
+ * `[choice]`, `[choice-end]`, `[stuck]` and (#220) `[death]` lines to instincts.ts in order and prints the `[instinct]` lines that form,
  * at which log line and at which of the member's stalls, and what the place layer would have done with the stalled
  * walks' targets.
  *
@@ -17,6 +17,10 @@
  *   3. an option with no place gets no weight from an area instinct (`xw` undefined), and the flag off forms nothing.
  *   4. (session 2) with MC_INSTINCT_SHARE on: members pass instincts side by side, every copy at 0.5 with a generation,
  *      a giver and a learned lineage, and Kai and Jonah still hold the river area. It prints the passes and lineages.
+ * On train 20's I1 log (runs/2026-11-04/testagents-w4-174352.log, #220; 1x, so MC_TIME_SCALE=1): no lesson from the night
+ * band ("inside the band now") or the hunt's health floor (it taught 21 and 2), and the deaths away from home teach
+ * place lessons (E5): the amethyst stair's (Milo, Wren, Finn, Rosa) for `activity:lib:amethyst`, which weigh the
+ * amethyst option at the geode below 1 and not one elsewhere.
  * Home (the area's `from`) is the storage hut, read from the log's "teleported to the storage hut at X,Y,Z" unless given.
  * Any other log: prints what forms and checks nothing. Exit 1 on a failed check.
  */
@@ -33,6 +37,7 @@ const hi = args.indexOf('--home');
 const RUN6 = 'runs/2026-11-02/testagents-154746.log';
 const file = args.find((a, k) => !a.startsWith('--') && args[k - 1] !== '--home') ?? RUN6;
 const isRun6 = file.replace(/\\/g, '/').endsWith('testagents-154746.log');
+const isT20 = file.replace(/\\/g, '/').endsWith('testagents-w4-174352.log');
 const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
 
 let home: { x: number; z: number } | null = null;
@@ -52,7 +57,7 @@ const check = (ok: boolean, what: string) => {
   if (!ok) failed++;
 };
 
-interface Learned { agent: string; id: string; line: number; stallNo: number; spotNo: number; text: string }
+interface Learned { agent: string; id: string; line: number; stallNo: number; spotNo: number; text: string; how?: string }
 function replay(on: boolean, share = false) {
   I.setInstinctsOn(on);
   I.setInstinctShare(share);
@@ -88,6 +93,16 @@ function replay(on: boolean, share = false) {
       now += 1000;
       const i = I.noteStall(l, { village: villageOf.get(s.agent), home, now });
       if (i) learned.push({ agent: s.agent, id: i.id, line: lineNo, stallNo: mine.length, spotNo: mine.filter((q) => Math.hypot(q.x - s.x, q.z - s.z) <= 12).length, text: i.text });
+    } else if (l.startsWith('[death] ')) {
+      // (#220, E5: '[death] Finn fall at -1555,18,0 ("Finn fell from a high place")'; the phase from the [danger] line after)
+      const m = /^\[death\] (\S+) (\S+) at (-?\d+),-?\d+,(-?\d+)(?: \("(.*)"\))?/.exec(l);
+      if (!m) continue;
+      const [, agent, cause, x, z, text] = m;
+      const danger = lines.slice(k + 1, k + 8).find((q) => q.startsWith('[danger] ') && q.includes(` ${agent} died `));
+      now += 1000;
+      const i = I.noteDeathLesson({ village: villageOf.get(agent), agent, cause: text ? text.replace(new RegExp(`^${agent} `), '') : cause, x: Number(x), z: Number(z),
+        night: / at night\b/.test(danger ?? ''), home, now });
+      if (i) learned.push({ agent, id: i.id, line: lineNo, stallNo: 0, spotNo: 0, text: i.text, how: 'E5' });
     }
   }
   return { out, learned, targets };
@@ -102,10 +117,11 @@ for (const l of r.out) {
 }
 console.log(`[instinct] lines by op: ${[...ops].map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}; home ${home ? `${home.x},${home.z}` : 'unknown'}`);
 for (const e of r.learned)
-  console.log(`learned: ${e.agent} ${e.id} at line ${e.line}, at the member's stall no. ${e.stallNo} (no. ${e.spotNo} within 12 blocks): "${e.text}"`);
+  console.log(e.how === 'E5' ? `learned from a death: ${e.agent} ${e.id} at line ${e.line}: "${e.text}"`
+    : `learned: ${e.agent} ${e.id} at line ${e.line}, at the member's stall no. ${e.stallNo} (no. ${e.spotNo} within 12 blocks): "${e.text}"`);
 
-// Bug candidates (4.2): one area learned independently by 3 or more members (areas within 8 blocks)
-const areas = I.allInstincts().flatMap((m) => m.instincts.filter((i) => i.trigger.area).map((i) => ({ agent: m.agent, a: i.trigger.area! })));
+// Bug candidates (4.2): one area learned independently by 3 or more members (areas within 8 blocks; walk stalls, not deaths)
+const areas = I.allInstincts().flatMap((m) => m.instincts.filter((i) => i.trigger.area && i.how !== 'E5').map((i) => ({ agent: m.agent, a: i.trigger.area! })));
 const groups: Array<typeof areas> = [];
 for (const x of areas) {
   const g = groups.find((q) => Math.hypot(q[0].a.x - x.a.x, q[0].a.z - x.a.z) <= 8);
@@ -116,7 +132,7 @@ for (const g of groups)
   console.log(`area ${Math.round(g[0].a.x)},${Math.round(g[0].a.z)}: learned by ${g.length} member(s) (${g.map((x) => x.agent).join(', ')})${g.length >= 3 ? ': a bug candidate' : ''}`);
 
 // What the place layer would have done with every stalled walk's goal, after each member's instinct formed
-for (const e of r.learned) {
+for (const e of r.learned.filter((q) => q.how !== 'E5')) {
   const after = r.targets.filter((t) => t.agent.toLowerCase() === e.agent.toLowerCase() && t.line > e.line);
   const shun = after.filter((t) => I.avoidedFor('P1', e.agent, 'collect:sand', t.to.x, t.to.z));
   console.log(`${e.agent}: ${after.length} stalled walks after line ${e.line}, ${shun.length} toward targets in the avoided area`);
@@ -142,6 +158,26 @@ if (isRun6) {
   }
   const off = replay(false);
   check(off.out.length === 0 && off.learned.length === 0, 'MC_INSTINCTS=off: no [instinct] line and nothing learned');
+}
+
+if (isT20) {
+  const learns = r.out.filter((l) => / learns i\d+ /.test(l));
+  const band = learns.filter((l) => /band now|again by day/.test(l));
+  const health = learns.filter((l) => /starts above/.test(l));
+  check(band.length === 0, `no lesson from the night band (${band.length}; 21 before #220)`);
+  check(health.length === 0, `no lesson from the hunt's health floor (${health.length}; 2 before #220)`);
+  const e5 = r.learned.filter((q) => q.how === 'E5');
+  const stair = ['Milo', 'Wren', 'Finn', 'Rosa'];
+  for (const who of stair) {
+    const i = I.instinctsOf('P1', who).find((q) => q.how === 'E5');
+    check(!!i && i.trigger.keys.includes('activity:lib:amethyst') && Math.hypot(i.trigger.area!.x + 1557, i.trigger.area!.z - 0) <= 6,
+      `${who} learns from the amethyst stair death: ${i ? `"${i.text}"` : 'nothing'}`);
+    const w = I.weightFor('P1', who, { id: 'activity:lib:amethyst', key: 'activity:lib:amethyst', kind: 'activity', at: { x: -1557, z: 2 } });
+    const elsewhere = I.weightFor('P1', who, { id: 'activity:lib:amethyst', key: 'activity:lib:amethyst', kind: 'activity', at: { x: -1700, z: 120 } });
+    check(w !== undefined && w < 1 && elsewhere === undefined, `${who}: the amethyst option at the geode weighs ${w}, one elsewhere ${elsewhere}`);
+  }
+  check(e5.length >= 6, `the deaths away from home teach place lessons (${e5.length} of the log's 8 deaths)`);
+  console.log(failed ? `instinct_replay (train 20): ${failed} FAILED` : 'instinct_replay (train 20): all checks passed');
 }
 
 // Session 2: the same log with sharing on (MC_INSTINCT_SHARE): the side-by-side and dusk passes that would have happened

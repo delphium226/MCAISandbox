@@ -9,7 +9,12 @@
  *       that key;
  *   E2  three walk stalls (`[stuck]` lines with moved < 4 blocks or most ticks in water) within 12 blocks of each
  *       other within 10 village minutes: avoid the area, for targets whose straight line from home passes through it;
- *   E4  a success at the same kind or item by another key after an E1 lesson fills its "instead".
+ *   E4  a success at the same kind or item by another key after an E1 lesson fills its "instead";
+ *   E5  (#220) a death: an area round where the member died, for the chore it was doing (keys and item), learned at
+ *       once (no wait for a night or a free day), confirmed by another death there.
+ * A failure that says when to try again (the night band's "inside the band now ... again by day", the hunt's health floor,
+ * another member taking the stock) teaches and grades nothing (#220: train 20's 20 members learned "avoid gather sand"
+ * from the night band).
  * They act through code: a weight `xw` (0.5-1.3) on matching chore options (the fixed pick reads it) and a place layer
  * that makes collect and sand-trip target picks pass over an avoided area, falling back to it when nothing else is in
  * range. `[instinct]` lines log every learn, confirm, contradict, fade, drop, replace and act.
@@ -82,7 +87,7 @@ export interface Instinct {
   lineage: string;
   gen: number;
   kind: 'avoid' | 'prefer';
-  how: 'E1' | 'E2';
+  how: 'E1' | 'E2' | 'E5';
   trigger: Trigger;
   /** E1's failure message class: a later failure of the same class confirms, a success contradicts. */
   cls?: string;
@@ -110,9 +115,11 @@ interface Candidate {
   /** Its id in the night's list ('c12'), while it waits for the reflection. */
   cid?: string;
   kind: 'avoid';
-  how: 'E1' | 'E2';
+  how: 'E1' | 'E2' | 'E5';
   trigger: Trigger;
   cls?: string;
+  /** E5, for the template: the death was at night. */
+  night?: boolean;
   ofKind?: string;
   what?: string;
   worded?: boolean;
@@ -270,6 +277,14 @@ export const msgClass = (m: string): string => m.toLowerCase().replace(/-?\d+(\.
 export const walkFailure = (m: string): boolean =>
   /\bstuck at\b|\bno path to\b|\btimed out at\b|\bcould not get to\b|\bteleported to\b|\bwalks? kept stalling\b|\bshort of your own door\b/i.test(m) &&
   !/^could not reach [a-z_]+: \d+ tried/i.test(m);
+/**
+ * #220: a failure that names a passing state and says when to try again, not the chore's fault: the night band ("no sand
+ * inside the band now ...: collect it again by day", "the village mine lies past the band now"), the hunt's health floor
+ * ("health 9 (a hunt starts above 14)"), another member taking the stock (contention without its code), a cancel. It
+ * neither teaches nor grades a lesson, as a walk's failure.
+ */
+export const retryLater = (m: string): boolean =>
+  /\b(?:inside|past) the band now\b|\bagain by day\b|\bhealth \d+ \(an? [a-z_ ]+ starts above \d+\)|\banother agent took\b|\bbeing taken by other gatherers\b|^cancelled$/i.test(m.trim());
 export const words = (s: string): number => s.split(/\s+/).filter(Boolean).length;
 
 const COMPASS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'];
@@ -285,11 +300,18 @@ function fit(s: string): string {
   return words(bare) <= MAX_WORDS ? bare : `${bare.split(/\s+/).slice(0, MAX_WORDS).join(' ').replace(/[,;.]$/, '')}.`;
 }
 /** The template's wording of a candidate or instinct (code's, until session 2's reflection rider words some). */
-export function template(c: { how: 'E1' | 'E2'; trigger: Trigger; cls?: string; instead?: string; count: number; wet?: boolean; what?: string; insteadWhat?: string }): string {
+export function template(c: { how: 'E1' | 'E2' | 'E5'; trigger: Trigger; cls?: string; instead?: string; count: number; wet?: boolean; night?: boolean; what?: string; insteadWhat?: string }): string {
   const t = c.trigger;
   // (the verb by the key: 'make:torch' is made, not gathered)
   const verb = /(?:^|:)make:/.test(t.keys[0] ?? '') ? 'making' : /(?:^|:)start:/.test(t.keys[0] ?? '') ? 'starting' : 'gathering';
   const doing = t.item ? `${verb} ${t.item.replace(/_/g, ' ')}` : c.how === 'E2' ? 'walking out' : 'choosing your next chore';
+  if (c.how === 'E5' && t.area) {
+    const where = t.area.from ? `${compass(t.area.from, t.area)} ` : '';
+    const when = c.what?.trim() || (t.item ? doing : 'walking out');
+    // (the cause is the lesson: it goes in the main clause, not the parenthesis fit drops first)
+    const cause = (c.cls ?? 'killed').replace(/^was /, '');
+    return fit(`When ${when}, keep away; avoid the spot ${where}at ${Math.round(t.area.x)},${Math.round(t.area.z)}, died there${c.night ? ' at night' : ''}: ${cause}.`);
+  }
   if (c.how === 'E2' && t.area) {
     const where = t.area.from ? `${compass(t.area.from, t.area)} ` : '';
     return fit(`When ${doing}, keep to the village's side; avoid the ${c.wet ? 'water' : 'spot'} ${where}at ${Math.round(t.area.x)},${Math.round(t.area.z)} (stuck ${c.count} times).`);
@@ -357,7 +379,7 @@ function grade(st: MemberState, village: string, agent: string, i: Instinct, sig
 function promote(st: MemberState, village: string, agent: string, c: Candidate, now: number, direct = false): Instinct | null {
   const dup = st.instincts.find((i) => sameTrigger(i.trigger, c.trigger));
   if (dup) {
-    if (dup.conf < LEARNED) grade(st, village, agent, dup, 1, `learned again: ${c.evidence.at(-1) ?? ''}`, now, c.how === 'E2' ? 'stall' : `${c.trigger.keys[0]} ${c.cls}`);
+    if (dup.conf < LEARNED) grade(st, village, agent, dup, 1, `learned again: ${c.evidence.at(-1) ?? ''}`, now, c.how === 'E2' ? 'stall' : c.how === 'E5' ? `death ${c.evidence.at(-1) ?? ''}` : `${c.trigger.keys[0]} ${c.cls}`);
     else dup.graded = now;
     return null;
   }
@@ -382,7 +404,8 @@ function promote(st: MemberState, village: string, agent: string, c: Candidate, 
     }
     return null;
   };
-  if (st.learnDay === day) return wait('one new instinct a day');
+  // (#220: a death's lesson does not wait for tomorrow)
+  if (st.learnDay === day && c.how !== 'E5') return wait('one new instinct a day');
   let victim: Instinct | undefined;
   if (st.instincts.length >= CAP) {
     victim = st.instincts.filter((i) => i.conf < LEARNED).sort((a, b) => a.conf - b.conf || a.graded - b.graded)[0];
@@ -436,6 +459,8 @@ interface Chore { id: string; village: string; agent: string; key: string; kind:
 const chores = new Map<string, Chore>();
 const current = new Map<string, Chore>();
 const past = new Map<string, Chore>();
+/** #220: each member's last ended chore and when (a death cancels the chore just before its `[death]` line). */
+const lastEnded = new Map<string, { c: Chore; t: number }>();
 
 /** A `[choice]` record: the member's current chore. */
 export function noteChoice(rec: { id: string; agent: string; village: string; key: string; kind: string; what?: string; chosen?: string; t?: number }): void {
@@ -459,6 +484,7 @@ export function noteChoiceEnd(rec: { id: string; ok: boolean; message: string; t
   past.set(rec.id, c);
   if (past.size > 500) past.delete(past.keys().next().value!);
   if (current.get(c.agent.toLowerCase()) === c) current.delete(c.agent.toLowerCase());
+  lastEnded.set(c.agent.toLowerCase(), { c, t: rec.tEnd ?? Date.now() });
   if (rec.cut) return;
   const now = rec.tEnd ?? Date.now();
   if (!rec.contention) learnAtEnd(c, rec, now);
@@ -470,6 +496,8 @@ function learnAtEnd(c: Chore, rec: { ok: boolean; message: string }, now: number
   sweep(st, c.village, c.agent, now);
   const key = normKey(c.key), cls = msgClass(rec.message);
   const walked = !rec.ok && walkFailure(rec.message);
+  // (#220: a failure that says when to retry is no evidence either way)
+  if (!rec.ok && retryLater(rec.message)) return;
   // Grading (3.1): one grade per instinct per chore
   for (const i of [...st.instincts]) {
     if (c.graded.has(i.id)) continue;
@@ -540,7 +568,7 @@ export function noteStall(line: string, opts: { village?: string; home?: { x: nu
   const ref = `${chore?.id ?? 'walk'} @${Math.round(s.x)},${Math.round(s.z)}`;
   // An area held: stalls in it grade it (3 in one chore confirm, once a chore; later ones in the same chore keep it
   // from the untested fade: run 6's Kai stalled 95 more times in the one chore that taught him)
-  const held = st.instincts.find((i) => i.trigger.area && Math.hypot(s.x - i.trigger.area.x, s.z - i.trigger.area.z) <= Math.max(i.trigger.area.r, STALL_NEAR));
+  const held = st.instincts.find((i) => i.trigger.area && i.how === 'E2' && Math.hypot(s.x - i.trigger.area.x, s.z - i.trigger.area.z) <= Math.max(i.trigger.area.r, STALL_NEAR));
   if (held) {
     if (chore?.graded.has(held.id)) held.graded = now;
     else if (chore) {
@@ -573,6 +601,38 @@ export function noteStall(line: string, opts: { village?: string; home?: { x: nu
   // (the stalls that taught it are used: the next ones grade it; a lesson waiting for the night keeps counting them)
   if (i) st.stalls = st.stalls.filter((q) => !near.includes(q));
   return i;
+}
+
+/**
+ * E5 (#220): a death teaches an area round where the member died (AREA_R), for the chore it was doing: the one under way,
+ * or the one that ended (cancelled) within a minute before. Never at home or on the village's works (#210). Learned at
+ * once, as a place lesson, without the one-a-day rule; a death within MERGE of it confirms it. Called by the `[death]`
+ * line (botAgent.died).
+ */
+export function noteDeathLesson(d: { village?: string; agent: string; cause: string; x: number; z: number; night?: boolean; home?: { x: number; z: number } | null; keepOff?: Array<{ x1: number; z1: number; x2: number; z2: number }>; now?: number }): Instinct | null {
+  if (!INSTINCTS.on) return null;
+  const now = d.now ?? Date.now();
+  const k = d.agent.toLowerCase();
+  const end = lastEnded.get(k);
+  const chore = current.get(k) ?? (end && now - end.t <= 60000 ? end.c : undefined);
+  const village = d.village ?? chore?.village;
+  if (!village) return null;
+  const st = member(village, d.agent);
+  sweep(st, village, d.agent, now);
+  const spot = `${Math.round(d.x)},${Math.round(d.z)}`;
+  if (d.home && Math.hypot(d.x - d.home.x, d.z - d.home.z) <= HOME_NEAR) {
+    log(village, `${d.agent} learns nothing from its death at ${spot} (${d.cause}): at home`);
+    return null;
+  }
+  if (d.keepOff?.some((b) => Math.max(b.x1 - d.x, d.x - b.x2, b.z1 - d.z, d.z - b.z2) <= KEEP_NEAR)) {
+    log(village, `${d.agent} learns nothing from its death at ${spot} (${d.cause}): on the village's works`);
+    return null;
+  }
+  const area: Area = { x: Math.round(d.x * 10) / 10, z: Math.round(d.z * 10) / 10, r: AREA_R, ...(d.home ? { from: { x: d.home.x, z: d.home.z } } : {}) };
+  const trigger: Trigger = { keys: chore ? [normKey(chore.key)] : [], kinds: [], item: chore?.item, area };
+  const cand: Candidate = { kind: 'avoid', how: 'E5', trigger, cls: d.cause, night: d.night, ofKind: chore?.kind, what: chore?.what, evidence: [`${chore?.id ?? 'no chore'} died @${spot}`], count: 1, at: now, text: '' };
+  cand.text = template(cand);
+  return promote(st, village, d.agent, cand, now, true);
 }
 
 // ---------------------------------------------------------------------------------------------

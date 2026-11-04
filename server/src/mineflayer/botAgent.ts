@@ -19,7 +19,8 @@ import { mineAreas } from './mcMine';
 import { home, outOfWater, rescue, swimUp, teleportHome } from './mcRescue';
 import { timeScale } from './mcRules';
 import { modeSpec, takesDamage } from '../worldMode';
-import { HOSTILE, combatTick, fightsMobs, mayWake, noteDeath } from './mcCombat';
+import { HOSTILE, combatTick, fightsMobs, mayWake, noteDeath, phaseOf } from './mcCombat';
+import { noteDeathLesson } from '../instincts';
 import { spawnCellFor, survivalB } from './mcSurvivalB';
 import { isWallGate } from './mcWalls';
 import { causeFromState, deathCauseOf, hazardOf, lavaStep, noteTrap, safeCellNear, trappedUnderWater, type DeathCause, type Hazard } from './mcHazard';
@@ -876,6 +877,15 @@ export class BotAgent implements WorldAgent {
     console.log(`[death] ${this.name} ${cause} at ${place}${heard ? ` ("${heard.text}")` : ' (no death message: guessed)'}`);
     // (stage (d): the danger count's deaths by distance from home and phase)
     noteDeath(this, where);
+    // (#220, E5: a death teaches the member to keep away from where it died, for the chore it was doing)
+    if (where) {
+      const v = this.village(), c = v?.storage?.chests[0];
+      const keepOff = v ? [...(v.storageHut ? [v.storageHut] : []), ...v.structures] : [];
+      try {
+        noteDeathLesson({ village: v?.name, agent: this.name, cause: heard?.text.replace(new RegExp(`^${this.name} `), '') ?? cause, x: where.x, z: where.z,
+          night: phaseOf(this.bot.time?.timeOfDay) === 'night', home: c ? { x: c.x, z: c.z } : null, keepOff });
+      } catch { /* (never stop the death's handling) */ }
+    }
     // (a third death in 3 minutes: home itself kills (lava at the spawnpoint in a probe: 10 deaths in a row), so no walk or
     // teleport back there)
     this.deathTimes = [...this.deathTimes.filter((d) => t - d < 180000), t];
