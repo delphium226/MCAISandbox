@@ -407,7 +407,7 @@ async function steerAway(a: BotAgent, mob: Entity, ms: number, signal: AbortSign
  * a hit below 3 blocks when the weapon's cooldown allows. Ends when the mob is gone (killed), past 24 blocks, after 30 s,
  * at a creeper within 3, or (`giveUpAt`) when health falls to that.
  */
-export async function melee(a: BotAgent, target: Entity, signal: AbortSignal, opts: { giveUpAt?: number; capMs?: number } = {}): Promise<{ text: string; killed: boolean; low?: boolean; at?: Vec3 }> {
+export async function melee(a: BotAgent, target: Entity, signal: AbortSignal, opts: { giveUpAt?: number; capMs?: number } = {}): Promise<{ text: string; killed: boolean; low?: boolean; at?: Vec3; creeper?: Entity }> {
   const bot = a.bot;
   const what = (target.name ?? target.username ?? 'target').replace(/_/g, ' ');
   await equipArmour(a).catch(() => undefined);
@@ -433,7 +433,8 @@ export async function melee(a: BotAgent, target: Entity, signal: AbortSignal, op
       lastPos = target.position.clone();
       if (Date.now() - t0 > (opts.capMs ?? 30000)) return { text: `the ${what} is still alive after ${Math.round((opts.capMs ?? 30000) / 1000)} s (${hits} hits)`, killed: false };
       if (opts.giveUpAt !== undefined && (bot.health ?? 20) <= opts.giveUpAt) return { text: `fought a ${what} (${hits} hits)`, killed: false, low: true };
-      if (mobsNear(a, t, bot.entity.position, 3).some((m) => m.name === 'creeper')) return { text: `left the ${what}: a creeper came close`, killed: false };
+      const cr = mobsNear(a, t, bot.entity.position, 3).find((m) => m.name === 'creeper');
+      if (cr) return { text: `left the ${what}: a creeper came close`, killed: false, creeper: bot.entities[cr.id] };
       const p = bot.entity.position;
       const d = target.position.distanceTo(p);
       if (d > 24) return { text: `the ${what} got away`, killed: false };
@@ -990,6 +991,11 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
   const kills: Record<string, number> = {};
   const t = track(a);
   let ended = 'until dawn', i = Math.floor(Math.random() * Math.max(1, spots.length));
+  // (#218: a creeper beside the prey made melee give up at once and the loop went straight back to the same spider, 6.2M
+  // log lines and a heap OOM; now the hunter steps away first, a prey given up 3 times is skipped, 6 creeper give-ups end
+  // the hunt, and a repeated line is logged once with its count)
+  const gaveUp = new Map<number, number>(), skip = new Set<number>();
+  let creepers = 0, lastLine = '', repeats = 0;
   const ignore = (e: Error) => {
     if (e.message === 'cancelled') throw e;
   };
@@ -1004,7 +1010,7 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
         const e = a.bot.entities[m.id];
         if (e) seen.push({ ...m, x: e.position.x, y: e.position.y, z: e.position.z });
       }
-      const prey = huntTarget(seen, (m) => huntReach(bounds, home, band, m, edge));
+      const prey = huntTarget(seen.filter((m) => !skip.has(m.id)), (m) => huntReach(bounds, home, band, m, edge));
       if (prey) {
         if (prey.dist > 20) await walk(a, new goals.GoalNear(prey.x, prey.y, prey.z, 4), 'the prey', signal, 30000).catch(ignore);
         const e = a.bot.entities[prey.id];
@@ -1018,7 +1024,23 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
           if (r.at && r.at.distanceTo(a.bot.entity.position) < 12) await pickUpDrops(a, r.at, signal).catch(ignore);
         }
         const left = r.at ? Object.values(a.bot.entities).filter((x) => x.name === 'item' && x.position.distanceTo(r.at!) < 6).length : 0;
-        console.log(`[hunt] ${a.name} ${v.name}: ${r.text} (${Math.round(Math.hypot(prey.x - home.x, prey.z - home.z))} blocks from home${r.killed ? `; ${left} items left there` : ''})`);
+        const line = `[hunt] ${a.name} ${v.name}: ${r.text} (${Math.round(Math.hypot(prey.x - home.x, prey.z - home.z))} blocks from home${r.killed ? `; ${left} items left there` : ''})`;
+        if (line !== lastLine) {
+          if (repeats) console.log(`[hunt] ${a.name} ${v.name}: (the line before repeated ${repeats} more times)`);
+          console.log(line);
+          lastLine = line;
+          repeats = 0;
+        } else repeats++;
+        if (r.killed || r.low) continue;
+        const n = (gaveUp.get(prey.id) ?? 0) + 1;
+        gaveUp.set(prey.id, n);
+        if (n >= 3) skip.add(prey.id);
+        if (r.creeper) {
+          if (++creepers >= 6) { ended = 'creepers kept close'; break; }
+          if (r.creeper.isValid !== false) await steerAway(a, r.creeper, 3000, signal);
+        }
+        // (a floor on every give-up: melee can return at once)
+        await sleep(500, signal);
         continue;
       }
       if (!spots.length) {
@@ -1038,6 +1060,7 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
     }
   } finally {
     hunters.delete(a.name);
+    if (repeats) console.log(`[hunt] ${a.name} ${v.name}: (the line before repeated ${repeats} more times)`);
   }
   const n = Object.values(kills).reduce((x, q) => x + q, 0);
   const head = `hunted ${Math.round((Date.now() - t0) / 1000)} s at the village edge (${ended}): ${n} kill${n === 1 ? '' : 's'}${n ? ` (${Object.entries(kills).map(([k, q]) => `${k.replace(/_/g, ' ')} ${q}`).join(', ')})` : ''}`;
