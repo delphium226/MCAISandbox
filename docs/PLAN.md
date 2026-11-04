@@ -76,11 +76,17 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
   (#219). The wall was voted down 9-16 in both arms and 4 more times in I1 after deaths: 0 cells.
 - **Decided by the user 11-04:** the wall **keeps the members' vote** in danger (no bypass): a37a58c's rank applies
   only once a vote passes. A wall that is never voted is a result, not a bug.
-- **In flight:** fix-218-219-220 (local_b72291e0-f46e-4159-ae82-f034af35caab, worlds 1-2): the hunt loop, the
-  amethyst shaft, instincts skipping retry-later failures and learning from deaths.
+- **#218-#220 fixed and checked** (dab63d7 hunt loop; e9eb298 amethyst trip off where falls hurt; be3e959 retry-later
+  failures teach nothing, a death teaches a place lesson E5; notes `runs/2026-11-04/fix218-220/notes.md`).
+- **Paused 11-04 ~23:05 (the user: "pause for the evening"):** train 21 (local_67639739-50d4-44f8-b038-53c83bb0fa50,
+  brief `runs/2026-11-04/train21/brief.md`) ran both arms to the end (~23:15, a detached script stops worlds 4 and 5);
+  its report, F354, RUNS line and commit are **not written yet**: resume that session first. Seen live: no lesson from
+  the night band (11 sand, 6 lily failures); Jonah's E2 i263 (stuck 3 times at -1589,61,39 on the way home; borrowed
+  by 4; the report counts stalls there before/after); Ben died in I0; both arms refused the wall vote (4 of 4 villages
+  over trains 20-21: weigh this in #217's spec).
 - **Next:**
-  1. Check fix-218-219-220's commits; then train 21: train 20's setup again (I1 vs I0, hostile, wall on, vote as is),
-     judged on lessons from deaths and right/wrong lessons. If instincts still learn little that is right, take the
+  1. Resume train 21's session for its report; check it against the logs (lessons judged, E5 death lessons, deaths,
+     the wall votes). If instincts still learn little that is right, take the
      design question to the user (keep, narrow to deaths only, or park).
   2. **#217 castle walls** (the user's, 11-03: "an outer castle wall that the members can patrol and fire arrows
      from"): spec once survival-211-203 is done with the wall code (patrol chores, shooting, stone cost against the
