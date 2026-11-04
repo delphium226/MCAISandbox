@@ -67,17 +67,21 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
   monsters inside at night (one builder per 6). survival-211-203 builds that and the wall's own-wood check (#189 needed
   no fix; its notes `runs/2026-11-03/survival-211-203/notes.md`; new issues for the night watch outside the ring and
   the daytime skeleton deaths).
-- **Paused 11-03 ~22:30 (the user: "pause for the evening"):** every world and agent server is down (stopped
-  cleanly, worlds saved); nothing in flight. survival-211-203 is done: 4a18344 (a wall segment only on the village's
-  own wood, else a wood trip) and a37a58c (in danger the wall ranks 150 and weighs 2x, plus a cobblestone trip);
-  staged N11 from checkpoint w203_n9: 28 of 29 segments, 639 of 692 cells in 45 min (N7 before: 430 of 480 in ~95).
-  #203 stays open for the water crossings. New issues #215 (night watch walks to lamps outside the ring) and #216
-  (daytime skeleton deaths at one workshop spot). **Train 20's brief is written:** `runs/2026-11-03/train20/brief.md`
-  (code at a37a58c or later); start it from a message typed in the desktop app.
+- **11-03 evening:** survival-211-203 done (4a18344 wall on own wood, a37a58c wall ranks 150 / 2x in danger; staged
+  N11 639 of 692 cells in 45 min); #203 open for the water crossings; #215, #216 filed.
+- **Train 20 done (F353, 0908eee, `runs/2026-11-04/train20/report.md`; checked against the I1 log by the planning
+  session):** instincts on harder ground learned 24 lessons, 1 right, none from 8 deaths (20 members learned "avoid the
+  sand gather" from the night band; 2 "avoid hunt" from low health; the finder reads no deaths). I0 crashed at +72 on
+  the hunt's creeper loop (#218), so the arms compare to +69 only (level). 4 of I1's deaths at the amethyst shaft
+  (#219). The wall was voted down 9-16 in both arms and 4 more times in I1 after deaths: 0 cells.
+- **Decided by the user 11-04:** the wall **keeps the members' vote** in danger (no bypass): a37a58c's rank applies
+  only once a vote passes. A wall that is never voted is a result, not a bug.
+- **In flight:** fix-218-219-220 (local_b72291e0-f46e-4159-ae82-f034af35caab, worlds 1-2): the hunt loop, the
+  amethyst shaft, instincts skipping retry-later failures and learning from deaths.
 - **Next:**
-  1. **Train 20** from its brief: train 19's setup in `MC_WORLD_MODE=hostile` with
-     `MC_WALLS` on, I1 vs I0 (instincts on/off), customs on, both arms equal; report the lessons learned (right/wrong),
-     tags in model choices, deaths, failures, busy.
+  1. Check fix-218-219-220's commits; then train 21: train 20's setup again (I1 vs I0, hostile, wall on, vote as is),
+     judged on lessons from deaths and right/wrong lessons. If instincts still learn little that is right, take the
+     design question to the user (keep, narrow to deaths only, or park).
   2. **#217 castle walls** (the user's, 11-03: "an outer castle wall that the members can patrol and fire arrows
      from"): spec once survival-211-203 is done with the wall code (patrol chores, shooting, stone cost against the
      quarry, the fence ring as a first stage, water crossings: the fence ring leaves 88 water cells open), then a

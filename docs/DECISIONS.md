@@ -1003,3 +1003,6 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   without weakening the step's pull (60% tuned against 58% untuned in train 16). Wants and the tuning stay on for every
   member (`MC_WANTS_HOLDOUT=0`, the default); trains stop splitting members, and the wants are judged by the village
   as a whole from now on.
+- 11-04 (the user, asked by the planning session after train 20) **The village wall keeps the members' vote in
+  danger**: train 20's villages voted the wall down 9-16 even after deaths; the user chose not to bypass the vote.
+  a37a58c's rank and weight apply once a vote passes; a wall never voted is a result of the members' choice.
