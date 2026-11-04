@@ -2628,3 +2628,21 @@ CLAUDE.md when a phase ends.
     longer runs or harder ground.
   - Loop p99 median 69.5 / 60.6 ms. One `[lag]` each at the talk house request (2.9 / 2.1 s). $1.47 + $1.43.
     Report: runs/2026-11-03/train19/report.md.
+- F353 (11-04, train20, G1/G3) **Train 20: on harder ground (hostile, the wall on) the instincts learned 24 lessons, 1
+  right, and none from 8 deaths.** I1 (instincts on, world 4) against I0 (off, world 5), train 19's setup with
+  MC_WORLD_MODE=hostile and MC_WALLS on, code 22cc7b0. I0's agent server died at ~+72 of heap (Ada's hunt left a spider
+  for a creeper 6.2M times with no pause, #218), so the arms are compared over the first 69 min.
+  - **Lessons:** 23 of I1's 24 came from transient failures. 20 members learned "avoid gather 256 sand for the clock
+    tower" from #211's night band ("no sand inside the band now ... collect it again by day"); 2 learned "avoid hunt"
+    from low health; 1 learned to avoid flowers at night. 1 is right (keep_custom's green stone). The tagged option was
+    picked 7 of 280 times (2.5% against ~21% untagged): the tags steer, here wrongly. #220.
+  - **Deaths:** 0 / 1 to +69; I1 8 after +71: 4 at one amethyst shaft (3 falls, a zombie; harvest_amethyst's open drop,
+    #219), 4 on night trips 99-176 out once beds lifted the band (2 creepers, drowned, zombie). The finder reads no
+    deaths, so no danger lesson formed.
+  - **The wall:** voted by model at the danger trigger once growth was done (+54 / +51) and refused 9-16 in both; I1
+    refused 4 more times after deaths (5-8 for). 0 cells; a37a58c's rank never came into play.
+  - To +69: failures 10% / 9%, repeats 11 / 10, chore minutes 63% / 60%, houses 25 / 25, yard sand 105 / 30. I1 whole:
+    Zytglogge finished +110.4, busy 81%, $1.425; an 11.8 s event-loop stall at +15.9.
+  - **Verdict:** the planning prediction (danger lessons, mostly right, fewer deaths) is not borne out; the finder
+    learns from passing states and cannot see deaths. Fix #220 before another instinct train; rerun with #218 and #219
+    fixed and the wall voted by rank or MC_VOTE=off. Report: runs/2026-11-04/train20/report.md.
