@@ -24,8 +24,9 @@ import { at, nearestBlocks, onVillageGround, stateAt } from './mcUtil';
 import { teleportHome, underHome } from './mcRescue';
 import { annexBusy, growBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, storeBusy, surfaceAt, wheatKeep, writeBoard } from './mcBuild';
 import { ironDone, ironLevelFull, ironStairsHeld, mineAreas, mineGives, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
-import { EGGS, PEN_KINDS, PEN_ORDER, PEN_VARIETY, SLOT_KINDS, SLOT_ORDER, penCap, penLure, penPlan, penSlotFit, penWords, worksFurnaces } from '../farmSlots';
+import { EGGS, PENS_BIG, PEN_KINDS, PEN_ORDER, PEN_VARIETY, SLOT_KINDS, SLOT_ORDER, enlargedSlot, penCap, penLure, penPlan, penSlotFit, penWords, restockLine, worksFurnaces } from '../farmSlots';
 import { bowsOn, archeryCounts } from './mcArchery';
+import { BOW_NW, BOW_RANK, FLINT_TRIP_MAX, arrowsLying, bowsFirst, flintCounts, flintShort, recentShots } from './mcFlint';
 import { ARMS_GOODS, BOW_GOODS, FOOD_GOODS, HUNT_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, ROD_GOOD, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
@@ -2429,6 +2430,11 @@ export class MineflayerWorld implements WorldAdapter {
     } catch (e) {
       console.error('[wall] check failed:', e);
     }
+    try {
+      this.pensTick();
+    } catch (e) {
+      console.error('[pens] census failed:', e);
+    }
     this.utilTick();
     try {
       this.undergroundWatch();
@@ -2778,6 +2784,68 @@ export class MineflayerWorld implements WorldAdapter {
 
   // ---- Survival (d) spec 5, MC_WALLS: the wall's vote, growth, gates and counts --------------------------------------
 
+  /**
+   * #229 (MC_PENS_BIG): the pens' census every game minute: each built pen's animals counted on the server (a pen emptied
+   * by feathers, monsters or deaths is seen without a chore at it), its restocking set below its line (a chicken pen below
+   * 4, any other below 2) and cleared at 4; a `[pens]` line for each pen every 10 game minutes.
+   */
+  private pensAt = { at: 0, line: 0, busy: false };
+  private pensTick() {
+    if (!PENS_BIG || this.pensAt.busy) return;
+    const now = Date.now(), ts = Math.max(1, timeScale());
+    if (now - this.pensAt.at < 60000 / ts) return;
+    this.pensAt.at = now;
+    const line = now - this.pensAt.line >= 600000 / ts;
+    if (line) this.pensAt.line = now;
+    const jobs: Array<() => Promise<void>> = [];
+    for (const v of this.villages.villages.values()) {
+      const plot = v.plots.find((p) => p.annex);
+      if (!plot || ![...this.agents.values()].some((b) => b.village()?.name === v.name)) continue;
+      for (const [jj, slot] of (v.layouts?.[0]?.slots ?? []).entries()) {
+        const pen = slot.pen;
+        if (!slot.annex || !slot.kind || !PEN_KINDS[slot.kind] || !pen?.built || slot.laying) continue;
+        // (only where a member is near: an unloaded pen counts none)
+        const cx = (slot.x1 + slot.x2) / 2, cz = (slot.z1 + slot.z2) / 2;
+        if (![...this.agents.values()].some((b) => b.bot?.entity && Math.hypot(b.bot.entity.position.x - cx, b.bot.entity.position.z - cz) < 96)) continue;
+        const y = (preparedAt(v, slot) ?? plot).y + 1;
+        const boxes = penPlan(slot, slot.face ?? 'n').boxes;
+        const kind = slot.kind, j = jj + 1;
+        jobs.push(async () => {
+          let n = 0;
+          for (const b of boxes) {
+            const r = await this.rcon.command(`execute if entity @e[type=minecraft:${kind},x=${b.x1},y=${y},z=${b.z1},dx=${b.x2 - b.x1},dy=2,dz=${b.z2 - b.z1}]`).catch(() => '');
+            const m = /count: (\d+)/i.exec(r);
+            if (!m && !/Test failed/i.test(r)) return;
+            n += m ? Number(m[1]) : 0;
+          }
+          const was = pen.animals ?? 0, cap = penCap(kind, slot);
+          if (n !== was) {
+            pen.animals = n;
+            if (n < was) console.log(`[pens] ${v.name}: the ${kind} pen on slot ${j} holds ${n} (was ${was})`);
+          }
+          if (n < restockLine(kind) && !pen.restocking) {
+            pen.restocking = true;
+            console.log(`[pens] ${v.name}: the ${kind} pen on slot ${j} is down to ${n}: restocking`);
+          } else if (pen.restocking && n >= 4) {
+            delete pen.restocking;
+            console.log(`[pens] ${v.name}: the ${kind} pen on slot ${j} is back at ${n}`);
+          }
+          if (line) console.log(`[pens] census ${v.name} slot ${j}: ${n} ${kind} of ${cap} (${penWords(slot)}; born ${pen.born ?? 0}, hatched ${pen.hatched ?? 0}${pen.restocking ? '; restocking' : ''})`);
+        });
+      }
+    }
+    if (!jobs.length) return;
+    this.pensAt.busy = true;
+    void (async () => {
+      try {
+        for (const job of jobs) await job();
+        this.villages.save();
+      } finally {
+        this.pensAt.busy = false;
+      }
+    })();
+  }
+
   private wallAt = { gates: 0, villages: 0, line: 0, inside: 0, loaded: false, gating: false };
   /** The gatekeeper every second; each village's vote, growth and counts every 10 s; a `[wall]` line every 10 game minutes. */
   private wallsTick() {
@@ -2813,7 +2881,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (#217 steps 5 and 6: the watch on the wall and the bows, every 10 game minutes)
     if (line && (wallWatchOn() || bowsOn())) {
       const c = combatCounts, b = archeryCounts;
-      console.log(`[watch] tower posts reached ${c.towerReached} of ${c.towerVisits} visits; watch spots ${c.watchSpots} (${c.watchOutside} outside the ring); bows: ${b.shots} shots, ${b.hits} hits, ${b.kills} kills (${Object.entries(b.byMob).map(([k, q]) => `${k} ${q}`).join(', ') || 'none'}), ${b.held} held, ${b.taken} bows taken`);
+      console.log(`[watch] tower posts reached ${c.towerReached} of ${c.towerVisits} visits; watch spots ${c.watchSpots} (${c.watchOutside} outside the ring); bows: ${b.shots} shots, ${b.hits} hits, ${b.kills} kills (${Object.entries(b.byMob).map(([k, q]) => `${k} ${q}`).join(', ') || 'none'}), ${b.held} held, ${b.taken} bows taken${bowsFirst() ? `; flint: ${flintCounts.trips} trips, ${flintCounts.flint} flint in ${flintCounts.digs} breaks; arrows picked up ${flintCounts.picked} (${flintCounts.sweeps} sweeps)` : ''}`);
     }
   }
 
@@ -5595,6 +5663,8 @@ export class MineflayerWorld implements WorldAdapter {
    *  a works furnace by "village:k" (until); and the logs gathering deposited, by village (the hourly cap). */
   private makeBack = new Map<string, { tries: number; at: number }>();
   private gatherBack = new Map<string, number>();
+  /** #225: a village's flint trips and arrow sweeps back off after one that brought nothing. */
+  private flintBack = new Map<string, number>();
   private worksBack = new Map<string, number>();
   /** B.4: a failed light chore backs its part off, by "village:part" (until); and the demand last logged, by village. */
   private lightBack = new Map<string, number>();
@@ -7862,7 +7932,10 @@ export class MineflayerWorld implements WorldAdapter {
       // (#187, MC_BED_WOOL: sheep first while houses lack beds)
       const kinds = BED_WOOL.on ? penOrder(PEN_ORDER, bedsOwed(v, (id) => this.decorParts(v).find((q) => q.structure.id === id)?.basics)) : PEN_ORDER;
       for (const [p, kind] of kinds.entries()) {
-        if (slots.some(({ slot }) => slot.kind === kind && (slot.pen?.animals ?? 0) >= 2)) continue;
+        // (#229, MC_PENS_BIG: a pen of the kind below its restock line, a chicken pen below 4, is led animals again)
+        const line = PENS_BIG ? restockLine(kind) : 2;
+        if (slots.some(({ slot }) => slot.kind === kind && (slot.pen?.animals ?? 0) >= line)) continue;
+        const restock = PENS_BIG && slots.some(({ slot }) => slot.kind === kind && slot.pen?.built);
         // (a lure storage holds; seeds also come from the grass. #139: a pig's carrots, potatoes or beetroot)
         const lure = penLure(kind, store);
         if (lure !== 'wheat_seeds' && !(store[lure] ?? 0)) continue;
@@ -7881,7 +7954,7 @@ export class MineflayerWorld implements WorldAdapter {
         const size = PEN_VARIETY ? `the ${penWords(pick.slot)} pen (room for ${penCap(kind, pick.slot)}); ` : '';
         const gives = kind === 'chicken' ? 'eggs' : kind === 'cow' || kind === 'goat' ? 'milk' : kind === 'sheep' ? 'wool' : '';
         add({
-          id: `pen:${kind}`, kind: 'pen', key: 'pen', excludes: penEx, name: `Lead ${many} into a pen`, rank: 400 + p, at: { x, y, z },
+          id: `pen:${kind}`, kind: 'pen', key: 'pen', excludes: penEx, name: restock ? `Lead ${many} into the ${kind} pen again` : `Lead ${many} into a pen`, rank: (restock ? 300 : 400) + p, at: { x, y, z },
           facts: `the nearest ${kind} seen ${Math.round(Math.hypot(seen.x - (ax.x1 + ax.x2) / 2, seen.z - (ax.z1 + ax.z2) / 2))} blocks from the annex, ${Math.abs(Math.round(dy(seen)))} ${dy(seen) >= 0 ? 'above' : 'below'} it; ${size}${store[lure] ?? 0} ${words(lure)} in storage; tried ${by && now - by.at <= 60 * 60000 ? by.tries : 0} times; ${record('pen')}`,
           effect: `a pen of ${many} to breed${PEN_VARIETY && gives ? ` (${gives})` : ''}`,
         }, { kind: 'pen', j: pick.j, slotKind: kind, x, y, z });
@@ -7900,7 +7973,9 @@ export class MineflayerWorld implements WorldAdapter {
       for (const [jj, slot] of (lay0.slots ?? []).entries()) {
         const j = jj + 1, pen = slot.pen;
         const spec = slot.kind ? PEN_KINDS[slot.kind] : undefined;
-        if (!slot.annex || !spec || !pen?.built || slot.laying || !(pen.animals ?? 0) || slotBusy.has(`${v.name}:1:${j}`)) continue;
+        // (#229, MC_PENS_BIG: an emptied chicken pen still gets its eggs thrown in, and any pen its enlargement)
+        const empty = !(pen?.animals ?? 0);
+        if (!slot.annex || !spec || !pen?.built || slot.laying || (empty && !PENS_BIG) || slotBusy.has(`${v.name}:1:${j}`)) continue;
         const excludes = [`penwork:${j}`];
         if (excluded(excludes, busy)) {
           reasons.penwork ??= 'busy';
@@ -7910,22 +7985,42 @@ export class MineflayerWorld implements WorldAdapter {
         if (slot.kind === 'chicken' && due(pen, 'eggs', 1) && facts.eggs(String(j))) works.push([0, 'eggs', 'collect_eggs', 'Collect eggs in the chicken pen', 'eggs lying in the pen']);
         // (#217 step 6, MC_BOWS, the user's Q2: a chicken of a pen of 4+ for feathers, arrows' fletching, only while storage
         // holds flint to match and arrows are short (the staged pair took 21 chickens in 60 min with no flint to use them))
-        if (slot.kind === 'chicken' && bowsOn() && (pen.animals ?? 0) >= 4 && (store.feather ?? 0) < 8 && (store.flint ?? 0) > (store.feather ?? 0) && (store.arrow ?? 0) < 64 && due(pen, 'feathers', 10 / scale)) works.push([4, 'feathers', 'pluck_feathers', 'Take a chicken from the pen for feathers', `${store.feather ?? 0} feathers in storage, for arrows (flint, a stick and a feather make 4)`]);
+        const cap = penCap(slot.kind!, slot);
+        // (#229: with bigger pens, plucking keeps half the pen and waits while it restocks)
+        const pluckMin = PENS_BIG ? Math.max(4, Math.ceil(cap / 2)) : 4;
+        if (slot.kind === 'chicken' && bowsOn() && (pen.animals ?? 0) >= pluckMin && !pen.restocking && (store.feather ?? 0) < 8 && (store.flint ?? 0) > (store.feather ?? 0) && (store.arrow ?? 0) < 64 && due(pen, 'feathers', 10 / scale)) works.push([4, 'feathers', 'pluck_feathers', 'Take a chicken from the pen for feathers', `${store.feather ?? 0} feathers in storage, for arrows (flint, a stick and a feather make 4)`]);
         if ((slot.kind === 'cow' || slot.kind === 'goat') && (store.bucket ?? 0) > 0 && (store.milk_bucket ?? 0) < 3 && due(pen, 'milk', 2)) works.push([1, 'milk', 'milk_cows', `Milk the ${slot.kind}s`, `${store.bucket ?? 0} buckets and ${store.milk_bucket ?? 0} milk in storage`]);
         // (#139: a sheep pen's wool, with shears from storage; wool grows back on grass)
         if (slot.kind === 'sheep' && (store.shears ?? 0) > 0 && due(pen, 'shear', 5 / scale)) works.push([3, 'shear', 'shear_pen', 'Shear the sheep in the pen', `${store.shears} shears in storage; ${pen.wool ?? 0} wool sheared here so far`]);
         // (never the seeds a field's open planting still needs: G3f's neighbourhood field was sown half, s30)
-        const lure = penLure(slot.kind!, store), cap = penCap(slot.kind!, slot);
+        const lure = penLure(slot.kind!, store);
         const feed = (store[lure] ?? 0) - (lure === 'wheat_seeds' ? seedsForFields(v) : 0);
-        if ((pen.animals ?? 0) >= 2 && (pen.animals ?? 0) < cap && feed >= 2 && due(pen, 'breed', 5 / scale)) works.push([2, 'breed', 'breed_pen', `Breed the ${slot.kind === 'sheep' ? 'sheep' : `${slot.kind}s`}`, `${store[lure] ?? 0} ${words(lure)} in storage${PEN_VARIETY ? `; room for ${cap}` : ''}`]);
+        if ((pen.animals ?? 0) >= 2 && (pen.animals ?? 0) < cap && feed >= 2 && due(pen, 'breed', 5 / scale) && !(PENS_BIG && (pen.youngUntil ?? 0) > now)) works.push([2, 'breed', 'breed_pen', `Breed the ${slot.kind === 'sheep' ? 'sheep' : `${slot.kind}s`}`, `${store[lure] ?? 0} ${words(lure)} in storage${PEN_VARIETY ? `; room for ${cap}` : ''}`]);
+        // (#229, MC_PENS_BIG: seeds for a chicken pen below its cap when storage is short of them (from the grass); an
+        // emptied chicken pen below 4 hatched from stored eggs; a pen built before the doubling enlarged where it stands)
+        if (PENS_BIG && lure === 'wheat_seeds' && (pen.animals ?? 0) >= 2 && (pen.animals ?? 0) < cap && feed < 8 && !excluded(['penfeed='], busy) && !out.some((o) => o.id === 'penfeed'))
+          add({
+            id: 'penfeed', kind: 'gather', key: 'penfeed', excludes: ['penfeed='], name: 'Gather seeds to breed the chickens', rank: 305,
+            facts: `the chicken pen holds ${pen.animals} of ${cap}; storage holds ${store.wheat_seeds ?? 0} wheat seeds${feed < (store.wheat_seeds ?? 0) ? ` (${(store.wheat_seeds ?? 0) - feed} kept for a field's planting)` : ''}; seeds come from breaking grass`,
+            effect: '+16 wheat seeds to breed the chickens with (two a pair)',
+          }, { kind: 'penfeed', item: 'wheat_seeds', amount: 16 });
+        const eggs = EGGS.reduce((s, e) => s + (store[e] ?? 0), 0);
+        if (PENS_BIG && slot.kind === 'chicken' && (pen.animals ?? 0) < 4 && eggs > 0 && due(pen, 'hatch', 3 / scale)) works.push([0, 'hatch', 'hatch_eggs', 'Hatch eggs in the chicken pen', `${pen.animals ?? 0} chickens left in the pen (below 4: no feathers taken until it is back at 4); ${eggs} eggs in storage, one in eight hatches when thrown`]);
+        const ax0 = lay0.annex;
+        if (PENS_BIG && !empty && ax0 && enlargedSlot(slot, ax0) && due(pen, 'enlarge', 10)) works.push([5, 'enlarge', 'enlarge_pen', `Make the ${slot.kind} pen bigger`, `the pen is ${penWords(slot)} (room for ${cap}); the annex has room for twice the inside, ten fences from storage's wood`]);
         const twin = (lay0.slots ?? []).filter((s) => s.annex && s.kind === slot.kind && s.pen?.built).length > 1;
         for (const [w, what, skill, name, fact] of works) {
+          if (empty && what !== 'hatch') continue;
           const last = pen.workAt?.[what];
+          // (#229: breeding below the cap, hatching and enlarging rank above the wall and the workshop, so pens fill)
+          const big = PENS_BIG && (what === 'breed' || what === 'hatch' || what === 'enlarge');
+          // (#225: feathers are the arrows' too, so above the wall with them; plucking keeps half the pen, above)
+          const bowSupply = what === 'feathers' && bowsFirst();
           add({
-            id: `penwork:${j}:${what}`, kind: 'penwork', key: `penwork:${j}`, excludes, name: `${name}${twin ? ` on slot ${numberWord(j)}` : ''}`, rank: 500 + 10 * j + w,
+            id: `penwork:${j}:${what}`, kind: 'penwork', key: `penwork:${j}`, excludes, name: `${name}${twin ? ` on slot ${numberWord(j)}` : ''}`, rank: bowSupply ? BOW_RANK + 4 : big ? 300 + 2 * j + (what === 'enlarge' ? 1 : 0) : 500 + 10 * j + w, ...(bowSupply ? { nw: BOW_NW } : big && what !== 'enlarge' && (pen.animals ?? 0) < cap / 2 ? { nw: 1.5 } : {}),
             at: { x: Math.floor((slot.x1 + slot.x2) / 2), z: Math.floor((slot.z1 + slot.z2) / 2) },
             facts: `${pen.animals} ${slot.kind === 'sheep' ? 'sheep' : `${slot.kind}s`} in the pen; ${fact}; ${last ? `last done ${ago(now - last)}` : 'never done'}; ${record('penwork')}`,
-            effect: what === 'feathers' ? 'feathers and a chicken into storage (the pen keeps 3)' : what === 'eggs' ? 'eggs into storage' : what === 'milk' ? 'milk buckets toward a cake' : what === 'shear' ? 'wool into storage, for beds, banners and carpets' : `a young ${slot.kind}`,
+            effect: what === 'hatch' ? 'chicks in the emptied chicken pen (it breeds again once they grow)' : what === 'enlarge' ? `a pen twice the size, room for about ${2 * cap}` : what === 'feathers' ? 'feathers and a chicken into storage (the pen keeps 3)' : what === 'eggs' ? 'eggs into storage' : what === 'milk' ? 'milk buckets toward a cake' : what === 'shear' ? 'wool into storage, for beds, banners and carpets' : `a young ${slot.kind}`,
           }, { kind: 'penwork', j, what, skill, slotKind: slot.kind ?? '', animals: pen.animals ?? 0 });
         }
       }
@@ -8191,6 +8286,36 @@ export class MineflayerWorld implements WorldAdapter {
         }, { kind: 'hunt' });
       }
     }
+    // #225 (MC_BOWS_FIRST, the user's 11-05: bows and arrows before the wall): flint for the arrows, dug from gravel and
+    // broken until it drops, and the arrows that missed picked up while any lie near where the village shot from; both by
+    // day, ranked (and weighted) above every wall job, as making bows and arrows is
+    if (bowsFirst() && v.complete && v.storage?.chests.length && phaseOf(this.timeOfDay()) === 'day') {
+      const st = storageContents(v);
+      const need = Math.min(FLINT_TRIP_MAX, flintShort(st));
+      if (need && !excluded(['flint='], busy) && (this.flintBack.get(`${v.name}:flint`) ?? 0) <= now)
+        add({
+          id: 'flint', kind: 'gather', key: 'flint', excludes: ['flint='], name: 'Dig gravel for flint', rank: BOW_RANK + 2, nw: BOW_NW,
+          facts: `${st.arrow ?? 0} of the ${64} arrows kept are in storage; an arrow takes flint (one flint, a stick and a feather make 4); storage holds ${st.flint ?? 0} flint and ${st.gravel ?? 0} gravel; gravel is dug and broken again until flint drops (one break in ten); ${record('gather')}`,
+          effect: `+${need} flint toward arrows for the night watch and the hunt (bows and arrows come before the wall)`,
+        }, { kind: 'flint', count: need });
+      const shots = recentShots(v.name);
+      const home = villageHome(v);
+      if (shots.length && home && !excluded(['arrows='], busy) && (this.flintBack.get(`${v.name}:arrows`) ?? 0) <= now) {
+        // (arrows any member sees lying within 24 of a spot shot from lately)
+        let best: { x: number; y: number; z: number; n: number } | null = null;
+        for (const s of shots) {
+          const seen = new Set<number>();
+          for (const m of this.agents.values()) if (m.village()?.name === v.name && m.bot?.entities) for (const e of arrowsLying(m, s, 24)) seen.add(e.id);
+          if (seen.size >= 2 && (!best || seen.size > best.n)) best = { x: Math.floor(s.x), y: Math.floor(s.y), z: Math.floor(s.z), n: seen.size };
+        }
+        if (best)
+          add({
+            id: 'arrows', kind: 'gather', key: 'arrows', excludes: ['arrows='], name: 'Pick up the arrows that missed', rank: BOW_RANK + 3, nw: BOW_NW, at: { x: best.x, y: best.y, z: best.z },
+            facts: `${best.n} arrows lie near ${best.x},${best.z}, where the village shot at monsters; arrows in the ground are gone a minute after they land; storage holds ${st.arrow ?? 0} arrows`,
+            effect: `+${best.n} arrows back into storage for the watch and the hunt`,
+          }, { kind: 'arrows', x: best.x, y: best.y, z: best.z });
+      }
+    }
     // Survival (d), MC_WALLS (spec 5): the voted wall, a segment a member by day (the nearest free one), from storage's
     // cobblestone and wood; the old ring's cells inside the region after growth taken down first
     if (wallsOn() && v.complete && v.wall?.state === 'voted' && phaseOf(this.timeOfDay()) === 'day') {
@@ -8353,10 +8478,12 @@ export class MineflayerWorld implements WorldAdapter {
           const f = wk?.furnaces?.[k - 1];
           return f ? { x: f.x, y: f.y, z: f.z } : null;
         })();
+        // (#225, MC_BOWS_FIRST: bows and arrows above every wall job, the user's 11-05)
+        const bowGood = bowsFirst() && BOW_GOODS.some((q) => q.item === g.item) && !past;
         add({
           id: `make:${g.item}`, kind: 'make', key: `make:${g.item}`, holds: k === undefined ? [] : [`furnace:${k}`], excludes: [`make:${g.item}=`, ...(k === undefined ? [] : [`furnace:${k}=`])],
           // (900 + r below gathering's 950 with the catalogue's many goods too, X.1: the options stay in rank order)
-          name: `Make ${g.words}`, rank: g.food ? (foodLow ? 590 : 610) + (g.item === 'pumpkin_pie' ? 5 : 0) : 900 + Math.min(r, 49), ...(cell ? { at: { x: cell.x, y: cell.y, z: cell.z } } : {}),
+          name: `Make ${g.words}`, rank: bowGood ? BOW_RANK + (g.item === 'bow' ? 0 : 1) : g.food ? (foodLow ? 590 : 610) + (g.item === 'pumpkin_pie' ? 5 : 0) : 900 + Math.min(r, 49), ...(bowGood ? { nw: BOW_NW } : {}), ...(cell ? { at: { x: cell.x, y: cell.y, z: cell.z } } : {}),
           facts: `${stock} of the ${target} kept are in storage${past ? ` (past the keep: ${ask})` : ''}; this batch of ${p.count} takes ${countsText(p.inputs)} (all spare); ${k === undefined ? `crafted at the hut, ~${min} min` : `smelted at ${k ? `works furnace ${numberWord(k)}` : "the hut's furnace"}, ~${min} min`}; ${record('make')}${others('make', `make:${g.item}`)}${lastOf('make', `make:${g.item}`)}`,
           // (torches with lighting on: the spots beyond what storage holds, or the reserve once it covers them; the demand alone
           // read as the reason with 28 stored for 10 spots, B.4's review, lens 2 L1)
@@ -10699,6 +10826,26 @@ export class MineflayerWorld implements WorldAdapter {
         console.log(`[make] ${v.name}: ${worker.name} makes ${d.count} ${item} (${d.stock} of ${this.makeTarget(v, d.good)}; inputs ${countsList(d.inputs)}; ${d.k !== undefined ? `furnace ${d.k}` : 'crafted'})`);
         return;
       }
+      case 'penfeed': {
+        const collect = worker.enqueue('collect', { block: d.item, count: d.amount, chore: true });
+        const deposit = worker.enqueue('deposit', { item: d.item, chore: true });
+        this.setChore(v, worker, opt.key, [collect, deposit], `gather ${d.amount} ${d.item} for the pens`, undefined, meta, opt.holds, opt);
+        console.log(`[pens] ${v.name}: ${worker.name} gathers ${d.amount} ${d.item} to breed with`);
+        return;
+      }
+      case 'flint':
+      case 'arrows': {
+        const first = d.kind === 'flint' ? worker.enqueue('flint_trip', { count: d.count, chore: true }) : worker.enqueue('pick_up_arrows', { x: d.x, y: d.y, z: d.z, chore: true });
+        const deposit = worker.enqueue('deposit', d.kind === 'flint' ? { item: 'flint', also: 'gravel', chore: true } : { item: 'arrow', chore: true });
+        const failed = (why: string) => {
+          if (why === 'cancelled' || first.code || deposit.code) return;
+          if (deposit.state === 'done' && /^deposited [1-9]/.test(deposit.message ?? '')) return;
+          this.flintBack.set(`${v.name}:${d.kind}`, Date.now() + 10 * 60000);
+        };
+        this.setChore(v, worker, opt.key, [first, deposit], d.kind === 'flint' ? `dig gravel for ${d.count} flint` : 'pick up the arrows that missed', failed, meta, opt.holds, opt);
+        console.log(`[flint] ${v.name}: ${worker.name} ${d.kind === 'flint' ? `goes for ${d.count} flint (${flintCounts.flint} knapped so far)` : `picks up arrows near ${d.x},${d.z}`}`);
+        return;
+      }
       case 'gather': {
         const collect = worker.enqueue('collect', { block: d.block, count: d.amount, chore: true });
         // (deposit runs after a failed collect too: a partial load is put in and counts, the check's M3)
@@ -11979,6 +12126,9 @@ type OptionRun =
   | { kind: 'rest'; x: number; y: number; z: number }
   | { kind: 'watch' }
   | { kind: 'hunt' }
+  | { kind: 'flint'; count: number }
+  | { kind: 'penfeed'; item: string; amount: number }
+  | { kind: 'arrows'; x: number; y: number; z: number }
   | { kind: 'wall'; seg: number; down?: boolean }
   | { kind: 'castle'; part: string }
   | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number; needs: Counts; gives: string[]; own?: string[] }

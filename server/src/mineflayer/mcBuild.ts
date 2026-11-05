@@ -5277,6 +5277,9 @@ async function breedPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
     if (total < 0 || ready < 0) throw new Error(`breed_pen: the server gave no count of the ${kind}s in the pen on annex slot ${j}`);
     pen.animals = total;
     if (ready < 2 || total + 1 > cap) {
+      // (#229: young in the pen grow up in 20 game minutes: breeding is not offered again before then; BP1's restocked
+      // pen was offered it 400 times while its chicks grew, and its "no adults ready" answers kept members off it after)
+      if (PENS_BIG && ready < 2 && total > ready) pen.youngUntil = Date.now() + (20 * 60000) / Math.max(1, timeScale());
       a.world.villages.save();
       return ready < 2 ? `the ${kind} pen on annex slot ${j} has ${ready} adult${ready === 1 ? '' : 's'} ready to breed of ${total}` : `the ${kind} pen on annex slot ${j} is full (${total} of ${cap})`;
     }
@@ -5425,6 +5428,7 @@ async function hatchEggs(a: BotAgent, args: Record<string, unknown>, signal: Abo
     pen.animals = now;
     pen.born = (pen.born ?? 0) + born;
     pen.hatched = (pen.hatched ?? 0) + born;
+    if (born) pen.youngUntil = Date.now() + (20 * 60000) / Math.max(1, timeScale());
     a.world.villages.save();
     if (born) console.log(`[pens] ${v.name}: ${born} young chicken born on slot ${j} (${now} of ${penCap('chicken', slot)}; hatched from ${thrown} eggs)`);
     const out = `threw ${thrown} eggs into the chicken pen on annex slot ${j}: ${born} chicks hatched, ${now} in the pen`;

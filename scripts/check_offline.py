@@ -57,6 +57,10 @@ def commands():
     out["choice_holds"] = ([node, TSX, "scripts/checks/choice_holds.mts"], ["mc/testcheckpoints/mv3_base25/villages.json"])
     # (#122, MC_POLICY_OPTIONS: the gated options on a filler-only menu of im2_mine set up for it, flag on and off)
     out["policy_options"] = ([node, TSX, "scripts/checks/policy_options.mts"], ["mc/testcheckpoints/im2_mine/villages.json"])
+    # (#225, MC_BOWS_FIRST, and #229, MC_PENS_BIG: the bow supply above the wall, the doubled pens and their restocking, on
+    # w203_n9, flag on and off)
+    for name in ("bows_first", "pens_big"):
+        out[name] = ([node, TSX, f"scripts/checks/{name}.mts"], ["mc/testcheckpoints/w203_n9/villages.json"])
     # (#142: lightParts' and decorParts' quick signatures keep the cached parts right through each change they read)
     out["parts_cache"] = ([node, TSX, "scripts/checks/parts_cache.mts"], ["mc/testcheckpoints/im2_mine/villages.json"])
     # (#149: the small-work spots kept with smallBlocked's areas and gardenSpots' tile index, against the plain search)
@@ -118,8 +122,10 @@ DRESSING_OFF = {"MC_DRESSING": "off"}
 OWN_OFF = {"MC_OWN": "off"}
 # (MC_MONUMENT_STOCK on by default since 11-01: the monument checks test its gathering trips; monument_stock tests the claim)
 STOCK_OFF = {"MC_MONUMENT_STOCK": "off"}
+# (#225's bows first and #229's big pens, 11-05: the goldens' menus were recorded with the old pens and ranks)
+PENS_OFF = {"MC_PENS_BIG": "off", "MC_BOWS_FIRST": "off"}
 CHECK_ENV = {"small_works": {"MC_VANILLA_ALL": "off", "MC_GARDENS": "off"},
-             **{n: {**WANTS_OFF, **CIVIC_OFF, **DRESSING_OFF} for n in ("choice_golden", "board_golden", "palette_golden", "palette_golden:old_board", "policy_options")},
+             **{n: {**WANTS_OFF, **CIVIC_OFF, **DRESSING_OFF, **PENS_OFF} for n in ("choice_golden", "board_golden", "palette_golden", "palette_golden:old_board", "policy_options")},
              **{n: CIVIC_OFF for n in ("monument_unit", "monument_m3", "castle_monument")}}
 CHECK_ENV["policy_options"] = {**CHECK_ENV["policy_options"], **OWN_OFF}
 for _n in ("monument_unit", "monument_m3", "castle_monument"):
