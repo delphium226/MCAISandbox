@@ -85,14 +85,19 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
   trigger), #223 (guessed deaths at log-in).
 - **Decided by the user 11-05:** instincts **stay as they are** (on); no more instinct trains; fix #222 cheaply and
   move on.
+- **#221-#223 fixed** (609410e collect's limits count from the first run after a reflex; 5374551 E5 lessons keep the
+  cause, key on a chore only when it took the member out, none within 48 of home; 7191565 no death at log-in), each with
+  a check that fails on the old code.
+- **#217 spec done** (b56730d, `docs/specs/castle-walls.md`): members refused all 12 wall votes (93 of 300 ballots yes);
+  the ballot framed the wall as everyone's public work, gave its cost but not its effect, and its "no" as freedom.
+- **Decided by the user 11-05 (spec Q1-Q5):** bows for wall watchers **and hunters**, penned chickens may be killed for
+  feathers; the first stone stage is **towers and gatehouses on the fence ring** (~3,500-4,700 stone), stone curtain
+  sections later as their own votes; the ballot changes go in (a member named as proposer, the vote by stages); water
+  crossings are **stone dams** (no iron bars).
 - **Next:**
-  1. Small fixes #221, #222, #223 (one work session, test world 1 or 2).
-  2. **#217 castle walls**: the spec must face that members refused every wall vote (0 of 10): read the ballots
-     (`[ballot]` lines in trains 20-21) for why before designing a bigger wall; (the user's, 11-03: "an outer castle wall that the members can patrol and fire arrows
-     from"): spec once survival-211-203 is done with the wall code (patrol chores, shooting, stone cost against the
-     quarry, the fence ring as a first stage, water crossings: the fence ring leaves 88 water cells open), then a
-     work session.
-  3. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
+  1. **#217 build**: the spec's steps 0-6 with those answers (step 2 stone only; step 4 stops at stage 2 until a curtain
+     vote is wanted), offline checks, then a staged pair and one model-driven pair (spec section 5).
+  2. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
      (#150-#163); #164 steps 3-5.
 
 ## Earlier phases

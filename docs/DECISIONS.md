@@ -1009,3 +1009,8 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 11-05 (the user, after train 21, F354) **Instincts stay as they are and the instinct trains end**: with #220 they
   learn from deaths and not from passing states, but place lessons steer targets, not walks or night trips, and did not
   cut deaths (6 / 3). MC_INSTINCTS stays on; #222's small fixes go in; no work on steering walks.
+- 11-05 (the user, on the #217 castle-wall spec's Q1-Q5) **Castle walls**: bows for the wall's watchers and for
+  hunters (creepers at range, gunpowder from the hunt); penned chickens may be killed for feathers. The first stone stage
+  is towers and gatehouses on the fence ring; stone curtain sections come later as votes of their own. The wall ballot
+  may name a member as proposer and offer the wall stage by stage (members still decide). Deep water is closed with
+  stone dams, not iron bars.
