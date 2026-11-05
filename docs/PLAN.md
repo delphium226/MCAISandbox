@@ -78,17 +78,17 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
   only once a vote passes. A wall that is never voted is a result, not a bug.
 - **#218-#220 fixed and checked** (dab63d7 hunt loop; e9eb298 amethyst trip off where falls hurt; be3e959 retry-later
   failures teach nothing, a death teaches a place lesson E5; notes `runs/2026-11-04/fix218-220/notes.md`).
-- **Paused 11-04 ~23:05 (the user: "pause for the evening"):** train 21 (local_67639739-50d4-44f8-b038-53c83bb0fa50,
-  brief `runs/2026-11-04/train21/brief.md`) ran both arms to the end (~23:15, a detached script stops worlds 4 and 5);
-  its report, F354, RUNS line and commit are **not written yet**: resume that session first. Seen live: no lesson from
-  the night band (11 sand, 6 lily failures); Jonah's E2 i263 (stuck 3 times at -1589,61,39 on the way home; borrowed
-  by 4; the report counts stalls there before/after); Ben died in I0; both arms refused the wall vote (4 of 4 villages
-  over trains 20-21: weigh this in #217's spec).
+- **Train 21 done (F354, e2161b4, `runs/2026-11-04/train21/report.md`; checked against the I1 log):** with #220 no
+  lesson from the night band or low health; 6 lessons (1 E2, 5 E5 from deaths), 2 right; deaths I1 6 / I0 3 (4 in one
+  night before any lesson; lessons reorder targets, never walks or night trips). Wall refused 3 times in each arm:
+  **0 of 10 wall votes passed over trains 20-21.** New: #221 (sand trip stuck 32 min in water), #222 (E5 wording and
+  trigger), #223 (guessed deaths at log-in).
+- **Decided by the user 11-05:** instincts **stay as they are** (on); no more instinct trains; fix #222 cheaply and
+  move on.
 - **Next:**
-  1. Resume train 21's session for its report; check it against the logs (lessons judged, E5 death lessons, deaths,
-     the wall votes). If instincts still learn little that is right, take the
-     design question to the user (keep, narrow to deaths only, or park).
-  2. **#217 castle walls** (the user's, 11-03: "an outer castle wall that the members can patrol and fire arrows
+  1. Small fixes #221, #222, #223 (one work session, test world 1 or 2).
+  2. **#217 castle walls**: the spec must face that members refused every wall vote (0 of 10): read the ballots
+     (`[ballot]` lines in trains 20-21) for why before designing a bigger wall; (the user's, 11-03: "an outer castle wall that the members can patrol and fire arrows
      from"): spec once survival-211-203 is done with the wall code (patrol chores, shooting, stone cost against the
      quarry, the fence ring as a first stage, water crossings: the fence ring leaves 88 water cells open), then a
      work session.

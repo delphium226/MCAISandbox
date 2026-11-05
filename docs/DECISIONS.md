@@ -1006,3 +1006,6 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 11-04 (the user, asked by the planning session after train 20) **The village wall keeps the members' vote in
   danger**: train 20's villages voted the wall down 9-16 even after deaths; the user chose not to bypass the vote.
   a37a58c's rank and weight apply once a vote passes; a wall never voted is a result of the members' choice.
+- 11-05 (the user, after train 21, F354) **Instincts stay as they are and the instinct trains end**: with #220 they
+  learn from deaths and not from passing states, but place lessons steer targets, not walks or night trips, and did not
+  cut deaths (6 / 3). MC_INSTINCTS stays on; #222's small fixes go in; no work on steering walks.
