@@ -462,7 +462,10 @@ export type FarmSlot = FarmSpot & {
   pen?: { gate: [number, number]; facing: string; wood?: string; built?: boolean; animals?: number; at?: number;
     eggs?: number; eggsAt?: number; bredAt?: number; born?: number; milk?: number; milkAt?: number; workAt?: Record<string, number>;
     /** #139: wool sheared in all and when. */
-    wool?: number; shearAt?: number };
+    wool?: number; shearAt?: number;
+    /** #229 (MC_PENS_BIG): when the pen was enlarged where it stands, chicks hatched from thrown eggs, the lowest count seen
+     *  since the last restock (the census) and whether it is restocking (below its line, no plucking until back at 4). */
+    grownAt?: number; hatched?: number; low?: number; restocking?: boolean };
 };
 
 /**

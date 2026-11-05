@@ -213,6 +213,24 @@ export const PEN_SHAPES: Record<string, PenShape> = {
 /** The varied annex (#139): 25 along the plot's edge by 13 out, 3 out from the plot as the classic 13x9. */
 export const ANNEX_VARIED: [number, number] = [25, 13];
 
+/**
+ * #229 (MC_PENS_BIG, on; the user's 11-05: "make the animal farms twice as big and get members to breed the animals"):
+ * each shape's inside doubled, longer and as wide (so a set still fits the 25 along the plot's edge), on an annex 18 out
+ * in place of 13; a pen's cap follows its area, so the caps double too. A pen built before on a 25x13 annex is enlarged
+ * where it stands (enlargedSlot: its far end moved out to the annex's edge).
+ */
+export const PENS_BIG = !/^(off|0|false|no)$/i.test(rawSetting('MC_PENS_BIG') ?? 'on');
+export const ANNEX_BIG: [number, number] = [25, 18];
+/** The doubled shapes (insides 3x6 to 9x14 and an L of 76; twice 9, 15, 25, 35, 63 and 37 or a little more). */
+export const PEN_SHAPES_BIG: Record<string, PenShape> = {
+  small: { name: 'small', w: 5, l: 8 },
+  standard: { name: 'standard', w: 5, l: 12 },
+  square: { name: 'square', w: 7, l: 12 },
+  long: { name: 'long', w: 7, l: 16 },
+  large: { name: 'large', w: 11, l: 16 },
+  ell: { name: 'ell', w: 9, l: 15, cut: [3, 5] },
+};
+
 /** The sets of pens a varied annex holds (each fits 25 x 13 with a 1-cell border and 1-cell gaps); a village takes one by
  *  its name (penSetFor), so villages differ. */
 export const PEN_SETS: string[][] = [
@@ -230,8 +248,8 @@ function hashOf(s: string): number {
   return h;
 }
 
-/** The set of pen shapes a village's varied annex holds, by its name. */
-export const penSetFor = (village: string): PenShape[] => PEN_SETS[hashOf(village.toLowerCase()) % PEN_SETS.length].map((n) => PEN_SHAPES[n]);
+/** The set of pen shapes a village's varied annex holds, by its name (#229: the doubled shapes on a big annex). */
+export const penSetFor = (village: string, big = false): PenShape[] => PEN_SETS[hashOf(village.toLowerCase()) % PEN_SETS.length].map((n) => (big ? PEN_SHAPES_BIG : PEN_SHAPES)[n]);
 
 /**
  * A varied annex's pens (#139): its shapes side by side along the edge facing the plot, centred, with a 1-cell border and
@@ -368,3 +386,40 @@ export function worksFurnaces(r: Area & { side: Side }): Array<{ x: number; z: n
     return { x, z, stand: slotCell(s, c, fr), facing };
   });
 }
+
+/** #229: the inside a pen's shape had before the doubling (a classic slot's 3x5 as the standard shape). */
+export function baseArea(s: { shape?: PenShape }): number {
+  const sh = s.shape ?? PEN_SHAPES.standard;
+  const base = PEN_SHAPES[sh.name];
+  // (a shape of the same name but longer is a doubled one already: its base is the table's)
+  return base ? penShapeArea(base) : penShapeArea(sh);
+}
+
+/**
+ * #229 (MC_PENS_BIG): a built pen enlarged where it stands: its far end (away from the gate) moved out, one row at a time,
+ * until the inside is twice its base's or the annex's edge is reached (the annex's own outer row may be used: the
+ * prepared margin lies past it). Returns the slot's new rectangle, water line and shape, or null when it cannot grow (a
+ * doubled pen, or no room).
+ */
+export function enlargedSlot(s: FarmSpot & { shape?: PenShape; face?: Side }, annex: Area): (FarmSpot & { shape: PenShape }) | null {
+  const sh: PenShape = s.shape ?? PEN_SHAPES.standard;
+  const face = s.face ?? 'n';
+  const alongZ = s.water.x1 === s.water.x2;
+  const gateLow = alongZ ? face === 'n' : face === 'w';
+  const want = 2 * baseArea({ shape: sh });
+  if (penShapeArea(sh) >= want) return null;
+  // (room: from the far end to the annex's edge)
+  const room = alongZ ? (gateLow ? annex.z2 - s.z2 : s.z1 - annex.z1) : gateLow ? annex.x2 - s.x2 : s.x1 - annex.x1;
+  let l = sh.l;
+  while (l < sh.l + room && penShapeArea({ ...sh, l }) < want) l++;
+  if (l === sh.l) return null;
+  const k = l - sh.l;
+  const r = { x1: s.x1, z1: s.z1, x2: s.x2, z2: s.z2 };
+  if (alongZ) gateLow ? (r.z2 += k) : (r.z1 -= k);
+  else gateLow ? (r.x2 += k) : (r.x1 -= k);
+  const water = alongZ ? { x1: s.water.x1, x2: s.water.x2, z1: r.z1, z2: r.z2 } : { z1: s.water.z1, z2: s.water.z2, x1: r.x1, x2: r.x2 };
+  return { ...r, water, sow: s.sow ?? [], shape: { ...sh, l } };
+}
+
+/** #229: a pen is restocked below this many animals (a chicken pen below 4, the feathers' floor; any other below 2). */
+export const restockLine = (kind: string): number => (kind === 'chicken' ? 4 : 2);
