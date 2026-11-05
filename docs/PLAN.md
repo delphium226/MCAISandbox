@@ -102,10 +102,11 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
   little exercised (beds skip nights). Fixed after the pair, not yet run live: re-aim through the draw, the inside count
   by height, the hunt's own arrows, feathers only with flint.
 - **Next:**
-  1. **#217 model-driven pair** (spec 5 item 3): wall on with the vote (MC_VOTE=model) vs the old ballot, hostile, from
-     w203_n9; judged on votes passed, stone parts, water gaps, hostiles inside near home's height, watch and bow use.
-     Open from the build: flint has no trip and arrows are not picked up; no wall quarry pit; scripted workers loop on
-     "no logs inside the band" at night (~50 failures a minute, not wall code; file it).
+  1. **#217 model-driven pair done (F355, 550c154):** the new ballot passed the wall 9-4 (W0's old ballot refused 4-9;
+     danger facts differed, 15 vs 5 monsters); 428 of 692 ring cells, 29 dams, 0 water gaps, but the ring was not
+     closed by +82, so no stone vote; beds skipped every night (no watch, no bow shot). Deaths not the wall's: #227
+     (log-in in rock), #228 (witch at range, reflex only within 5). Still untested live: towers, the watch, bows; run
+     them from a checkpoint with the ring closed and nights that run, after item 2.
   2. **Bows before walls, and bigger pens that refill** (the user, 11-05; DECISIONS): the bow and arrow supply comes
      ahead of the wall build, in what gets built next (#225 before #226) and in the village's work order (making bows
      and arrows, flint, arrow pickup rank above wall cells and tower stone). Pens twice as big (double the inside area
