@@ -1014,3 +1014,7 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   is towers and gatehouses on the fence ring; stone curtain sections come later as votes of their own. The wall ballot
   may name a member as proposer and offer the wall stage by stage (members still decide). Deep water is closed with
   stone dams, not iron bars.
+- 11-05 (the user, during the #217 model-driven pair) **Bows and arrows before the wall; bigger pens that breed and
+  refill**: bows and arrows take priority over the wall build from now on, both in the order work is built and in the
+  village's own work order. If the chickens are all taken for feathers, members restock the chicken pen. Animal pens are
+  made twice as big, and members breed the animals to fill them.

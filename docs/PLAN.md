@@ -106,7 +106,12 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
      w203_n9; judged on votes passed, stone parts, water gaps, hostiles inside near home's height, watch and bow use.
      Open from the build: flint has no trip and arrows are not picked up; no wall quarry pit; scripted workers loop on
      "no logs inside the band" at night (~50 failures a minute, not wall code; file it).
-  2. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
+  2. **Bows before walls, and bigger pens that refill** (the user, 11-05; DECISIONS): the bow and arrow supply comes
+     ahead of the wall build, in what gets built next (#225 before #226) and in the village's work order (making bows
+     and arrows, flint, arrow pickup rank above wall cells and tower stone). Pens twice as big (double the inside area
+     and the caps); members breed the animals up to the new cap, and a chicken pen emptied by feathers, monsters or
+     deaths is restocked (led in again or hatched from eggs) before more plucking. Issues #225 (priority comment) and #229 (pens).
+  3. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
      (#150-#163); #164 steps 3-5.
 
 ## Earlier phases
