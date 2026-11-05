@@ -2646,3 +2646,24 @@ CLAUDE.md when a phase ends.
   - **Verdict:** the planning prediction (danger lessons, mostly right, fewer deaths) is not borne out; the finder
     learns from passing states and cannot see deaths. Fix #220 before another instinct train; rerun with #218 and #219
     fixed and the wall voted by rank or MC_VOTE=off. Report: runs/2026-11-04/train20/report.md.
+- F354 (11-05, train21, G1/G3) **Train 21: with #220 the instincts learned from deaths (5 E5 lessons) and nothing from
+  the night band, 2 of 6 lessons right, but I1 died more (6 / 3).** Train 20 rerun (I1 instincts on, world 4; I0 off,
+  world 5; hostile, MC_WALLS, the members' vote), code be3e959 with #218, #219, #220. Both arms stopped at +116.4 (every
+  process of the train ended at 23:10 during the evening pause; not saved, no runner summary).
+  - **Lessons:** 6 (train 20: 24), none from the night band (13 + 6 failures) or low health (9). 1 E2 (Jonah i263, 3
+    stalls on the way home), 5 E5 from deaths, + 1 death confirming a borrowed copy at its spot. Right 2 (i288 the
+    drowning sand spot, i290 a night skeleton 129 out); right place but wrong scope or words 2 (i263's area passed over
+    targets 30-144 away; i389 keyed on "rest at home"); unproven 1; wrong 1 (i291, an enderman 21 from home). Each E5
+    lesson reached 22-24 members within minutes. i288's text lost its cause to the word cap (#222).
+  - **Jonah's i263:** 3 stalls within 12 of the spot before, 0 after; 24 members borrowed it; 47 gathering targets
+    passed over, 32 of them logs 30-39 away; 18 tagged model options picked 6 (33%, ~21% untagged): no steering. Uma held
+    a copy and was killed at its spot: lessons reorder targets, never walks.
+  - **Deaths:** I1 6 (5 at night, 4 in 3.2 min at +80-83 with 22 hostiles within 48 against I0's 9), I0 3; train 20 I1
+    8. No hunt loop, no amethyst deaths (#218, #219 hold). I0's 2 "guessed" deaths at log-in are not deaths (#223).
+  - **The wall:** refused 3 times in each arm (9-16, 7-18, 11-14; 7-18, 7-18, 8-17), 0 cells.
+  - Failures 7% / 10%, repeats 6 / 17 (the night band's sand 13 / 51 and keep_custom, not learned about), chore
+    minutes 57 / 58%, houses 25 / 25; I1 finished the Zytglogge +94.3 and a windmill +111.5, I0 not the Zytglogge. Lag
+    one 2.3 s; $1.199 + $1.321. Clara's sand trip hung 32 min in the water at the drowning spot (#221).
+  - **Verdict:** #220 fixed what it was for (no transient lessons; deaths teach), but place lessons did not cut deaths:
+    most came in one night before any lesson, and a lesson cannot steer walks or night trips, which killed 5 of I1's 6.
+    Report: runs/2026-11-04/train21/report.md.
