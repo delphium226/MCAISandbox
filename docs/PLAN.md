@@ -94,9 +94,18 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
   feathers; the first stone stage is **towers and gatehouses on the fence ring** (~3,500-4,700 stone), stone curtain
   sections later as their own votes; the ballot changes go in (a member named as proposer, the vote by stages); water
   crossings are **stone dams** (no iron bars).
+- **#217 built** (e8780f2, ebded05, 5a8458b, e346c8a; notes `runs/2026-11-05/castle-walls-build/notes.md`): five
+  flags, default on, monsters only (MC_WALL_BALLOT, MC_WALL_WATER, MC_CASTLE_WALL, MC_WALL_WATCH, MC_BOWS). Ballot
+  replay: 132 of 300 yes with danger shown, 91 with none (old 93): the danger facts move the vote; "no" reasons still
+  "I prefer..." (166 of 168). Staged pair from w203_n9 (60 min after): ring closed 692/692 with 28 dams and 0 water gaps
+  (off: 65 gaps), 21/21 towers and gatehouse (2,687 stone); watch reached 16 of 19 tower posts; bows 5 shots 3 hits,
+  little exercised (beds skip nights). Fixed after the pair, not yet run live: re-aim through the draw, the inside count
+  by height, the hunt's own arrows, feathers only with flint.
 - **Next:**
-  1. **#217 build**: the spec's steps 0-6 with those answers (step 2 stone only; step 4 stops at stage 2 until a curtain
-     vote is wanted), offline checks, then a staged pair and one model-driven pair (spec section 5).
+  1. **#217 model-driven pair** (spec 5 item 3): wall on with the vote (MC_VOTE=model) vs the old ballot, hostile, from
+     w203_n9; judged on votes passed, stone parts, water gaps, hostiles inside near home's height, watch and bow use.
+     Open from the build: flint has no trip and arrows are not picked up; no wall quarry pit; scripted workers loop on
+     "no logs inside the band" at night (~50 failures a minute, not wall code; file it).
   2. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
      (#150-#163); #164 steps 3-5.
 
