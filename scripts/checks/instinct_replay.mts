@@ -21,6 +21,9 @@
  * band ("inside the band now") or the hunt's health floor (it taught 21 and 2), and the deaths away from home teach
  * place lessons (E5): the amethyst stair's (Milo, Wren, Finn, Rosa) for `activity:lib:amethyst`, which weigh the
  * amethyst option at the geode below 1 and not one elsewhere.
+ * On train 21's I1 log (runs/2026-11-04/testagents-w4-211309.log, #222; 1x): Quinn's drowning keeps its cause ("drowned"),
+ * his death walking home at night during "rest at home" is keyed on no chore ("walking out"), and Uma's deaths 20 and 45
+ * blocks from home teach nothing.
  * Home (the area's `from`) is the storage hut, read from the log's "teleported to the storage hut at X,Y,Z" unless given.
  * Any other log: prints what forms and checks nothing. Exit 1 on a failed check.
  */
@@ -38,6 +41,7 @@ const RUN6 = 'runs/2026-11-02/testagents-154746.log';
 const file = args.find((a, k) => !a.startsWith('--') && args[k - 1] !== '--home') ?? RUN6;
 const isRun6 = file.replace(/\\/g, '/').endsWith('testagents-154746.log');
 const isT20 = file.replace(/\\/g, '/').endsWith('testagents-w4-174352.log');
+const isT21 = file.replace(/\\/g, '/').endsWith('testagents-w4-211309.log');
 const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
 
 let home: { x: number; z: number } | null = null;
@@ -178,6 +182,18 @@ if (isT20) {
   }
   check(e5.length >= 6, `the deaths away from home teach place lessons (${e5.length} of the log's 8 deaths)`);
   console.log(failed ? `instinct_replay (train 20): ${failed} FAILED` : 'instinct_replay (train 20): all checks passed');
+}
+
+if (isT21) {
+  const q = I.instinctsOf('P1', 'Quinn').filter((i) => i.how === 'E5');
+  const sand = q.find((i) => Math.hypot(i.trigger.area!.x + 1814, i.trigger.area!.z - 9) <= 6);
+  check(!!sand && /: drowned\.$/.test(sand.text) && I.words(sand.text) <= I.MAX_WORDS, `Quinn's drowning keeps its cause: ${sand ? `"${sand.text}"` : 'nothing'}`);
+  const rest = q.find((i) => Math.hypot(i.trigger.area!.x + 1615, i.trigger.area!.z - 137) <= 6);
+  check(!!rest && rest.trigger.keys.length === 0 && /^When walking out,/.test(rest.text) && /Creeper\.$/.test(rest.text),
+    `Quinn's death on the way home is keyed on no chore: ${rest ? `"${rest.text}" keys [${rest.trigger.keys}]` : 'nothing'}`);
+  const uma = I.instinctsOf('P1', 'Uma').filter((i) => i.how === 'E5');
+  check(uma.length === 0 && r.out.filter((l) => /Uma learns nothing from its death .*: at home/.test(l)).length === 2, `Uma's deaths inside the village teach nothing (${uma.length} lessons)`);
+  console.log(failed ? `instinct_replay (train 21): ${failed} FAILED` : 'instinct_replay (train 21): all checks passed');
 }
 
 // Session 2: the same log with sharing on (MC_INSTINCT_SHARE): the side-by-side and dusk passes that would have happened

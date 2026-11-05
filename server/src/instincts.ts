@@ -60,6 +60,10 @@ const FAIL_WINDOW = 30, STALL_WINDOW = 10, STALL_N = 3, STALL_NEAR = 12, AREA_R 
  *  within HOME_NEAR blocks of home (the storage) or KEEP_NEAR of a village structure (a walk stall there is the walk's
  *  fault, never the place's). */
 const CONFIRM_WINDOW = 10, HOME_NEAR = 10, KEEP_NEAR = 4;
+/** #222: a death within DEATH_HOME_NEAR blocks of home teaches no place (Uma's enderman 21 blocks out: 23 members kept
+ *  away from a spot inside the village), and a chore of a HOME_KINDS kind is not what took the member out (Quinn died
+ *  walking home at night during "rest at home"). */
+const DEATH_HOME_NEAR = 48, HOME_KINDS = /^(rest|eat|watch|tidy|make)$/;
 
 const scale = () => Math.max(0.1, Number(rawSetting('MC_TIME_SCALE') ?? 1) || 1);
 /** Village minutes as wall-clock ms. */
@@ -307,10 +311,13 @@ export function template(c: { how: 'E1' | 'E2' | 'E5'; trigger: Trigger; cls?: s
   const doing = t.item ? `${verb} ${t.item.replace(/_/g, ' ')}` : c.how === 'E2' ? 'walking out' : 'choosing your next chore';
   if (c.how === 'E5' && t.area) {
     const where = t.area.from ? `${compass(t.area.from, t.area)} ` : '';
-    const when = c.what?.trim() || (t.item ? doing : 'walking out');
     // (the cause is the lesson: it goes in the main clause, not the parenthesis fit drops first)
     const cause = (c.cls ?? 'killed').replace(/^was /, '');
-    return fit(`When ${when}, keep away; avoid the spot ${where}at ${Math.round(t.area.x)},${Math.round(t.area.z)}, died there${c.night ? ' at night' : ''}: ${cause}.`);
+    const line = (when: string) => `When ${when}, keep away; avoid the spot ${where}at ${Math.round(t.area!.x)},${Math.round(t.area!.z)}, died there${c.night ? ' at night' : ''}: ${cause}.`;
+    // (#222: a long menu name gives way to the item's words, then to "walking out", before fit cuts the cause: Quinn's
+    // "fetch sand from 237 blocks away for the clock tower" left "died there at.")
+    const whens = [c.what?.trim(), t.item ? doing : undefined, 'walking out'].filter((w): w is string => !!w);
+    return fit(line(whens.find((w) => words(line(w)) <= MAX_WORDS) ?? whens[whens.length - 1]));
   }
   if (c.how === 'E2' && t.area) {
     const where = t.area.from ? `${compass(t.area.from, t.area)} ` : '';
@@ -605,7 +612,8 @@ export function noteStall(line: string, opts: { village?: string; home?: { x: nu
 
 /**
  * E5 (#220): a death teaches an area round where the member died (AREA_R), for the chore it was doing: the one under way,
- * or the one that ended (cancelled) within a minute before. Never at home or on the village's works (#210). Learned at
+ * or the one that ended (cancelled) within a minute before, unless it is done at home (#222). Never within
+ * DEATH_HOME_NEAR of home (#222) or on the village's works (#210). Learned at
  * once, as a place lesson, without the one-a-day rule; a death within MERGE of it confirms it. Called by the `[death]`
  * line (botAgent.died).
  */
@@ -614,14 +622,16 @@ export function noteDeathLesson(d: { village?: string; agent: string; cause: str
   const now = d.now ?? Date.now();
   const k = d.agent.toLowerCase();
   const end = lastEnded.get(k);
-  const chore = current.get(k) ?? (end && now - end.t <= 60000 ? end.c : undefined);
-  const village = d.village ?? chore?.village;
+  const was = current.get(k) ?? (end && now - end.t <= 60000 ? end.c : undefined);
+  const village = d.village ?? was?.village;
+  // (#222: keyed on the chore only when it took the member out; one done at home or on the way back is "walking out")
+  const chore = was && !HOME_KINDS.test(was.kind) ? was : undefined;
   if (!village) return null;
   const st = member(village, d.agent);
   sweep(st, village, d.agent, now);
   const spot = `${Math.round(d.x)},${Math.round(d.z)}`;
-  if (d.home && Math.hypot(d.x - d.home.x, d.z - d.home.z) <= HOME_NEAR) {
-    log(village, `${d.agent} learns nothing from its death at ${spot} (${d.cause}): at home`);
+  if (d.home && Math.hypot(d.x - d.home.x, d.z - d.home.z) <= DEATH_HOME_NEAR) {
+    log(village, `${d.agent} learns nothing from its death at ${spot} (${d.cause}): at home (${Math.round(Math.hypot(d.x - d.home.x, d.z - d.home.z))} blocks out)`);
     return null;
   }
   if (d.keepOff?.some((b) => Math.max(b.x1 - d.x, d.x - b.x2, b.z1 - d.z, d.z - b.z2) <= KEEP_NEAR)) {
@@ -630,7 +640,7 @@ export function noteDeathLesson(d: { village?: string; agent: string; cause: str
   }
   const area: Area = { x: Math.round(d.x * 10) / 10, z: Math.round(d.z * 10) / 10, r: AREA_R, ...(d.home ? { from: { x: d.home.x, z: d.home.z } } : {}) };
   const trigger: Trigger = { keys: chore ? [normKey(chore.key)] : [], kinds: [], item: chore?.item, area };
-  const cand: Candidate = { kind: 'avoid', how: 'E5', trigger, cls: d.cause, night: d.night, ofKind: chore?.kind, what: chore?.what, evidence: [`${chore?.id ?? 'no chore'} died @${spot}`], count: 1, at: now, text: '' };
+  const cand: Candidate = { kind: 'avoid', how: 'E5', trigger, cls: d.cause, night: d.night, ofKind: chore?.kind, what: chore?.what, evidence: [`${was?.id ?? 'no chore'}${was && !chore ? ` (${was.kind}, at home)` : ''} died @${spot}`], count: 1, at: now, text: '' };
   cand.text = template(cand);
   return promote(st, village, d.agent, cand, now, true);
 }
