@@ -107,12 +107,16 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
      closed by +82, so no stone vote; beds skipped every night (no watch, no bow shot). Deaths not the wall's: #227
      (log-in in rock), #228 (witch at range, reflex only within 5). Still untested live: towers, the watch, bows; run
      them from a checkpoint with the ring closed and nights that run, after item 2.
-  2. **Bows before walls, and bigger pens that refill** (the user, 11-05; DECISIONS): the bow and arrow supply comes
-     ahead of the wall build, in what gets built next (#225 before #226) and in the village's work order (making bows
-     and arrows, flint, arrow pickup rank above wall cells and tower stone). Pens twice as big (double the inside area
-     and the caps); members breed the animals up to the new cap, and a chicken pen emptied by feathers, monsters or
-     deaths is restocked (led in again or hatched from eggs) before more plucking. Issues #225 (priority comment) and #229 (pens).
-  3. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
+  2. **Bows before walls and bigger pens built** (8fd0bf9, d4ccb1e, 77d70e0; MC_BOWS_FIRST, MC_PENS_BIG, on; notes
+     `runs/2026-11-05/bows-pens/notes.md`). Staged BP1/BP2 on world 4: flint trip and bows picked first (wall at +0.5);
+     BP2 3 bows, 36 arrows, 3 flint trips in 20 min; pens enlarged in place and bred full in ~10 min (chickens 6 -> 12,
+     sheep 4 -> 8); a chicken pen killed to 0 was back at 4 in ~11 min (led in + eggs hatched). Not yet live: the
+     `youngUntil` breeding fix after a restock. Open: flint trips 2-3 failed when surface gravel ran out (a gravel source
+     from the atlas, as #202's sand, would make it dependable); feathers wait while a restocked pen is all chicks.
+  3. **Next test train:** the castle wall's stone stage, watch and bows live from a checkpoint with the ring closed and
+     nights that run (no sleeper), with bows-first and big pens on; count shots, tower visits, hostiles inside, young per
+     pen after a restock, flint trips.
+  4. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
      (#150-#163); #164 steps 3-5.
 
 ## Earlier phases
