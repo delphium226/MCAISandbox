@@ -2687,3 +2687,25 @@ CLAUDE.md when a phase ends.
   - [stuck] 41 / 32, failures 64 / 54, busy 91 / 92%, [lag] 0; $0.665 + $0.639.
   - Next: a 120-min W1 run (or from a checkpoint with the ring closed) for the stone stage, with nights that run; the
     frame-vs-danger question at matched facts on the ballot bench. Report: runs/2026-11-05/castle-walls-live/report.md.
+- F356 (11-05, train22, G8) **The castle's stone stage, tower watch and bows live, from a closed ring with nights that
+  run: both arms voted the towers (7-6) and built all 21 parts; watchers reached 154 of 158 tower posts; bows shot 35
+  times, hit 14 and killed 1; but members died outside the ring at night (21 of 26 / 27 of 37).** C1 (world 4, every
+  flag on) against C0 (world 5, MC_WALL_WATCH, MC_BOWS, MC_BOWS_FIRST off); castle-walls-live W1's settings, hostile,
+  MC_VOTE=model, 12 members, 90 min after, 1x, code 87c72d5, from the new checkpoint `w217_ring` (w203_n9 with the fence
+  ring closed by two staged runs: 692 of 692 cells, 29 dammed); nights left to run by `players_sleeping_percentage 101`
+  set by rcon after start (no code change), 4 full nights of ~9 min each.
+  - **Stone stage:** passed 7-6 in both (+5.5 / +2.5; "yes" names protection while their own work goes on, "no" all "I
+    prefer..."; the "no" still reads "No wall for now", #232). 21 of 21 parts by +62.5 / +55.1, 2,672 stone, 1 failure
+    each (a water rescue).
+  - **Watch and bows (C1):** 154 of 158 tower visits reached, 0 watch spots outside the ring; 10 bows taken, 35 shots, 14
+    hits, 1 kill; 12 arrows picked up after fights, 0 sweeps; flint 10 trips, 5 brought 13 flint (8 then 1-2), 3 failed
+    (#225's gravel gap).
+  - **Hostiles inside the ring at night** (within 8 of home's height), mean per night: C1 2.6, 5.1, 3.1, 1.5 (peak 11),
+    C0 4.2, 7.0, 3.6, 3.3 (peak 13); 11 / 7 came in over the ring.
+  - **Deaths 26 / 37**, 21 / 27 outside the ring at night, median ~125 from storage, on hunts and initiatives: with beds
+    the curfew is off and the hunt reaches the bounds + 48 (#230). Hunts: 28 of 31 / 33 of 37 picks failed at once,
+    health 11-14 against "above 14" (#231).
+  - **Pens (#229):** all enlarged in the first 2.2 min; sheep full at once, chickens full by +19 (C0) / +59 (C1, the bow
+    supply first), C1's two feather plucks bred back; no pen reached its restock line, so the restock and youngUntil
+    are still untested live.
+  - [stuck] 116 / 81, [lag] 0 / 0, busy 80 / 73%, $0.546 + $0.433. Report: runs/2026-11-05/train22/report.md.
