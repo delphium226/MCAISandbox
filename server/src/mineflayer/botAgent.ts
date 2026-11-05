@@ -110,6 +110,8 @@ export class BotAgent implements WorldAgent {
   events: AgentEvent[] = [];
   queue: ActionStatus[] = [];
   current: Running | null = null;
+  /** The first spawn has happened (#223: a death before it is a log-in while dead). */
+  private spawned = false;
   history: ActionStatus[] = [];
   brain: AgentBrain | null = null;
   /** Resolves once the bot has spawned in the world. */
@@ -166,6 +168,7 @@ export class BotAgent implements WorldAgent {
       this.bot.once('error', (e) => fail(e));
     });
     this.bot.once('spawn', () => {
+      this.spawned = true;
       (this.bot.physics as unknown as { playerHalfWidth: number }).playerHalfWidth = PLAYER_HALF_WIDTH;
       this.lastHealth = this.bot.health ?? 20;
     });
@@ -468,6 +471,12 @@ export class BotAgent implements WorldAgent {
       if (it) this.pushEvent('pickup', `picked up ${it.count}x ${it.name}`, { item: it.name, count: it.count });
     });
     bot.on('death', () => {
+      // (#223: a player saved dead logs in dead: mineflayer's first health packet reads 0 before any spawn and it calls
+      // that a death. Ada and Lena "died" at the world spawn at +0 of train 21's I0; no death happened in the run)
+      if (!this.spawned) {
+        console.log(`[death] ${this.name} logged in dead at ${bot.entity?.position ? at(bot.entity.position) : 'the world spawn'}: respawns, not counted (no death in this run)`);
+        return;
+      }
       this.stop();
       const where = bot.entity?.position?.clone();
       const t = Date.now();
