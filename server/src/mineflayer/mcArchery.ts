@@ -13,6 +13,7 @@ import { modeSpec } from '../worldMode';
 import { timeScale } from './mcRules';
 import { storageContents, withdrawItems } from './mcStorage';
 import { checkAbort, sleep } from './mcUtil';
+import { noteShot } from './mcFlint';
 
 const flagOn = (name: string) => !/^(off|0|false|no)$/i.test(rawSetting(name) ?? 'on');
 /** Bows where monsters fight back (survival (d)). */
@@ -151,6 +152,8 @@ export async function shootAt(a: BotAgent, e: Entity, signal: AbortSignal): Prom
     a.bot.deactivateItem();
   }
   archeryCounts.shots++;
+  // (#225: where the village shot from, for the sweep of the arrows that missed)
+  noteShot(a.village()?.name, a.bot.entity.position);
   const t0 = Date.now();
   let hit = false, killed = false;
   while (Date.now() - t0 < 1500) {

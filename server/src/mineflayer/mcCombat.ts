@@ -21,6 +21,7 @@ import { noteHunted } from './mcMaterials';
 import { pickUpDrops } from './mcSurvival';
 import { at, checkAbort, goals, sleep, walk } from './mcUtil';
 import { MAX_RANGE, MIN_RANGE, bowReady, bowsOn, shootDown, takeBow } from './mcArchery';
+import { pickUpArrows } from './mcFlint';
 
 // ---------------------------------------------------------------------------------------------
 // Pure parts (scripts/checks/combat_unit.mts)
@@ -915,14 +916,22 @@ export async function keepWatch(a: BotAgent, spots: Array<{ x: number; z: number
       if (bowReady(a)) {
         const far = mobsNear(a, t, a.bot.entity.position, MAX_RANGE).filter((m) => m.dist >= MIN_RANGE).sort((p, q) => p.dist - q.dist)
           .map((m) => a.bot.entities[m.id]).filter((e): e is Entity => !!e && e.isValid !== false);
+        let shot = 0;
         for (const e of far.slice(0, 3)) {
           const r = await shootDown(a, e, signal, 4);
           if (!r.shots) continue;
+          shot += r.shots;
           if (r.killed) {
             kills++;
             combatCounts.kills[e.name ?? '?'] = (combatCounts.kills[e.name ?? '?'] ?? 0) + 1;
           }
           console.log(`[guard] ${a.name} ${v.name}: ${r.text} from ${s.tower ? 'the tower' : 'the spot'} at ${s.x},${s.z}`);
+        }
+        // (#225, MC_BOWS_FIRST: the arrows that missed, picked up once no hostile is within 10: they despawn a minute after
+        // they land)
+        if (shot && !mobsNear(a, t, a.bot.entity.position, 10).length) {
+          const got = await pickUpArrows(a, signal, 16, 15000);
+          if (got) console.log(`[arrows] ${a.name} ${v.name}: picked up ${got} arrows after the fight at ${s.x},${s.z}`);
         }
       }
       const foe = mobsNear(a, t, new Vec3(s.x, a.bot.entity.position.y, s.z), 16).filter((m) => m.name !== 'creeper').sort((p, q) => p.dist - q.dist)
@@ -1081,6 +1090,9 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
             const last = a.bot.entities[e.id]?.position ?? at0;
             await walk(a, new goals.GoalNear(last.x, last.y, last.z, 1), 'the drops', signal, 20000).catch(ignore);
             await pickUpDrops(a, last, signal).catch(ignore);
+            // (#225: the arrows that missed, while they lie)
+            const got = await pickUpArrows(a, signal, 16, 15000).catch(() => 0);
+            if (got) console.log(`[arrows] ${a.name} ${v.name}: picked up ${got} arrows after the hunt's kill`);
           } else if (!r.shots || tgt.name === 'creeper') skip.add(tgt.id);
           console.log(`[hunt] ${a.name} ${v.name}: ${r.text} (bow, ${Math.round(Math.hypot(tgt.x - home.x, tgt.z - home.z))} blocks from home)`);
           if (r.shots) continue;
