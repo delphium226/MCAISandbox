@@ -113,10 +113,14 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
      sheep 4 -> 8); a chicken pen killed to 0 was back at 4 in ~11 min (led in + eggs hatched). Not yet live: the
      `youngUntil` breeding fix after a restock. Open: flint trips 2-3 failed when surface gravel ran out (a gravel source
      from the atlas, as #202's sand, would make it dependable); feathers wait while a restocked pen is all chicks.
-  3. **Next test train:** the castle wall's stone stage, watch and bows live from a checkpoint with the ring closed and
-     nights that run (no sleeper), with bows-first and big pens on; count shots, tower visits, hostiles inside, young per
-     pen after a restock, flint trips.
-  4. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
+  3. **Train 22 done** (F356, 7f69c7f, checkpoint `w217_ring`): the stone stage passed 7-6 in both arms, 21 of 21 parts;
+     watchers reached 154 of 158 tower posts; bows 35 shots, 14 hits, 1 kill. But 26 / 37 deaths, most 100-220 blocks
+     out at night (no curfew once members have beds, #230); hunts fail at once at health 11-14 (#231); the stone-stage
+     "no" still reads "No wall for now" (#232). Pen restock and youngUntil still untested live (no pen fell to its line).
+  4. **Next: fixes #230, #231, #232 and the flint gravel source** (#225's follow-up: 3 of 10 trips failed), offline
+     checks, then a short train from `w217_ring` with nights that run, counting deaths outside the ring at night and an
+     emptied chicken pen's young.
+  5. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
      (#150-#163); #164 steps 3-5.
 
 ## Earlier phases
