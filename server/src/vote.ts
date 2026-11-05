@@ -64,7 +64,7 @@ export interface Ballot {
 }
 
 /** What a vote decides: the next neighbourhood's style (s33), the next public work (X.2), or the ladder's next rung (G8). */
-export type VoteTopic = 'style' | 'work' | 'rung';
+export type VoteTopic = 'style' | 'work' | 'rung' | 'wall';
 
 export interface VoteRecord {
   id: string;
@@ -181,12 +181,15 @@ const SYSTEM_OF: Record<VoteTopic, string> = {
   work: 'You are a member of a Minecraft village. The village votes on its next public work, a building every member then helps to gather for and build; ',
   // (G8: the ladder of ages; the winner becomes the village's ambition, worked in four stages)
   rung: 'You are a member of a Minecraft village. The village votes on its next ambition, the next age it climbs to, worked by every member in four stages; ',
+  // (#217 step 1, MC_WALL_BALLOT: the wall's own frame, not a public work every member builds)
+  wall: 'You are a member of a Minecraft village. The village votes on a defensive wall round the village. A wall is built by the members who take its chores, '
+    + 'at most one member in six at a time, from storage and its own supply trips; everyone else keeps to their own work; ',
 };
 const SYSTEM_TAIL = 'every member has one vote and the most votes win. Read the options and their facts, think briefly about what you want '
   + 'for the village and for yourself, and call `vote` with a one-sentence reason and the exact name of one option. '
   + 'Never invent an option.';
-const QUESTION: Record<VoteTopic, string> = { style: 'The vote: the style of the next neighbourhood.', work: 'The vote: the next public work.', rung: "The vote: the village's next ambition." };
-const CURRENT: Record<VoteTopic, string> = { style: ' (the current style)', work: '', rung: '' };
+const QUESTION: Record<VoteTopic, string> = { style: 'The vote: the style of the next neighbourhood.', work: 'The vote: the next public work.', rung: "The vote: the village's next ambition.", wall: 'The vote: a wall round the village.' };
+const CURRENT: Record<VoteTopic, string> = { style: ' (the current style)', work: '', rung: '', wall: '' };
 const SYSTEM_PERSONA = ' Vote as the person described would.';
 
 export interface VoterContext {
@@ -198,6 +201,8 @@ export interface VoterContext {
   self: string;
   /** The village at a glance, one line. */
   village: string;
+  /** #217: lines before the question (the wall's proposer, what the danger count saw); none on other votes. */
+  lead?: string;
 }
 
 export function buildBallot(ctx: VoterContext, shown: VoteOption[], topic: VoteTopic = 'style'): { system: string; user: string; tools: ToolDef[] } {
@@ -206,6 +211,7 @@ export function buildBallot(ctx: VoterContext, shown: VoteOption[], topic: VoteT
   if (ctx.pattern.trim()) lines.push(ctx.pattern.trim());
   if (ctx.self.trim()) lines.push(ctx.self.trim());
   if (ctx.village.trim()) lines.push(`Village: ${ctx.village.trim()}`);
+  if (ctx.lead?.trim()) lines.push(ctx.lead.trim());
   lines.push(`${QUESTION[topic]} Options (in no particular order):`);
   for (const o of shown) lines.push(`- ${o.name}: ${o.facts}${o.current ? CURRENT[topic] : ''}`);
   lines.push('Call vote with your reason and the exact name of one option.');

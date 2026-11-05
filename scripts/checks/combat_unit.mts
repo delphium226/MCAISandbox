@@ -182,6 +182,16 @@ if (process.env.MODE_CHILD) {
   ok(C.HUNT_EDGE_BEDS === 48 && C.huntReach(hb2, home2, null, { x: 105, y: 64, z: 30 }, C.HUNT_EDGE_BEDS) && !C.huntReach(hb2, home2, null, { x: 105, y: 64, z: 30 }), 'with beds the reach is the bounds + 48');
   ok(C.HUNT_HEALTH === 14 && !C.huntedTonight('UV', 'Ada') && C.huntHold() === 0 && C.HUNTED_NOT_BOUGHT.has('string') && C.HUNTED_NOT_BOUGHT.has('bone') && !C.HUNTED_NOT_BOUGHT.has('gunpowder'), 'the hunt starts above 14; no hold with nobody out; gunpowder stays bought');
 
+  // (#217 step 6: the aim; a full-charge arrow reaches the target's height at 10, 16 and 24 out, level, below a wall and above)
+  const A = await import('../../server/src/mineflayer/mcArchery');
+  for (const [d, dy] of [[10, 0], [16, -5], [24, -6], [24, 2]] as const) {
+    const p = A.aimPitch(d, dy);
+    const h = p === null ? null : A.arrowHeightAt(p, d);
+    ok(p !== null && h !== null && Math.abs(h - dy) < 0.05 && Math.abs(p) < 0.5, `aim at ${d} out, ${dy} up: pitch ${p?.toFixed(3)}, arrives at ${h?.toFixed(2)}`);
+  }
+  ok(A.aimPitch(200, 0) === null, "no aim past the arrow's reach");
+  ok(A.nearLine({ x: 0, y: 0, z: 0 }, { x: 20, y: 0, z: 0 }, { x: 10, y: 1, z: 1 }) && !A.nearLine({ x: 0, y: 0, z: 0 }, { x: 20, y: 0, z: 0 }, { x: 10, y: 0, z: 3 }) && !A.nearLine({ x: 0, y: 0, z: 0 }, { x: 20, y: 0, z: 0 }, { x: 25, y: 0, z: 0 }), 'a friend within 2 of the line holds the shot, one 3 off or past the target does not');
+
   console.log(fails ? `${fails} FAILED` : 'all passed');
   process.exit(fails ? 1 : 0);
 }

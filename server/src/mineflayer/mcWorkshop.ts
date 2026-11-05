@@ -82,6 +82,12 @@ export const ARMS_GOODS: MakeGood[] = [
  */
 export const ROD_GOOD: MakeGood = { item: 'fishing_rod', target: 3, batch: 1, unit: 1, words: 'fishing rods', forWhat: 'a fishing trip takes a rod from storage (two string from cobwebs and three sticks); rods wear out' };
 
+/** #217 step 6 (MC_BOWS): bows and arrows for the watch and the hunt, made only while storage holds their string, flint and feathers. */
+export const BOW_GOODS: MakeGood[] = [
+  { item: 'bow', target: 4, batch: 1, unit: 1, words: 'bows', forWhat: 'the night watch and the hunt shoot monsters from range with them, creepers too (three string from the hunt\'s spiders, three sticks)', arms: true },
+  { item: 'arrow', target: 64, batch: 4, unit: 4, words: 'arrows', forWhat: 'a watcher or hunter takes 16 with a bow (flint, a stick and a feather make 4; feathers from the chicken pen)', arms: true },
+];
+
 /** Survival (d) spec 4 (MC_HUNT): goods of the hunt's drops, made only while storage holds them (the world adds them). */
 export const HUNT_GOODS: MakeGood[] = [
   { ...ROD_GOOD, forWhat: 'a fishing trip takes a rod from storage (two string, from the spiders the night hunt kills, and three sticks); rods wear out' },

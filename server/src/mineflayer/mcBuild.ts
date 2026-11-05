@@ -5207,6 +5207,54 @@ async function collectEggs(a: BotAgent, args: Record<string, unknown>, signal: A
   }
 }
 
+/**
+ * #217 step 6 (MC_BOWS; the user's Q2: penned chickens may be killed for feathers): one adult chicken of a pen of 4 or
+ * more killed (by command, at the gate), its feathers and meat teleported to the bot and put in storage.
+ */
+async function pluckFeathers(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const { v, j, key, sels, rcon, count, toGate, pen } = penOf(a, args, 'pluck_feathers', 'chicken');
+  if (slotBusy.has(key)) throw new ContentionError(`pluck_feathers: annex slot ${j} is busy`, 'busy', `slot:${key}`);
+  slotBusy.add(key);
+  try {
+    await depositKept(a, signal);
+    await roomForLoot(a, 'pluck_feathers', signal);
+    const notes = [await toGate(signal)].filter(Boolean);
+    const adults = await count(',nbt={Age:0}');
+    if (adults < 4) {
+      pen.animals = Math.max(0, await count());
+      a.world.villages.save();
+      return `the chicken pen on annex slot ${j} has ${adults} adults: it keeps at least 3`;
+    }
+    let killed = false;
+    for (const sel of sels) if (!killed && /Killed/i.test(await rcon(`kill @e[type=minecraft:chicken,${sel},nbt={Age:0},limit=1]`))) killed = true;
+    if (!killed) throw new Error(`pluck_feathers: no chicken could be taken in the pen on annex slot ${j}`);
+    await sleep(800, signal);
+    const got: Record<string, number> = {};
+    for (const item of ['feather', 'chicken']) {
+      const before = await serverCount(a, item);
+      for (const sel of sels) await rcon(`tp @e[type=minecraft:item,${sel},nbt={Item:{id:"minecraft:${item}"}}] ${a.name}`);
+      for (let i = 0; i < 10; i++) {
+        await sleep(300, signal);
+        if ((got[item] = (await serverCount(a, item)) - before) > 0) break;
+      }
+      if (!got[item]) delete got[item];
+    }
+    pen.animals = Math.max(0, (pen.animals ?? 1) - 1);
+    a.world.villages.save();
+    await syncInventory(a).catch(() => {});
+    for (const item of Object.keys(got))
+      await STORAGE_SKILLS.deposit.run(a, { item }, signal).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+        notes.push(`${item} not deposited: ${e.message.slice(0, 80)}`);
+      });
+    const out = `took a chicken from the pen on annex slot ${j}: ${Object.entries(got).map(([e, q]) => `${q} ${e}`).join(', ') || 'it dropped nothing'}`;
+    console.log(`[bows] ${a.name} ${v.name}: ${out}`);
+    return `${out}${notes.length ? ` (${notes.join('; ')})` : ''}`;
+  } finally {
+    slotBusy.delete(key);
+  }
+}
+
 /** Two adults of a pen bred (food charged: one each; put in love by command, the live tests: young within ~2 s). Only
  *  ready adults (Age 0: young and parents on their 5-minute cooldown are not), and never beyond the pen's cap. */
 async function breedPen(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
@@ -7751,6 +7799,7 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   // (pens v2's, 10-09)
   collect_eggs: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), undefined), run: collectEggs },
   breed_pen: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), undefined), run: breedPen },
+  pluck_feathers: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), undefined), run: pluckFeathers },
   milk_cows: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), undefined), run: milkCows },
   // (#139, MC_PEN_VARIETY: a sheep pen's wool)
   shear_pen: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), undefined), run: shearPen },

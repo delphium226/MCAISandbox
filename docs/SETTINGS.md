@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-287 settings.
+292 settings.
 
 ## Game speed
 
@@ -317,6 +317,8 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_API_HOST` | string | `127.0.0.1` |  |  | The agent server's API address (0.0.0.0 for the LAN). |
 | `MC_API_PORT` | number | `8766` |  |  | The agent server's API and panel port. |
 | `MC_ARMS` | flag | `on` |  |  | Survival stage (c), with monsters only: swords and armour are workshop goods (stone swords for half the members) and members take one of each from storage (near it, or anywhere at night). |
+| `MC_BOWS` | flag | `on` |  |  | #217 step 6, with monsters that fight: bows and arrows. The workshop makes bows (3 string, 3 sticks) and arrows (flint from the merchant, as no gravel trip exists yet; sticks; feathers from penned chickens; skeletons drop arrows on the hunt; the user's Q2) for the watch and the hunt; a watcher or hunter with a bow and arrows shoots hostiles 6-24 blocks off in sight (no shot with a member or penned animal near the line), creepers included, and melee stays the reflex up close (the user's Q1). |
+| `MC_CASTLE_WALL` | flag | `on` |  |  | #217 step 4, with monsters only: once the fence ring stands and the danger trigger holds, the village votes on the stone stage, towers (5 x 5, a deck at +4 with a parapet, merlons and a stair) at the ring's corners and every ~40 cells, and gatehouses (7 x 7, a passage with gates at each end) where streets cross it; voted, each part is a wall chore (same cap) from the mine's stones in storage, with a stone trip when short. Curtain sections (castleWall.ts) are drawn but not offered (the user's Q3). With MC_WALLS_NOW the stage is planned at once. |
 | `MC_COMBAT` | flag | `on` |  |  | Survival stage (c), with monsters only (MC_WORLD_MODE=hostile or normal): the combat reflex (flee creepers, fight back armed, run to the storage hut for a sword unarmed, defend a member within 8 blocks, eat when hurt; direct-steer melee); off: the old self-defence reflex. |
 | `MC_GROUNDS_LIGHT` | flag | `on` |  |  | Survival stage (d), with monsters only: each neighbourhood's open ground is a light part (a 12-block grid of torch spots off streets, pads and lamps), lit by the light chore from stored torches; from dusk to dawn its options go first and the light need weighs double. |
 | `MC_GUARDS` | flag | `on` |  |  | Survival stage (d), with monsters only: the night watch, a dusk chore for armed members (one per 6): walk a loop of the lamps and edge spots until dawn, fight hostiles inside the bounds, defend members within 24 blocks. |
@@ -332,6 +334,9 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_SERVER_DIR` | string | (unset) |  |  | The Minecraft server's folder: its server.properties (RCON) and this world's villages.json and atlas.json |
 | `MC_VERSION` | string | `26.1` |  |  | The Minecraft version Mineflayer speaks. |
 | `MC_VIEW_DISTANCE` | number | `10` |  |  | The sandbox: the players' view distance in chunks. |
+| `MC_WALL_BALLOT` | flag | `on` |  |  | #217 step 1, with monsters only: the wall vote shows the wall truly, never whether it is held or who decides: its own frame (built by members who take its chores, one in 6, everyone else keeps to their work), the stage on offer with its bill, what it does and does not do, the danger near home (monsters within 48 at night, members killed or hit near home; deaths on far trips pointed at the curfew), a neutral "no", and a member named as proposer (the most watch nights, else the last hurt near home). A member's proposal for a wall or defence reopens a refused vote. |
+| `MC_WALL_WATCH` | flag | `on` |  |  | #217 step 5, #215, with monsters only: once a ring is voted the night watch keeps inside it (lamps and edge spots past it are left out) and walks the finished towers in turn round the ring. |
+| `MC_WALL_WATER` | flag | `on` |  |  | #217 step 2, with monsters only: the fence ring closes over water with stone dams (a cobblestone column from the bed to one above the surface, the fence on it; never a gate) instead of leaving gaps; water deeper than 12 and lava stay gaps. The user's Q5: no iron bars. |
 | `MC_WALLS` | flag | `on` |  |  | Survival stage (d) spec 5, with monsters only: the village wall. Once the danger count sees a death or 5+ hostiles within 48 at night, the village votes on "a wall round the village", but only once growth is done (every member housed and no street asked for or on the board, or growth stopped; #203): until then nights rely on the curfew, beds and hunters. Voted, a ring 6 outside the built bounds (fence on cobblestone, a fence gate in each ~24-cell segment, a torch every 8) is built segment by segment as a day chore from storage; growth past it adds a ring round the new area. Walks open its gates and a gatekeeper shuts them. |
 | `MC_WALLS_NOW` | flag | `off` |  |  | For staged tests of MC_WALLS: the wall planned as soon as the village is complete, without the danger trigger, the vote or the wait for growth. |
 | `MC_WORLD` | string | `world` |  |  | The sandbox: the world's folder name under server/worlds. |

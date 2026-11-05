@@ -137,6 +137,25 @@ export interface WallRecord {
   gaps?: string[];
   /** Segments that failed lately: no member is offered one before `until`. */
   back?: Record<string, number>;
+  /** #217 step 2 (MC_WALL_WATER): water cells read on the ring, "x,z" -> the depth (surface to bed). */
+  water?: Record<string, number>;
+  /** #217 step 4 (MC_CASTLE_WALL): the stone stage, towers and gatehouses on the ring. */
+  castle?: CastleRecord;
+}
+
+/** The wall's stone stage (castleWall.ts draws its parts; mcWalls.ts builds them). */
+export interface CastleRecord {
+  state: 'voted' | 'refused';
+  at: number;
+  vote?: string;
+  /** Deaths the danger count had when it was refused. */
+  deaths?: number;
+  parts: import('./castleWall').CastlePart[];
+  /** Parts built, by id: the base read and the gates set ("x,y,z"). */
+  done: Record<string, { base: number; gates: string[] }>;
+  back?: Record<string, number>;
+  /** Parts given up (the ground under them too steep or built on), by id: the reason. */
+  dropped?: Record<string, string>;
 }
 
 export interface WallPlan {
@@ -217,11 +236,15 @@ export function ringRuns(cells: Cell[]): Box[] {
   return out;
 }
 
-/** A segment's bill: cobblestone and fence per cell (more cobblestone where the ground steps), a gate, torches. */
-export function segBill(s: WallSeg, wood = 'oak'): Record<string, number> {
+/**
+ * A segment's bill: cobblestone and fence per cell (more cobblestone where the ground steps), a gate, torches; with
+ * `water` (#217 step 2: depths read on the ring), a dam's column of depth + 1 more cobblestone for each water cell.
+ */
+export function segBill(s: WallSeg, wood = 'oak', water?: Record<string, number>): Record<string, number> {
   const gates = s.cells.filter((c) => c.gate).length, torches = s.cells.filter((c) => c.torch).length;
   const walls = s.cells.length - gates;
-  const out: Record<string, number> = { cobblestone: walls, [`${wood}_fence`]: walls };
+  const dams = water ? s.cells.reduce((n, c) => n + (water[key(c.x, c.z)] !== undefined ? water[key(c.x, c.z)] + 1 : 0), 0) : 0;
+  const out: Record<string, number> = { cobblestone: walls + dams, [`${wood}_fence`]: walls };
   if (gates) out[`${wood}_fence_gate`] = gates;
   if (torches) out.torch = torches;
   return out;

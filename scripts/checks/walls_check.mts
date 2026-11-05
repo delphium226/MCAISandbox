@@ -31,6 +31,10 @@ const key = (x: number, z: number) => `${x},${z}`;
   ok(t >= 26 && t <= 32, `a torch every ~8 (${t})`);
   const b = segBill(p.segs[0], 'birch');
   ok(b.cobblestone === p.segs[0].cells.length - 1 && b.birch_fence === b.cobblestone && b.birch_fence_gate === 1, `a segment's bill: ${JSON.stringify(b)}`);
+  // (#217 step 2: a dam's column of depth + 1 more cobblestone for each water cell read)
+  const c0 = p.segs[0].cells.find((c) => !c.gate)!, c1 = p.segs[0].cells.filter((c) => !c.gate)[1];
+  const bw = segBill(p.segs[0], 'birch', { [key(c0.x, c0.z)]: 3, [key(c1.x, c1.z)]: 1 });
+  ok(bw.cobblestone === b.cobblestone + 4 + 2 && bw.birch_fence === b.birch_fence, `a segment over water bills its dams: ${bw.cobblestone} cobblestone (${b.cobblestone} + 6)`);
 }
 // (an L: no diagonal leak at the reflex corner, each cell with two ring side neighbours at least)
 {
