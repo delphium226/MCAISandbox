@@ -665,6 +665,7 @@ export class BotAgent implements WorldAgent {
     status.state = 'running';
     status.startedTick = this.world.ticks;
     status.startedAt = Date.now();
+    status.firstStartedAt ??= status.startedAt;
     MC_SKILLS[status.type]
       .run(this, status.args, run.abort.signal)
       .then(
@@ -674,6 +675,12 @@ export class BotAgent implements WorldAgent {
       );
   }
 
+  /** #221: the running action's status when `args` are its own (a skill called inside another gets none): a skill reads
+   *  its first start and memo there, which survive a reflex putting the action back. */
+  runOf(args: Record<string, unknown>): ActionStatus | undefined {
+    return this.current?.status.args === args ? this.current.status : undefined;
+  }
+
   /** Put the interrupted action back at the front of the queue (its run is cancelled and ignored) and stop moving. */
   private interrupt() {
     if (this.current) {
@@ -681,6 +688,7 @@ export class BotAgent implements WorldAgent {
       this.current.abort.abort();
       this.current = null;
       st.state = 'queued';
+      st.resumes = (st.resumes ?? 0) + 1;
       this.queue.unshift(st);
     }
     this.halt();
@@ -945,6 +953,7 @@ export class BotAgent implements WorldAgent {
       this.current.abort.abort();
       this.current = null;
       st.state = 'queued';
+      st.resumes = (st.resumes ?? 0) + 1;
       this.queue.unshift(st);
     }
     this.halt();

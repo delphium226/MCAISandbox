@@ -763,7 +763,10 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
   const here = args.here === true || typeof args.far === 'number';
   // (#202, MC_SAND_TRIPS: an expedition's `far`, its sand spot's distance from home and a margin, code's only)
   const range = typeof args.far === 'number' ? Math.min(480, Math.max(VILLAGE_RANGE, args.far)) : here ? Math.min(FARM_TRIP_RANGE, Math.max(VILLAGE_RANGE, Number(args.range) || VILLAGE_RANGE)) : VILLAGE_RANGE;
-  const start = have();
+  // (#221: counted from the action's first run: a reflex that puts it back runs it again from here. Clara's sand trip was
+  // put back by a swim-up for air every ~1.5 minutes for 32 minutes, and each run started its 7.5-minute clock afresh)
+  const run = a.runOf(args);
+  const start = run ? ((run.memo ??= {}).start ??= have()) : have();
   // A village with a mine digs its stone there (V.5), not in pits around the plot; what the mine cannot give at all
   // (its tunnels ended) is looked for outside as before
   const home = a.village();
@@ -800,7 +803,7 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
   let lastError = '';
   // Pickaxes made during this call (a wooden one lasts 59 blocks: one broke halfway through gathering cobblestone)
   let tools = 0;
-  const t0 = Date.now();
+  const t0 = run?.firstStartedAt ?? Date.now();
   let failMs = 0, lastGot = 0, lastGain = Date.now();
   // A village member far from home walks back first, so that what it finds (or not) is what the village has: a worker
   // explored hop by hop to 180 blocks away, then gave up every gathering task it took (Accept14)

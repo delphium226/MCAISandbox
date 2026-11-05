@@ -34,6 +34,11 @@ export interface ActionStatus {
   /** When it started and ended (ms since the epoch; s41: per-step timing in the choice log, the simulator's calibration). */
   startedAt?: number;
   endedAt?: number;
+  /** #221: a reflex puts the action back and it runs again from the start: when its first run began, how often it was
+   *  put back, and what a skill keeps across those runs (collect's starting count), so its time limits still end it. */
+  firstStartedAt?: number;
+  resumes?: number;
+  memo?: Record<string, number>;
 }
 
 export interface Observation {
