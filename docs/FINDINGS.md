@@ -2667,3 +2667,23 @@ CLAUDE.md when a phase ends.
   - **Verdict:** #220 fixed what it was for (no transient lessons; deaths teach), but place lessons did not cut deaths:
     most came in one night before any lesson, and a lesson cannot steer walks or night trips, which killed 5 of I1's 6.
     Report: runs/2026-11-04/train21/report.md.
+- F355 (11-05, castle-walls-live, G3/G8) **#217 model-driven pair: with the new ballot the members passed the wall
+  (9-4) and its dams held the water, but the ring was not closed in 82 min, so no stone stage, and the beds skipped every
+  night (no watch on towers, no bow shot).** W1 (world 1, the five #217 flags on) against W0 (world 2, all off); train
+  21's settings, hostile, MC_VOTE=model, 12 members, 90 min after, code 617b7b7, from `w217_vote` (w203_n9 with its
+  MC_WALLS_NOW wall record removed so both arms vote; 48 old fence cells stand).
+  - **Votes:** W1 passed 9-4 at +7.8 (the first wall passed in a model-driven run; trains 20-21 0 of 12); W0 refused 4-9
+    at +9.0 and was not asked again (no death). W1's "yes" reasons name the wall's effect and their own work going on
+    safely (8 of 9 "A wall will..."); its "no" 3 of 4 "I prefer..." (two name the labour); W0's "no" all 9 "I prefer...",
+    freedom and confinement. **Caveat:** W1's ballot showed 15 monsters and 2 hits near home, W0's 5 monsters; the replay
+    found the danger facts move the vote, so one vote per arm cannot separate frame from danger.
+  - **Ring (W1):** 18 of 29 segments, 428 of 692 cells at the cap of 2 (~5.2 a minute), **29 dammed, 0 water gaps**; 3
+    cells skipped "built on" at the checkpoint's old fence (an artifact). Stone stage vote not held (it waits for the
+    closed ring): 0 parts. Hostiles entered 0; 1 night sample (open ring).
+  - **Nights:** each ended 10-35 s after dusk by a bed (9 / 8 nights): 0 hunters, 0 tower visits, 0 bow shots or bows
+    taken in W1. The watch and bows are still untested live.
+  - **Deaths:** W1 3, none the wall's: Kai suffocated at log-in in rock at a stale saved position (#227); Elena and Lena
+    killed by one witch by day 58-61 north, no combat line (the reflex acts within 5 blocks only, #228). W0 0.
+  - [stuck] 41 / 32, failures 64 / 54, busy 91 / 92%, [lag] 0; $0.665 + $0.639.
+  - Next: a 120-min W1 run (or from a checkpoint with the ring closed) for the stone stage, with nights that run; the
+    frame-vs-danger question at matched facts on the ballot bench. Report: runs/2026-11-05/castle-walls-live/report.md.
