@@ -190,6 +190,12 @@ const SYSTEM_TAIL = 'every member has one vote and the most votes win. Read the 
   + 'Never invent an option.';
 const QUESTION: Record<VoteTopic, string> = { style: 'The vote: the style of the next neighbourhood.', work: 'The vote: the next public work.', rung: "The vote: the village's next ambition.", wall: 'The vote: a wall round the village.' };
 const CURRENT: Record<VoteTopic, string> = { style: ' (the current style)', work: '', rung: '', wall: '' };
+// (#232: the wall's stone stage, voted once the fence ring stands: its own frame and question, not "a wall round the
+// village" again)
+const TOWERS_SYSTEM = 'You are a member of a Minecraft village. The fence wall round the village already stands; the village votes on its stone '
+  + 'stage, watchtowers and gatehouses on that wall. They are built by the members who take their chores, at most one member in six at a time, '
+  + 'from storage and its own stone trips; everyone else keeps to their own work; ';
+const TOWERS_QUESTION = 'The vote: stone towers and gatehouses on the fence wall.';
 const SYSTEM_PERSONA = ' Vote as the person described would.';
 
 export interface VoterContext {
@@ -203,6 +209,8 @@ export interface VoterContext {
   village: string;
   /** #217: lines before the question (the wall's proposer, what the danger count saw); none on other votes. */
   lead?: string;
+  /** #232: the wall's stage voted (`towers`: the stone stage on a standing fence ring); the ring's when absent. */
+  stage?: 'ring' | 'towers';
 }
 
 export function buildBallot(ctx: VoterContext, shown: VoteOption[], topic: VoteTopic = 'style'): { system: string; user: string; tools: ToolDef[] } {
@@ -212,7 +220,8 @@ export function buildBallot(ctx: VoterContext, shown: VoteOption[], topic: VoteT
   if (ctx.self.trim()) lines.push(ctx.self.trim());
   if (ctx.village.trim()) lines.push(`Village: ${ctx.village.trim()}`);
   if (ctx.lead?.trim()) lines.push(ctx.lead.trim());
-  lines.push(`${QUESTION[topic]} Options (in no particular order):`);
+  const towers = topic === 'wall' && ctx.stage === 'towers';
+  lines.push(`${towers ? TOWERS_QUESTION : QUESTION[topic]} Options (in no particular order):`);
   for (const o of shown) lines.push(`- ${o.name}: ${o.facts}${o.current ? CURRENT[topic] : ''}`);
   lines.push('Call vote with your reason and the exact name of one option.');
   const tools: ToolDef[] = [{
@@ -227,7 +236,7 @@ export function buildBallot(ctx: VoterContext, shown: VoteOption[], topic: VoteT
       required: ['reason', 'choice'],
     },
   }];
-  const system = SYSTEM_OF[topic] + SYSTEM_TAIL;
+  const system = (towers ? TOWERS_SYSTEM : SYSTEM_OF[topic]) + SYSTEM_TAIL;
   return { system: ctx.persona.trim() ? system + SYSTEM_PERSONA : system, user: lines.join('\n'), tools };
 }
 

@@ -2925,7 +2925,7 @@ export class MineflayerWorld implements WorldAdapter {
       if (!plan) return;
       const b = castleBill(plan.parts);
       const towers = plan.parts.filter((p) => p.kind === 'tower').length, gatehouses = plan.parts.length - towers;
-      const options = [stageOption({ id: CASTLE_VOTE, kind: 'towers', cells: 0, parts: plan.parts.length, bill: { stone: b.stone }, water: 'dammed', towers, gatehouses }, wallCap(members)), noneOption(WALL_NONE)];
+      const options = [stageOption({ id: CASTLE_VOTE, kind: 'towers', cells: 0, parts: plan.parts.length, bill: { stone: b.stone }, water: 'dammed', towers, gatehouses }, wallCap(members)), noneOption(WALL_NONE, 'towers')];
       this.openWallVote(v, options, now, `the stone stage: ${towers} towers, ${gatehouses} gatehouses, ~${b.stone} stone`);
       return;
     }
@@ -2999,7 +2999,7 @@ export class MineflayerWorld implements WorldAdapter {
     const reqs: BallotRequest[] = [];
     for (const a of voters) {
       const spec = parseSpec(typeof a.memory.chooseModel === 'string' ? a.memory.chooseModel : typeof a.memory.execModel === 'string' ? a.memory.execModel : CHOOSE.model);
-      if (spec) reqs.push({ voteId: id, agent: a.name, spec, level: REASONING.ballot, options, predicted: predicted(a.name), ctx: { ...this.voterContext(v, a), ...(lead ? { lead } : {}) }, signal: r.ac.signal, topic: r.topic });
+      if (spec) reqs.push({ voteId: id, agent: a.name, spec, level: REASONING.ballot, options, predicted: predicted(a.name), ctx: { ...this.voterContext(v, a), ...(lead ? { lead } : {}), ...(castle ? { stage: 'towers' as const } : {}) }, signal: r.ac.signal, topic: r.topic });
     }
     castAll(id, reqs, BALLOTS_PARALLEL, now + VOTE_MAX_MS, r.ballots).then(() => (r.done = true), (e) => {
       console.log(`[vote] ${v.name}: wall ballots failed: ${String((e as Error)?.message ?? e).slice(0, 200)}`);

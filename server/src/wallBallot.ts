@@ -79,8 +79,13 @@ export function stageOption(st: WallStage, cap: number): VoteOption {
   };
 }
 
-/** The "no" option, neutral (neither freedom nor loss). */
-export function noneOption(id: string): VoteOption {
+/**
+ * The "no" option, neutral (neither freedom nor loss), for the stage voted (#232: the stone stage's "no" read "No wall for
+ * now" while the fence ring stood, and ballots answered whether to have a wall at all).
+ */
+export function noneOption(id: string, kind: WallStage['kind'] = 'ring'): VoteOption {
+  if (kind === 'towers')
+    return { id, name: 'No towers for now', facts: 'the fence ring stays as it is, without stone towers or gatehouses; members keep to their other work; nights rely on the ring, the curfew, the lamps and the watch; the village is asked again after another death', current: true, novel: false, units: 0, volume: 0 };
   return { id, name: 'No wall for now', facts: 'members keep to their other work; nights rely on the curfew, the lamps and the watch; the village is asked again after another death', current: true, novel: false, units: 0, volume: 0 };
 }
 
