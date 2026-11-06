@@ -126,10 +126,14 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
      refusal); far gravel used once needed; the pen restock and youngUntil work live (back at 5 in 13 min, 11 of 12 by
      +88). Still failing: hunts (12 of 20 fail at the start, health 6-11, hurt between the pick and the walk out, #231
      open); bows 14 shots, 0 kills.
-  6. **Next: fixes** #231 (check health when the hunt leaves, not only at the pick), #228 (the reflex ignores ranged
-     attackers), #227 (log-in inside rock after a reset), why bows hit but do not kill; offline checks, then a short
-     train from `w217_ring`.
-  7. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
+  6. **Fixes built** (3373726 #231 a hunt hurt by its start is called off, creeper flees steer round walls; 9a4e363
+     #228 the reflex acts on ranged attackers; 4e241b7 #227 a log-in inside rock is moved to the surface; f06c2ae bows keep
+     their target and sword finishes count; notes `runs/2026-11-06/fixes-231-228/notes.md`, check `fixes_231_228.mts`).
+     No new flags. Offline only.
+  7. **Next test train (24):** from `w217_ring`, nights that run, train 23's setup, both arms on current code (no flag
+     to split: compare against F357); count hunts called off vs went out, creeper flees ending hurt (train 23 36%),
+     ranged-attacker fights and deaths, `[spawn] ... moved to the surface`, bow kills and assists.
+  8. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
      (#150-#163); #164 steps 3-5.
 
 ## Earlier phases
