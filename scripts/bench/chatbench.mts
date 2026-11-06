@@ -378,9 +378,14 @@ if (MAIN) {
       continue;
     }
     const samples = await pool(Array.from({ length: N }, (_, i) => async (): Promise<Sample> => {
-      const r = await call(pr.system, pr.user, [pr.tool], 'talk');
+      let r = await call(pr.system, pr.user, [pr.tool], 'talk');
       if (!r.ok) return { i, ok: false, verdict: { pass: false, fail: 'model error', detail: r.error } };
-      const p = parseRespond({ calls: r.calls, text: r.text }, pr.role);
+      let p = parseRespond({ calls: r.calls, text: r.text }, pr.role);
+      // (#236: talkCall asks once more when the reply is empty)
+      if (!p) {
+        const r2 = await call(pr.system, pr.user, [pr.tool], 'talk');
+        if (r2.ok) [r, p] = [r2, parseRespond({ calls: r2.calls, text: r2.text }, pr.role)];
+      }
       // (the reply is scored whenever one of those named answered, so a route that drops the second still shows the first's
       // reply; the case passes only when the route is right too)
       let v: Verdict = c.to.includes(agent) ? rules(c, agent, p, pr.options, pr.user) : { pass: false, fail: 'answered by another' };

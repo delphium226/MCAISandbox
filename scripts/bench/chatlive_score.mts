@@ -6,16 +6,23 @@
  * chore started and was kept (the request ledger, saved by chat_live.py).
  *
  * Usage: node node_modules/tsx/dist/cli.mjs scripts/bench/chatlive_score.mts runs/<date>/chat-live/live-HHMMSS.json
- * Env: JUDGE=0 (rules only), MODEL (the judge's, default gpt-oss:120b-cloud). Writes <file>.scored.json beside it.
+ * Env: JUDGE=0 (rules only), MODEL (the judge's, default gpt-oss:120b-cloud), REASK=1 (each talk call asked again with
+ * today's talk system prompt and tool, its prompt's fact lines reworded as talkFacts now words them: a fix to the prompt
+ * checked on the live prompts, without a live run; promises are then not run, `did` holds; ONLY=regex case ids).
+ * Writes <file>.scored.json beside it (<file>.reask.json with REASK).
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseRespond, type Respond } from '../../server/src/playerTalk';
+import { parseRespond, talkFacts, talkSystem, talkTool, type Respond } from '../../server/src/playerTalk';
 import { CASES, judge, rules, tokens, type Case, type Verdict } from './chatbench.mts';
+import { chat } from './benchUtil.mts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const JUDGE = process.env.JUDGE !== '0';
+const REASK = process.env.REASK === '1';
+const ONLY = process.env.ONLY ? new RegExp(process.env.ONLY) : null;
+const MODEL = (process.env.MODEL ?? 'ollama:gpt-oss:120b-cloud').replace(/^ollama:/, '');
 const file = process.argv[2];
 if (!file) throw new Error('usage: chatlive_score.mts LIVE.json');
 const live = JSON.parse(fs.readFileSync(file, 'utf8')) as {
@@ -59,6 +66,27 @@ const optionsIn = (user: string) => {
   return out;
 };
 
+// ---- REASK: the recorded prompt asked again (fact lines as talkFacts words them today; an empty reply asked once more,
+// as talkCall does since #236)
+const factLine = (start: string, s: Parameters<typeof talkFacts>[0], role: 'mayor' | 'member') => talkFacts(s, role).find((l) => l.startsWith(start))!;
+function relive(user: string): string {
+  return user
+    .replace(/^- Last night: no record \(no night has passed since the village was counted\)\.$/m, `- ${factLine('Last night', { monsters: true }, 'mayor')}`)
+    .replace(/^- You carry: no weapon and no armour\.$/m, `- ${factLine('You carry', { carries: [] }, 'member')}`);
+}
+async function reask(rec: Rec): Promise<Rec> {
+  const role = rec.agent === 'Mayor' ? 'mayor' : 'member';
+  const designs = /Pre-designed buildings that match|No pre-designed building matches/.test(rec.user);
+  const user = relive(rec.user);
+  let reply: Rec['reply'] = {};
+  for (let i = 0; i < 2; i++) {
+    const r = await chat(MODEL, talkSystem(role, designs), user, [talkTool(role, designs)], { kind: 'talk' });
+    reply = { calls: r.calls as Rec['reply']['calls'], text: r.text };
+    if (parseRespond(reply, role)) break;
+  }
+  return { ...rec, user, reply };
+}
+
 // (live menus number pens and towers by the world's own order: the bench's pen 4 and 5 and tower 11 are those of its
 // fixture; the kind of chore is what is checked here)
 function loosen(c: Case): Case {
@@ -71,13 +99,14 @@ interface Row { id: string; cat: string; to: string[]; answered: string[]; route
 const rows: Row[] = [];
 for (const r of live.results) {
   const c0 = CASES.find((x) => x.id === r.id);
-  if (!c0) continue;
+  if (!c0 || (ONLY && !ONLY.test(r.id))) continue;
   const c = loosen(c0);
   const routeOk = r.to.length > 0 && r.answered.length === r.to.length && r.to.every((n) => r.answered.includes(n));
   const replies: Row['replies'] = [];
   for (const agent of r.answered) {
     const led = r.ledger?.find((q) => q.to === agent && !q.via);
-    const rec = callFor(agent, r.line, r.t0);
+    const rec0 = callFor(agent, r.line, r.t0);
+    const rec = rec0 && REASK ? await reask(rec0) : rec0;
     const role = agent === 'Mayor' ? 'mayor' : 'member';
     const p: Respond | null = rec ? parseRespond(rec.reply, role) : null;
     let v: Verdict;
@@ -96,12 +125,13 @@ for (const r of live.results) {
     }
     // what it did: a promise's chore started (ran) and was kept; a forward reached the Mayor; anything else does nothing
     let did = '-';
-    if (p?.kind === 'promise') did = led?.status === 'kept' ? 'kept' : led?.ran ? `started, ${led.status}${led.outcome ? ` (${led.outcome})` : ''}` : led?.status === 'refused' ? 'refused by code (off its list)' : `not started (${led?.status ?? '?'}${led?.outcome ? `: ${led.outcome}` : ''})`;
+    if (p?.kind === 'promise' && REASK) did = 'started (re-ask: not run)';
+    else if (p?.kind === 'promise') did = led?.status === 'kept' ? 'kept' : led?.ran ? `started, ${led.status}${led.outcome ? ` (${led.outcome})` : ''}` : led?.status === 'refused' ? 'refused by code (off its list)' : `not started (${led?.status ?? '?'}${led?.outcome ? `: ${led.outcome}` : ''})`;
     else if (p?.kind === 'forward') {
       const m = r.ledger?.find((q) => q.via === agent);
       did = m ? `the Mayor: ${m.status}${m.kind ? ` ${m.kind}` : ''}` : 'never reached the Mayor';
     }
-    replies.push({ agent, kind: p?.kind, option: p?.option, say: led?.answer ?? p?.say, reason: p?.reason, verdict: v, strict, listed: options.length, status: led?.status, ran: led?.ran, outcome: led?.outcome, did });
+    replies.push({ agent, kind: p?.kind, option: p?.option, say: REASK ? p?.say : led?.answer ?? p?.say, reason: p?.reason, verdict: v, strict, listed: options.length, status: led?.status, ran: led?.ran, outcome: led?.outcome, did });
   }
   const said = replies.length > 0 && replies.every((x) => x.verdict.pass);
   // "did what it said": a promise started its chore within the run (kept or still running); other kinds hold trivially
@@ -127,5 +157,5 @@ const proms = rows.flatMap((r) => r.replies.filter((x) => x.kind === 'promise'))
 console.log(`promises ${proms.length}: kept ${proms.filter((x) => x.did === 'kept').length}, started ${proms.filter((x) => /^started/.test(x.did)).length}, not started ${proms.filter((x) => /^not started/.test(x.did)).length}, refused by code ${proms.filter((x) => /^refused/.test(x.did)).length}`);
 console.log(`failing: ${rows.filter((r) => !r.pass).map((r) => `${r.id} (${r.note})`).join('; ') || 'none'}`);
 console.log(`judge calls ${tokens.calls} (errors ${tokens.errors}); talk calls matched ${used.size} of ${recs.length} recorded in the run`);
-fs.writeFileSync(file.replace(/\.json$/, '.scored.json'), JSON.stringify({ judge: JUDGE, rows }, null, 1));
+fs.writeFileSync(file.replace(/\.json$/, REASK ? '.reask.json' : '.scored.json'), JSON.stringify({ judge: JUDGE, reask: REASK, rows }, null, 1));
 process.exit(0);

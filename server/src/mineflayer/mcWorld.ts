@@ -101,7 +101,7 @@ import { HOME_DESIGN, castDesign, castProgram, characterOf, designNote, inHoldou
 import { generateDesign } from '../buildingGen';
 import { applyWrites } from '../memory';
 import { deathMemory, deathWords, type DeathCause } from './mcHazard';
-import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, etaMinutes, historyLines, initTalk, isStatusQuestion, talkFacts, type TalkSituation, matchWork, noRequestLine, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, statusFor, statusLines, talkSystem, talkTool, talkUser, updateRequest, withoutPlace, workWords, type PlayerRequest, type ReqProgress, type Respond, type WorkOffer } from '../playerTalk';
+import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, emptyReplyLine, etaMinutes, historyLines, noChoreReason, passTarget, initTalk, isStatusQuestion, talkFacts, type TalkSituation, matchWork, noRequestLine, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, statusFor, statusLines, talkSystem, talkTool, talkUser, updateRequest, withoutPlace, workWords, type PlayerRequest, type ReqProgress, type Respond, type WorkOffer } from '../playerTalk';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { isNight, nightTick } from './mcSurvivalB';
 import { HUNTED_NOT_BOUGHT, anyBed, codeBand, huntOffered, huntWide, armTick, armsOn, bandWords, builtBounds, combatCounts, curfewActs, curfewTick, dangerOf, dangerTick, deathsFact, beyond, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, DIST_BINS, headingHome, homeByDuskOn, hunters, huntersOf, huntedTonight, huntMs, huntOn, isWeapon, pastBand, phaseOf, WATCH_HEALTH, watchedTonight, watchLoop, type SafetyBand } from './mcCombat';
@@ -6866,6 +6866,8 @@ export class MineflayerWorld implements WorldAdapter {
     if (s.monsters) {
       const dg = dangerOf(v.name);
       if (dg.lastNight) s.lastNight = { peak48: dg.lastNight.peak48 ?? 0, died: dg.lastNight.died ?? [], out: dg.lastNight.out };
+      // (F361: monsters near now, the danger count's last look)
+      s.near = { n48: dg.near48, n96: dg.near96 };
       s.deaths = DIST_BINS.reduce((n, b) => n + (dg.deaths[b] ?? 0), 0);
       s.homeAtDusk = homeByDuskOn();
     }
@@ -6912,25 +6914,59 @@ export class MineflayerWorld implements WorldAdapter {
     const history = historyLines(v.name, r.from, now, 5, r.id, (q) => (q.status === 'queued' || q.status === 'under_way' ? this.talkProgress(v, q, now).state : undefined));
     const user = talkUser({ agent: a.name, role, village: v.name, persona, from: r.from, lines: rs.map((x) => x.text), history,
       state: this.talkState(v), status: this.talkStatus(v, r.from, now), facts: talkFacts(this.talkSituation(v, a, role), role), ...(offers ? { works: offers } : {}), ...(designs ? { designs, otherDesigns: others } : {}), ...(options ? { options } : {}), ...(r.via ? { via: r.via } : {}) });
-    const res = await callModel({ spec, system: talkSystem(role, !!designs), user, tools: [talkTool(role, !!designs)], level: REASONING.talk, agent: a.name, kind: 'talk', priority: 'human' });
-    const p = parseRespond(res.reply as { calls?: Array<{ name: string; input: Record<string, unknown> }>; text?: string }, role);
+    const ask = () => callModel({ spec, system: talkSystem(role, !!designs), user, tools: [talkTool(role, !!designs)], level: REASONING.talk, agent: a.name, kind: 'talk', priority: 'human' });
+    type Reply = { calls?: Array<{ name: string; input: Record<string, unknown> }>; text?: string };
+    let res = await ask();
+    let p = parseRespond(res.reply as Reply, role);
+    // (#236: an empty reply left the person in silence, F361's Lena: asked once more, then a line that says so)
     if (!p) {
-      updateRequest(r.id, { status: 'unanswered', outcome: 'an empty reply' });
+      console.log(`[talk] ${v.name}: ${a.name}'s answer to ${r.id} came back empty; asking again`);
+      res = await ask();
+      p = parseRespond(res.reply as Reply, role);
+    }
+    if (!p) {
+      const line = emptyReplyLine(r.from);
+      updateRequest(r.id, { status: 'unanswered', outcome: 'an empty reply, twice', answer: line, closed: Date.now() });
+      this.talkSay(a.name, line);
       return;
     }
     console.log(`[talk] ${v.name}: ${a.name} answers ${r.id}: ${p.kind}${p.work ? ` work=${p.work}` : ''}${p.option ? ` option=${p.option}` : ''}${p.place ? ` place="${p.place}"` : ''}${p.reason ? ` reason="${p.reason}"` : ''}${p.what ? ` what="${p.what}"` : ''}${p.nearest ? ` nearest=${p.nearest}` : ''}${designs ? ` (shortlist: ${designs.map((d) => d.id).join(', ') || 'none'})` : ''} (${res.ms} ms)`);
     this.talkAct(v, a, r, p, offers ?? [], options ?? [], designs ? [...designs, ...(others ?? [])] : undefined);
   }
 
+  /** MC_TALK_PASS (talk-pass-on.md): the other member (not the Mayor) whose chores list now has the chore that fits a
+   *  person's words best, or null. Each member's list is the menu's feasible options, as its own talk call would show. */
+  private talkPassTarget(v: Village, from: BotAgent, r: PlayerRequest, now: number) {
+    const held = this.heldKeys(v, now, 'async');
+    const members = this.growMembers(v).filter((m) => m !== from && m.memory.villageRole !== 'mayor' && m.bot.entity).map((m) => {
+      let options: Array<{ id: string; name: string }> = [];
+      try {
+        options = this.menu(v, m, held, false, this.sweepFacts(v, now, m)).feasible.slice(0, 24).map((o) => ({ id: o.id, name: o.name }));
+      } catch {
+        /* a menu that cannot be read: nothing to pass to */
+      }
+      const p = m.bot.entity.position;
+      return { a: m, name: m.name, idle: this.isIdleMember(v, m, now, held), dist: r.pos ? Math.hypot(p.x - r.pos.x, p.z - r.pos.z) : 0, options };
+    });
+    return passTarget(r.text, members);
+  }
+
   /** What an answer does: talk, a refusal, a promise, a building passed to the Mayor, or a build checked and queued. */
   private talkAct(v: Village, a: BotAgent, r: PlayerRequest, p: Respond, offers: WorkOffer[], options: Array<{ id: string; name: string }>, designs?: DesignOffer[]) {
     const now = Date.now();
-    const refuse = (reason: string) => {
+    const refuse = (reason: string, passOn = false) => {
       // (the model's line usually says sorry already; code's reason after it, without a second one)
       const why = reason.replace(/^sorry[:,]?\s*/i, '').replace(/[.\s]+$/, '');
-      const line = answerLine(p.say, /sorry|afraid|can't|cannot/i.test(p.say) ? why : `sorry: ${why}`);
-      updateRequest(r.id, { kind: p.kind === 'refuse' ? 'refuse' : p.kind, status: 'refused', reason: why, say: p.say, answer: line, closed: now });
+      let line = answerLine(p.say, /sorry|afraid|can't|cannot/i.test(p.say) ? why : `sorry: ${why}`);
+      // (MC_TALK_PASS, talk-pass-on.md: a member with no chore for it hands the line to one whose list has one; one hop)
+      const to = passOn && PLAYER_TALK.pass && !r.via && a.memory.villageRole !== 'mayor' && v.complete ? this.talkPassTarget(v, a, r, now) : null;
+      if (to) line = `${line.replace(/[.\s]+$/, '')}; I'll ask ${to.member.a.name}, who can ${to.option.name.charAt(0).toLowerCase()}${to.option.name.slice(1)}`.slice(0, 260);
+      updateRequest(r.id, { kind: p.kind === 'refuse' ? 'refuse' : p.kind, status: 'refused', reason: why, say: p.say, answer: line, closed: now, ...(to ? { outcome: `passed to ${to.member.a.name} (${to.option.id})` } : {}) });
       this.talkSay(a.name, line);
+      if (to) {
+        console.log(`[talk] ${v.name}: ${a.name} passes ${r.id} to ${to.member.a.name}, whose list has ${to.option.id} (score ${to.score})`);
+        this.talkHeard(to.member.a, r.from, r.text, r.pos ? new Vec3(r.pos.x, r.pos.y, r.pos.z) : null, a.name);
+      }
     };
     if (p.kind === 'chat') {
       // (#179: a question about the person's requests gets code's facts after the model's line: train 13's Mayor said
@@ -6949,7 +6985,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (MC_TALK_DESIGNS: the pre-designed building the Mayor named nearest, when its reason does not name it)
     const near = designs && matchDesign(designs, p.nearest ?? '');
     if (p.kind === 'refuse' && near) return refuse(`${(p.reason || 'that is not something we can do here').replace(/[.!\s]+$/, '')}${(p.reason ?? '').toLowerCase().includes(near.title.toLowerCase().replace(/^the /, '')) ? '' : `; the nearest we could build is ${near.title} (${aKind(near.kind)})`}`);
-    if (p.kind === 'refuse') return refuse(`${p.reason || 'that is not something we can do here'}${offers.length && !offers.some((w) => (p.reason ?? '').toLowerCase().includes(w.words)) ? `; we could build ${offers.slice(0, 4).map((w) => w.words).join(', ')}` : ''}`);
+    if (p.kind === 'refuse') return refuse(`${p.reason || 'that is not something we can do here'}${offers.length && !offers.some((w) => (p.reason ?? '').toLowerCase().includes(w.words)) ? `; we could build ${offers.slice(0, 4).map((w) => w.words).join(', ')}` : ''}`, noChoreReason(p.reason ?? ''));
     if (p.kind === 'forward') {
       const m = this.mayorOf(v);
       if (!m || m === a) return refuse('there is no Mayor here to ask');
@@ -6961,7 +6997,7 @@ export class MineflayerWorld implements WorldAdapter {
     }
     if (p.kind === 'promise') {
       const o = options.find((x) => x.id === p.option) ?? options.find((x) => x.name.toLowerCase() === (p.option ?? '').toLowerCase());
-      if (!o) return refuse(options.length ? `${p.option ? `"${p.option}" is` : 'that is'} not among the chores I can do now` : 'I have no chores I can take on yet');
+      if (!o) return refuse(options.length ? `${p.option ? `"${p.option}" is` : 'that is'} not among the chores I can do now` : 'I have no chores I can take on yet', true);
       const due = now + PLAYER_TALK.promiseMs;
       const facts = `I'll ${o.name.charAt(0).toLowerCase()}${o.name.slice(1)} next (my promise to you, due in ${Math.round(PLAYER_TALK.promiseMs / 60000)} min)`;
       updateRequest(r.id, { kind: 'promise', status: 'promised', option: o.id, optionName: o.name, due, say: p.say, answer: answerLine(p.say, facts) });

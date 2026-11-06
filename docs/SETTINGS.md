@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-296 settings.
+297 settings.
 
 ## Game speed
 
@@ -183,6 +183,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_TALK` | flag | `on` |  |  | MC_TALK (G7, #35-#40; on by default, off turns it off): talking with the village. A person's line to the Mayor or a member (in the game, or POST /api/say and the panel's box) becomes a request in a ledger (talk.json, GET /api/requests), answered in one line by one talk call: the Mayor builds a public work where it was asked (placed and timed by code) or refuses with a reason; a member promises a chore, passes a building on to the Mayor or refuses. Off: the line wakes the tiered brain's chat turn as before. |
 | `MC_TALK_DESIGNS` | flag | `on` |  | `MC_TALK` | A person's building request in two tiers (on by default, off turns it off; the user's 11-01): code shortlists the pre-designed buildings (the civic tier's 80) whose kind or name the person's words name and the Mayor picks among them and the vanilla works; a civic pick is built by the civic path where the person asked, one civic building at a time. When nothing listed fits, the Mayor answers design and the architect (MC_TALK_PROGRAM_MODEL) writes the building as a program against the house library, compiled and fitted by code and built as a public work; a failed program gives the listed building the Mayor named nearest. Off: the vanilla works alone, as before. |
 | `MC_TALK_HOLDOUT` | string | (unset) |  |  | Members held out of talk (a holdout experiment). |
+| `MC_TALK_PASS` | flag | `on` |  | `MC_TALK` | A member's refusal for want of a chore is passed on (#233 follow-up, docs/specs/talk-pass-on.md; on by default, off turns it off): when nothing on its chores list does what a person asked, code finds another member whose list has a chore matching the person's words and hands the line to it (as a forward to the Mayor is handed), which answers with its own talk call and keeps a promise as any. One hop; refusals for other reasons stay refusals. |
 | `MC_TALK_PROGRAM_MODEL` | string | `ollama:qwen3.8:27b` |  | `MC_TALK_DESIGNS` | The architect that writes a requested building nothing pre-designed fits (MC_TALK_DESIGNS): MC_HOME_PROGRAM_MODEL's when unset (qwen3.8 on the pinned local server: start it with scripts/ollama_exec.py and route it with MC_OLLAMA_ROUTES). With it down the Mayor says it cannot design that now and names the nearest pre-designed building. |
 | `MC_VOTE` | string | (unset) |  |  | The neighbourhood style vote: model, predicted or off. |
 | `MC_VOTE_MAX_MS` | number | `240000` |  |  | A vote is tallied once every ballot is in or after this long (abstentions for the rest). |

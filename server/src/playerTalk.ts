@@ -7,6 +7,7 @@
  *
  * Settings (read once):
  *   MC_TALK   on (default) | off: the talk pipeline; off, a person's line wakes the tiered brain's chat turn as before
+ *   MC_TALK_PASS  on (default) | off: a member's refusal for want of a chore passed to a member who has one
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,6 +17,8 @@ import { offerLine, type DesignOffer } from './talkDesign';
 
 export const PLAYER_TALK = {
   on: !/^(off|0|false|no)$/i.test(rawSetting('MC_TALK') ?? 'on'),
+  /** MC_TALK_PASS: a member's refusal for want of a chore passed to a member whose list has one (talk-pass-on.md). */
+  pass: !/^(off|0|false|no)$/i.test(rawSetting('MC_TALK_PASS') ?? 'on'),
   /** Lines from one person to one agent within this are joined into one call. */
   gapMs: 20000,
   /** A promise is due in this long (divided by MC_TIME_SCALE); broken past twice that. */
@@ -399,9 +402,10 @@ const FACT_RULES = `- Questions (how many, who, where, what you are doing, what 
 const MEMBER_RULES = `${FACT_RULES} If a chore on your list would find out (exploring that way, say), you may offer it; never offer one that is not on your list.
 - Only a promise makes you act: chat, forward and refuse make you do nothing more, so in them never say you are going, coming, on your way, or will do something. When they ask you to do something a chore on your list does (eat, rest at home, keep watch, explore, gather...), promise that chore.
 - A question is answered with chat, even about a monster ("should we fight it or keep away?"): give your advice from what you know, and promise nothing they did not ask you to do.
-- A refusal's reason must be true by what you know: look at your chores and what you carry first. When they ask you to deal with a monster in or near the village, that is the work of "Keep watch tonight" (or the hunt) if it is on your list: promise it rather than refuse.
+- A refusal's reason must be true by what you know: look at your chores and what you carry first. When they ask you to deal with a monster in or near the village, or for help against monsters, that is the work of "Keep watch tonight" (or the hunt) if it is on your list: promise it rather than refuse. Only when neither is on your list (you carry no weapon, say) refuse and say why; never promise to make a weapon for a fight, as it does not help them now.
 - Forward only a building: a call to gather or come somewhere ("meeting at the hut!"), a question or a chore is not passed to the Mayor; answer it yourself with chat.
-- You cannot hand items to a person: what you gather goes to the village storage, where they can take it. No chore walks you to a meeting or to the person: if they call you to one, say kindly that you cannot come, not that you will.`;
+- You cannot hand items to a person: what you gather goes to the village storage, where they can take it. No chore walks you to a meeting or to the person: if they call you to one, say kindly that you cannot come, not that you will.
+- Speak of an item as yours ("my bow", "my sword") only when "You carry" lists it.`;
 const MAYOR_RULES = `${FACT_RULES}
 - You cannot call a vote: the members vote on the wall's stages and the public works when the village puts them to a ballot. Say so rather than refuse the idea.`;
 
@@ -476,6 +480,8 @@ export interface TalkSituation {
   /** Danger: whether monsters come at all (a peaceful world: none), last night's record (no record: no night yet). */
   monsters?: boolean;
   lastNight?: { peak48: number; died: string[]; out: number };
+  /** Hostiles within 48 and 96 blocks of home at the danger count's last look (about once a minute). */
+  near?: { n48: number; n96: number };
   /** Deaths on record (since the agent server started), and members hurt now ("Finn 6/20"). */
   deaths?: number;
   hurt?: string[];
@@ -520,7 +526,7 @@ export function talkFacts(s: TalkSituation, role: 'mayor' | 'member'): string[] 
   if (s.tick !== undefined) out.push(`It is ${timeWords(s.tick)}.`);
   if (role === 'member') {
     if (s.health !== undefined) out.push(`Your health: ${Math.round(s.health)} of 20${s.health <= 8 ? ' (badly hurt)' : s.health < 14 ? ' (hurt)' : ''}${s.hunger && s.hunger !== 'fed' ? `; you are ${s.hunger}` : ''}.`);
-    if (s.carries) out.push(`You carry: ${s.carries.length ? s.carries.join(', ') : 'no weapon and no armour'}.`);
+    if (s.carries) out.push(`You carry: ${s.carries.length ? s.carries.join(', ') : 'no weapon and no armour (you cannot fight)'}.`);
     if (s.doing !== undefined) out.push(s.doing ? `What you are doing now: ${s.doing}.` : 'What you are doing now: nothing (between chores).');
     if (s.where) out.push(`You are ${s.where}.`);
   }
@@ -532,7 +538,9 @@ export function talkFacts(s: TalkSituation, role: 'mayor' | 'member'): string[] 
   if (s.monsters === false) out.push('No monsters come in this world.');
   else if (s.monsters) {
     out.push(s.lastNight ? `Last night: at most ${s.lastNight.peak48} monsters at once within 48 blocks of home; ${s.lastNight.died.length ? `died: ${s.lastNight.died.join(', ')}` : 'no member died'}; ${s.lastNight.out} member${s.lastNight.out === 1 ? '' : 's'} out after dark.`
-      : 'Last night: no record (no night has passed since the village was counted).');
+      // (F361: "no record" was read as "no monsters")
+      : 'Last night: not counted (the village began counting monsters after it). You do not know how many monsters came last night or whether anyone was hurt then: if asked, say you do not know.');
+    if (s.near) out.push(s.near.n96 ? `Monsters near the village now: ${s.near.n48} within 48 blocks of home, ${s.near.n96} within 96.` : 'Monsters near the village now: none within 96 blocks of home.');
     if (s.deaths !== undefined) out.push(`Member deaths on record: ${s.deaths}.`);
     if (s.homeAtDusk) out.push('At dusk every member walks home on its own (watchers excepted).');
   }
@@ -570,8 +578,72 @@ export function parseRespond(reply: { calls?: Array<{ name: string; input: Recor
     return { kind, say: clean(str(c.input.say)), ...(str(c.input.work) ? { work: str(c.input.work) } : {}), ...(str(c.input.option) ? { option: str(c.input.option) } : {}), ...(str(c.input.place) ? { place: str(c.input.place) } : {}), ...(str(c.input.reason) ? { reason: clean(str(c.input.reason)) } : {}),
       ...(str(c.input.what) ? { what: clean(str(c.input.what)).slice(0, 60) } : {}), ...(str(c.input.nearest) ? { nearest: str(c.input.nearest) } : {}) };
   }
-  const text = clean(reply.text ?? '');
+  // (F361: the Mayor's respond call came back as JSON in its text, said word for word as chat)
+  const raw = (reply.text ?? '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+  const json = /^(?:```(?:json)?\s*)?(\{[\s\S]*\})\s*(?:```)?$/.exec(raw);
+  if (json) {
+    try {
+      const input = JSON.parse(json[1]) as Record<string, unknown>;
+      if (input && typeof input === 'object' && (typeof input.kind === 'string' || typeof input.say === 'string')) return parseRespond({ calls: [{ name: 'respond', input }] }, role);
+    } catch {
+      /* not JSON: said as it is */
+    }
+  }
+  const text = clean(raw);
   return text ? { kind: 'chat', say: text } : null;
+}
+
+/** #236: the line said when the talk call came back empty twice (the person heard nothing before). */
+export const emptyReplyLine = (from: string) => `${from}, sorry, I lost my words just now; could you say that again?`;
+
+// ---- MC_TALK_PASS: a request passed to a member who has a chore for it (docs/specs/talk-pass-on.md) ------------------
+
+/** A refusal's reason that says the member has no chore (or no weapon) for it, not a hand-over or the game's limits. */
+export const noChoreReason = (reason: string) => /\bno (chore|task|job|weapon)s?\b|\bnot (on|in|among) my (list|chores)\b|\bnothing on my (list|chores)\b|\bnot among the chores\b|\bno chores i can\b/i.test(reason);
+
+// (words for the same thing: a person's word -> words the chores use)
+const PASS_SAME: Record<string, string[]> = {
+  zombie: ['watch', 'hunt'], skeleton: ['watch', 'hunt'], creeper: ['watch', 'hunt'], spider: ['watch', 'hunt'], monster: ['watch', 'hunt'], mob: ['watch', 'hunt'],
+  fight: ['watch', 'hunt'], kill: ['watch', 'hunt'], defend: ['watch'], guard: ['watch'], protect: ['watch'],
+  wood: ['log', 'tree', 'fell'], tree: ['log', 'fell'], log: ['tree', 'fell'], timber: ['log', 'tree'],
+  stone: ['cobblestone'], cobble: ['cobblestone'], rock: ['cobblestone', 'stone'],
+  food: ['eat', 'meal', 'bread'], hungry: ['eat', 'meal'], eat: ['meal'], sleep: ['rest'], hurt: ['rest', 'eat'],
+  light: ['torch', 'lamp'], lamp: ['light', 'torch'],
+  scout: ['explore'], look: ['explore'], find: ['explore'], wool: ['sheep', 'shear'], egg: ['chicken'],
+};
+const PASS_QUIET = new Set(['the', 'a', 'an', 'and', 'or', 'of', 'for', 'to', 'in', 'on', 'at', 'by', 'from', 'with', 'your', 'you', 'my', 'me', 'our', 'we', 'us', 'it', 'is', 'are', 'be', 'can', 'could', 'would', 'please', 'some', 'more', 'get', 'go', 'do', 'make', 'build', 'bring', 'fetch', 'need', 'want', 'now', 'again', 'storage', 'village', 'own', 'start', 'take', 'into', 'this', 'that', 'there', 'here', 'right', 'away', 'help', 'just', 'any', 'all', 'new', 'nothing', 'wants', 'some', 'up', 'out', 'about', 'what', 'how', 'who', 'where', 'tell', 'next',
+  // (places: "be home before dark" is not a rest, "for the towers" not a tower to build)
+  'home', 'hut', 'house', 'edge', 'ground', 'open', 'tower', 'tonight', 'night', 'day']);
+const passStem = (w: string) => w.replace(/ies$/, 'y').replace(/(ch|sh|x|ss)es$/, '$1').replace(/([^s])s$/, '$1').replace(/(.{4,})ing$/, '$1');
+const passWords = (s: string) => (s.toLowerCase().match(/[a-z]+/g) ?? []).map(passStem).filter((w) => w.length >= 3 && !PASS_QUIET.has(w));
+
+/** How well a chore fits a person's words: the words they share (an option's name and id), a word of PASS_SAME counted
+ *  for its chore words. 0: nothing shared. */
+export function passScore(text: string, o: { id: string; name: string }): number {
+  const asked = new Set<string>();
+  for (const w of passWords(text)) {
+    asked.add(w);
+    for (const x of PASS_SAME[w] ?? []) asked.add(x);
+  }
+  const have = new Set([...passWords(o.name), ...passWords(o.id.replace(/[:_]/g, ' '))]);
+  return [...have].filter((w) => asked.has(w)).length;
+}
+
+/** The chores a person's ask may be passed to: not a member's own, a project's or its house's (they serve the member). */
+export const passable = (o: { id: string }) => !/^(own|help|initiate|custom|innovate|experiment):/.test(o.id);
+
+/** The best of the other members' chores for a person's words (talk-pass-on.md): the highest score, then the idle member,
+ *  then the nearest to the person. Null when no chore shares a word with the ask. */
+export function passTarget<T extends { name: string; idle: boolean; dist: number; options: Array<{ id: string; name: string }> }>(text: string, members: T[]): { member: T; option: { id: string; name: string }; score: number } | null {
+  let best: { member: T; option: { id: string; name: string }; score: number } | null = null;
+  for (const m of members) for (const o of m.options) {
+    if (!passable(o)) continue;
+    const score = passScore(text, o);
+    if (!score) continue;
+    const better = !best || score > best.score || (score === best.score && (Number(m.idle) - Number(best.member.idle) || best.member.dist - m.dist) > 0);
+    if (better) best = { member: m, option: o, score };
+  }
+  return best;
 }
 
 /** A model's claim that a building stands (or will) at the very place asked. */
