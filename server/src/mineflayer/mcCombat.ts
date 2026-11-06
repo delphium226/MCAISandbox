@@ -620,12 +620,48 @@ export function curfewActs(t: number | null | undefined, phase: 'dusk' | 'night'
 }
 /** #194: with monsters, code keeps members home by dusk while no member has a bed (the night then runs its length). */
 export const homeByDuskOn = (): boolean => modeSpec().mobs && flagOn('MC_HOME_BY_DUSK');
-/** A curfew's band as the menu and the walk home read it: the rule's, or code's (`box`: past the built bounds + 16). */
-export type SafetyBand = { dist: number; phase: 'dusk' | 'night'; box?: Box; code?: boolean };
+/**
+ * #230 (MC_NIGHT_BAND, on; with MC_HOME_BY_DUSK): code's home band holds with beds too while the nights run their length.
+ * A sleeper ends a night in 5-35 s; a night still under way NIGHT_RUNS_AFTER ticks after nightfall (40 s at 1x) is one
+ * nobody slept away. From then until a night ends short again, home by dusk acts (its dusk lead and dawn tail with it):
+ * train 22's nights ran ~9 minutes with beds in the village, and 21 of 26 / 27 of 37 deaths came outside the ring at night,
+ * a median ~125 blocks from storage, on hunts reaching the bounds + 48 and initiatives' far sites.
+ */
+export const nightBandOn = (): boolean => homeByDuskOn() && flagOn('MC_NIGHT_BAND');
+export const NIGHTFALL = 12541;
+export const NIGHT_RUNS_AFTER = 800;
+const nightSeen = { in: false, long: false, runs: false };
+/** Notes the time of day; whether the nights run their length (the last night, or this one past NIGHT_RUNS_AFTER). */
+export function nightsRun(t: number | null | undefined): boolean {
+  if (typeof t !== 'number') return nightSeen.runs;
+  if (phaseOf(t) === 'night') {
+    nightSeen.in = true;
+    if (t - NIGHTFALL > NIGHT_RUNS_AFTER) nightSeen.long = nightSeen.runs = true;
+  } else if (nightSeen.in) {
+    // (a night just ended: short, a sleeper ended it; long, the next one is taken to run too)
+    nightSeen.runs = nightSeen.long;
+    nightSeen.in = nightSeen.long = false;
+  }
+  return nightSeen.runs;
+}
+/** For checks: forget the nights seen. */
+export const resetNights = (): void => { nightSeen.in = nightSeen.long = nightSeen.runs = false; };
+/** A curfew's band as the menu and the walk home read it: the rule's, or code's (`box`: past the built bounds + 16;
+ *  `beds`: held with beds because the nights run, #230). */
+export type SafetyBand = { dist: number; phase: 'dusk' | 'night'; box?: Box; code?: boolean; beds?: boolean };
 /** Code's band (#194): home by dusk, out past the built bounds + 16 (the danger count's "out after dark"); null without bounds. */
-export function homeBand(v: Pick<Village, 'layouts' | 'structures'>): SafetyBand | null {
+export function homeBand(v: Pick<Village, 'layouts' | 'structures'>, beds = false): SafetyBand | null {
   const box = builtBounds(v);
-  return box ? { dist: 0, phase: 'dusk', box, code: true } : null;
+  return box ? { dist: 0, phase: 'dusk', box, code: true, ...(beds ? { beds: true } : {}) } : null;
+}
+/**
+ * Code's band for a complete village (#194, #230): without beds always (the night runs its length), with beds while the
+ * nights run (nightsRun) and MC_NIGHT_BAND is on; null otherwise.
+ */
+export function codeBand(v: Pick<Village, 'layouts' | 'structures'>, beds: boolean, t: number | null | undefined): SafetyBand | null {
+  const runs = nightsRun(t);
+  if (!beds) return homeBand(v);
+  return nightBandOn() && runs ? homeBand(v, true) : null;
 }
 /** Whether (x, z) lies past the band (from home, or past its box + 16). */
 export const pastBand = (band: SafetyBand, home: { x: number; z: number }, x: number, z: number): boolean =>
@@ -643,7 +679,7 @@ export function bandNow(a: BotAgent): { past: (x: number, z: number) => boolean;
 }
 /** The band's words for a dropped option and the walk's line. */
 export const bandWords = (band: SafetyBand): string => band.code
-  ? 'home by dusk: no member has a bed yet, so the night runs its length'
+  ? band.beds ? 'home by dusk: the nights here run their length (nobody sleeps them away)' : 'home by dusk: no member has a bed yet, so the night runs its length'
   : `the curfew: no trips past ${band.dist} blocks after ${band.phase === 'dusk' ? 'dusk' : 'nightfall'}`;
 /** Whether any member has a bed (bedOf), checked at most every 30 s. */
 let bedSeen = { at: 0, any: false };
@@ -991,6 +1027,8 @@ export function huntRing(bounds: Box, margin = 12, step = 24): Array<{ x: number
  */
 export const HUNT_RINGS_BEDS = [24, 32];
 export const HUNT_EDGE_BEDS = 48;
+/** #230: whether the hunt walks the wide rings (HUNT_RINGS_BEDS, the bounds + 48): with beds and no code band holding. */
+export const huntWide = (beds: boolean, band: SafetyBand | null): boolean => beds && !band?.code;
 export function huntRings(bounds: Box, beds: boolean, step = 24): Array<{ x: number; z: number }> {
   if (!beds) return huntRing(bounds, 12, step);
   const [p, q] = HUNT_RINGS_BEDS.map((m) => ringAt(bounds, m, step));
@@ -1135,6 +1173,17 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
         continue;
       }
       // (none in reach: on to the next spot of the ring, on its ground, as the watch)
+      // (#230: a band that came to hold since the start (the night ran on past NIGHT_RUNS_AFTER) puts the hunt on the inner
+      // ring, its spots inside the band)
+      if (band && pastBand(band, home, spots[i % spots.length].x, spots[i % spots.length].z)) {
+        const inner = huntRing(bounds).filter((p) => !pastBand(band, home, p.x, p.z));
+        if (inner.length && inner.length !== spots.length) {
+          spots = inner;
+          edge = Math.min(edge, HUNT_EDGE);
+          i = 0;
+          continue;
+        }
+      }
       const s = spots[i++ % spots.length];
       const y0 = Math.floor(home.y);
       const g = surfaceAt(a, s.x, s.z, y0);
@@ -1189,7 +1238,7 @@ export function curfewTick(agents: Iterable<BotAgent>, bandOf: (v: Village) => S
     console.log(`[curfew] ${a.name} ${v.name}: ${Math.round(r)} blocks out at ${phaseOf(a.bot.time?.timeOfDay)} (${bandWords(band)}): heads home`);
     const started = a.runReflex('curfew', async (signal) => {
       await walk(a, new goals.GoalNear(home.x, home.y, home.z, 4), 'home (the curfew)', signal, 180000);
-      return `walked home ${Math.round(r)} blocks ${band.code ? 'before dark (no bed yet)' : 'under the curfew'}`;
+      return `walked home ${Math.round(r)} blocks ${band.code ? band.beds ? 'before dark (the nights run their length)' : 'before dark (no bed yet)' : 'under the curfew'}`;
     }, (msg) => {
       headingHome.delete(a.name);
       console.log(`[curfew] ${a.name} ${msg}`);
@@ -1217,11 +1266,12 @@ export const COMBAT_SKILLS = {
       const v = a.village();
       const bounds = v ? builtBounds(v) : null;
       if (!v || !bounds) throw new Error('hunt_edge: not in a village with buildings');
-      const beds = anyBed(a.world.agents.values());
-      return huntEdge(a, huntRings(bounds, beds), bounds, () => {
+      // (#230: the wide rings only while no home band holds: with nights that run, the hunt keeps to the inner ring)
+      const wide = huntWide(anyBed(a.world.agents.values()), a.world.safetyBand(v));
+      return huntEdge(a, huntRings(bounds, wide), bounds, () => {
         const band = a.world.safetyBand(v);
         return band && curfewActs(a.bot.time?.timeOfDay, band.phase) ? band : null;
-      }, signal, beds ? HUNT_EDGE_BEDS : HUNT_EDGE);
+      }, signal, wide ? HUNT_EDGE_BEDS : HUNT_EDGE);
     },
   },
 };

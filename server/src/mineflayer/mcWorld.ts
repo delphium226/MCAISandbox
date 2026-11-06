@@ -104,7 +104,7 @@ import { deathMemory, deathWords, type DeathCause } from './mcHazard';
 import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, etaMinutes, historyLines, initTalk, isStatusQuestion, matchWork, noRequestLine, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, statusFor, statusLines, talkSystem, talkTool, talkUser, updateRequest, withoutPlace, workWords, type PlayerRequest, type ReqProgress, type Respond, type WorkOffer } from '../playerTalk';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { isNight, nightTick } from './mcSurvivalB';
-import { HUNT_HEALTH, HUNTED_NOT_BOUGHT, anyBed, armTick, armsOn, bandWords, builtBounds, combatCounts, curfewActs, curfewTick, dangerOf, dangerTick, deathsFact, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, DIST_BINS, headingHome, homeBand, homeByDuskOn, hunters, huntersOf, huntedTonight, huntMs, huntOn, isWeapon, pastBand, phaseOf, WATCH_HEALTH, watchedTonight, watchLoop, type SafetyBand } from './mcCombat';
+import { HUNT_HEALTH, HUNTED_NOT_BOUGHT, anyBed, codeBand, huntWide, armTick, armsOn, bandWords, builtBounds, combatCounts, curfewActs, curfewTick, dangerOf, dangerTick, deathsFact, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, DIST_BINS, headingHome, homeByDuskOn, hunters, huntersOf, huntedTonight, huntMs, huntOn, isWeapon, pastBand, phaseOf, WATCH_HEALTH, watchedTonight, watchLoop, type SafetyBand } from './mcCombat';
 import { nightsFall, realHunger, worldMode } from '../worldMode';
 import { APPETITE, FOOD_POINTS, appetiteOn, barLevel, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
@@ -1402,12 +1402,13 @@ export class MineflayerWorld implements WorldAdapter {
 
   /**
    * Survival (d): the curfew in force (the rule's), else code's home by dusk while no member has a bed (#194: the first
-   * night runs its length, and nearly every death was on a far trip in it); null in peaceful and with both off.
+   * night runs its length, and nearly every death was on a far trip in it), and with beds while the nights run their
+   * length (#230, MC_NIGHT_BAND: codeBand); null in peaceful and with both off.
    */
   safetyBand(v: Village): SafetyBand | null {
     const rule = curfewBand(v.name);
     if (rule) return rule;
-    return homeByDuskOn() && v.complete && !anyBed(this.agents.values()) ? homeBand(v) : null;
+    return homeByDuskOn() && v.complete ? codeBand(v, anyBed(this.agents.values()), this.timeOfDay()) : null;
   }
 
   /** Survival (d): the defence chore a member is on, for the danger count's minutes (watch, home, grounds). */
@@ -8281,7 +8282,7 @@ export class MineflayerWorld implements WorldAdapter {
         const min = Math.max(1, Math.round(huntMs() / 60000));
         add({
           id: 'hunt', kind: 'hunt', key: slot, excludes: [`${slot}=`], name: 'Hunt at the village edge', rank: 125,
-          facts: `${huntersOf(v.name)} of ${cap} hunters out; skeletons and spiders first, within ${anyBed(this.agents.values()) ? 48 : 32} blocks of the village, ~${min} min, then the drops to storage (it holds ${st.bone ?? 0} bone, ${st.string ?? 0} string); the hunt has killed ${kills} so far`,
+          facts: `${huntersOf(v.name)} of ${cap} hunters out; skeletons and spiders first, within ${huntWide(anyBed(this.agents.values()), this.safetyBand(v)) ? 48 : 32} blocks of the village, ~${min} min, then the drops to storage (it holds ${st.bone ?? 0} bone, ${st.string ?? 0} string); the hunt has killed ${kills} so far`,
           effect: 'bone and string for storage (bone meal, fishing rods); the merchant is not asked for them',
         }, { kind: 'hunt' });
       }

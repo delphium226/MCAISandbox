@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-294 settings.
+295 settings.
 
 ## Game speed
 
@@ -327,6 +327,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_HOME_BY_DUSK` | flag | `on` |  |  | Survival (d), #194, with monsters only: while no member has a bed (the night runs its length) and no curfew rule holds, code keeps members home by dusk: from ~50 s before dusk to dawn, options past the built bounds + 16 leave the menu and a member out past them walks home. |
 | `MC_HOST` | string | `127.0.0.1` |  |  | The Minecraft server Mineflayer connects to. |
 | `MC_HUNT` | flag | `on` |  |  | Survival stage (d) spec 4, with monsters only: the hunt, a night chore for armed members above health 14 (one per 6): skeletons and spiders first, zombies when none, within the built bounds + 32 and never past the curfew's band, up to 4 minutes (the night's sleeper waits for it), then the drops (bone, string, rotten flesh) to storage. Members stop buying string and bone from the merchant, the plan names the hunt as their source, and the workshop makes bone meal and fishing rods from them. Once a member has a bed the hunt walks rings 24 and 32 outside the bounds and reaches the bounds + 48 (#200). |
+| `MC_NIGHT_BAND` | flag | `on` |  |  | #230, with monsters and MC_HOME_BY_DUSK: code's home by dusk holds with beds too while the nights run their length (a night still under way 800 ticks after nightfall, 40 s at 1x, that nobody slept away; until a night ends short again): options past the built bounds + 16 leave the menu from ~50 s before dusk to 3 minutes after dawn, members out past them walk home, and the hunt keeps to its inner ring (the bounds + 32). Off: with beds only a curfew rule keeps members in. |
 | `MC_PORT` | number | `25565` |  |  | The Minecraft server port Mineflayer connects to; in the sandbox, its game server's port (default 8765). |
 | `MC_PVP` | string | `true` |  |  | The sandbox: true lets players hurt each other. |
 | `MC_RCON_TIMEOUT_MS` | number | `15000` |  |  | How long a command's reply may take (E.1): one lost reply used to hold the single chain, and every agent behind it, for good. Long enough for the longest /fill. |
