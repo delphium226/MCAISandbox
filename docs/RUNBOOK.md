@@ -437,6 +437,11 @@ reset_site.py on a locked world only warns. CLI: `scripts/goal_map.mts catalogue
   hearers logged), `MC_ACT_FIXES=on` (a bare "axe" is the best made axe; a fixed or repeat pick accepts an unpriced
   request). Check `talk_acts.mts`; measures `python scripts/talk_use.py RUN.acts.jsonl`; bench
   `scripts/bench/talkbench.mts` (a told shortage, and how often news and questions are written, on Long4's prompts).
+- **Player chat tests (#233; spec `docs/specs/player-chat-tests.md`):** `node node_modules/tsx/dist/cli.mjs
+  scripts/bench/chatbench.mts` runs the user's 33 lines through the real `routeChat` (fake bots) and the real talk call
+  on train 23's village (`scripts/bench/chatbench_fixture.json`), N times each (`N`, default 5; `CONC` 2; `ONLY=regex`;
+  `JUDGE=0` rules only; `PEEK=1`; `DRY=1` routing and prompts only), and prints a scorecard per category (combat,
+  gathering, exploring, building, talk); results in `runs/<date>/chat-tests/`. ~270 calls, ~0.3M tokens at N 5.
 
 ## Members' proposals and their triage (G5, goal 3; 2026-10-22)
 

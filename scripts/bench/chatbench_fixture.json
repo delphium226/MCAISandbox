@@ -1,0 +1,248 @@
+{
+ "source": "personas: runs/2026-11-06/train23/C1.choices.jsonl (last choice of each member, train 23 control arm, village P1, hostile world); works: the Mayor's recorded talk prompt of 2026-11-06 (runs/model-calls/2026-11-06-18984.jsonl)",
+ "village": "P1",
+ "plot": {
+  "x1": -1650,
+  "z1": 20,
+  "x2": -1610,
+  "z2": 60
+ },
+ "storageHut": {
+  "x": -1625,
+  "z": 40
+ },
+ "members": {
+  "Mayor": {
+   "persona": [
+    "You are Mayor, hard-working and outgoing; your life goal is invention; you live in the lodge at -1595,62; you have become the village's builder of projects.",
+    "You value openness to change most, the good of others least. You feel fairly good (+6): your bench was built; your bench was built."
+   ],
+   "home": {
+    "x": -1595,
+    "z": 62
+   }
+  },
+  "Ada": {
+   "persona": [
+    "You are Ada, forgiving, unflappable; your life goal is wealth; you live in the plains small house 3 at -1622,21; you have become the village's builder of projects.",
+    "You value getting ahead most, tradition and order least. You feel good (+17): your flower garden was built; Iris helped with your project."
+   ],
+   "home": {
+    "x": -1622,
+    "z": 21
+   }
+  },
+  "Ben": {
+   "persona": [
+    "You are Ben, forgiving and outgoing, out for yourself; your life goal is home; you live in the plains small house 1 at -1617,42; you have become the village's maker.",
+    "You value tradition and order most, openness to change least. You are getting tired."
+   ],
+   "home": {
+    "x": -1617,
+    "z": 42
+   }
+  },
+  "Clara": {
+   "persona": [
+    "You are Clara, hard-working, out for yourself; your life goal is mastery; you live in the home 715825@birch at -1633,57; you have become the village's maker.",
+    "You value tradition and order most, the good of others least. You feel fairly good (+8): Kai helped with your project; your market stall was built."
+   ],
+   "home": {
+    "x": -1633,
+    "z": 57
+   }
+  },
+  "Dev": {
+   "persona": [
+    "You are Dev, hard-working and sensitive, slow to forgive; your life goal is beauty; you live in the home 593349@birch at -1648,55; you have become the village's rest hand.",
+    "You value openness to change most, the good of others least. You feel good (+12): your young tree was built; Lena helped with your project."
+   ],
+   "home": {
+    "x": -1648,
+    "z": 55
+   }
+  },
+  "Elena": {
+   "persona": [
+    "You are Elena, honest and forgiving, unflappable; your life goal is standing; you live in the home 276631@oak at -1686,17; you have become the village's maker.",
+    "You value the good of others most, tradition and order least. You are getting tired."
+   ],
+   "home": {
+    "x": -1686,
+    "z": 17
+   }
+  },
+  "Finn": {
+   "persona": [
+    "You are Finn, sensitive and honest; your life goal is standing; you live in the home 884709@birch at -1619,59; you have become the village's craftsperson.",
+    "You value the good of others most, getting ahead least. You are getting tired. You feel fairly good (+4): your well was built; your gazebo was built."
+   ],
+   "home": {
+    "x": -1619,
+    "z": 59
+   }
+  },
+  "Grace": {
+   "persona": [
+    "You are Grace, outgoing and forgiving, conventional; your life goal is standing; you live in the home 472748@oak at -1599,74; you have become the village's helper.",
+    "You value the good of others most, tradition and order least. You are getting tired."
+   ],
+   "home": {
+    "x": -1599,
+    "z": 74
+   }
+  },
+  "Hugo": {
+   "persona": [
+    "You are Hugo, sensitive and hard-working, slow to forgive; your life goal is beauty; you live in the home 531885@oak at -1652,8; you have become the village's maker.",
+    "You value the good of others most, getting ahead least. You are getting tired. You feel fairly good (+7): your flower garden was built; Grace helped with your project."
+   ],
+   "home": {
+    "x": -1652,
+    "z": 8
+   }
+  },
+  "Iris": {
+   "persona": [
+    "You are Iris, sensitive, reserved; your life goal is standing; you live in the home 735595@oak at -1637,-13; you have become the village's helper.",
+    "You value the good of others most, tradition and order least."
+   ],
+   "home": {
+    "x": -1637,
+    "z": -13
+   }
+  },
+  "Jonah": {
+   "persona": [
+    "You are Jonah, curious and sensitive, out for yourself; your life goal is mastery; you live in the home 117870@birch at -1675,41; you have become the village's herder.",
+    "You value tradition and order most, openness to change least. You feel fairly good (+8): your bench was built; Ada helped with your project."
+   ],
+   "home": {
+    "x": -1675,
+    "z": 41
+   }
+  },
+  "Kai": {
+   "persona": [
+    "You are Kai, even-tempered, slow to forgive; your life goal is wealth; you live in the home 007105@birch at -1630,75; you have become the village's craftsperson.",
+    "You value getting ahead most, tradition and order least. You are tired (energy 0%); you can rest at home at night. You feel fairly good (+5): your signpost was built; your signpost was built."
+   ],
+   "home": {
+    "x": -1630,
+    "z": 75
+   }
+  },
+  "Lena": {
+   "persona": [
+    "You are Lena, forgiving and hard-working; your life goal is invention; you live in the home 159608@birch at -1619,93; you have become the village's maker.",
+    "You value openness to change most, getting ahead least."
+   ],
+   "home": {
+    "x": -1619,
+    "z": 93
+   }
+  }
+ },
+ "works": [
+  {
+   "id": "plains_shepherds_house_1",
+   "words": "shepherds house",
+   "units": 107
+  },
+  {
+   "id": "plains_fisher_cottage_1",
+   "words": "fisher cottage",
+   "units": 132
+  },
+  {
+   "id": "plains_fletcher_house_1",
+   "words": "fletcher house",
+   "units": 139
+  },
+  {
+   "id": "plains_cartographer_1",
+   "words": "cartographer",
+   "units": 143
+  },
+  {
+   "id": "plains_tannery_1",
+   "words": "tannery",
+   "units": 157
+  },
+  {
+   "id": "plains_tool_smith_1",
+   "words": "tool smith",
+   "units": 164
+  },
+  {
+   "id": "plains_masons_house_1",
+   "words": "masons house",
+   "units": 170
+  },
+  {
+   "id": "plains_temple_3",
+   "words": "temple",
+   "units": 188
+  },
+  {
+   "id": "plains_library_2",
+   "words": "library",
+   "units": 192
+  },
+  {
+   "id": "plains_armorer_house_1",
+   "words": "armorer house",
+   "units": 204
+  },
+  {
+   "id": "plains_butcher_shop_1",
+   "words": "butcher shop",
+   "units": 209
+  },
+  {
+   "id": "plains_weaponsmith_1",
+   "words": "weaponsmith",
+   "units": 290
+  },
+  {
+   "id": "snowy_butchers_shop_2",
+   "words": "butchers shop",
+   "units": 49
+  },
+  {
+   "id": "savanna_armorer_1",
+   "words": "armorer",
+   "units": 67
+  },
+  {
+   "id": "savanna_shepherd_1",
+   "words": "shepherd",
+   "units": 95
+  },
+  {
+   "id": "savanna_mason_1",
+   "words": "mason",
+   "units": 100
+  },
+  {
+   "id": "desert_shepherd_house_1",
+   "words": "shepherd house",
+   "units": 128
+  },
+  {
+   "id": "desert_cartographer_house_1",
+   "words": "cartographer house",
+   "units": 138
+  },
+  {
+   "id": "desert_fisher_1",
+   "words": "fisher",
+   "units": 141
+  },
+  {
+   "id": "snowy_weapon_smith_1",
+   "words": "weapon smith",
+   "units": 207
+  }
+ ]
+}

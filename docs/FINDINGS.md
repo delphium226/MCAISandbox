@@ -2731,3 +2731,24 @@ CLAUDE.md when a phase ends.
     min); no breeding for 20 min while the young grew, then 11 of 12 by +88. 4 of the 9 young after the kill are not
     in the census.
   - [stuck] 62 / 113, [lag] 1 / 0, busy 75 / 78%, $0.513 + $0.468. Report: runs/2026-11-06/train23/report.md.
+- F358 (11-06, #233, G7) **The player chat bench's baseline: 103 of 165 (62%); exploring is weakest (36%), then combat
+  (49%) and talk (55%); gathering 97%, building 70%. The commonest failure is a fact the member makes up (32 of 62
+  failures): asked what its prompt cannot know, it answers confidently ("All is well, no monsters were spotted" after a
+  night of 14 monsters and a death, 5 of 5; "beyond the hills lies a dense forest" for an unexplored north, 5 of 5;
+  Ada "building the east tower" when she was lighting, 5 of 5). Then routing (15): a member's line that says "village"
+  goes to the Mayor (Kai's "explore west of the village"), and a line naming two members reaches only the first (Hugo
+  and Iris, Ada and Finn).** `scripts/bench/chatbench.mts` (spec `docs/specs/player-chat-tests.md`): the user's 33
+  lines through the real `routeChat` on fake bots and the real talk prompt on train 23's C1 village (personas, the
+  Mayor's works), menus set by time and health; N 5, gpt-oss:120b-cloud (talk low, judge medium); rules first, a judge
+  with the true situation for chat and refusals. 254 calls, 230k prompt + 37k output tokens, ~4 min.
+  - **Acts are right when a chore fits:** cobblestone, flint, chickens, logs, sheep, the lookout, lamps and the statue 5
+    of 5; the tower watch and the wall gap 5 of 5 for the one member reached; the skeletons 5 of 5 (hunt or watch).
+  - **Asked to rest or eat, it chats instead of promising** (Finn hurt: 4 of 5 "I'll rest and have a meal soon" with
+    `eat`/`rest` on its list), and "I'll be there" to a meeting (3 of 5): act claims no chore carries.
+  - **Refusals with untrue reasons:** "no chore matches" a creeper or zombie with `watch` on the list; Lena "I don't
+    have a bow" (4 of 5; it carries one); the Mayor "we only build listed buildings, not walls" to a wall vote.
+  - **The talk prompt lacks the situation** (health, time, current chore, storage, explored land, last night): the
+    invented facts come from questions about exactly these. A first run with a looser judge scored 101 of 165.
+  - **First improvement (not made):** give the talk prompt the member's situation facts and a rule to answer only from
+    them, else say it does not know and offer a chore; with it, the routing fix (a named member before "village"; each
+    of two named members answers). Logs: `runs/2026-11-06/chat-tests/`.
