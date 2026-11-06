@@ -104,9 +104,9 @@ import { deathMemory, deathWords, type DeathCause } from './mcHazard';
 import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, emptyReplyLine, etaMinutes, historyLines, noChoreReason, passTarget, initTalk, isStatusQuestion, talkFacts, type TalkSituation, matchWork, noRequestLine, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, statusFor, statusLines, talkSystem, talkTool, talkUser, updateRequest, withoutPlace, workWords, type PlayerRequest, type ReqProgress, type Respond, type WorkOffer } from '../playerTalk';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { isNight, nightTick } from './mcSurvivalB';
-import { HUNTED_NOT_BOUGHT, anyBed, codeBand, huntOffered, huntWide, armTick, armsOn, bandWords, builtBounds, combatCounts, curfewActs, curfewTick, dangerOf, dangerTick, deathsFact, beyond, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, DIST_BINS, headingHome, homeByDuskOn, hunters, huntersOf, huntedTonight, huntMs, huntOn, isWeapon, pastBand, phaseOf, WATCH_HEALTH, watchedTonight, watchLoop, type SafetyBand } from './mcCombat';
+import { HUNTED_NOT_BOUGHT, anyBed, codeBand, groundCounts, huntOffered, huntWide, armTick, armsOn, bandWords, builtBounds, combatCounts, curfewActs, curfewTick, dangerOf, dangerTick, deathsFact, beyond, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, DIST_BINS, headingHome, homeByDuskOn, hunters, huntersOf, huntedTonight, huntMs, huntOn, isWeapon, pastBand, phaseOf, WATCH_HEALTH, watchedTonight, watchLoop, type SafetyBand } from './mcCombat';
 import { modeSpec, nightsFall, realHunger, worldMode } from '../worldMode';
-import { APPETITE, FOOD_POINTS, appetiteOn, barLevel, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
+import { APPETITE, FOOD_POINTS, appetiteOn, barLevel, chooseMeal, drain, foodPoints, foodText, holdMeal, hurtKeep, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
 import { quarryFeeds } from './mcQuarry';
 import { FURNISH_FAILS, bannerStandIn, furnishKindOf, refurnishReady, furnishBatch, furnishItem, furnishTrade, furnishWants } from '../furnish';
@@ -2073,7 +2073,7 @@ export class MineflayerWorld implements WorldAdapter {
   /** A member's appetite state where its village keeps one, else 'fed'. */
   private hungerOf(v: Village, a: { name: string }): 'fed' | 'peckish' | 'hungry' {
     const e = appetiteOn(v) ? v.food!.members[a.name] : undefined;
-    return e ? stateOf(e.level) : 'fed';
+    return e ? stateOf(e.level, e.health) : 'fed';
   }
 
   /**
@@ -2091,7 +2091,8 @@ export class MineflayerWorld implements WorldAdapter {
     if (s === 'fed') return true;
     // (food work whatever storage holds: the meal may not be runnable, all eaters' places taken or its key cooling, lens 1 M2)
     if (s === 'hungry' && task && isFoodTask(task)) return true;
-    if (chooseMeal(v.food.members[agent.name].level, storeForMeals(v.name, storageContents(v), agent.name))) return false;
+    const me = v.food.members[agent.name];
+    if (chooseMeal(me.level, storeForMeals(v.name, storageContents(v), agent.name), { health: me.health, keep: hurtKeep(v) })) return false;
     return s === 'peckish';
   }
 
@@ -2099,7 +2100,7 @@ export class MineflayerWorld implements WorldAdapter {
   appetiteOf(agent: WorldAgent): (Appetite & { state: string }) | null {
     const v = agent.village();
     const e = appetiteOn(v) ? v!.food!.members[agent.name] : undefined;
-    return e ? { ...e, state: stateOf(e.level) } : null;
+    return e ? { ...e, state: stateOf(e.level, e.health) } : null;
   }
 
   /** Levels set for tests (POST /api/village/:v/appetite): the members named, or every member in the world; the record
@@ -2243,7 +2244,7 @@ export class MineflayerWorld implements WorldAdapter {
       for (const a of this.growMembers(v)) {
         let e = v.food.members[a.name];
         if (!e) e = v.food.members[a.name] = { level: APPETITE.start, at: now, meals: 0, hungryMs: 0 };
-        const was = stateOf(e.level);
+        const was = stateOf(e.level, e.health);
         const running = a.current?.status.type ?? a.queue[0]?.type;
         const busy = !a.idle() && running !== 'eat_meal';
         if (real) {
@@ -2251,16 +2252,18 @@ export class MineflayerWorld implements WorldAdapter {
           const bar = barLevel(a.bot.food);
           drained += Math.max(0, e.level - bar);
           e.level = bar;
+          // (#238: a hurt member eats to 18, where vanilla heals)
+          e.health = a.bot.health;
         } else {
           drained += (minutes * (busy ? APPETITE.rate : APPETITE.rate * APPETITE.idle)) / 60;
           e.level = drain(e.level, minutes, busy);
         }
         e.at = now;
-        const s = stateOf(e.level);
+        const s = stateOf(e.level, e.health);
         if (s === 'hungry') e.hungryMs = (e.hungryMs ?? 0) + wallMs;
         if (s !== was) {
           changed = true;
-          console.log(`[food] ${a.name} ${s} (${e.level.toFixed(1)} of 20; storage ${foodText(store)})`);
+          console.log(`[food] ${a.name} ${s} (${e.level.toFixed(1)} of 20${s === 'peckish' && e.level > APPETITE.eatAt ? `; hurt, health ${Math.round(e.health ?? 0)}` : ''}; storage ${foodText(store)})`);
         }
       }
       if (NEED_WORKS) {
@@ -2889,7 +2892,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (#217 steps 5 and 6: the watch on the wall and the bows, every 10 game minutes)
     if (line && (wallWatchOn() || bowsOn())) {
       const c = combatCounts, b = archeryCounts;
-      console.log(`[watch] tower posts reached ${c.towerReached} of ${c.towerVisits} visits; watch spots ${c.watchSpots} (${c.watchOutside} outside the ring); bows: ${b.shots} shots, ${b.hits} hits, ${b.kills} kills (${Object.entries(b.byMob).map(([k, q]) => `${k} ${q}`).join(', ') || 'none'}), ${b.assists} sword kills after arrow hits, ${b.held} held, ${b.taken} bows taken; ranged attackers fought ${c.rangedFights}, run from ${c.rangedRuns}; hunts called off ${c.huntsCalledOff}; endermen: gaze turned ${c.averts}, run from ${c.evades}${bowsFirst() ? `; flint: ${flintCounts.trips} trips, ${flintCounts.flint} flint in ${flintCounts.digs} breaks; arrows picked up ${flintCounts.picked} (${flintCounts.sweeps} sweeps)` : ''}`);
+      console.log(`[watch] tower posts reached ${c.towerReached} of ${c.towerVisits} visits; watch spots ${c.watchSpots} (${c.watchOutside} outside the ring); bows: ${b.shots} shots, ${b.hits} hits, ${b.kills} kills (${Object.entries(b.byMob).map(([k, q]) => `${k} ${q}`).join(', ') || 'none'}), ${b.assists} sword kills after arrow hits, ${b.held} held, ${b.taken} bows taken; ranged attackers fought ${c.rangedFights}, run from ${c.rangedRuns}; hunts called off ${c.huntsCalledOff}; hunt ring spots: ${groundCounts.reached} reached, ${groundCounts.unreached} not, ${groundCounts.moved} moved to level ground, ${groundCounts.none} dropped with none; endermen: gaze turned ${c.averts}, run from ${c.evades}${bowsFirst() ? `; flint: ${flintCounts.trips} trips, ${flintCounts.flint} flint in ${flintCounts.digs} breaks; arrows picked up ${flintCounts.picked} (${flintCounts.sweeps} sweeps)` : ''}`);
     }
   }
 
@@ -7860,17 +7863,18 @@ export class MineflayerWorld implements WorldAdapter {
     // A meal first (s30's appetite, D11): a peckish member's own, while storage holds food and one of APPETITE.eaters
     // places at the hut is free (25 withdrawers at once would crowd its chest spots)
     const ap = appetiteOn(v) ? v.food!.members[a.name] : undefined;
-    const state = ap ? stateOf(ap.level) : 'fed';
+    const state = ap ? stateOf(ap.level, ap.health) : 'fed';
+    const hurt = ap ? { health: ap.health, keep: hurtKeep(v) } : undefined;
     if (ap && state !== 'fed') {
       // (from what the meals other members are on their way to leave: the record stays as it was until each has withdrawn,
       // lens 1 M1)
       const food = storeForMeals(v.name, store, a.name);
-      const meal = chooseMeal(ap.level, food);
+      const meal = chooseMeal(ap.level, food, hurt);
       const me = `eat:${a.name.toLowerCase()}`;
       const k = Array.from({ length: APPETITE.eaters }, (_, i) => i + 1).find((i) => !busy.has(`eaters:${i}`));
       // (#68: a meal of its own first, eaten at its own door; no hut place held)
       const mine = OWN.on ? v.homes?.[a.name]?.chest : undefined;
-      const ownMeal = mine ? chooseMeal(ap.level, mine.items) : null;
+      const ownMeal = mine ? chooseMeal(ap.level, mine.items, hurt && { health: hurt.health, keep: 0 }) : null;
       if (ownMeal && !busy.has(me)) {
         const after = Math.min(APPETITE.cap, ap.level + ownMeal.n * FOOD_POINTS[ownMeal.item]);
         add({
@@ -7888,7 +7892,7 @@ export class MineflayerWorld implements WorldAdapter {
         add({
           id: 'eat', kind: 'eat', key: me, holds: [`eaters:${k}`], excludes: [`${me}=`, `eaters:${k}=`], name: 'Eat a meal from the storage', rank: 0,
           ...(h ? { at: { x: Math.floor((h.x1 + h.x2) / 2), z: Math.floor((h.z1 + h.z2) / 2) } } : {}),
-          facts: `you: appetite ${Math.round(ap.level)} of 20 (hungry at ${APPETITE.hungryAt}: then only food work); storage: ${foodText(food)}`,
+          facts: `you: appetite ${Math.round(ap.level)} of 20 (hungry at ${APPETITE.hungryAt}: then only food work)${ap.level > APPETITE.eatAt ? `; health ${Math.round(ap.health ?? 20)} of 20, which comes back only at food 18 or more` : ''}; storage: ${foodText(food)}`,
           effect: `back to about ${Math.round(after)} of 20 (${meal.n} ${words(meal.item)})`,
         }, { kind: 'eat', level: ap.level, item: meal.item, n: meal.n });
       }

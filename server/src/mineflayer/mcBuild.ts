@@ -48,7 +48,7 @@ import { OFFERS } from '../merchant';
 import { LIBRARY, addPledge, chanceFor, needOf, pointsIn, ptsText, settleAttempt, techOf, techOwnRecipes } from '../tech';
 import { eatItems } from './mcSurvivalB';
 import { realHunger } from '../worldMode';
-import { APPETITE, FOOD_POINTS, appetiteOn, barLevel, chooseMeal, holdMeal, noteFood, releaseMeal, stateOf, storeForMeals } from '../appetite';
+import { APPETITE, FOOD_POINTS, appetiteOn, barLevel, chooseMeal, holdMeal, hurtKeep, noteFood, releaseMeal, stateOf, storeForMeals } from '../appetite';
 import { postLayout } from '../layout';
 import { pathLamps, planPadPaths } from '../padPaths';
 import { parseRefit } from '../refit';
@@ -5654,7 +5654,8 @@ async function eatMeal(a: BotAgent, _args: Record<string, unknown>, signal: Abor
   // withdrawal, lens 1 M1)
   let mine: { item: string; n: number } | undefined;
   const choose = () => {
-    const m = chooseMeal(e.level, storeForMeals(v.name, storageContents(v), a.name));
+    // (#238: a hurt member's meal reaches food 18, where vanilla heals, while storage keeps the others' meals)
+    const m = chooseMeal(e.level, storeForMeals(v.name, storageContents(v), a.name), { health: a.bot.health, keep: hurtKeep(v) });
     if (m) mine = holdMeal(v.name, a.name, m);
     return m;
   };
@@ -5693,7 +5694,7 @@ async function eatMeal(a: BotAgent, _args: Record<string, unknown>, signal: Abor
     f.eaten[meal.item] = (f.eaten[meal.item] ?? 0) + took;
     f.meals = (f.meals ?? 0) + 1;
     a.world.villages.save();
-    console.log(`[food] ${a.name} ate ${took} ${meal.item} (${before.toFixed(1)} -> ${e.level.toFixed(1)} of 20; ${stateOf(e.level)})`);
+    console.log(`[food] ${a.name} ate ${took} ${meal.item} (${before.toFixed(1)} -> ${e.level.toFixed(1)} of 20; ${stateOf(e.level, a.bot.health)}${real && (a.bot.health ?? 20) < 20 ? `; health ${Math.round(a.bot.health ?? 0)}` : ''})`);
     if ((await serverCount(a, meal.item).catch(() => 0)) > 0) await back(meal.item);
     return `ate ${took} ${meal.item} from the village storage (appetite ${Math.round(before)} -> ${Math.round(e.level)} of 20)`;
   } finally {
@@ -5924,7 +5925,7 @@ async function eatOwn(a: BotAgent, _args: Record<string, unknown>, signal: Abort
   if (!e) throw new Error('eat_own: the village keeps no appetite for you');
   const chest = own.chest;
   if (!chest) throw new Error('eat_own: you have no chest at home');
-  const meal = chooseMeal(e.level, chest.items);
+  const meal = chooseMeal(e.level, chest.items, { health: a.bot.health, keep: 0 });
   if (!meal) throw new Error('eat_own: nothing to eat in your own chest');
   await toOwnDoor(a, P, signal);
   // (the record is the authority: from the take to the record nothing awaits)
@@ -5941,7 +5942,7 @@ async function eatOwn(a: BotAgent, _args: Record<string, unknown>, signal: Abort
   f.meals = (f.meals ?? 0) + 1;
   a.world.villages.save();
   await writeOwnChest(a, chest);
-  console.log(`[food] ${a.name} ate ${n} ${meal.item} from its own chest (${before.toFixed(1)} -> ${e.level.toFixed(1)} of 20; ${stateOf(e.level)})`);
+  console.log(`[food] ${a.name} ate ${n} ${meal.item} from its own chest (${before.toFixed(1)} -> ${e.level.toFixed(1)} of 20; ${stateOf(e.level, a.bot.health)})`);
   return `ate ${n} ${meal.item} from your own chest (appetite ${Math.round(before)} -> ${Math.round(e.level)} of 20)`;
 }
 

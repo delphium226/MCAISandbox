@@ -12,7 +12,7 @@ import type { Entity } from 'prismarine-entity';
 import type { BotAgent } from './botAgent';
 import type { Village } from '../village';
 import { rawSetting } from '../settings';
-import { FOOD_POINTS } from '../appetite';
+import { FOOD_POINTS, REGEN_FOOD, topUpMeal } from '../appetite';
 import { modeSpec } from '../worldMode';
 import { timeScale } from './mcRules';
 import { bedOf, packBite, eatOne, setNightHold } from './mcSurvivalB';
@@ -479,20 +479,8 @@ async function biteIfHurt(a: BotAgent): Promise<void> {
   await eatOne(a, item).then(() => { combatCounts.bites++; }, () => undefined);
 }
 
-/**
- * #231: the meal that lifts a hurt member's bar to REGEN_FOOD (vanilla heals only at 18 or more), from what `store` holds:
- * packBite's choice and how many (at most 3), or null when the bar is there or the health full. Train 24: the hunt's heal
- * and the call-off's "eat and heal" ate only carried food, members carry none (meals go back to storage), so 8 of 10 heals
- * gained 0 health at food 15-17 and 23 of 24 call-offs reached the hut no better.
- */
-export const REGEN_FOOD = 18;
-export function topUpMeal(store: Record<string, number>, food: number, health: number): { item: string; n: number } | null {
-  if (food >= REGEN_FOOD || health >= 20) return null;
-  const item = packBite(store, Math.min(food, 14), health);
-  if (!item) return null;
-  const pts = FOOD_POINTS[item] ?? 1;
-  return { item, n: Math.max(1, Math.min(3, store[item] ?? 0, Math.ceil((REGEN_FOOD - food) / pts))) };
-}
+/** #231's meal to REGEN_FOOD (appetite.ts since #238, where the appetite's meal shares it). */
+export { REGEN_FOOD, topUpMeal };
 /** Eat to REGEN_FOOD: carried food first, else a meal taken from storage (the hut within 64 blocks). Words, or ''. */
 async function topUp(a: BotAgent, signal: AbortSignal): Promise<string> {
   const food0 = Math.round(a.bot.food ?? 20);
@@ -1335,6 +1323,58 @@ export function huntSpotsHome(spots: Array<{ x: number; z: number }>, home: { x:
   const rad = r - 16, n = Math.max(6, Math.round((2 * Math.PI * rad) / step));
   return Array.from({ length: n }, (_, k) => ({ x: Math.round(home.x + rad * Math.cos((2 * Math.PI * k) / n)), z: Math.round(home.z + rad * Math.sin((2 * Math.PI * k) / n)) }));
 }
+/**
+ * #237 (train 25, F362): all 112 "-> the village edge" stalls aimed at two ring spots, the north and south points of the
+ * circle round the hut, whose surface stood 6-9 above home (the castle ring's towers, a rise); the walk timed out there
+ * 17-20 s a time. Now each spot is moved to the nearest cell within HUNT_GROUND_REACH of it that a member can stand on and
+ * reach on foot: dry ground whose feet are within HUNT_GROUND_RISE of the hut's height, its four neighbours within a step,
+ * and off every structure, castle part and fence cell (`blocked`). Null: no such ground there (the spot is skipped).
+ * `probe` reads a column's top (surfaceAt), null where not loaded.
+ */
+export const HUNT_GROUND_REACH = 6;
+/** The hunt's ring walks for the `[watch]` summary line: spots moved to other ground, dropped with none, reached, not. */
+export const groundCounts = { moved: 0, none: 0, reached: 0, unreached: 0 };
+export const HUNT_GROUND_RISE = 3;
+export type GroundTop = { y: number; liquid: boolean } | null;
+export function huntGround(spot: { x: number; z: number }, home: { x: number; y: number; z: number }, probe: (x: number, z: number) => GroundTop,
+  blocked: (x: number, z: number) => boolean, reach = HUNT_GROUND_REACH, rise = HUNT_GROUND_RISE): { x: number; y: number; z: number } | null {
+  const cand: Array<{ x: number; z: number; d: number; h: number }> = [];
+  for (let dx = -reach; dx <= reach; dx++) for (let dz = -reach; dz <= reach; dz++) {
+    const d = Math.hypot(dx, dz);
+    if (d > reach) continue;
+    const x = spot.x + dx, z = spot.z + dz;
+    cand.push({ x, z, d, h: Math.hypot(x - home.x, z - home.z) });
+  }
+  // (nearest the spot first, then nearer home: a spot moved inward stays in the hunt's reach)
+  cand.sort((p, q) => p.d - q.d || p.h - q.h);
+  for (const c of cand) {
+    if (blocked(c.x, c.z)) continue;
+    const g = probe(c.x, c.z);
+    if (!g || g.liquid || Math.abs(g.y + 1 - home.y) > rise) continue;
+    const flat = [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dz]) => {
+      const n = probe(c.x + dx, c.z + dz);
+      return !!n && !n.liquid && Math.abs(n.y - g.y) <= 1 && !blocked(c.x + dx, c.z + dz);
+    });
+    if (flat) return { x: c.x, y: g.y + 1, z: c.z };
+  }
+  return null;
+}
+/** #237: the cells a hunt spot keeps off: the village's structures, its castle parts' columns and its built fence cells,
+ *  each grown by a block. */
+export function huntBlocked(v: Pick<Village, 'structures' | 'wall'>): (x: number, z: number) => boolean {
+  const cells = new Set<string>();
+  const grow = (x: number, z: number) => {
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) cells.add(`${x + dx},${z + dz}`);
+  };
+  const c = v.wall?.castle;
+  for (const p of c?.parts ?? []) if (!c?.dropped?.[p.id]) for (const q of p.cols) grow(q.x, q.z);
+  for (const k of Object.keys(v.wall?.built ?? {})) {
+    const [x, z] = k.split(',').map(Number);
+    grow(x, z);
+  }
+  const boxes = (v.structures ?? []).map((b) => ({ x1: b.x1 - 1, z1: b.z1 - 1, x2: b.x2 + 1, z2: b.z2 + 1 }));
+  return (x, z) => cells.has(`${x},${z}`) || boxes.some((b) => x >= b.x1 && x <= b.x2 && z >= b.z1 && z <= b.z2);
+}
 /** The longest hunt (wall minutes at 1x), and the longest the night's sleeper waits for hunters out (mcSurvivalB's hold). */
 export const HUNT_MIN = 4;
 export const huntMs = (): number => (HUNT_MIN * 60000) / Math.max(1, timeScale());
@@ -1466,6 +1506,10 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
   const t = track(a);
   // (#231: the walk keeps within the reach from the hut)
   spots = huntSpotsHome(spots, home);
+  // (#237: spots dropped this hunt, and the cells spots keep off)
+  const dropped = new Set<string>();
+  const blocked = huntBlocked(v);
+  const grounds = new Map<string, { x: number; y: number; z: number } | null>();
   let ended = 'until dawn', i = Math.floor(Math.random() * Math.max(1, spots.length));
   // (#218: a creeper beside the prey made melee give up at once and the loop went straight back to the same spider, 6.2M
   // log lines and a heap OOM; now the hunter steps away first, a prey given up 3 times is skipped, 6 creeper give-ups end
@@ -1565,7 +1609,7 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
       // (#230: a band that came to hold since the start (the night ran on past NIGHT_RUNS_AFTER) puts the hunt on the inner
       // ring, its spots inside the band)
       if (band && pastBand(band, home, spots[i % spots.length].x, spots[i % spots.length].z)) {
-        const inner = huntSpotsHome(huntRing(bounds), home).filter((p) => !pastBand(band, home, p.x, p.z));
+        const inner = huntSpotsHome(huntRing(bounds), home).filter((p) => !pastBand(band, home, p.x, p.z) && !dropped.has(`${p.x},${p.z}`));
         if (inner.length && inner.length !== spots.length) {
           spots = inner;
           i = 0;
@@ -1574,12 +1618,36 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
       }
       const s = spots[i++ % spots.length];
       const y0 = Math.floor(home.y);
-      const g = surfaceAt(a, s.x, s.z, y0);
-      if (g && (g.liquid || Math.abs(g.y - y0) > 12)) {
+      // (#237: to walkable ground near the spot, off the village's structures and castle; a spot with none there, or whose
+      // ground the walk did not reach, is dropped for this hunt)
+      const drop = (why: string) => {
+        dropped.add(`${s.x},${s.z}`);
+        spots = spots.filter((q) => q !== s);
+        console.log(`[hunt] ${a.name} ${v.name}: ring spot ${s.x},${s.z} dropped (${why}); ${spots.length} left`);
+      };
+      const probe = (x: number, z: number): GroundTop => surfaceAt(a, x, z, y0);
+      if (!probe(s.x, s.z)) {
+        // (not loaded: toward it as before)
+        await walk(a, new goals.GoalNear(s.x, y0 + 1, s.z, 4), 'the village edge', signal, 30000).catch(ignore);
+        await sleep(1000, signal);
+        continue;
+      }
+      const sk = `${s.x},${s.z}`;
+      const tgt = grounds.has(sk) ? grounds.get(sk)! : huntGround(s, home, probe, blocked);
+      grounds.set(sk, tgt);
+      if (!tgt) {
+        drop(`no level ground within ${HUNT_GROUND_REACH}`);
+        groundCounts.none++;
         await sleep(500, signal);
         continue;
       }
-      await walk(a, new goals.GoalNear(s.x, (g ? g.y : y0) + 1, s.z, g ? 2 : 4), 'the village edge', signal, 30000).catch(ignore);
+      if (tgt.x !== s.x || tgt.z !== s.z) groundCounts.moved++;
+      await walk(a, new goals.GoalNear(tgt.x, tgt.y, tgt.z, 2), 'the village edge', signal, 30000).catch(ignore);
+      const p = a.bot.entity.position;
+      if (Math.hypot(p.x - tgt.x, p.z - tgt.z) > 3.5 || Math.abs(p.y - tgt.y) > 2) {
+        groundCounts.unreached++;
+        drop(`its ground ${tgt.x},${tgt.y},${tgt.z} not reached`);
+      } else groundCounts.reached++;
       await sleep(1000, signal);
     }
   } finally {

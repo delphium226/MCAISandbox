@@ -57,7 +57,60 @@ const KEEP: Record<string, number> = { carrot: 8, potato: 8, beetroot: 8 };
 const ORDER = ['bread', 'pumpkin_pie', 'melon_slice'];
 const prefer = (item: string) => (item === 'cake' ? 9 : ORDER.includes(item) ? ORDER.indexOf(item) : 5);
 
-export type Appetite = { level: number; at: number; meals: number; hungryMs: number; lastMeal?: { at: number; item: string; n: number } };
+export type Appetite = { level: number; at: number; meals: number; hungryMs: number; lastMeal?: { at: number; item: string; n: number };
+  /** #238 (real hunger): the member's health when the appetite last read its bar. */
+  health?: number };
+
+/** Vanilla's regeneration mark: health comes back only at food 18 or more. */
+export const REGEN_FOOD = 18;
+
+/** Planting stock: eaten from a pack only when starving (the fields' slots keep 8 of each). */
+const SEED_FOOD = new Set(['carrot', 'potato', 'beetroot']);
+
+/**
+ * What a member carrying `items` eats now (food `food`, health `health`), or null: at 14 or less, or below 18 while hurt
+ * (under 14 health: vanilla heals only at 18 or more); planting stock only at 6 or less; raw fish and rotten flesh never
+ * (not in FOOD_POINTS); the cake is a block. The item that fills the bar best without spilling over, then the bigger.
+ * (Here since #238, which the appetite's meal shares; mcSurvivalB re-exports it.)
+ */
+export function packBite(items: Record<string, number>, food: number, health: number): string | null {
+  if (!(food <= 14 || (food < 18 && health < 14))) return null;
+  const room = 20 - food;
+  let best: { item: string; over: number; pts: number } | null = null;
+  for (const [item, n] of Object.entries(items)) {
+    const pts = FOOD_POINTS[item];
+    if (!n || pts === undefined || item === 'cake' || (SEED_FOOD.has(item) && food > 6)) continue;
+    const over = Math.max(0, pts - room);
+    if (!best || over < best.over || (over === best.over && pts > best.pts) || (over === best.over && pts === best.pts && item < best.item)) best = { item, over, pts };
+  }
+  return best?.item ?? null;
+}
+
+/**
+ * #231: the meal that lifts a hurt member's bar to REGEN_FOOD, from what `store` holds: packBite's choice and how many (at
+ * most 3), or null when the bar is there or the health full. Train 24: the hunt's heal and the call-off's "eat and heal" ate
+ * only carried food, members carry none, so 8 of 10 heals gained 0 health at food 15-17. (Here since #238; mcCombat
+ * re-exports it.)
+ */
+export function topUpMeal(store: Record<string, number>, food: number, health: number): { item: string; n: number } | null {
+  if (food >= REGEN_FOOD || health >= 20) return null;
+  const item = packBite(store, Math.min(food, 14), health);
+  if (!item) return null;
+  const pts = FOOD_POINTS[item] ?? 1;
+  return { item, n: Math.max(1, Math.min(3, store[item] ?? 0, Math.ceil((REGEN_FOOD - food) / pts))) };
+}
+
+/**
+ * #238 (train 25, F362): the appetite ate at 14 and stopped below 18, so vanilla never healed between meals (19-21% of
+ * member-time at health 14 or less, 99% of it at food 14-17; Dev at health 1 for 16 minutes). With real hunger a hurt
+ * member (health under 20) below REGEN_FOOD is peckish, and its meal reaches 18 (topUpMeal), while storage keeps
+ * HURT_KEEP points a member after it: a hurt member's top-up never takes the others' meals.
+ */
+export const HURT_KEEP = 16;
+export const hurtWantsMeal = (level: number, health: number | undefined): boolean =>
+  realHunger() && typeof health === 'number' && health < 20 && level < REGEN_FOOD;
+/** What a hurt member's meal must leave in storage: HURT_KEEP points for each member the village feeds. */
+export const hurtKeep = (v: { food?: { members: Record<string, unknown> } }): number => HURT_KEEP * Object.keys(v.food?.members ?? {}).length;
 
 /** The level after `gameMinutes` (D7): busy at the full rate, idle at its share; never below 0. */
 export function drain(level: number, gameMinutes: number, busy: boolean): number {
@@ -65,9 +118,9 @@ export function drain(level: number, gameMinutes: number, busy: boolean): number
   return Math.max(0, level - (gameMinutes * rate) / 60);
 }
 
-/** D8's states. */
-export function stateOf(level: number): 'fed' | 'peckish' | 'hungry' {
-  return level <= APPETITE.hungryAt ? 'hungry' : level <= APPETITE.eatAt ? 'peckish' : 'fed';
+/** D8's states; with the member's health (real hunger), hurt below REGEN_FOOD is peckish too (#238). */
+export function stateOf(level: number, health?: number): 'fed' | 'peckish' | 'hungry' {
+  return level <= APPETITE.hungryAt ? 'hungry' : level <= APPETITE.eatAt || hurtWantsMeal(level, health) ? 'peckish' : 'fed';
 }
 
 /** What of each food storage can give a meal (beyond the planting stock kept). */
@@ -97,7 +150,20 @@ export function foodText(store: Counts): string {
  * only for a hungry member (a peckish Mayor ate a whole cake at 11.4 in G3f: the village's dearest food, 6 points of it
  * wasted; lens 1 L1). Null when storage holds nothing this member would eat.
  */
-export function chooseMeal(level: number, store: Counts): { item: string; n: number } | null {
+export function chooseMeal(level: number, store: Counts, hurt?: { health: number | undefined; keep: number }): { item: string; n: number } | null {
+  const base = appetiteMeal(level, store);
+  if (!hurt || !hurtWantsMeal(level, hurt.health)) return base;
+  // (#238: a hurt member's meal reaches REGEN_FOOD; the appetite's own meal when it does already. Only peckish by its hurt
+  // (above eatAt), it eats only while storage keeps `keep` points after the meal)
+  const pts = (m: { item: string; n: number }) => m.n * FOOD_POINTS[m.item];
+  const top = base && level + pts(base) >= REGEN_FOOD ? base : topUpMeal(foodItems(store), level, hurt.health!);
+  const fits = !!top && foodPoints(store) - pts(top) >= hurt.keep;
+  if (level <= APPETITE.eatAt) return fits ? top : base;
+  return fits ? top : null;
+}
+
+/** The appetite's meal before #238 (chooseMeal's doc). */
+function appetiteMeal(level: number, store: Counts): { item: string; n: number } | null {
   const room = Math.max(0, APPETITE.cap - level);
   let best: { item: string; n: number; key: number[] } | null = null;
   for (const [item, have] of Object.entries(foodItems(store))) {

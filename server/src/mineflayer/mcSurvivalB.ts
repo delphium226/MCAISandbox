@@ -8,7 +8,7 @@
 import { Vec3 } from 'vec3';
 import type { BotAgent } from './botAgent';
 import type { Village } from '../village';
-import { FOOD_POINTS } from '../appetite';
+import { FOOD_POINTS, packBite } from '../appetite';
 import { nightsFall, realHunger } from '../worldMode';
 import { basicsOf, homeOf } from './mcHome';
 import { at, goals, syncInventory, walk } from './mcUtil';
@@ -22,26 +22,8 @@ import { hazardOf, safeCellNear } from './mcHazard';
 export const NIGHT = { from: 12541, to: 23458 };
 export const isNight = (t: number | null | undefined): boolean => typeof t === 'number' && t >= NIGHT.from && t <= NIGHT.to;
 
-/** Planting stock: eaten from a pack only when starving (the fields' slots keep 8 of each). */
-const SEED_FOOD = new Set(['carrot', 'potato', 'beetroot']);
-
-/**
- * What a member carrying `items` eats now (food `food`, health `health`), or null: at 14 or less, or below 18 while hurt
- * (under 14 health: vanilla heals only at 18 or more); planting stock only at 6 or less; raw fish and rotten flesh never
- * (not in FOOD_POINTS); the cake is a block. The item that fills the bar best without spilling over, then the bigger.
- */
-export function packBite(items: Record<string, number>, food: number, health: number): string | null {
-  if (!(food <= 14 || (food < 18 && health < 14))) return null;
-  const room = 20 - food;
-  let best: { item: string; over: number; pts: number } | null = null;
-  for (const [item, n] of Object.entries(items)) {
-    const pts = FOOD_POINTS[item];
-    if (!n || pts === undefined || item === 'cake' || (SEED_FOOD.has(item) && food > 6)) continue;
-    const over = Math.max(0, pts - room);
-    if (!best || over < best.over || (over === best.over && pts > best.pts) || (over === best.over && pts === best.pts && item < best.item)) best = { item, over, pts };
-  }
-  return best?.item ?? null;
-}
+/** What a member carrying food eats now (appetite.ts since #238, which the appetite's meal shares). */
+export { packBite };
 
 /** A block as the safety tests read it. */
 export type Cell = { name: string; boundingBox: string } | null;
