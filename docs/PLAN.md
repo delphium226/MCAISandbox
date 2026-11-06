@@ -144,9 +144,15 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
      `runs/2026-11-06/fixes-235-234/notes.md`). Offline only. Every train-24 call-off came on a resume after a reflex
      fight 51-182 blocks out. Open for the user (mechanics): measure the hunt's reach from the storage hut (~64) instead
      of the built bounds + 32/48, and let the hunt step away from creepers first.
-  10. **Next:** the #233 live tier (running on world 4), then test train 25 from `w217_ring` counting the notes' list
-     (evades, gaze turns, `[stuck]` against 73 / 75, heal gains, calls-off wording).
-  11. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
+  10. **Hunt reach** (the user's, 11-06: "Yes, limit to 64"): 94e6d12, 64 blocks from the storage hut, beds or not.
+     **#233 live tier** (564a06c, F361): `scripts/chat_live.py` + `chatlive_score.mts`; 28 of 33 live, routing 33 of 33.
+     Live the chores menu is the limit (0-17 chores, ~4 typical, against the bench's 18-24), so true refusals leave the
+     person's request going nowhere. Failing: an empty talk reply is silence (#236), "Last night: no record" read as no
+     monsters, unarmed Grace answers skeletons with "make swords", Hugo refuses a farm he has on his list, Lena's bow.
+  11. **Next:** test train 25 from `w217_ring` (#235, #234, #231 heal and reach; count the list in
+     `runs/2026-11-06/fixes-235-234/notes.md`), and the chat follow-ups (#236; a request the menu cannot serve is passed on
+     or offered as a task; the "no record" night; monsters near now in the talk prompt).
+  12. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
      (#150-#163); #164 steps 3-5.
 
 ## Earlier phases
