@@ -26,7 +26,7 @@ import { annexBusy, growBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsFo
 import { ironDone, ironLevelFull, ironStairsHeld, mineAreas, mineGives, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PENS_BIG, PEN_KINDS, PEN_ORDER, PEN_VARIETY, SLOT_KINDS, SLOT_ORDER, enlargedSlot, penCap, penLure, penPlan, penSlotFit, penWords, restockLine, worksFurnaces } from '../farmSlots';
 import { bowsOn, archeryCounts } from './mcArchery';
-import { BOW_NW, BOW_RANK, FLINT_TRIP_MAX, arrowsLying, bowsFirst, flintCounts, flintShort, recentShots } from './mcFlint';
+import { BOW_NW, BOW_RANK, FLINT_TRIP_MAX, arrowsLying, bowsFirst, flintCounts, flintShort, gravelOut, gravelSkip, gravelSource, recentShots, type GravelSpot } from './mcFlint';
 import { ARMS_GOODS, BOW_GOODS, FOOD_GOODS, HUNT_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, ROD_GOOD, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
@@ -113,7 +113,7 @@ import { FURNISH_FAILS, bannerStandIn, furnishKindOf, refurnishReady, furnishBat
 import { FLOWER_DYE, KILN, MONUMENT, capShare, currentStage, furnishStage, standInFrom, dyeFlowers, glassColours, ironReached, jobBuilt, jobBuiltPlanned, jobReady, monumentLine, monumentPlan, newMonument, openJobs, stageWants, stageWantsPlanned, yardCovers, M3, TRADE_WEIGHT, noteTrade, tradeOfStep, tradeOf, progressLine as monumentProgress, partLine, cathedralName, presetWords, stageNames as monumentStages, monumentNoun, m3, architectOptions, dyesOnOffer, ARCHITECT_SYSTEM, ARCHITECT_TOOL, architectPrompt, checkArchitect, newMonumentPicked, type ArchitectFacts, type ArchitectPick, type Trade } from '../monument';
 import { kilnOn, laneWork, planOf } from './mcKiln';
 import { BULK_LANES, LODGE, TRIP_MIN, bulkTrip } from '../lodge';
-import { SAND_TRIPS, sandInReach, sandLoad, sandSpot, sandTripMin, sandstoneSand, tripBarred } from './mcSandTrips';
+import { GRAVEL_TRIPS, SAND_TRIPS, gravelSpot, sandInReach, sandLoad, sandSpot, sandTripMin, sandstoneSand, tripBarred } from './mcSandTrips';
 import { cutWork, cutterOn } from './mcCutter';
 import { bedBuilding, dyeBedOn } from './mcDyeBed';
 import { DYE_BED, DYE_FLOWERS, DYE_REACH, TALL_FLOWERS, dyeRecipes, makeableColours, windowColours } from '../dyeBed';
@@ -5666,6 +5666,17 @@ export class MineflayerWorld implements WorldAdapter {
   private gatherBack = new Map<string, number>();
   /** #225: a village's flint trips and arrow sweeps back off after one that brought nothing. */
   private flintBack = new Map<string, number>();
+  /** #225's follow-up (MC_GRAVEL_TRIPS): each village's gravel spot from the atlas, looked up at most once a minute. */
+  private gravelSpots = new Map<string, { at: number; spot: GravelSpot | null }>();
+  private gravelSpotOf(v: Village, now: number): GravelSpot | null {
+    if (!GRAVEL_TRIPS.on) return null;
+    const c = this.gravelSpots.get(v.name);
+    if (c && now - c.at < 60000) return c.spot;
+    const home = villageHome(v);
+    const spot = home ? gravelSpot(this.atlas, home, gravelSkip.get(v.name) ?? new Set()) : null;
+    this.gravelSpots.set(v.name, { at: now, spot });
+    return spot;
+  }
   private worksBack = new Map<string, number>();
   /** B.4: a failed light chore backs its part off, by "village:part" (until); and the demand last logged, by village. */
   private lightBack = new Map<string, number>();
@@ -8293,12 +8304,17 @@ export class MineflayerWorld implements WorldAdapter {
     if (bowsFirst() && v.complete && v.storage?.chests.length && phaseOf(this.timeOfDay()) === 'day') {
       const st = storageContents(v);
       const need = Math.min(FLINT_TRIP_MAX, flintShort(st));
-      if (need && !excluded(['flint='], busy) && (this.flintBack.get(`${v.name}:flint`) ?? 0) <= now)
+      // (#225's follow-up, MC_GRAVEL_TRIPS: once no gravel near home could be reached, the atlas's dry gravel, by morning
+      // and within a curfew's distance; with none to be had the trip is not offered: it would fail at once)
+      const out = need > 0 && gravelOut(v.name, now);
+      const gspot = out && GRAVEL_TRIPS.on ? this.gravelSpotOf(v, now) : null;
+      const source = gravelSource(st.gravel ?? 0, out && GRAVEL_TRIPS.on, gspot, gspot ? tripBarred(gspot.dist, this.timeOfDay(), curfewBand(v.name)) : null);
+      if (need && source && !excluded(['flint='], busy) && (this.flintBack.get(`${v.name}:flint`) ?? 0) <= now)
         add({
-          id: 'flint', kind: 'gather', key: 'flint', excludes: ['flint='], name: 'Dig gravel for flint', rank: BOW_RANK + 2, nw: BOW_NW,
-          facts: `${st.arrow ?? 0} of the ${64} arrows kept are in storage; an arrow takes flint (one flint, a stick and a feather make 4); storage holds ${st.flint ?? 0} flint and ${st.gravel ?? 0} gravel; gravel is dug and broken again until flint drops (one break in ten); ${record('gather')}`,
+          id: 'flint', kind: 'gather', key: 'flint', excludes: ['flint='], name: source === 'far' && gspot ? `Fetch gravel from ${gspot.dist} blocks away for flint` : 'Dig gravel for flint', rank: BOW_RANK + 2, nw: BOW_NW,
+          facts: `${st.arrow ?? 0} of the ${64} arrows kept are in storage; an arrow takes flint (one flint, a stick and a feather make 4); storage holds ${st.flint ?? 0} flint and ${st.gravel ?? 0} gravel; gravel is dug and broken again until flint drops (one break in ten)${source === 'far' && gspot ? `; no gravel near home can be reached, the map shows dry gravel at ${gspot.x},${gspot.z}` : ''}; ${record('gather')}`,
           effect: `+${need} flint toward arrows for the night watch and the hunt (bows and arrows come before the wall)`,
-        }, { kind: 'flint', count: need });
+        }, { kind: 'flint', count: need, ...(source === 'far' && gspot ? { spot: gspot } : {}) });
       const shots = recentShots(v.name);
       const home = villageHome(v);
       if (shots.length && home && !excluded(['arrows='], busy) && (this.flintBack.get(`${v.name}:arrows`) ?? 0) <= now) {
@@ -10836,7 +10852,7 @@ export class MineflayerWorld implements WorldAdapter {
       }
       case 'flint':
       case 'arrows': {
-        const first = d.kind === 'flint' ? worker.enqueue('flint_trip', { count: d.count, chore: true }) : worker.enqueue('pick_up_arrows', { x: d.x, y: d.y, z: d.z, chore: true });
+        const first = d.kind === 'flint' ? worker.enqueue('flint_trip', { count: d.count, chore: true, ...(d.spot ? { spot: d.spot } : {}) }) : worker.enqueue('pick_up_arrows', { x: d.x, y: d.y, z: d.z, chore: true });
         const deposit = worker.enqueue('deposit', d.kind === 'flint' ? { item: 'flint', also: 'gravel', chore: true } : { item: 'arrow', chore: true });
         const failed = (why: string) => {
           if (why === 'cancelled' || first.code || deposit.code) return;
@@ -12127,7 +12143,7 @@ type OptionRun =
   | { kind: 'rest'; x: number; y: number; z: number }
   | { kind: 'watch' }
   | { kind: 'hunt' }
-  | { kind: 'flint'; count: number }
+  | { kind: 'flint'; count: number; spot?: GravelSpot }
   | { kind: 'penfeed'; item: string; amount: number }
   | { kind: 'arrows'; x: number; y: number; z: number }
   | { kind: 'wall'; seg: number; down?: boolean }

@@ -57,22 +57,40 @@ export function waterCrossed(byChunk: Map<string, ChunkSummary>, home: { x: numb
  *  from home crossing 2 water cells or more is passed over (run 5's east-bank spot stranded its member in the river for
  *  33 minutes on the way back). */
 export function sandSpot(atlas: AtlasLike, home: { x: number; z: number }, from: number, skip: Set<string>, away: { x: number; z: number }[] = []): SandSpot | null {
+  return atlasSpot(atlas, home, from, SAND_TRIPS.range, 'sand', 's', skip, away);
+}
+
+/** The nearest map cell lettered `letter` (mostly dry `material`) from `from` to `range` blocks from home, in a chunk with
+ *  4 such columns or more, not in `skip`, not within SAND_TRIPS.apart of `away`, and on the village's side of open water. */
+export function atlasSpot(atlas: AtlasLike, home: { x: number; z: number }, from: number, range: number, material: string, letter: string, skip: Set<string>, away: { x: number; z: number }[] = []): SandSpot | null {
   let best: SandSpot | null = null;
-  const near = atlas.near(home.x, home.z, SAND_TRIPS.range), byChunk = new Map(near.map((c) => [`${c.cx},${c.cz}`, c] as const));
+  const near = atlas.near(home.x, home.z, range), byChunk = new Map(near.map((c) => [`${c.cx},${c.cz}`, c] as const));
   for (const c of near) {
-    if ((c.surface?.sand ?? 0) < 4) continue;
+    if ((c.surface?.[material] ?? 0) < 4) continue;
     for (let i = 0; i < 16; i++) {
       const y = c.h?.[i];
-      if (c.s?.[i] !== 's' || y === null || y === undefined) continue;
+      if (c.s?.[i] !== letter || y === null || y === undefined) continue;
       const x = c.cx * 16 + (i % 4) * 4 + 2, z = c.cz * 16 + Math.floor(i / 4) * 4 + 2, key = `${x},${z}`;
       const dist = Math.round(Math.hypot(x - home.x, z - home.z));
-      if (dist < from || dist > SAND_TRIPS.range || skip.has(key) || (best && dist >= best.dist) || waterCrossed(byChunk, home, x, z) >= WATER_CROSS) continue;
+      if (dist < from || dist > range || skip.has(key) || (best && dist >= best.dist) || waterCrossed(byChunk, home, x, z) >= WATER_CROSS) continue;
       if (away.some((p) => Math.hypot(p.x - x, p.z - z) < SAND_TRIPS.apart)) continue;
       best = { x, y: Math.round(y), z, dist, key };
     }
   }
   return best;
 }
+
+/**
+ * #225's follow-up (MC_GRAVEL_TRIPS, on): the flint trip's gravel source once collect finds none it can reach near home
+ * (train 22: 3 of 10 trips failed, "no gravel to break"; BP2's nearest gravel lay at y 4 in a cave): the nearest map cell
+ * mostly of dry gravel (a gravel beach or bank) within GRAVEL_RANGE, as the sand expeditions' spots (#202).
+ */
+export const GRAVEL_TRIPS = {
+  on: !/^(off|0|false|no)$/i.test(rawSetting('MC_GRAVEL_TRIPS') ?? 'on'),
+  range: 256,
+};
+export const gravelSpot = (atlas: AtlasLike, home: { x: number; z: number }, skip: Set<string>): SandSpot | null =>
+  atlasSpot(atlas, home, 0, GRAVEL_TRIPS.range, 'gravel', 'g', skip);
 
 /** A test of sand across open water from home (WATER_CROSS cells or more on the line; the east bank's lines crossed
  *  12-16, the near bank's 0-1), for collect's sand: run 6's shore trips to the east bank left two members swimming in

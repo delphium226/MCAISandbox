@@ -33,7 +33,27 @@ export function flintShort(store: Record<string, number>, going = 0): number {
   return Math.max(0, Math.ceil((ARROW_KEEP - arrows) / 4) - (store.flint ?? 0) - going);
 }
 
-export const flintCounts = { trips: 0, digs: 0, flint: 0, gravel: 0, picked: 0, sweeps: 0, sweepPicked: 0 };
+export const flintCounts = { trips: 0, digs: 0, flint: 0, gravel: 0, picked: 0, sweeps: 0, sweepPicked: 0, far: 0, farGravel: 0 };
+
+/**
+ * #225's follow-up (MC_GRAVEL_TRIPS): villages whose near gravel a trip found out of reach (until when), and the far spots
+ * whose trip brought none; the trip's far spot comes from the menu (mcSandTrips' gravelSpot).
+ */
+export const GRAVEL_OUT_MS = 30 * 60000;
+const gravelOutUntil = new Map<string, number>();
+export const gravelSkip = new Map<string, Set<string>>();
+export const gravelOut = (village: string, now = Date.now()): boolean => (gravelOutUntil.get(village) ?? 0) > now;
+export const noteGravelOut = (village: string, now = Date.now()): void => { gravelOutUntil.set(village, now + GRAVEL_OUT_MS); };
+export type GravelSpot = { x: number; y: number; z: number; dist: number; key: string };
+/**
+ * Where a flint trip gets its gravel: 'store' (storage holds some), 'near' (collect round home), 'far' (the atlas spot,
+ * once the near gravel is out), or null: nothing to be had, so no trip is offered.
+ */
+export function gravelSource(stored: number, out: boolean, spot: GravelSpot | null, barred: string | null): 'store' | 'near' | 'far' | null {
+  if (stored > 0) return 'store';
+  if (!out) return 'near';
+  return spot && !barred ? 'far' : null;
+}
 
 const carried = (a: BotAgent, name: string) => a.bot.inventory.items().filter((it) => it.name === name).reduce((n, it) => n + it.count, 0);
 
@@ -70,12 +90,39 @@ export async function flintTrip(a: BotAgent, args: Record<string, unknown>, sign
       if (e.message === 'cancelled') throw e;
       notes.push(`storage's gravel: ${e.message.slice(0, 60)}`);
     });
-  if (carried(a, 'gravel') < want) {
+  const spot = args.spot && typeof args.spot === 'object' ? args.spot as GravelSpot : null;
+  if (carried(a, 'gravel') < want && !(spot && gravelOut(v.name))) {
+    const g0 = carried(a, 'gravel');
     const dug = await SURVIVAL_SKILLS.collect.run(a, { block: 'gravel', count: want - carried(a, 'gravel') }, signal).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
       return `gravel: ${e.message.slice(0, 100)}`;
     });
     if (dug) notes.push(dug);
+    // (#225's follow-up: none reached near home: the next trips go to the atlas's gravel for a while)
+    if (carried(a, 'gravel') === g0) noteGravelOut(v.name);
+  }
+  // (#225's follow-up, MC_GRAVEL_TRIPS: none near home: out to the map's dry gravel, dug there, and home to break it)
+  if (spot && !carried(a, 'gravel') && gravelOut(v.name)) {
+    flintCounts.far++;
+    const home = v.storage?.chests[0];
+    console.log(`[flint] ${a.name} ${v.name}: no gravel in reach near home; out to the gravel at ${spot.x},${spot.z} (${spot.dist} blocks)`);
+    await walk(a, new goals.GoalNearXZ(spot.x, spot.z, 4), `the gravel at ${spot.x},${spot.z}`, signal, 30000 + 600 * spot.dist).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      notes.push(`walk to ${spot.x},${spot.z}: ${e.message.slice(0, 60)}`);
+    });
+    const dug = await SURVIVAL_SKILLS.collect.run(a, { block: 'gravel', count: want, far: spot.dist + 48, trip: 3 }, signal).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      return `gravel at ${spot.x},${spot.z}: ${e.message.slice(0, 100)}`;
+    });
+    if (dug) notes.push(dug);
+    if (!carried(a, 'gravel')) {
+      const skip = gravelSkip.get(v.name) ?? new Set<string>();
+      gravelSkip.set(v.name, skip.add(spot.key));
+    } else flintCounts.farGravel += carried(a, 'gravel');
+    // (broken at home: the knap takes minutes, and home is where the night's band is)
+    if (home) await walk(a, new goals.GoalNearXZ(home.x, home.z, 6), 'home with the gravel', signal, 30000 + 600 * spot.dist).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
   }
   const gravel0 = carried(a, 'gravel');
   if (!gravel0) throw new Error(`flint_trip: no gravel to break (${notes.join('; ') || 'none stored or found'})`);
