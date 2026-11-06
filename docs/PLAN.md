@@ -149,10 +149,16 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
      Live the chores menu is the limit (0-17 chores, ~4 typical, against the bench's 18-24), so true refusals leave the
      person's request going nowhere. Failing: an empty talk reply is silence (#236), "Last night: no record" read as no
      monsters, unarmed Grace answers skeletons with "make swords", Hugo refuses a farm he has on his list, Lena's bow.
-  11. **Next:** test train 25 from `w217_ring` (#235, #234, #231 heal and reach; count the list in
-     `runs/2026-11-06/fixes-235-234/notes.md`), and the chat follow-ups (#236; a request the menu cannot serve is passed on
-     or offered as a task; the "no record" night; monsters near now in the talk prompt).
-  12. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
+  11. **Chat follow-ups** (43f5192, offline): #236 retry and fallback line, `MC_TALK_PASS` (spec
+     `docs/specs/talk-pass-on.md`), facts for no record of last night, monsters near now, unarmed; F361 prompts re-asked
+     31 of 33, bench 155 of 165 (noise by A/B). Pass-on not live-tested.
+     **Train 25 done** (F362, 25e410b): endermen 0 fights, 0 deaths (#235 holds); #234 kills match; reach 64 holds
+     (45-59) and makes hunts safe (0 calls-off, 0 hunt deaths) but nearly empty (kills in hunts 4 / 5 against 54 / 46).
+     Deaths 6 / 13, all 71-158 out, 17 of 19 at night, 10 on initiative chores. New: #237 (112 `[stuck]` walks to two
+     raised ring spots), #238 (meals stop at food 14, so hurt members never heal: ~20% of member-time at health 14 or less).
+  12. **Next:** fixes #238 (eat to 18 when hurt) and #237 (ring spots on walkable ground); the user's call on empty hunts
+     (prey within 64 is hunted out); why initiative chores send members 71-158 out at night; the chat pass-on live.
+  13. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
      (#150-#163); #164 steps 3-5.
 
 ## Earlier phases
