@@ -2774,3 +2774,30 @@ CLAUDE.md when a phase ends.
   - Curfew heads home 12 / 12, "walked home" 6 / 10 (20 / 19); stone stage refused 5-8 then passed 8-5 / passed 8-5;
     parts 21 / 20 of 21; hostiles inside at night 3.5-6.0 / 4.1-8.2 per night (1.1-3.5). [stuck] 73 / 75, [lag] 0 / 0,
     busy 83 / 84% (75%), $0.595 + $0.606. Report: runs/2026-11-06/train24/report.md.
+- F360 (11-06, #233, G7) **The talk prompt's situation facts and the routing fix take the player chat bench from 103 to
+  159 of 165 (62% to 96%): combat 17 -> 33 of 35, gathering 34 -> 35, exploring 9 -> 24 of 25, building 21 -> 30 of 30,
+  talk 22 -> 37 of 40; invented facts 32 -> 5 failures, routing 15 -> 0.** A person's talk prompt now has "What you know
+  now" (`talkSituation` -> `talkFacts`, all from what the world keeps): the time, a member's health, appetite, what it
+  carries, its chore now and whether it is in the village; the storage in groups (a 0 said); the explore ring's
+  directions; last night's most monsters at once within 48, who died, how many were out (the danger record keeps them
+  per night now); deaths on record; members hurt; the home band at dusk. The system prompts add: answer only from those
+  facts (else "I do not know", offering a listed chore), only a promise makes you act, a question is answered with chat,
+  a refusal's reason must be true, only buildings are forwarded, no hand-overs or walks to meetings; the Mayor cannot call
+  a vote. Routing: a named member answers before "village" wakes the Mayor, and each member a line opens with answers
+  ("Hugo and Iris, ...", up to 3; `addressed`). No flag: both touch only a person's lines. N 5, gpt-oss:120b-cloud, 260
+  calls, 363k prompt + 39k output tokens.
+  - **The bench changed only where the prompt now holds the answer:** `situationFor` gives each case its facts as
+    `talkSituation` reads them (train 23's C1 the morning after); combat.lastnight, gather.storage and gather.shortest
+    are judged against those facts instead of "does not know", talk.working's truth says the prompt shows Ada's chore.
+  - **Now right 5 of 5:** last night (was 0), Hugo and Iris both (0), Kai explores west (0), Ada and Finn both (0), the
+    second farm (0, explore or chat), the north (0), Ada's work (0), Lena's bow (1, a true refusal), the creeper (2),
+    the wall vote (3, "the villagers will decide on the stone wall when they vote"), the busiest (2, "I'm not sure");
+    Last night reads "up to 14 monsters nearby last night, and Finn is hurt with 6 health left" (5 of 5; Kai's death,
+    in its facts, named in none).
+  - **First tries regressed and were fixed:** "promise the watch rather than refuse" turned the witch's advice question
+    into hunts (5 -> 0 of 5) until "a question is answered with chat"; meeting calls went to the Mayor as forwards (4 of
+    5) until forward was kept to buildings.
+  - **Left (6):** Finn chats "I'll rest and eat soon" 1 of 5; the witch "let the watch handle it" 1; Iris "I haven't
+    explored that area" with east explored 1; Ben refuses the meeting 3 of 5 with "I cannot walk to the meeting", which
+    the judge fails as he stands 8 blocks off (debatable: no chore walks him there). The live tier is still to build.
+    Logs: `runs/2026-11-06/chat-tests/facts-n5-final.log` (and the first try, `facts-n5.log`, 150 of 165).

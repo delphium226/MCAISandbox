@@ -101,11 +101,11 @@ import { HOME_DESIGN, castDesign, castProgram, characterOf, designNote, inHoldou
 import { generateDesign } from '../buildingGen';
 import { applyWrites } from '../memory';
 import { deathMemory, deathWords, type DeathCause } from './mcHazard';
-import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, etaMinutes, historyLines, initTalk, isStatusQuestion, matchWork, noRequestLine, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, statusFor, statusLines, talkSystem, talkTool, talkUser, updateRequest, withoutPlace, workWords, type PlayerRequest, type ReqProgress, type Respond, type WorkOffer } from '../playerTalk';
+import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, etaMinutes, historyLines, initTalk, isStatusQuestion, talkFacts, type TalkSituation, matchWork, noRequestLine, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, statusFor, statusLines, talkSystem, talkTool, talkUser, updateRequest, withoutPlace, workWords, type PlayerRequest, type ReqProgress, type Respond, type WorkOffer } from '../playerTalk';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { isNight, nightTick } from './mcSurvivalB';
-import { HUNTED_NOT_BOUGHT, anyBed, codeBand, huntOffered, huntWide, armTick, armsOn, bandWords, builtBounds, combatCounts, curfewActs, curfewTick, dangerOf, dangerTick, deathsFact, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, DIST_BINS, headingHome, homeByDuskOn, hunters, huntersOf, huntedTonight, huntMs, huntOn, isWeapon, pastBand, phaseOf, WATCH_HEALTH, watchedTonight, watchLoop, type SafetyBand } from './mcCombat';
-import { nightsFall, realHunger, worldMode } from '../worldMode';
+import { HUNTED_NOT_BOUGHT, anyBed, codeBand, huntOffered, huntWide, armTick, armsOn, bandWords, builtBounds, combatCounts, curfewActs, curfewTick, dangerOf, dangerTick, deathsFact, beyond, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, DIST_BINS, headingHome, homeByDuskOn, hunters, huntersOf, huntedTonight, huntMs, huntOn, isWeapon, pastBand, phaseOf, WATCH_HEALTH, watchedTonight, watchLoop, type SafetyBand } from './mcCombat';
+import { modeSpec, nightsFall, realHunger, worldMode } from '../worldMode';
 import { APPETITE, FOOD_POINTS, appetiteOn, barLevel, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
 import { quarryFeeds } from './mcQuarry';
@@ -2013,27 +2013,34 @@ export class MineflayerWorld implements WorldAdapter {
       wake = listeners.filter((a) => named(a, 'i') >= 0).sort((x, y) => named(x, 'i') - named(y, 'i')).slice(0, 3);
       if (!wake.length) wake = listeners.filter(inRange).sort((x, y) => dist.get(x)! - dist.get(y)!).slice(0, 1);
     } else wake = listeners.filter((a) => inRange(a) && named(a, '') >= 0);
-    // G7 (MC_TALK): a person's line to a village is answered by one member through the talk pipeline, not by the brain's
-    // chat turn: the village it names (or "village"/"mayor" said within a village's range) by its Mayor, else the first
-    // member woken; members of villages take no other wake from it
-    let talker: BotAgent | undefined;
-    // (a world built without its constructor, chat_route.mts, has no village registry: no talk there)
+    // G7 (MC_TALK): a person's line to a village is answered through the talk pipeline, not by the brain's chat turn: by
+    // the members it names (#233: before the word "village", which sent Kai's "explore west of the village" to the Mayor;
+    // each of those a line opens with, "Hugo and Iris, ...", else the first named), else by the Mayor of the village it
+    // names (or of the one whose range a person saying "village"/"mayor" stands in), else by the member woken; members of
+    // villages take no other wake from it
+    let talkers: BotAgent[] = [];
+    // (a world built without its constructor has no village registry: no talk there)
     const talk = PLAYER_TALK.on && human && !!this.villages;
     if (talk) {
-      const vt = this.talkVillageNamed(text, pos);
-      talker = (vt && this.mayorOf(vt)) || wake.find((a) => a.village());
-      if (talker && !listeners.includes(talker)) talker = undefined;
-      if (talker) wake = wake.filter((a) => !a.village());
-      if (talker && !this.pairWake(from, talker.name, 20)) talker = undefined;
+      const members = wake.filter((a) => a.village() && named(a, 'i') >= 0);
+      if (members.length) talkers = addressed(text, members.map((a) => a.name)).map((n) => members.find((a) => a.name === n)!);
+      else {
+        const vt = this.talkVillageNamed(text, pos);
+        const t = (vt && this.mayorOf(vt)) || wake.find((a) => a.village());
+        if (t) talkers = [t];
+      }
+      talkers = talkers.filter((t) => listeners.includes(t));
+      if (talkers.length) wake = wake.filter((a) => !a.village());
+      talkers = talkers.filter((t) => this.pairWake(from, t.name, 20));
     }
     wake = wake.filter((a) => this.pairWake(from, a.name, human ? 20 : 2));
     for (const a of listeners) {
       const woken = wake.includes(a);
-      if (!woken && !inRange(a) && a !== talker) continue;
+      if (!woken && !inRange(a) && !talkers.includes(a)) continue;
       const d = dist.get(a);
       a.pushEvent('chat', `<${from}> ${text}`, { from, text, ...(d !== undefined ? { distance: Math.round(d) } : {}), ...(woken ? { wake: true } : {}), ...(talk && a.village() ? { talk: true } : {}) });
     }
-    if (talker) this.talkHeard(talker, from, text, pos);
+    for (const t of talkers) this.talkHeard(t, from, text, pos);
   }
 
   agentList() {
@@ -6819,6 +6826,51 @@ export class MineflayerWorld implements WorldAdapter {
     return offerWorks(pool, own);
   }
 
+  /**
+   * #233: what an agent answering a person knows of its situation now (F358: asked what its prompt did not show, the
+   * model made it up): the time, its health, what it carries and is doing, where it is, the storage, the explored land,
+   * last night's monsters and deaths, the members hurt. All from what the world already keeps.
+   */
+  talkSituation(v: Village, a: BotAgent, role: 'mayor' | 'member'): TalkSituation {
+    const s: TalkSituation = {};
+    const t = a.bot.time?.timeOfDay;
+    if (typeof t === 'number') s.tick = t;
+    if (role === 'member') {
+      if (typeof a.bot.health === 'number') s.health = a.bot.health;
+      if (appetiteOn(v) && v.food?.members[a.name]) s.hunger = this.hungerOf(v, a);
+      const counts = new Map<string, number>();
+      for (const it of a.bot.inventory?.slots ?? []) if (it) counts.set(it.name, (counts.get(it.name) ?? 0) + it.count);
+      s.carries = [...counts].filter(([n]) => isWeapon(n) || /^(bow|crossbow|arrow|shield)$|_(helmet|chestplate|leggings|boots)$/.test(n))
+        .map(([n, q]) => `${q > 1 ? `${q} ` : 'a '}${n.replace(/_/g, ' ')}${q > 1 && !/s$/.test(n) ? 's' : ''}`);
+      const d = this.defenceChore(a);
+      const c = this.chores.get(a.name.toLowerCase());
+      s.doing = d === 'watch' ? 'keeping watch for the night' : d === 'hunt' ? 'hunting monsters at the village edge' : d === 'home' ? 'walking home for the night'
+        : c && !c.choice.ended ? c.choice.name : null;
+      const p = a.bot.entity?.position, box = builtBounds(v), home = villageHome(v);
+      if (p && box && home) {
+        const out = beyond(box, p.x, p.z, 0);
+        s.where = out > 0 ? `outside the village, ~${Math.max(10, Math.round(Math.hypot(p.x - home.x, p.z - home.z) / 10) * 10)} blocks from its centre` : 'in the village';
+      }
+    }
+    s.storage = storageContents(v);
+    const visited = v.explore?.visited ?? [];
+    const ring = Array.from({ length: 8 }, (_, i) => i);
+    s.explored = ring.filter((i) => v.explore?.done || visited.includes(i)).map((i) => DIRECTIONS[i]);
+    s.unexplored = ring.filter((i) => !v.explore?.done && !visited.includes(i)).map((i) => DIRECTIONS[i]);
+    const far = visited.filter((i) => i >= 8).map((i) => `far ${DIRECTIONS[i % 8]}`);
+    s.explored.push(...far);
+    s.exploreRange = FARM_TRIP_RANGE;
+    s.monsters = modeSpec().mobs;
+    if (s.monsters) {
+      const dg = dangerOf(v.name);
+      if (dg.lastNight) s.lastNight = { peak48: dg.lastNight.peak48 ?? 0, died: dg.lastNight.died ?? [], out: dg.lastNight.out };
+      s.deaths = DIST_BINS.reduce((n, b) => n + (dg.deaths[b] ?? 0), 0);
+      s.homeAtDusk = homeByDuskOn();
+    }
+    s.hurt = this.growMembers(v).filter((b) => b !== a && typeof b.bot.health === 'number' && b.bot.health < 14).map((b) => `${b.name} ${Math.round(b.bot.health)}/20`);
+    return s;
+  }
+
   private async talkCall(a: BotAgent, rs: PlayerRequest[]) {
     const v = a.village();
     const r = rs[rs.length - 1];
@@ -6857,7 +6909,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (#179: the person's requests as the world shows them now, not the ledger's word for "under way")
     const history = historyLines(v.name, r.from, now, 5, r.id, (q) => (q.status === 'queued' || q.status === 'under_way' ? this.talkProgress(v, q, now).state : undefined));
     const user = talkUser({ agent: a.name, role, village: v.name, persona, from: r.from, lines: rs.map((x) => x.text), history,
-      state: this.talkState(v), status: this.talkStatus(v, r.from, now), ...(offers ? { works: offers } : {}), ...(designs ? { designs, otherDesigns: others } : {}), ...(options ? { options } : {}), ...(r.via ? { via: r.via } : {}) });
+      state: this.talkState(v), status: this.talkStatus(v, r.from, now), facts: talkFacts(this.talkSituation(v, a, role), role), ...(offers ? { works: offers } : {}), ...(designs ? { designs, otherDesigns: others } : {}), ...(options ? { options } : {}), ...(r.via ? { via: r.via } : {}) });
     const res = await callModel({ spec, system: talkSystem(role, !!designs), user, tools: [talkTool(role, !!designs)], level: REASONING.talk, agent: a.name, kind: 'talk', priority: 'human' });
     const p = parseRespond(res.reply as { calls?: Array<{ name: string; input: Record<string, unknown> }>; text?: string }, role);
     if (!p) {
@@ -12188,6 +12240,28 @@ const moreGreens = (v: Village) => GREENS_MORE && v.plots.some((p) => p.pads);
 const greenSize = (v: Village) => (moreGreens(v) ? GREEN_SIZE_MORE : GREEN_SIZE);
 /** Ring point i's direction (0 east, clockwise: z grows to the south). */
 const DIRECTIONS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'];
+
+/**
+ * #233: who a person's line is said to among the members it names (in the order named): every one a line opens with
+ * ("Hugo and Iris, keep watch", "Ada, Finn: close the gap"; up to 3); else the first named (as before: "Mayor, is Kai
+ * hurt?" is the Mayor's).
+ */
+export function addressed(text: string, names: string[]): string[] {
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const at = (n: string) => new RegExp(`\\b${esc(n)}\\b`, 'i').exec(text)?.index ?? -1;
+  const order = names.filter((n) => at(n) >= 0).sort((x, y) => at(x) - at(y));
+  // (the opening read name by name: names, "and", commas and a greeting; it ends at the first other word)
+  const lead: string[] = [];
+  let rest = text;
+  for (;;) {
+    rest = rest.replace(/^(?:[\s,&]|\b(?:and|hey|hi|ok|okay|oi)\b)+/i, '');
+    const n = order.find((x) => rest.toLowerCase().startsWith(x.toLowerCase()) && !/\w/.test(rest[x.length] ?? ''));
+    if (!n || lead.includes(n)) break;
+    lead.push(n);
+    rest = rest.slice(n.length);
+  }
+  return lead.length > 1 ? lead.slice(0, 3) : order.slice(0, 1);
+}
 /** A vote under way (spec_vote1): its ballots come in as the calls end. */
 interface VoteRun { id: string; topic: VoteTopic; k: number; options: VoteOption[]; started: number; mode: VoteMode; done: boolean; ballots: Ballot[]; voters: string[]; ac: AbortController }
 

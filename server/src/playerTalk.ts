@@ -373,8 +373,8 @@ const MAYOR_SYSTEM = `You are the Mayor of a Minecraft village whose members are
 - say: one short friendly line in your own voice. Do not give times, distances or coordinates: code adds them.`;
 
 const MEMBER_SYSTEM = `You are a member of a Minecraft village whose members are run by language models. A person, a human player, has spoken to you. Answer them once with the respond tool.
-- kind=promise when they ask you for something you can do yourself: option = the id of one chore from your list that does it (gathering, making, fishing...). You will do it next.
-- kind=forward when they ask for a building or for the village to build something: you pass it to the Mayor, who decides.
+- kind=promise when they ask or tell you to do something you can do yourself, looking after yourself included (eating, resting): option = the id of one chore from your list that does it (gathering, making, fishing...). You will do it next.
+- kind=forward only when they ask for a building or for the village to build something: you pass it to the Mayor, who decides. A meeting, a question or a chore is not forwarded.
 - kind=refuse when nothing on your list does it, or it is outside this game; reason says why in one plain sentence.
 - kind=chat for greetings, questions and talk that asks for nothing: say answers from what you know.
 - About the person's requests (what happened, where, when), say only what "Their requests now" shows. Code adds the facts after your line.
@@ -392,7 +392,21 @@ const MAYOR_DESIGN_SYSTEM = `You are the Mayor of a Minecraft village whose memb
 - place: copy the person's own words for where it should go ("by the river", "here", "next to the hall"), or leave it empty. Code finds the spot.
 - say: one short friendly line in your own voice. Do not give times, distances or coordinates: code adds them.`;
 
-export const talkSystem = (role: 'mayor' | 'member', designs = false) => (role === 'mayor' ? (designs ? MAYOR_DESIGN_SYSTEM : MAYOR_SYSTEM) : MEMBER_SYSTEM);
+// (#233, F358: asked what its prompt did not show, the model made it up: "no monsters were spotted" after a night of 14
+// and a death; asked to eat or rest, it chatted "I'll rest soon" with both on its list; "I don't have a bow" while it
+// carried one)
+const FACT_RULES = `- Questions (how many, who, where, what you are doing, what is out there): answer only from "What you know now" and the lists in this prompt. If the answer is not there, say plainly you do not know; do not guess, and name no number, place, name or event they do not give.`;
+const MEMBER_RULES = `${FACT_RULES} If a chore on your list would find out (exploring that way, say), you may offer it; never offer one that is not on your list.
+- Only a promise makes you act: chat, forward and refuse make you do nothing more, so in them never say you are going, coming, on your way, or will do something. When they ask you to do something a chore on your list does (eat, rest at home, keep watch, explore, gather...), promise that chore.
+- A question is answered with chat, even about a monster ("should we fight it or keep away?"): give your advice from what you know, and promise nothing they did not ask you to do.
+- A refusal's reason must be true by what you know: look at your chores and what you carry first. When they ask you to deal with a monster in or near the village, that is the work of "Keep watch tonight" (or the hunt) if it is on your list: promise it rather than refuse.
+- Forward only a building: a call to gather or come somewhere ("meeting at the hut!"), a question or a chore is not passed to the Mayor; answer it yourself with chat.
+- You cannot hand items to a person: what you gather goes to the village storage, where they can take it. No chore walks you to a meeting or to the person: if they call you to one, say kindly that you cannot come, not that you will.`;
+const MAYOR_RULES = `${FACT_RULES}
+- You cannot call a vote: the members vote on the wall's stages and the public works when the village puts them to a ballot. Say so rather than refuse the idea.`;
+
+export const talkSystem = (role: 'mayor' | 'member', designs = false) =>
+  (role === 'mayor' ? `${designs ? MAYOR_DESIGN_SYSTEM : MAYOR_SYSTEM}\n${MAYOR_RULES}` : `${MEMBER_SYSTEM}\n${MEMBER_RULES}`);
 
 export function talkTool(role: 'mayor' | 'member', designs = false): ToolDef {
   const kinds = role === 'mayor' ? ['chat', 'build', 'refuse'] : ['chat', 'promise', 'forward', 'refuse'];
@@ -434,6 +448,96 @@ export interface TalkCtx {
   options?: Array<{ id: string; name: string }>;
   /** A member's line forwarded to the Mayor. */
   via?: string;
+  /** #233: what the agent knows of its situation now (talkFacts), the only facts it may answer questions from. */
+  facts?: string[];
+}
+
+// ---- #233: the situation facts --------------------------------------------------------------------------------------
+
+/** What the world knows of an agent's situation when a person speaks to it (all optional: what is missing is not said). */
+export interface TalkSituation {
+  /** The game's time of day (ticks, 0-24000). */
+  tick?: number;
+  /** A member's own health (of 20) and appetite state. */
+  health?: number;
+  hunger?: 'fed' | 'peckish' | 'hungry';
+  /** What it carries that matters to a person's asks: weapons, arrows, armour (words). */
+  carries?: string[];
+  /** The chore it is on now (its name), or null between chores; undefined: not known (the Mayor). */
+  doing?: string | null;
+  /** Where it is, in words ("in the village", "outside the village, ~130 blocks from its centre"). */
+  where?: string;
+  /** The village storage's counts (item id -> count). */
+  storage?: Record<string, number>;
+  /** The explore ring's directions visited and not, and how far out its points are. */
+  explored?: string[];
+  unexplored?: string[];
+  exploreRange?: number;
+  /** Danger: whether monsters come at all (a peaceful world: none), last night's record (no record: no night yet). */
+  monsters?: boolean;
+  lastNight?: { peak48: number; died: string[]; out: number };
+  /** Deaths on record (since the agent server started), and members hurt now ("Finn 6/20"). */
+  deaths?: number;
+  hurt?: string[];
+  /** The home band walks every member home at dusk (true: say so). */
+  homeAtDusk?: boolean;
+}
+
+/** The time of day in words. */
+export function timeWords(tick: number): string {
+  const t = ((tick % 24000) + 24000) % 24000;
+  if (t >= 12541 && t <= 23458) return t >= 22000 ? 'night, near dawn' : 'night';
+  if (t >= 11000) return 'dusk (night is coming)';
+  return t < 1000 || t >= 23458 ? 'dawn' : t < 6000 ? 'morning' : 'afternoon';
+}
+
+/** The storage counts a person asks about, in groups (a count of 0 is said: "no meat" is a fact too). */
+const STORE_GROUPS: Array<[string, (id: string) => boolean]> = [
+  ['bread', (i) => i === 'bread'],
+  ['wheat', (i) => i === 'wheat'],
+  ['meat (raw or cooked)', (i) => /^(cooked_)?(beef|porkchop|mutton|chicken|rabbit|cod|salmon)$/.test(i)],
+  ['other food (carrots, potatoes, apples, cake...)', (i) => /^(carrot|potato|baked_potato|apple|cake|pumpkin_pie|cookie|melon_slice|beetroot|sweet_berries)$/.test(i)],
+  ['logs', (i) => /_(log|stem)$/.test(i)],
+  ['planks', (i) => /_planks$/.test(i)],
+  ['cobblestone', (i) => i === 'cobblestone'],
+  ['stone', (i) => i === 'stone'],
+  ['iron (raw and ingots)', (i) => i === 'raw_iron' || i === 'iron_ingot'],
+  ['coal and charcoal', (i) => i === 'coal' || i === 'charcoal'],
+  ['torches', (i) => i === 'torch'],
+  ['arrows', (i) => i === 'arrow'],
+  ['flint', (i) => i === 'flint'],
+  ['gravel', (i) => i === 'gravel'],
+  ['sand', (i) => i === 'sand'],
+  ['wool', (i) => /_wool$/.test(i)],
+];
+export function storageWords(store: Record<string, number>): string {
+  return STORE_GROUPS.map(([w, f]) => `${w} ${Object.entries(store).reduce((n, [k, q]) => n + (f(k) ? Math.max(0, Math.floor(q)) : 0), 0)}`).join(', ');
+}
+
+/** The situation as fact lines for the talk prompt; the member's own first. */
+export function talkFacts(s: TalkSituation, role: 'mayor' | 'member'): string[] {
+  const out: string[] = [];
+  if (s.tick !== undefined) out.push(`It is ${timeWords(s.tick)}.`);
+  if (role === 'member') {
+    if (s.health !== undefined) out.push(`Your health: ${Math.round(s.health)} of 20${s.health <= 8 ? ' (badly hurt)' : s.health < 14 ? ' (hurt)' : ''}${s.hunger && s.hunger !== 'fed' ? `; you are ${s.hunger}` : ''}.`);
+    if (s.carries) out.push(`You carry: ${s.carries.length ? s.carries.join(', ') : 'no weapon and no armour'}.`);
+    if (s.doing !== undefined) out.push(s.doing ? `What you are doing now: ${s.doing}.` : 'What you are doing now: nothing (between chores).');
+    if (s.where) out.push(`You are ${s.where}.`);
+  }
+  if (s.storage) out.push(`The village storage holds: ${storageWords(s.storage)}.`);
+  if (s.explored || s.unexplored) {
+    const r = s.exploreRange ? ` (trips ~${s.exploreRange} blocks out)` : '';
+    out.push(`Land explored around the village${r}: ${s.explored?.length ? s.explored.join(', ') : 'none yet'}; not explored: ${s.unexplored?.length ? s.unexplored.join(', ') : 'none'}. What lies there is not in these facts.`);
+  }
+  if (s.monsters === false) out.push('No monsters come in this world.');
+  else if (s.monsters) {
+    out.push(s.lastNight ? `Last night: at most ${s.lastNight.peak48} monsters at once within 48 blocks of home; ${s.lastNight.died.length ? `died: ${s.lastNight.died.join(', ')}` : 'no member died'}; ${s.lastNight.out} member${s.lastNight.out === 1 ? '' : 's'} out after dark.`
+      : 'Last night: no record (no night has passed since the village was counted).');
+    if (s.deaths !== undefined) out.push(`Member deaths on record: ${s.deaths}.`);
+    if (s.homeAtDusk) out.push('At dusk every member walks home on its own (watchers excepted).');
+  }
+  if (s.hurt) out.push(s.hurt.length ? `Members hurt now: ${s.hurt.join(', ')}.` : 'No member is hurt now.');
+  return out;
 }
 
 export function talkUser(c: TalkCtx): string {
@@ -441,6 +545,7 @@ export function talkUser(c: TalkCtx): string {
     `You are ${c.agent}, ${c.role === 'mayor' ? 'the Mayor' : 'a member'} of the village ${c.village}.`,
     ...c.persona.filter(Boolean),
     c.state.length ? `The village now:\n${c.state.map((l) => `- ${l}`).join('\n')}` : '',
+    c.facts?.length ? `What you know now (answer questions only from these facts and the lists here; anything else you do not know):\n${c.facts.map((l) => `- ${l}`).join('\n')}` : '',
     c.history.length ? `What ${c.from} asked before, and how it went:\n${c.history.map((l) => `- ${l}`).join('\n')}` : `You have not spoken with ${c.from} before.`,
     c.status ? `Their requests now (from the village's records; say nothing about them these do not show):\n${c.status.length ? c.status.map((l) => `- ${l}`).join('\n') : '- none open'}` : '',
     c.designs ? (c.designs.length ? `Pre-designed buildings that match their words (id: name, kind, size):\n${c.designs.map(offerLine).join('\n')}`

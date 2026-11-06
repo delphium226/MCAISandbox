@@ -44,5 +44,19 @@ for (const q of ['hello Mayor!', 'please build a house here', 'a temple please',
   ok(!T.isStatusQuestion(q), `not a status question: "${q}"`);
 ok(T.placeOf('mayor, please build a house here')?.kind === 'here', 'a house "here" has a place');
 
+// #233: the situation facts (talkFacts) and the prompt's "What you know now"
+const sit = { tick: 12000, health: 6, carries: ['a stone sword', 'a bow', '12 arrows'], doing: null, where: 'in the village', storage: { bread: 233, wheat: 12, cooked_beef: 0, arrow: 2, oak_log: 30, spruce_log: 10 },
+  explored: ['east'], unexplored: ['west', 'north'], exploreRange: 160, monsters: true, lastNight: { peak48: 14, died: ['Kai'], out: 3 }, deaths: 4, hurt: ['Finn 6/20'], homeAtDusk: true };
+const mf = T.talkFacts(sit, 'member').join('\n');
+ok(/dusk/.test(mf) && /Your health: 6 of 20 \(badly hurt\)/.test(mf) && /a bow/.test(mf) && /nothing \(between chores\)/.test(mf), `a member's own lines: ${mf.split('\n').slice(0, 4).join(' | ')}`);
+ok(/bread 233/.test(mf) && /meat \(raw or cooked\) 0/.test(mf) && /logs 40/.test(mf) && /arrows 2/.test(mf), 'storage in groups, a 0 said');
+ok(/explored.*: east; not explored: west, north/.test(mf) && /at most 14 monsters/.test(mf) && /died: Kai/.test(mf) && /Finn 6\/20/.test(mf), 'explored land, last night, the hurt');
+const mm = T.talkFacts(sit, 'mayor').join('\n');
+ok(!/Your health/.test(mm) && !/You carry/.test(mm) && /bread 233/.test(mm), 'the Mayor gets the village facts, not a member\'s own');
+ok(/No monsters come/.test(T.talkFacts({ monsters: false }, 'mayor').join('')), 'a peaceful world says so');
+ok(T.timeWords(3000) === 'morning' && T.timeWords(8000) === 'afternoon' && T.timeWords(18000) === 'night', 'time words');
+ok(T.talkUser({ ...ctx, facts: ['It is morning.'] }).includes('What you know now (answer questions only from these facts') && !T.talkUser(ctx).includes('What you know now'), 'the facts section, only with facts');
+ok(/Only a promise makes you act/.test(T.talkSystem('member')) && /cannot call a vote/.test(T.talkSystem('mayor', true)) && /do not know/.test(T.talkSystem('mayor')), 'the rules in both system prompts');
+
 console.log(fails ? `PLAYER TALK UNIT FAIL (${fails})` : 'PLAYER TALK UNIT OK');
 process.exit(fails ? 1 : 0);

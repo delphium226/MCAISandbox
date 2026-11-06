@@ -847,7 +847,8 @@ export interface Danger {
   /** Per member, game minutes in each defence chore (watch, home, grounds). */
   chores: Record<string, Record<string, number>>;
   /** The night under way and the last one: members out after dark and deaths (the curfew's result line). */
-  night: { out: string[]; deaths: number; at: number }; lastNight?: { out: number; deaths: number };
+  // (#233: the night's most monsters within 48 at a count, and who died, for the talk prompt's facts)
+  night: { out: string[]; deaths: number; at: number; peak48?: number; died?: string[] }; lastNight?: { out: number; deaths: number; peak48?: number; died?: string[] };
   /** Watch nights by member (spec 3's specialisation). */
   watchNights: Record<string, number>;
   /** Hit-to-kill times of the watch's fights inside the bounds (ms), the last 50. */
@@ -895,7 +896,10 @@ export function noteDeath(a: BotAgent, where: Vec3 | undefined): void {
   const ph = phaseOf(a.bot.time?.timeOfDay);
   d.deaths[bin] = (d.deaths[bin] ?? 0) + 1;
   d.deathsPhase[ph] = (d.deathsPhase[ph] ?? 0) + 1;
-  if (ph !== 'day') d.night.deaths++;
+  if (ph !== 'day') {
+    d.night.deaths++;
+    d.night.died = [...(d.night.died ?? []), a.name];
+  }
   const hunting = hunters.has(a.name);
   if (hunting) d.hunt.deaths++;
   console.log(`[danger] ${v.name}: ${a.name} died ${Math.round(r)} blocks from home (${bin}) at ${ph}${hunting ? ' (on the hunt)' : ''}`);
@@ -921,7 +925,7 @@ export function dangerTick(agents: Iterable<BotAgent>, villages: Iterable<Villag
   const ph = phaseOf(t);
   // (the night's record rolls over at dawn)
   if (ph === 'day' && lastPhase !== 'day') for (const d of dangers.values()) {
-    d.lastNight = { out: d.night.out.length, deaths: d.night.deaths };
+    d.lastNight = { out: d.night.out.length, deaths: d.night.deaths, peak48: d.night.peak48 ?? 0, died: d.night.died ?? [] };
     d.night = { out: [], deaths: 0, at: now };
   }
   lastPhase = ph;
@@ -949,7 +953,10 @@ export function dangerTick(agents: Iterable<BotAgent>, villages: Iterable<Villag
       if (!seenMobs.has(id) && beyond(box, p.x, p.z, 0) === 0 && Math.abs(p.y - home.y) <= 8) d.spawnsIn++;
     }
     Object.assign(d, { near48: n48, near96: n96 });
-    if (ph !== 'day') Object.assign(d, { peak48: Math.max(d.peak48, n48), peak96: Math.max(d.peak96, n96) });
+    if (ph !== 'day') {
+      Object.assign(d, { peak48: Math.max(d.peak48, n48), peak96: Math.max(d.peak96, n96) });
+      d.night.peak48 = Math.max(d.night.peak48 ?? 0, n48);
+    }
     for (const a of list) {
       if (a.village()?.name !== v.name) continue;
       const p = a.bot.entity.position;

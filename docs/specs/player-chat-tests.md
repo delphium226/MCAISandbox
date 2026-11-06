@@ -8,9 +8,10 @@ does.
 
 ## What a line goes through today
 
-1. **Routing** (`routeChat`, mcWorld.ts): a person's line goes to the village's **Mayor** when it names the village or
-   says "village" or "mayor" within the village's range; otherwise to the **first named member** (up to 3 are woken, but
-   members of a village take no wake besides the talk); with no name, to the **nearest member within 48 blocks**.
+1. **Routing** (`routeChat`, mcWorld.ts): a person's line that names members goes to them: to **each member the line
+   opens with** ("Hugo and Iris, ...", up to 3; `addressed`), else to the first named (since #233's first improvement: a
+   named member before the word "village"). With no member named, to the village's **Mayor** when it names the village
+   or says "village" or "mayor" within the village's range; with no name, to the **nearest member within 48 blocks**.
 2. **The talk call** (`talkCall`, playerTalk.ts): one model call with the respond tool. The prompt holds the member's
    persona and character lines, the village state (complete, member count, the public work under way, requests
    accepted), what this person asked before, their open requests, and either the Mayor's works and pre-designed
@@ -20,11 +21,16 @@ does.
 3. **The act** (`talkAct`): a promise tags the chore so the member's next choice takes it; anything else makes it do
    nothing beyond the line it says.
 
-What the talk prompt does **not** show: the member's health, hunger, position, the time of day, monsters near, what
-storage holds, what the member is doing now, what was explored, how far a building is along. The situation reaches the
-model only through the chores list (the watch is offered from dusk to an armed member over 12 health, the hunt at night
-over 14; eating when hungry). The setups below record the full situation so the judge, and later the live tier, can tell
-a true answer from an invented one.
+Since #233's first improvement the talk prompt shows **"What you know now"** (`talkSituation` -> `talkFacts`): the time
+of day; a member's health, appetite, what it carries (weapons, arrows, armour), the chore it is on and whether it is in
+the village; the storage's counts in groups (a 0 said); the explore ring's directions explored and not; last night's
+most monsters at once within 48, who died and how many were out; deaths on record; the members hurt; that the home band
+walks members home at dusk. The system prompts tell it to answer only from those facts and its lists (else "I do not
+know", offering a listed chore that would find out), that only a promise makes it act, that a question is answered with
+chat, that a refusal's reason must be true, that only buildings are forwarded. It still does **not** show monsters near
+now, how far a building is along, what lies in the explored land, or who did what today. The setups below record the
+full situation so the judge, and later the live tier, can tell a true answer from an invented one; the bench's
+`situationFor` gives each case's facts as `talkSituation` would read them.
 
 ## The fixture
 

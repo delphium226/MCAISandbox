@@ -23,7 +23,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Vec3 } from 'vec3';
-import { parseRespond, talkSystem, talkTool, talkUser, withoutPlace, type Respond, type WorkOffer } from '../../server/src/playerTalk';
+import { parseRespond, talkFacts, talkSystem, talkTool, talkUser, withoutPlace, type Respond, type TalkSituation, type WorkOffer } from '../../server/src/playerTalk';
 import { sampler, shortlist } from '../../server/src/talkDesign';
 import { chat, header, type ChatResult } from './benchUtil.mts';
 
@@ -64,6 +64,8 @@ interface Case {
   add?: Array<[string, string]>; drop?: string[];
   /** Extra lines of the village state (talkState). */
   state?: string[];
+  /** #233: the situation facts beyond the defaults (situationFor), as talkSituation would read them. */
+  sit?: Partial<TalkSituation>;
   /** The true situation, with what the talk prompt does not show (the judge's facts). */
   truth: string;
   /** The acceptable replies. */
@@ -78,6 +80,8 @@ interface Case {
 
 const P = (option?: RegExp): Exp => ({ kind: 'promise', ...(option ? { option } : {}) });
 const CHAT: Exp = { kind: 'chat' }, REFUSE: Exp = { kind: 'refuse' }, FORWARD: Exp = { kind: 'forward' };
+// (#233: where the talk prompt's situation facts now give what was asked, the check is against those facts)
+const FROM_FACTS = 'Its prompt gives these facts under "What you know now": stating them passes, as does saying it does not know; any count, name, place or state it gives that its prompt does not hold fails (even a lucky guess).';
 const NOT_KNOWN = 'Its context does not hold these facts: saying it does not know, or offering to find out with a chore it has, passes; any count, name, place or state it gives as fact fails (even a lucky guess).';
 
 const CASES: Case[] = [
@@ -89,8 +93,8 @@ const CASES: Case[] = [
     truth: 'Night. Two skeletons on a hill ~40 blocks east of the village shoot at the player. Grace is at home, 20/20, stone sword and bow. The hunt goes out to monsters within 32-48 blocks of the village; the watch fights monsters inside it.',
     expect: [P(/^(watch|hunt)$/), REFUSE] },
   { id: 'combat.lastnight', cat: 'combat', line: 'Mayor, how many monsters were near the village last night, and is anyone hurt?', to: ['Mayor'], time: 'day',
-    truth: 'Morning. Last night 14 monsters came within 48 blocks of the village and members killed 6 of them; Kai died once; Finn is at 6/20 health. None of this is in the Mayor\'s talk prompt.',
-    expect: [CHAT], judge: NOT_KNOWN },
+    truth: 'Morning. Last night 14 monsters came within 48 blocks of the village and members killed 6 of them; Kai died once; Finn is at 6/20 health. Its talk prompt shows last night\'s most monsters at once (14), Kai\'s death and Finn hurt; not the kills.',
+    expect: [CHAT], judge: FROM_FACTS },
   { id: 'combat.towerwatch', cat: 'combat', line: 'Hugo and Iris, take your bows up the east tower and keep watch till dawn.', to: ['Hugo', 'Iris'], time: 'dusk',
     truth: 'Dusk. Hugo and Iris both carry bows and are at 20/20. The east tower stands; watchers walk the lamps and the edge and take tower posts.',
     expect: [P(/^watch$/)] },
@@ -113,8 +117,8 @@ const CASES: Case[] = [
     truth: 'Day. A gravel bank ~60 blocks east; storage holds 0 flint and 2 arrows.',
     expect: [P(/^flint$/)] },
   { id: 'gather.storage', cat: 'gathering', line: 'Clara, how much wheat, bread and meat is in storage right now?', to: ['Clara'], time: 'day',
-    truth: 'Storage holds 12 wheat, 233 bread and no meat (raw or cooked). Not in Clara\'s talk prompt.',
-    expect: [CHAT], judge: NOT_KNOWN },
+    truth: 'Storage holds 12 wheat, 233 bread and no meat (raw or cooked). Clara\'s talk prompt shows the storage counts.',
+    expect: [CHAT], judge: FROM_FACTS },
   { id: 'gather.chickens', cat: 'gathering', line: 'Jonah, the chicken pen looks empty. Can you get it filled again?', to: ['Jonah'], time: 'day',
     add: [['pen:chicken', 'Lead chickens into the chicken pen again'], ['penwork:4:breed', 'Breed the chickens'], ['penwork:4:hatch', 'Hatch eggs in the chicken pen']],
     truth: 'Day. The chicken pen holds 1 chicken; 136 eggs in storage; chickens wander near the village.',
@@ -126,8 +130,8 @@ const CASES: Case[] = [
     truth: 'Day. The sheep pen holds 8 sheep; storage has wheat for breeding.',
     expect: [P(/^penwork:5:breed$/)] },
   { id: 'gather.shortest', cat: 'gathering', line: "Mayor, what's the village shortest of right now?", to: ['Mayor'], time: 'day',
-    truth: 'Storage holds no meat, 2 arrows and 20 cobblestone against the towers\' ~3,500 stone. Not in the Mayor\'s talk prompt.',
-    expect: [CHAT], judge: NOT_KNOWN },
+    truth: 'Storage holds no meat, 2 arrows and 20 cobblestone against the towers\' ~3,500 stone. The Mayor\'s talk prompt shows the storage counts, not the towers\' bill.',
+    expect: [CHAT], judge: FROM_FACTS },
 
   // exploring
   { id: 'explore.west', cat: 'exploring', line: 'Kai, explore west of the village and tell me what you find.', to: ['Kai'], time: 'day',
@@ -141,7 +145,7 @@ const CASES: Case[] = [
     add: [['explore:4', 'Explore to the west'], ['explore:6', 'Explore to the north']],
     truth: 'Flat grass ~50 blocks south of the village would take a farm. No such place is in Hugo\'s talk prompt; a farm by his own house is a chore he has.',
     expect: [FORWARD, P(/^(own:farm:\w+|explore:\d+)$/), CHAT], judge: `${NOT_KNOWN} A distance or place it names without an explore or farm chore behind it fails.` },
-  { id: 'explore.cave', cat: 'exploring', line: 'Grace, go and look for a cave with iron in it, but be home before dark.', to: ['Grace'], time: 'day',
+  { id: 'explore.cave', cat: 'exploring', line: 'Grace, go and look for a cave with iron in it, but be home before dark.', to: ['Grace'], time: 'day', sit: { tick: 8000 },
     add: [['explore:4', 'Explore to the west'], ['explore:6', 'Explore to the north']],
     truth: 'Afternoon. The village mine has an iron level (the iron:dig chore); no cave with iron is known. Members walk home at dusk.',
     expect: [P(/^(iron:dig|explore:\d+)$/), REFUSE] },
@@ -174,12 +178,13 @@ const CASES: Case[] = [
 
   // talking to them and testing limits
   { id: 'talk.working', cat: 'talk', line: 'Ada, what are you working on right now, and why?', to: ['Ada'], time: 'day',
-    truth: 'Ada is on "Light the open ground by the storage hut" (it was unlit and she carried torches). Her talk prompt shows her chores list, not the chore she is on.',
+    truth: 'Ada is on "Light the open ground by the storage hut" (it was unlit and she carried torches). Her talk prompt shows it as what she is doing now.',
     expect: [CHAT], judge: 'Naming a chore as what it is doing now fails unless it is the true one; speaking of its role or what it means to do next, without claiming a current chore, passes.' },
   { id: 'talk.busiest', cat: 'talk', line: "Mayor, who's the busiest villager today?", to: ['Mayor'], time: 'day',
     truth: 'Grace did the most chores today (14). Not in the Mayor\'s talk prompt.',
     expect: [CHAT], judge: NOT_KNOWN },
   { id: 'talk.dusk', cat: 'talk', line: "Ben, it's getting dark. Shouldn't you be heading home?", to: ['Ben'], time: 'dusk', pos: { Ben: { x: -1700, z: 150 } }, at: { x: -1690, z: 140 },
+    sit: { where: 'outside the village, ~130 blocks from its centre' },
     add: [['rest', 'Rest at home']], claimOk: true,
     truth: 'Dusk. Ben is ~130 blocks from home; the home band walks members home at dusk.',
     expect: [CHAT, P(/^rest$/)], judge: 'Agreeing to head home passes; saying it will stay out after dark fails.' },
@@ -246,6 +251,22 @@ async function routed(c: Case): Promise<string[]> {
   return talked;
 }
 
+// ---- #233: the situation facts, as talkSituation reads them (train 23's C1 the morning after: the cases' true situation)
+
+const TICK: Record<Time, number> = { day: 3000, dusk: 11500, night: 16000 };
+function situationFor(c: Case, agent: string): TalkSituation {
+  const armed = c.armed ?? true;
+  const s: TalkSituation = {
+    tick: TICK[c.time], health: c.health ?? 20, carries: armed ? ['a stone sword', 'a bow', '12 arrows'] : [],
+    doing: agent === 'Ada' ? 'Light the open ground by the storage hut' : null, where: 'in the village',
+    storage: { bread: 233, wheat: 12, egg: 136, arrow: 2, torch: 28, cobblestone: 20, flint: 0, gravel: 0, oak_log: 64, oak_planks: 40, raw_iron: 5, coal: 10 },
+    explored: ['east', 'south-east', 'south'], unexplored: ['south-west', 'west', 'north-west', 'north', 'north-east'], exploreRange: 160,
+    monsters: true, lastNight: { peak48: 14, died: ['Kai'], out: 3 }, deaths: 1, hurt: agent === 'Finn' ? [] : ['Finn 6/20'], homeAtDusk: true,
+    ...(c.sit ?? {}),
+  };
+  return s;
+}
+
 // ---- the talk prompt, as talkCall builds it ---------------------------------------------------------------------------
 
 function promptFor(c: Case, agent: string): { system: string; user: string; tool: ReturnType<typeof talkTool>; role: 'mayor' | 'member'; options: Array<{ id: string; name: string }> } {
@@ -255,7 +276,7 @@ function promptFor(c: Case, agent: string): { system: string; user: string; tool
   const options = role === 'member' ? menuFor(c) : [];
   const user = talkUser({
     agent, role, village: FX.village, persona: FX.members[agent]?.persona ?? [], from: PLAYER, lines: [c.line], history: [],
-    state: ['the village is complete', `${Object.keys(FX.members).length} members`, ...(c.state ?? [])], status: [],
+    state: ['the village is complete', `${Object.keys(FX.members).length} members`, ...(c.state ?? [])], status: [], facts: talkFacts(situationFor(c, agent), role),
     ...(role === 'mayor' ? { works: WORKS, designs, otherDesigns: others } : { options }),
   });
   return { system: talkSystem(role, role === 'mayor'), user, tool: talkTool(role, role === 'mayor'), role, options };

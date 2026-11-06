@@ -87,5 +87,31 @@ w.hearChat('Gus', 'echo');
 await settle();
 eq(agents.find((a) => a.name === 'Mayor')!.events.length, 1, 'a line heard twice within a second is routed once');
 
+// G7 talk routing (#233): a village (registry, members, the Mayor) and who answers a person's line through the talk call
+const { addressed } = await import('../../server/src/mineflayer/mcWorld');
+const V = { name: 'Oakvale', plots: [{ x1: -20, z1: -20, x2: 40, z2: 20 }] };
+const vbots = ['Mayor', 'Ada', 'Ben', 'Finn', 'Hugo', 'Iris', 'Kai'].map((n, i) => ({ ...bot(n, i * 4, 0), memory: { villageRole: n === 'Mayor' ? 'mayor' : 'worker' }, village: () => V }));
+const talked: string[] = [];
+const tw = Object.create(MineflayerWorld.prototype) as Record<string, any>;
+Object.assign(tw, {
+  agents: new Map(vbots.map((a) => [a.name.toLowerCase(), a])), villages: { villages: new Map([[V.name.toLowerCase(), V]]) },
+  heardAt: new Map(), chatQueue: Promise.resolve(), pairWakes: new Map(), humanAt: new Map(),
+  talkHeard: (a: { name: string }) => talked.push(a.name), rcon: { command: async () => 'No entity was found' },
+});
+const talkTo = async (text: string) => {
+  talked.length = 0;
+  await tw.routeChat('Gus', text);
+  return [...talked];
+};
+eq(await talkTo('Kai, explore west of the village and tell me what you find.'), ['Kai'], 'a named member answers before "village" wakes the Mayor');
+eq(await talkTo('Hugo and Iris, take your bows up the east tower.'), ['Hugo', 'Iris'], 'a line opening with two names: both answer');
+eq(await talkTo('Ada, Finn and Ben: the wall has a gap.'), ['Ada', 'Finn', 'Ben'], 'three names with commas: all three');
+eq(await talkTo('Mayor, how is Kai doing?'), ['Mayor'], 'a member named later in the line is not spoken to');
+eq(await talkTo('what does the village need, mayor?'), ['Mayor'], '"mayor" with no member named: the Mayor');
+eq(await talkTo('how is the village doing?'), ['Mayor'], '"village" with no member named, in range: the Mayor');
+eq(await talkTo('everyone, meeting at the storage hut!'), ['Ada'], 'no name: the nearest member (Ada, 0 blocks off)');
+eq(addressed('hey Kai and Ada, come here', ['Ada', 'Kai']), ['Kai', 'Ada'], 'a greeting before the names');
+eq(addressed('Can Kai help Ada?', ['Ada', 'Kai']), ['Kai'], 'names not at the opening: the first named');
+
 console.log(`${checks - failures}/${checks} checks passed`);
 process.exit(failures ? 1 : 0);
