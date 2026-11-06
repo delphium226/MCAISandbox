@@ -2752,3 +2752,25 @@ CLAUDE.md when a phase ends.
   - **First improvement (not made):** give the talk prompt the member's situation facts and a rule to answer only from
     them, else say it does not know and offer a chore; with it, the routing fix (a named member before "village"; each
     of two named members answers). Logs: `runs/2026-11-06/chat-tests/`.
+- F359 (11-06, train24, G8) **The hunt no longer throws but goes out no more often; bows now hit and kill; flees ended
+  hurt less in one arm of two; the arms differ 2.6x in deaths on the same code.** Test train 24 (PLAN "Next" 7), the
+  first live test of 3373726 (#231 call-off, creeper flees round walls), 9a4e363 (#228 ranged attackers), 4e241b7 (#227
+  buried log-in) and f06c2ae (bows): train 23's C1 setup (w217_ring, hostile, MC_VOTE=model, 12 members, 90 min, 1x,
+  nights run), both arms A1 / A2 on 431b23e, against train 23's C1 (F357).
+  - **Deaths 10 / 26** (train 23 C1 17); outside the ring at night 8 / 18 (12). The spread on one code is wider than any
+    change in it: no death count here measures the fixes.
+  - **Hunt (#231):** 0 `hunt_edge` health failures (train 23 12 / 15); 12 / 12 calls-off instead, done, at health 2-11.
+    Hunts that met prey 9 / 10 (7 / 11), ok 4 / 2 (3 / 4), kills on hunts 14 / 7 (5 / 11): not more hunting. Half the
+    calls-off (6 / 6) came on a resume after meeting prey, worded "hurt on the way out"; an ok hunt's summary reads
+    "0 kills" when its kills came before a resume (#234).
+  - **Creeper flees:** ended hurt 15% of 147 / 33% of 91 (train 23 42% / 33%); median 10 / 8 blocks gained, 0-1 blocks
+    in 5 / 4; creeper deaths 2 / 8 (5 / 6).
+  - **Ranged (#228):** fought 28 / 19, ran 7 / 1 (2 witch fights); skeleton deaths 2 / 1 (2 / 4), none by witch.
+  - **Buried log-in (#227):** not exercised (no `[spawn] ... moved to the surface`, no suffocation).
+  - **Bows:** 32 / 33 shots, 17 / 20 hits (53% / 61%; train 23 21%), 1 / 3 arrow kills plus 4 / 3 sword kills after
+    arrow hits (train 23 0 / 0).
+  - **New:** endermen killed 3 in A2, two inside the ring by the storage hut; members fought them and fled to the hut,
+    where they followed (#235).
+  - Curfew heads home 12 / 12, "walked home" 6 / 10 (20 / 19); stone stage refused 5-8 then passed 8-5 / passed 8-5;
+    parts 21 / 20 of 21; hostiles inside at night 3.5-6.0 / 4.1-8.2 per night (1.1-3.5). [stuck] 73 / 75, [lag] 0 / 0,
+    busy 83 / 84% (75%), $0.595 + $0.606. Report: runs/2026-11-06/train24/report.md.
