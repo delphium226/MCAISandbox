@@ -138,9 +138,15 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
   8. **#233 player chat** (the user's, 11-06): bench `scripts/bench/chatbench.mts` baseline 103 of 165 (F358, 57b1e1f);
      situation facts in the talk prompt and the routing fix take it to 159 of 165 (F360, 4fe7b6e). Next: the live tier
      (lines said in game on a test world), then the 6 left.
-  9. **Next:** #235 endermen (do not fight them; never look at them), #234, and why hunts still go out rarely (#231);
-     the #233 live tier on a test world.
-  10. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
+  9. **Fixes built** (ac8b9a5 #235 endermen left alone unless one attacks, gaze turned off them, run to water;
+     da6517c #234 hunt summaries count kills across resumes; ce4a955 #231 the hunt's heal, call-off and hut recovery eat
+     to food 18 from storage, since members stayed at 14 health or less for 10-40 min; notes
+     `runs/2026-11-06/fixes-235-234/notes.md`). Offline only. Every train-24 call-off came on a resume after a reflex
+     fight 51-182 blocks out. Open for the user (mechanics): measure the hunt's reach from the storage hut (~64) instead
+     of the built bounds + 32/48, and let the hunt step away from creepers first.
+  10. **Next:** the #233 live tier (running on world 4), then test train 25 from `w217_ring` counting the notes' list
+     (evades, gaze turns, `[stuck]` against 73 / 75, heal gains, calls-off wording).
+  11. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
      (#150-#163); #164 steps 3-5.
 
 ## Earlier phases
