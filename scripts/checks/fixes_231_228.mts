@@ -14,6 +14,7 @@ import { Vec3 } from 'vec3';
 
 process.env.MC_WORLD_MODE ??= 'hostile';
 const C = await import('../../server/src/mineflayer/mcCombat');
+const H = await import('../../server/src/mineflayer/mcHazard');
 let fails = 0;
 const ok = (cond: unknown, what: string) => {
   console.log(`${cond ? 'ok  ' : 'FAIL'} ${what}`);
@@ -87,6 +88,16 @@ await sec('#228', () => {
   ok(C.decide(me({ mobs: [{ id: 11, name: 'skeleton', dist: 20 }], hurtAgo: 500 }), [], none) === null, 'a skeleton past 16: nothing');
   const z = C.decide(me({ mobs: [witch, { id: 12, name: 'zombie', dist: 2 }], hurtAgo: 500 }), [], none);
   ok(z?.kind === 'fight' && z.mob.id === 12 && !z.ranged, 'a zombie within 5 still comes first');
+});
+
+await sec('#227', () => {
+  const rock = world({ '0,27,0': 'stone', '0,26,0': 'stone' });
+  ok(H.buriedAt(rock, { x: 0.3, y: 26, z: 0.7 }) === true, "Kai's log-in at y 26 in rock: buried");
+  ok(H.buriedAt(world({}), { x: 0.5, y: 64, z: 0.5 }) === false, 'on the ground: not buried');
+  ok(H.buriedAt(world({ '0,64,0': 'oak_slab' }), { x: 0.5, y: 64.5, z: 0.5 }) === false, 'on a slab: not buried');
+  ok(H.buriedAt(world({ '0,65,0': 'glass' }), { x: 0.5, y: 64, z: 0.5 }) === false, 'eyes in glass: no suffocation');
+  ok(H.buriedAt(world({ '0,65,0': 'deepslate' }), { x: 0.5, y: 64, z: 0.5 }) === true, 'eyes in deepslate: buried');
+  ok(H.buriedAt(() => null, { x: 0, y: 64, z: 0 }) === null, 'chunk not loaded: unknown (waited for)');
 });
 
 console.log(fails ? `${fails} FAILED` : 'all passed');

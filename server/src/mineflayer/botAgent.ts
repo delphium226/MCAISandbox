@@ -23,7 +23,7 @@ import { HOSTILE, combatTick, fightsMobs, mayWake, noteDeath, phaseOf } from './
 import { noteDeathLesson } from '../instincts';
 import { spawnCellFor, survivalB } from './mcSurvivalB';
 import { isWallGate } from './mcWalls';
-import { causeFromState, deathCauseOf, hazardOf, lavaStep, noteTrap, safeCellNear, trappedUnderWater, type DeathCause, type Hazard } from './mcHazard';
+import { buriedAt, causeFromState, deathCauseOf, hazardOf, lavaStep, noteTrap, safeCellNear, trappedUnderWater, type DeathCause, type Hazard } from './mcHazard';
 import { isPaused } from '../runClock';
 import { WALK_DIG } from './mcBlocks';
 import { GEODE_GROWTH, GEODE_GUARD, GEODE_LINING, geodeBreakCost, geodeStepCost, stateIds } from './mcGeode';
@@ -171,6 +171,7 @@ export class BotAgent implements WorldAgent {
       this.spawned = true;
       (this.bot.physics as unknown as { playerHalfWidth: number }).playerHalfWidth = PLAYER_HALF_WIDTH;
       this.lastHealth = this.bot.health ?? 20;
+      void this.unbury();
     });
     // The shared atlas: every chunk this bot receives is summarised, and chunks whose blocks change are again later
     this.bot.on('chunkColumnLoad', (p) => world.atlas.loaded(p.x >> 4, p.z >> 4));
@@ -760,6 +761,38 @@ export class BotAgent implements WorldAgent {
       this.halt();
     });
     return true;
+  }
+
+  /**
+   * #227: at log-in, a bot whose eyes are inside a block (a saved position from an earlier run in land a reset restored)
+   * is moved at once to the surface at its x, z by the server (spreadplayers reads the ground; lesson 37), before the
+   * spawn's own teleport, which comes after the ready wait: Kai suffocated a second after logging in at y 26 in rock.
+   * The chunk is waited for up to 3 s.
+   */
+  private async unbury() {
+    const bot = this.bot;
+    const read = (p: Vec3) => {
+      const b = bot.blockAt(p);
+      return b ? { name: b.name, boundingBox: b.boundingBox } : null;
+    };
+    for (let i = 0; i < 30 && bot.entity; i++) {
+      if ((bot.health ?? 20) <= 0) return;
+      const p = bot.entity.position.clone();
+      const buried = buriedAt(read, p);
+      if (buried === false) return;
+      if (buried) {
+        const x = Math.floor(p.x) + 0.5, z = Math.floor(p.z) + 0.5;
+        const eye = bot.blockAt(new Vec3(Math.floor(p.x), Math.floor(p.y + 1.62), Math.floor(p.z)))?.name ?? '?';
+        try {
+          const out = await this.world.rcon.command(`spreadplayers ${x} ${z} 0 1 false ${this.name}`);
+          console.log(`[spawn] ${this.name} logged in inside ${eye} at ${at(p)} (a saved position): moved to the surface (${out.trim().slice(0, 120)})`);
+        } catch (e) {
+          console.log(`[spawn] ${this.name} logged in inside ${eye} at ${at(p)}: could not move it (${(e as Error).message})`);
+        }
+        return;
+      }
+      await new Promise((ok) => setTimeout(ok, 100));
+    }
   }
 
   /** Set the spawnpoint at home again on the next check (a bed slept in moved it to the bed, stage (b)). */

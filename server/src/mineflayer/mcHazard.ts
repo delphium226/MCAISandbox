@@ -33,6 +33,19 @@ export function deathCauseOf(name: string, line: string): DeathCause | null {
 }
 
 /** What hurts the bot where it stands now (only checked when damage is on). */
+/**
+ * #227: a player's saved position is kept with its name (lesson 6), and a checkpoint reset restores the land but not the
+ * players' files: Kai logged in at an earlier run's mine trip, y 26 inside rock, and suffocated a second later, a counted
+ * death. Whether a player standing at `pos` has its eyes in a block that suffocates (a full block; not glass, leaves,
+ * slabs, stairs, fences or the like, which do not).
+ */
+const NO_SUFFOCATION = /glass|leaves|_slab$|_stairs$|_fence$|_fence_gate$|_wall$|_pane$|^iron_bars$|_door$|_trapdoor$|chest$|_bed$|^farmland$|^dirt_path$|^soul_sand$|^mud$|^snow$|_carpet$|^scaffolding$|^ladder$|^hopper$|^barrier$|^bamboo$|^cactus$/;
+export function buriedAt(read: (p: Vec3) => { name: string; boundingBox: string } | null, pos: { x: number; y: number; z: number }): boolean | null {
+  const eye = read(new Vec3(Math.floor(pos.x), Math.floor(pos.y + 1.62), Math.floor(pos.z)));
+  if (!eye) return null;
+  return eye.boundingBox === 'block' && !NO_SUFFOCATION.test(eye.name);
+}
+
 export type Hazard = 'air' | 'lava' | 'fire';
 
 const FIRE = new Set(['fire', 'soul_fire', 'campfire', 'soul_campfire', 'magma_block']);
