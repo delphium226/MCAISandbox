@@ -2825,3 +2825,19 @@ CLAUDE.md when a phase ends.
   - **Setting the situation:** time and summoned monsters work; `damage` left Finn at 10, not 6; monsters near now are
     still not in the talk prompt; jumping the time to day for the next case ends a promised watch early ("kept").
     Notes `runs/2026-11-06/chat-live/notes.md`; scored `runs/2026-11-06/chat-live/score2.log`.
+- F362 (11-06, #235, #234, #231, test train 25) **Endermen no longer kill members: 0 fights, 0 deaths, gaze turned 26 /
+  36 times (train 24 A2: 3 deaths). The hunt's reach of 64 holds (every distance 45-59, train 24 51-182) and makes hunts
+  safe: 0 calls-off, 0 deaths on hunts, HP lost 0 / 1 (12 / 12, 2 / 7, 110 / 192). It also makes them nearly empty:
+  kills inside hunts 4 / 5 against 54 / 46. And members stay hurt: 19-21% of member-time at health 14 or less, 99% of it
+  at food 14-17, under vanilla's regen at 18.** Both arms on fd5800c, train 24's setup (w217_ring, hostile, 1x, nights
+  run, 90 min, gpt-oss cloud), worlds 4 and 5; a new sampler read every member's health and food every 30 s.
+  - **#234:** ok hunts' kills match the `[hunt] ... killed` lines (2 / 2, 1 / 1) across 13 / 13 resumed hunts. The
+    "after N kills" wording was not exercised (no call-off). Reflex kills inside a hunt (6 of 9 here) are not in its summary.
+  - **New, #237:** all 112 "-> the village edge" `[stuck]` lines (57 / 55; train 24 1 / 0) aim at two spots, the north
+    and south points of the radius-48 circle round the hut, whose surface is 6-9 above home (castle towers or a rise).
+    Other `[stuck]` lines are 58 / 93 against 73 / 75, the same kinds, so the gaze guard did not upset walks.
+  - **New, #238:** the appetite eats at food 14 (`APPETITE.eatAt`), so food sits at 14-17 between meals and vanilla never
+    heals: Dev at health 1 for 16 min, Lena at 2 for 12. ce4a955's eat-to-18 covers the hunt and the reflex's hut
+    recovery only (2 meals in this train, both Dev's).
+  - Deaths 6 / 13 (10 / 26), all 71-158 blocks out, 17 of 19 at night, 10 on initiative chores. Cost ~$0.47 / $0.54.
+    Report `runs/2026-11-06/train25/report.md`.
