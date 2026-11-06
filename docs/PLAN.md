@@ -121,10 +121,15 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
      `runs/2026-11-05/fixes-230-232/notes.md`; check `fixes_230_232.mts` fails on the old code): home band holds with
      beds while nights run, hunts start when offered, the stone-stage ballot asks about towers, flint trips walk to
      atlas gravel. Offline only.
-  5. **Next test train (23):** from `w217_ring`, nights that run, all flags on against a control arm with MC_NIGHT_BAND
-     and MC_GRAVEL_TRIPS off; count deaths outside the ring at night (train 22: 21/26, 27/37), hunts started vs picked,
-     far flint trips, and an emptied chicken pen's young (restock and youngUntil, still untested live).
-  6. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
+  5. **Train 23 done** (F357, 8f9ec77): home by dusk works (deaths outside the ring at night 12 against the control's
+     26; 19 of 20 members the band reached walked home); the tower ballot reads right (passed 7-6 / 8-5 after a first
+     refusal); far gravel used once needed; the pen restock and youngUntil work live (back at 5 in 13 min, 11 of 12 by
+     +88). Still failing: hunts (12 of 20 fail at the start, health 6-11, hurt between the pick and the walk out, #231
+     open); bows 14 shots, 0 kills.
+  6. **Next: fixes** #231 (check health when the hunt leaves, not only at the pick), #228 (the reflex ignores ranged
+     attackers), #227 (log-in inside rock after a reset), why bows hit but do not kill; offline checks, then a short
+     train from `w217_ring`.
+  7. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
      (#150-#163); #164 steps 3-5.
 
 ## Earlier phases
