@@ -87,8 +87,58 @@ export type Seen = { id: number; name: string; dist: number };
  */
 export const RANGED = new Set(['witch', 'skeleton', 'stray', 'bogged', 'pillager']);
 export const RANGED_REACH = 16, RANGED_FIGHT = 10;
+/**
+ * #235: endermen. Train 24 A2 lost 3 members to them (two inside the ring by the storage hut): a member who looked at one
+ * angered it, fought it with a stone sword at 14 health (40 health, 7 a hit) and ran to the hut, where it followed by
+ * teleporting. Now no one starts a fight with one (the watch, bows, defenders and the shelter's fight pass them by), the
+ * gaze guard turns a member's eyes off any within ENDER_SIGHT, and one that attacks (hurt, an enderman within 5 and no
+ * other hostile there) is run from: into shallow water when a pool is near (endermen never enter water), else away, never
+ * to the hut; an armed member hit again within ENDER_CORNERED of the run fights back, cornered.
+ */
+export const ENDERMAN = 'enderman';
+export const ENDER_EYE = 2.55, ENDER_SIGHT = 64, ENDER_CORNERED = 15000, ENDER_RUN_MS = 8000;
+const fightable = (name: string): boolean => name !== 'creeper' && name !== ENDERMAN;
+/** The unit view vector for a mineflayer yaw and pitch (yaw 0 faces -z; pitch up is positive). */
+export const viewOf = (yaw: number, pitch: number) => ({ x: -Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: -Math.cos(yaw) * Math.cos(pitch) });
+/**
+ * Whether eyes at `eye` with this yaw and pitch look at an enderman's eyes at `mob` (vanilla's isLookingAtMe: the cosine
+ * to its eyes above 1 - tol / distance; vanilla's tol is 0.025, the guard uses a wider one so it turns away first).
+ */
+export function staresAt(eye: { x: number; y: number; z: number }, yaw: number, pitch: number, mob: { x: number; y: number; z: number }, tol = 0.025): boolean {
+  const dx = mob.x - eye.x, dy = mob.y - eye.y, dz = mob.z - eye.z;
+  const d = Math.hypot(dx, dy, dz);
+  if (d < 0.01) return true;
+  const v = viewOf(yaw, pitch);
+  return (v.x * dx + v.y * dy + v.z * dz) / d > 1 - tol / d;
+}
+/** The pitch the gaze guard turns to: 0.6 rad off the line to the enderman's eyes (down when they are above). */
+export function avertPitch(eye: { x: number; y: number; z: number }, mob: { x: number; y: number; z: number }): number {
+  const up = Math.atan2(mob.y - eye.y, Math.hypot(mob.x - eye.x, mob.z - eye.z));
+  return Math.max(-1.5, Math.min(1.5, up >= 0 ? up - 0.6 : up + 0.6));
+}
+/**
+ * A refuge from an enderman: the nearest standable water cell with water on all 8 sides at its level (an enderman beside
+ * the pool stays out of reach) and ground under it (no swim), within `r` blocks of `p`; null when none.
+ */
+export function waterRefuge(read: (p: Vec3) => Cell, p: Vec3, r = 12): Vec3 | null {
+  const wet = (q: Vec3) => read(q)?.name === 'water';
+  let best: Vec3 | null = null, bestD = Infinity;
+  for (let dy = -2; dy <= 2; dy++)
+    for (let dx = -r; dx <= r; dx++)
+      for (let dz = -r; dz <= r; dz++) {
+        const d = Math.hypot(dx, dz);
+        if (d > r || d >= bestD) continue;
+        const q = new Vec3(Math.floor(p.x) + dx, Math.floor(p.y) + dy, Math.floor(p.z) + dz);
+        if (!wet(q) || read(q.offset(0, -1, 0))?.boundingBox !== 'block' || read(q.offset(0, 1, 0))?.boundingBox === 'block') continue;
+        let pool = true;
+        for (let ax = -1; ax <= 1 && pool; ax++) for (let az = -1; az <= 1 && pool; az++) if (!wet(q.offset(ax, 0, az))) pool = false;
+        if (pool) { best = q; bestD = d; }
+      }
+  return best;
+}
 export type Decision =
   | { kind: 'flee'; mob: Seen }
+  | { kind: 'evade'; mob: Seen }
   | { kind: 'fight'; mob: Seen; cornered?: boolean; ranged?: boolean }
   | { kind: 'shelter'; mob: Seen; ranged?: boolean }
   | { kind: 'defend'; mob: Seen; member: string }
@@ -107,7 +157,13 @@ export function decide(me: { health: number; armed: boolean; hurtAgo: number; mo
   const near = [...me.mobs].sort((p, q) => p.dist - q.dist);
   const creeper = near.find((m) => m.name === 'creeper' && m.dist < 5);
   if (creeper) return { kind: 'flee', mob: creeper };
-  const close = near.find((m) => m.name !== 'creeper' && m.dist < 5);
+  const close = near.find((m) => fightable(m.name) && m.dist < 5);
+  // (#235: an enderman within 5 with no other hostile there is what hurt the member: run, or fight back when cornered)
+  const ender = close ? undefined : near.find((m) => m.name === ENDERMAN && m.dist < 5);
+  if (ender && me.hurtAgo < 3000) {
+    if (me.armed && (me.ranAgo ?? Infinity) < ENDER_CORNERED) return { kind: 'fight', mob: ender, cornered: true };
+    return { kind: 'evade', mob: ender };
+  }
   if (close && me.hurtAgo < 3000) {
     const mayRun = (me.ranAgo ?? Infinity) >= 5000;
     if (me.armed && me.health > 8) return { kind: 'fight', mob: close };
@@ -125,7 +181,7 @@ export function decide(me: { health: number; armed: boolean; hurtAgo: number; mo
   if (!me.armed || me.health <= 12) return null;
   for (const o of [...members].sort((p, q) => p.dist - q.dist)) {
     if (o.dist > reach || o.hurtAgo >= 3000) continue;
-    const mob = [...o.mobs].sort((p, q) => p.dist - q.dist).find((m) => m.name !== 'creeper' && m.dist < 5);
+    const mob = [...o.mobs].sort((p, q) => p.dist - q.dist).find((m) => fightable(m.name) && m.dist < 5);
     if (mob && (defenders.get(mob.id)?.size ?? 0) < 2) return { kind: 'defend', mob, member: o.name };
   }
   return null;
@@ -215,8 +271,32 @@ export function groundLightSpots(box: { x1: number; z1: number; x2: number; z2: 
 // The hostile list and the counts
 // ---------------------------------------------------------------------------------------------
 
-type Track = { ids: Set<number>; hurtAt: number; health: number; scanAt: number; ranAt: number };
+type Track = { ids: Set<number>; hurtAt: number; health: number; scanAt: number; ranAt: number; fightId?: number; averting?: boolean };
 const tracks = new WeakMap<BotAgent, Track>();
+
+/**
+ * #235, the gaze guard (every physics tick, before the look is sent): eyes on an enderman's within ENDER_SIGHT (4x vanilla's
+ * cone, so the turn's slew lands first) are turned to avertPitch, unless it is the one being fought (already angry).
+ */
+function avertGaze(a: BotAgent, t: Track): void {
+  const bot = a.bot;
+  if (!bot.entity) return;
+  const p = bot.entity.position;
+  const eye = { x: p.x, y: p.y + 1.62, z: p.z };
+  let turned = false;
+  for (const id of t.ids) {
+    if (id === t.fightId) continue;
+    const e = bot.entities[id];
+    if (!e || e.name !== ENDERMAN || e.isValid === false) continue;
+    const m = { x: e.position.x, y: e.position.y + ENDER_EYE, z: e.position.z };
+    if (Math.hypot(m.x - eye.x, m.y - eye.y, m.z - eye.z) > ENDER_SIGHT || !staresAt(eye, bot.entity.yaw, bot.entity.pitch, m, 0.1)) continue;
+    bot.entity.pitch = avertPitch(eye, m);
+    turned = true;
+    break;
+  }
+  if (turned && !t.averting) combatCounts.averts++;
+  t.averting = turned;
+}
 
 /** The bot's track, its listeners installed on first use (the bot object lives through respawns). */
 function track(a: BotAgent): Track {
@@ -240,11 +320,12 @@ function track(a: BotAgent): Track {
   bot.on('entityHurt', (e: Entity) => {
     if (e === bot.entity) tr.hurtAt = Date.now();
   });
+  bot.on('physicsTick', () => avertGaze(a, tr));
   return tr;
 }
 
 /** The counts (status and report): kills by mob, flees, shelters, defends, swords taken, bites, fights given up. */
-export const combatCounts = { kills: {} as Record<string, number>, huntsCalledOff: 0, rangedFights: 0, rangedRuns: 0, fights: 0, flees: 0, shelters: 0, defends: 0, swordsTaken: 0, bites: 0, gaveUp: 0, armed: 0, towerVisits: 0, towerReached: 0, watchSpots: 0, watchOutside: 0 };
+export const combatCounts = { kills: {} as Record<string, number>, averts: 0, evades: 0, huntsCalledOff: 0, rangedFights: 0, rangedRuns: 0, fights: 0, flees: 0, shelters: 0, defends: 0, swordsTaken: 0, bites: 0, gaveUp: 0, armed: 0, towerVisits: 0, towerReached: 0, watchSpots: 0, watchOutside: 0 };
 
 /** Mob id -> the members fighting it (the 2-defender cap). */
 const defenders = new Map<number, Set<string>>();
@@ -306,7 +387,7 @@ export function combatTick(a: BotAgent): void {
   const armed = armedOf(a);
   const d = decide({ health: hp, armed, hurtAgo: now - t.hurtAt, mobs: mine.filter((m) => m.dist <= 16), swordNear: !armed && swordNear(a), ranAgo: now - t.ranAt, bow: bowReady(a) }, members, defenders, reach);
   if (!d) return;
-  if (d.kind === 'shelter') t.ranAt = now;
+  if (d.kind === 'shelter' || d.kind === 'evade') t.ranAt = now;
   start(a, d);
 }
 
@@ -333,6 +414,7 @@ function start(a: BotAgent, d: NonNullable<Decision>): void {
       const ran = await steerAway(a, mob, 4000, signal);
       return `ran from a creeper (creepers explode; ${ran} blocks)`;
     }
+    if (d.kind === 'evade') return evade(a, mob, signal);
     if (d.kind === 'shelter') {
       if (d.ranged) {
         // (#228: out of the witch's or the archer's range, toward home when the hut is near)
@@ -372,7 +454,7 @@ function start(a: BotAgent, d: NonNullable<Decision>): void {
     s.add(a.name);
     defenders.set(d.mob.id, s);
     why = `came to ${d.member}'s help against a ${what}`;
-  } else why = d.kind === 'flee' ? `a creeper came close` : d.ranged ? `a ${what} hurt you from range` : `a ${what} attacked you${d.kind === 'fight' && !armedOf(a) ? ' (no weapon: fists)' : ''}`;
+  } else why = d.kind === 'flee' ? `a creeper came close` : d.kind === 'evade' ? `an enderman attacked you` : d.ranged ? `a ${what} hurt you from range` : `a ${what} attacked you${d.kind === 'fight' && !armedOf(a) ? ' (no weapon: fists)' : ''}`;
   const release = () => {
     const s = defenders.get(d.mob.id);
     if (s) { s.delete(a.name); if (!s.size) defenders.delete(d.mob.id); }
@@ -436,9 +518,32 @@ async function shelter(a: BotAgent, mob: Entity, signal: AbortSignal): Promise<s
   return armedOf(a) ? 'ran away to recover' : 'ran away (no weapon: craft a wooden_sword or stone_sword to fight back)';
 }
 
+/**
+ * #235: away from an enderman that attacked: into a pool when one is within 12 (it never enters water; the member waits
+ * there), else ENDER_RUN_MS steering away. Never to the storage hut: Clara ran there at health 1 and it followed.
+ */
+async function evade(a: BotAgent, mob: Entity, signal: AbortSignal): Promise<string> {
+  combatCounts.evades++;
+  const pool = waterRefuge(readCell(a), a.bot.entity.position);
+  if (pool) {
+    const got = await walk(a, new goals.GoalNear(pool.x, pool.y, pool.z, 0.5), 'the water', signal, 10000).then(() => true, (e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      return false;
+    });
+    if (got && a.bot.entity.position.distanceTo(pool.offset(0.5, 0, 0.5)) < 1.5) {
+      await sleep(6000, signal);
+      await biteIfHurt(a);
+      return `ran into the water at ${pool.x},${pool.z} (endermen never enter water)`;
+    }
+  }
+  const ran = await steerAway(a, mob, ENDER_RUN_MS, signal);
+  await biteIfHurt(a);
+  return `ran ${ran} blocks from the enderman (it follows by teleporting: not to the storage hut; armed, fight back if it hits again)`;
+}
+
 function nearestHostile(a: BotAgent, r: number): Entity | null {
   const t = track(a);
-  const m = mobsNear(a, t, a.bot.entity.position, r).filter((s) => s.name !== 'creeper').sort((p, q) => p.dist - q.dist)[0];
+  const m = mobsNear(a, t, a.bot.entity.position, r).filter((s) => fightable(s.name)).sort((p, q) => p.dist - q.dist)[0];
   return m ? a.bot.entities[m.id] ?? null : null;
 }
 
@@ -526,6 +631,8 @@ export async function melee(a: BotAgent, target: Entity, signal: AbortSignal, op
     if (e.id === target.id) dead = true;
   };
   bot.on('entityDead', onDead);
+  // (#235: the gaze guard leaves the mob being fought alone)
+  t.fightId = target.id;
   try {
     while (!dead && bot.entities[target.id] && target.isValid !== false) {
       checkAbort(signal);
@@ -568,6 +675,7 @@ export async function melee(a: BotAgent, target: Entity, signal: AbortSignal, op
     }
   } finally {
     bot.removeListener('entityDead', onDead);
+    if (t.fightId === target.id) t.fightId = undefined;
     bot.pathfinder.setGoal(null);
     bot.clearControlStates();
   }
@@ -1057,7 +1165,7 @@ export async function keepWatch(a: BotAgent, spots: Array<{ x: number; z: number
       }
       // (#217 step 6: with a bow, the hostiles in range and sight first, creepers too, from the tower or the spot)
       if (bowReady(a)) {
-        const far = mobsNear(a, t, a.bot.entity.position, MAX_RANGE).filter((m) => m.dist >= MIN_RANGE).sort((p, q) => p.dist - q.dist)
+        const far = mobsNear(a, t, a.bot.entity.position, MAX_RANGE).filter((m) => m.dist >= MIN_RANGE && m.name !== ENDERMAN).sort((p, q) => p.dist - q.dist)
           .map((m) => a.bot.entities[m.id]).filter((e): e is Entity => !!e && e.isValid !== false);
         let shot = 0;
         // (bow fixes: up to WATCH_SHOTS a stop on the nearest until it dies or leaves range and sight, then the next; the
@@ -1083,8 +1191,8 @@ export async function keepWatch(a: BotAgent, spots: Array<{ x: number; z: number
       }
       const inside = (e: Entity | undefined | null): e is Entity => !!e && e.isValid !== false && beyond(bounds, e.position.x, e.position.z, 0) === 0;
       const near16 = (e: Entity) => e.position.distanceTo(new Vec3(s.x, a.bot.entity.position.y, s.z)) <= 16;
-      const foe = (shotAt && shotAt.name !== 'creeper' && inside(a.bot.entities[shotAt.id]) && near16(shotAt) ? shotAt : null)
-        ?? mobsNear(a, t, new Vec3(s.x, a.bot.entity.position.y, s.z), 16).filter((m) => m.name !== 'creeper').sort((p, q) => p.dist - q.dist)
+      const foe = (shotAt && fightable(shotAt.name ?? '') && inside(a.bot.entities[shotAt.id]) && near16(shotAt) ? shotAt : null)
+        ?? mobsNear(a, t, new Vec3(s.x, a.bot.entity.position.y, s.z), 16).filter((m) => fightable(m.name)).sort((p, q) => p.dist - q.dist)
           .map((m) => a.bot.entities[m.id]).find(inside);
       shotAt = null;
       if (foe) {
