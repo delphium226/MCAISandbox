@@ -1266,7 +1266,7 @@ export const HUNT_ZOMBIES = new Set(['zombie', 'husk', 'zombie_villager', 'drown
 export const HUNT_DROPS = ['bone', 'string', 'rotten_flesh', 'spider_eye', 'arrow'];
 /** What members stop buying from the merchant while the hunt brings it in (gunpowder stays the merchant's: creepers need a bow). */
 export const HUNTED_NOT_BOUGHT = new Set(['string', 'bone']);
-/** A hunt starts above this health and ends at HUNT_LOW; it reaches the built bounds + HUNT_EDGE. */
+/** A hunt starts above this health and ends at HUNT_LOW; it reaches HUNT_HOME from the storage hut. */
 export const HUNT_HEALTH = 14;
 export const HUNT_LOW = 10;
 /**
@@ -1315,6 +1315,26 @@ export function huntPrey(seen: Spotted[], skip: ReadonlySet<number>, focus: numb
   return f ?? huntTarget(seen.filter((m) => !skip.has(m.id)), inReach);
 }
 export const HUNT_EDGE = 32;
+/**
+ * #231 (the user's, 11-06: "Yes, limit to 64"): the hunt's reach is HUNT_HOME blocks from the storage hut, beds or not,
+ * in place of the built bounds + 32/48. Train 24's hunts fought 51-182 blocks out (median 126 / 94), in the dark among
+ * creepers and zombies, and all 24 calls-off followed those fights. Without a hut the old reach stays (huntReach).
+ */
+export const HUNT_HOME = 64;
+export function huntReachHome(home: { x: number; y: number; z: number }, band: SafetyBand | null, p: { x: number; y: number; z: number }, r = HUNT_HOME): boolean {
+  if (Math.hypot(p.x - home.x, p.z - home.z) > r || Math.abs(p.y - home.y) > 8) return false;
+  return !band || !pastBand(band, home, p.x, p.z);
+}
+/**
+ * The hunt's walk within HUNT_HOME: the ring's spots at most `r` - 8 from the hut (a mob seen from the spot is then in
+ * reach); fewer than 3 left (a village wider than the reach), a circle of radius `r` - 16 round the hut, a spot every ~`step`.
+ */
+export function huntSpotsHome(spots: Array<{ x: number; z: number }>, home: { x: number; z: number }, r = HUNT_HOME, step = 24): Array<{ x: number; z: number }> {
+  const near = spots.filter((q) => Math.hypot(q.x - home.x, q.z - home.z) <= r - 8);
+  if (near.length >= 3) return near;
+  const rad = r - 16, n = Math.max(6, Math.round((2 * Math.PI * rad) / step));
+  return Array.from({ length: n }, (_, k) => ({ x: Math.round(home.x + rad * Math.cos((2 * Math.PI * k) / n)), z: Math.round(home.z + rad * Math.sin((2 * Math.PI * k) / n)) }));
+}
 /** The longest hunt (wall minutes at 1x), and the longest the night's sleeper waits for hunters out (mcSurvivalB's hold). */
 export const HUNT_MIN = 4;
 export const huntMs = (): number => (HUNT_MIN * 60000) / Math.max(1, timeScale());
@@ -1444,6 +1464,8 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
   }
   let before = dropsCarried(a);
   const t = track(a);
+  // (#231: the walk keeps within the reach from the hut)
+  spots = huntSpotsHome(spots, home);
   let ended = 'until dawn', i = Math.floor(Math.random() * Math.max(1, spots.length));
   // (#218: a creeper beside the prey made melee give up at once and the loop went straight back to the same spider, 6.2M
   // log lines and a heap OOM; now the hunter steps away first, a prey given up 3 times is skipped, 6 creeper give-ups end
@@ -1472,11 +1494,12 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
         const e = a.bot.entities[m.id];
         if (e) seen.push({ ...m, x: e.position.x, y: e.position.y, z: e.position.z });
       }
-      const prey = huntPrey(seen, skip, focus, (m) => huntReach(bounds, home, band, m, edge));
+      const inReach = (m: Spotted) => huntReachHome(home, band, m);
+      const prey = huntPrey(seen, skip, focus, inReach);
       focus = prey && prey.id === focus ? focus : null;
       // (#217 step 6, the user's Q1: with a bow, a creeper in reach is shot from range (gunpowder home), and prey 6+ out)
       if (bowReady(a)) {
-        const inRange = (m: Spotted) => !skip.has(m.id) && !bowSkip.has(m.id) && m.dist >= MIN_RANGE && m.dist <= MAX_RANGE && huntReach(bounds, home, band, m, edge);
+        const inRange = (m: Spotted) => !skip.has(m.id) && !bowSkip.has(m.id) && m.dist >= MIN_RANGE && m.dist <= MAX_RANGE && inReach(m);
         const creeper = seen.filter((m) => m.name === 'creeper' && inRange(m)).sort((p, q) => p.dist - q.dist)[0];
         const tgt = creeper ?? (prey && inRange(prey) ? prey : undefined);
         const e = tgt && a.bot.entities[tgt.id];
@@ -1542,10 +1565,9 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
       // (#230: a band that came to hold since the start (the night ran on past NIGHT_RUNS_AFTER) puts the hunt on the inner
       // ring, its spots inside the band)
       if (band && pastBand(band, home, spots[i % spots.length].x, spots[i % spots.length].z)) {
-        const inner = huntRing(bounds).filter((p) => !pastBand(band, home, p.x, p.z));
+        const inner = huntSpotsHome(huntRing(bounds), home).filter((p) => !pastBand(band, home, p.x, p.z));
         if (inner.length && inner.length !== spots.length) {
           spots = inner;
-          edge = Math.min(edge, HUNT_EDGE);
           i = 0;
           continue;
         }
