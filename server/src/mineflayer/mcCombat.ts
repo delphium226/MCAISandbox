@@ -136,6 +136,31 @@ export function safeAhead(read: (p: Vec3) => Cell, p: Vec3): boolean {
   return false;
 }
 
+/**
+ * Whether the cell at `p` (feet level) stops a runner: a fence, wall or gate (1.5 high, no jump clears it), a full block at
+ * the head, or a full block at the feet with no 2 free cells above it (no step up). Train 23: 55 of 151 creeper flees
+ * ended hurt (up to 16 health off): the old steering ran straight away only, and stood still (`forward` off) while the
+ * cell ahead was unsafe, and pushed into fences and walls it could not jump.
+ */
+export function walled(read: (p: Vec3) => Cell, p: Vec3): boolean {
+  const tall = (c: Cell) => !!c && /_fence$|_fence_gate$|_wall$|^iron_bars$|_pane$/.test(c.name);
+  const solid = (c: Cell) => !!c && c.boundingBox === 'block';
+  const feet = read(p), head = read(p.offset(0, 1, 0));
+  if (tall(feet) || tall(read(p.offset(0, -1, 0))) || solid(head)) return true;
+  return solid(feet) && solid(read(p.offset(0, 2, 0)));
+}
+/** A runner may steer into the cell at `p`: not walled, and safe ground at it or one up (a step). */
+export const runnable = (read: (p: Vec3) => Cell, p: Vec3): boolean => !walled(read, p) && (safeAhead(read, p) || safeAhead(read, p.offset(0, 1, 0)));
+/** Headings to run on, away from a mob in direction (ux, uz) from it, best first: straight away, then 45 and 90 degrees off each side. */
+export function fleeHeadings(ux: number, uz: number): Array<{ x: number; z: number }> {
+  const out: Array<{ x: number; z: number }> = [];
+  for (const deg of [0, 45, -45, 90, -90]) {
+    const r = (deg * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
+    out.push({ x: ux * c - uz * s, z: ux * s + uz * c });
+  }
+  return out;
+}
+
 /** The best food to eat when hurt (health 12 or less, the bar not full): stage (b)'s order, its hunger mark lifted. */
 export function hurtBite(items: Record<string, number>, food: number, health: number): string | null {
   if (health > 12 || food >= 20) return null;
@@ -205,7 +230,7 @@ function track(a: BotAgent): Track {
 }
 
 /** The counts (status and report): kills by mob, flees, shelters, defends, swords taken, bites, fights given up. */
-export const combatCounts = { kills: {} as Record<string, number>, fights: 0, flees: 0, shelters: 0, defends: 0, swordsTaken: 0, bites: 0, gaveUp: 0, armed: 0, towerVisits: 0, towerReached: 0, watchSpots: 0, watchOutside: 0 };
+export const combatCounts = { kills: {} as Record<string, number>, huntsCalledOff: 0, fights: 0, flees: 0, shelters: 0, defends: 0, swordsTaken: 0, bites: 0, gaveUp: 0, armed: 0, towerVisits: 0, towerReached: 0, watchSpots: 0, watchOutside: 0 };
 
 /** Mob id -> the members fighting it (the 2-defender cap). */
 const defenders = new Map<number, Set<string>>();
@@ -289,8 +314,8 @@ function start(a: BotAgent, d: NonNullable<Decision>): void {
   const fn = async (signal: AbortSignal): Promise<string> => {
     if (d.kind === 'flee') {
       combatCounts.flees++;
-      await steerAway(a, mob, 4000, signal);
-      return `ran from a creeper (creepers explode)`;
+      const ran = await steerAway(a, mob, 4000, signal);
+      return `ran from a creeper (creepers explode; ${ran} blocks)`;
     }
     if (d.kind === 'shelter') return shelter(a, mob, signal);
     if (d.kind === 'defend') combatCounts.defends++;
@@ -298,6 +323,12 @@ function start(a: BotAgent, d: NonNullable<Decision>): void {
     if (r.low) {
       combatCounts.gaveUp++;
       return `${r.text}; health low, so ${await shelter(a, mob, signal)}`;
+    }
+    // (a creeper came within CREEPER_LEAVE in the fight: run from it now, not after the reflex ends and the next scan)
+    if (r.creeper && r.creeper.isValid !== false) {
+      combatCounts.flees++;
+      const ran = await steerAway(a, r.creeper, 4000, signal);
+      return `${r.text}; ran ${ran} blocks from it`;
     }
     await biteIfHurt(a);
     return r.text;
@@ -382,21 +413,47 @@ const readCell = (a: BotAgent) => (p: Vec3): Cell => {
   return b ? { name: b.name, boundingBox: b.boundingBox } : null;
 };
 
-/** Steer straight away from `mob` for `ms` (no A*; sprinting; stops at an unsafe cell ahead). */
-async function steerAway(a: BotAgent, mob: Entity, ms: number, signal: AbortSignal): Promise<void> {
+/**
+ * Steer away from `mob` for `ms` (no A*; sprinting): straight away, else 45 or 90 degrees off where that cell is walled or
+ * unsafe (fleeHeadings, runnable); a heading that made no ground in 600 ms is passed over for a second (a fence, a wall, a
+ * tree). Returns the blocks gained from the mob.
+ */
+async function steerAway(a: BotAgent, mob: Entity, ms: number, signal: AbortSignal): Promise<number> {
   const bot = a.bot;
   const read = readCell(a);
   const t0 = Date.now();
+  const d0 = bot.entity.position.distanceTo(mob.position);
+  let mark = { t: t0, p: bot.entity.position.clone() };
+  let banned = -1, bannedUntil = 0, last = -1;
   try {
     while (Date.now() - t0 < ms) {
       checkAbort(signal);
+      const now = Date.now();
       const p = bot.entity.position;
       const dx = p.x - mob.position.x, dz = p.z - mob.position.z;
       const len = Math.hypot(dx, dz) || 1;
-      const ux = dx / len, uz = dz / len;
-      await bot.look(Math.atan2(-ux, -uz), 0, true);
-      const ahead = new Vec3(Math.floor(p.x + ux), Math.floor(p.y), Math.floor(p.z + uz));
-      const ok = safeAhead(read, ahead) || safeAhead(read, ahead.offset(0, 1, 0));
+      // (no ground made: the heading under way is passed over for a second)
+      if (now - mark.t >= 600) {
+        if (last >= 0 && Math.hypot(p.x - mark.p.x, p.z - mark.p.z) < 0.6) {
+          banned = last;
+          bannedUntil = now + 1000;
+        }
+        mark = { t: now, p: p.clone() };
+      }
+      const heads = fleeHeadings(dx / len, dz / len);
+      let pick = -1;
+      for (let i = 0; i < heads.length; i++) {
+        if (i === banned && now < bannedUntil) continue;
+        const h = heads[i];
+        if (runnable(read, new Vec3(Math.floor(p.x + h.x), Math.floor(p.y), Math.floor(p.z + h.z)))) {
+          pick = i;
+          break;
+        }
+      }
+      last = pick;
+      const h = heads[pick >= 0 ? pick : 0];
+      await bot.look(Math.atan2(-h.x, -h.z), 0, true);
+      const ok = pick >= 0;
       bot.setControlState('forward', ok);
       bot.setControlState('sprint', ok);
       bot.setControlState('jump', ok && !!(bot.entity as unknown as { isCollidedHorizontally?: boolean }).isCollidedHorizontally);
@@ -405,8 +462,11 @@ async function steerAway(a: BotAgent, mob: Entity, ms: number, signal: AbortSign
   } finally {
     bot.clearControlStates();
   }
+  return Math.round(bot.entity.position.distanceTo(mob.position) - d0);
 }
 
+/** A fight is left when a creeper comes this close (its fuse lights at 3). */
+export const CREEPER_LEAVE = 5;
 /**
  * Fight `target` (spec 3): armour on, the best weapon to hand; over 5 blocks one GoalFollow; within 5 direct steering and
  * a hit below 3 blocks when the weapon's cooldown allows. Ends when the mob is gone (killed), past 24 blocks, after 30 s,
@@ -438,7 +498,8 @@ export async function melee(a: BotAgent, target: Entity, signal: AbortSignal, op
       lastPos = target.position.clone();
       if (Date.now() - t0 > (opts.capMs ?? 30000)) return { text: `the ${what} is still alive after ${Math.round((opts.capMs ?? 30000) / 1000)} s (${hits} hits)`, killed: false };
       if (opts.giveUpAt !== undefined && (bot.health ?? 20) <= opts.giveUpAt) return { text: `fought a ${what} (${hits} hits)`, killed: false, low: true };
-      const cr = mobsNear(a, t, bot.entity.position, 3).find((m) => m.name === 'creeper');
+      // (a creeper's fuse lights at 3 blocks: the fight is left at CREEPER_LEAVE, so the run starts before it)
+      const cr = mobsNear(a, t, bot.entity.position, CREEPER_LEAVE).find((m) => m.name === 'creeper');
       if (cr) return { text: `left the ${what}: a creeper came close`, killed: false, creeper: bot.entities[cr.id] };
       const p = bot.entity.position;
       const d = target.position.distanceTo(p);
@@ -1013,6 +1074,17 @@ export function huntStart(health: number): 'go' | 'heal' | 'no' {
   if (health > HUNT_HEALTH) return 'go';
   return health > HUNT_HEALTH - HUNT_SLACK ? 'heal' : 'no';
 }
+/**
+ * #231 (train 23): the hunt still failed at the start in 27 of 44 picks, at health 6-11, 1.3-4.6 min after the pick: a
+ * reflex (a creeper's blast as the member ran, the curfew's walk home, fights on the way) put the hunt back in the queue,
+ * and on its resume hunt_edge checked the start's health again and failed. Now a hunt at or under the start's floor is
+ * called off: the member goes to the storage hut and eats, and the chore ends done (no drops), not as a failure the
+ * chooser bans the hunt for. Its words, for the chore's end.
+ */
+export function huntCallOff(health: number, resumed: boolean, healed = false): string {
+  const why = resumed ? 'hurt on the way out' : healed ? 'still hurt after resting' : 'hurt before it began';
+  return `called off the hunt: health ${Math.round(health)}, ${why} (a hunt goes out above ${HUNT_HEALTH - HUNT_SLACK})`;
+}
 export const HUNT_EDGE = 32;
 /** The longest hunt (wall minutes at 1x), and the longest the night's sleeper waits for hunters out (mcSurvivalB's hold). */
 export const HUNT_MIN = 4;
@@ -1083,14 +1155,29 @@ const dropsCarried = (a: BotAgent): Record<string, number> => {
  * when none; melee (a give-up at HUNT_LOW), the drops walked over; with none in reach, on round the ring outside the bounds
  * (huntRing). Ends at dawn, after huntMs, or hurt; then the drops go to storage. The reflex still fights back meanwhile.
  */
-export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number }>, bounds: Box, bandOf: () => SafetyBand | null, signal: AbortSignal, edge = HUNT_EDGE): Promise<string> {
+export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number }>, bounds: Box, bandOf: () => SafetyBand | null, signal: AbortSignal, edge = HUNT_EDGE,
+  run?: { resumes?: number; firstStartedAt?: number }): Promise<string> {
   const v = a.village();
   const home = v?.storage?.chests[0];
   if (!v || !home) throw new Error('hunt_edge: not in a village with storage');
   if (!armedOf(a)) throw new Error('hunt_edge: no weapon (take a sword from storage first)');
+  const resumed = (run?.resumes ?? 0) > 0;
+  // (#231: hurt by the start, the hunt is called off: home to the hut and a bite, and the chore ends done)
+  const callOff = async (healed: boolean): Promise<string> => {
+    const hp = a.bot.health ?? 0;
+    const p = a.bot.entity.position;
+    if (Math.hypot(home.x - p.x, home.z - p.z) > 4) await walk(a, new goals.GoalNear(home.x, home.y, home.z, 3), 'the storage hut', signal, 60000).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+    await biteIfHurt(a);
+    combatCounts.huntsCalledOff++;
+    const text = huntCallOff(hp, resumed, healed);
+    console.log(`[hunt] ${a.name} ${v.name}: ${text}; at the storage hut, health ${Math.round(a.bot.health ?? 0)}`);
+    return `${text}; went to the storage hut to eat and heal`;
+  };
   // (#231: within HUNT_SLACK of the offer's health, a bite and the regeneration first; the hunt goes either way)
   const start = huntStart(a.bot.health ?? 20);
-  if (start === 'no') throw new Error(`hunt_edge: health ${Math.round(a.bot.health ?? 0)} (a hunt starts above ${HUNT_HEALTH - HUNT_SLACK}; eat and rest first)`);
+  if (start === 'no') return callOff(false);
   if (start === 'heal') {
     const hp0 = Math.round(a.bot.health ?? 0);
     const t1 = Date.now();
@@ -1101,9 +1188,10 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
       await sleep(1000, signal);
     }
     console.log(`[hunt] ${a.name} ${v.name}: health ${hp0} -> ${Math.round(a.bot.health ?? 0)} before the hunt (food ${Math.round(a.bot.food ?? 0)}, ${Math.round((Date.now() - t1) / 1000)} s)`);
-    if ((a.bot.health ?? 20) <= HUNT_LOW) throw new Error(`hunt_edge: health ${Math.round(a.bot.health ?? 0)} (hurt while getting ready)`);
+    if ((a.bot.health ?? 20) <= HUNT_LOW) return callOff(true);
   }
-  const t0 = Date.now();
+  // (the hunt's length from its first start: a reflex puts it back in the queue and it starts again)
+  const t0 = run?.firstStartedAt ?? Date.now();
   // (registered here, not at import: mcSurvivalB and this module import each other)
   setNightHold(huntHold);
   hunters.set(a.name, { village: v.name, since: t0 });
@@ -1289,6 +1377,7 @@ export const COMBAT_SKILLS = {
     },
   },
   hunt_edge: {
+    // (#231: the run's status, for its resumes and first start)
     async run(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
       const v = a.village();
       const bounds = v ? builtBounds(v) : null;
@@ -1298,7 +1387,7 @@ export const COMBAT_SKILLS = {
       return huntEdge(a, huntRings(bounds, wide), bounds, () => {
         const band = a.world.safetyBand(v);
         return band && curfewActs(a.bot.time?.timeOfDay, band.phase) ? band : null;
-      }, signal, wide ? HUNT_EDGE_BEDS : HUNT_EDGE);
+      }, signal, wide ? HUNT_EDGE_BEDS : HUNT_EDGE, a.runOf(_args));
     },
   },
 };
