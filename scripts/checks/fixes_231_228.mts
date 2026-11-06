@@ -69,5 +69,25 @@ await sec('creeper flee', () => {
   ok(C.CREEPER_LEAVE === 5, 'a fight is left with a creeper at 5 blocks (its fuse lights at 3)');
 });
 
+await sec('#228', () => {
+  const none = new Map<number, Set<string>>();
+  const me = (o: Partial<{ health: number; armed: boolean; hurtAgo: number; ranAgo: number; bow: boolean; mobs: Array<{ id: number; name: string; dist: number }> }>) =>
+    ({ health: 18, armed: true, hurtAgo: 99999, mobs: [], ...o });
+  const witch = { id: 7, name: 'witch', dist: 9 };
+  const f = C.decide(me({ mobs: [witch], hurtAgo: 500 }), [], none);
+  ok(f?.kind === 'fight' && f.ranged && f.mob.id === 7, 'hurt with a witch at 9 (Elena, #228): an armed member fights it');
+  const r = C.decide(me({ mobs: [witch], hurtAgo: 500, health: 8 }), [], none);
+  ok(r?.kind === 'shelter' && r.ranged, 'the same at health 8: runs out of range');
+  ok(C.decide(me({ mobs: [witch], hurtAgo: 500, health: 8, bow: true }), [], none)?.kind === 'fight', 'with a bow at health 8 and the witch 9 out: shoots');
+  ok(C.decide(me({ mobs: [witch], hurtAgo: 500, armed: false }), [], none)?.kind === 'shelter', 'unarmed: runs');
+  ok(C.decide(me({ mobs: [{ id: 8, name: 'skeleton', dist: 14 }], hurtAgo: 800 }), [], none)?.kind === 'fight', 'a skeleton at 14 that hurt it: fight');
+  ok(C.decide(me({ mobs: [{ id: 9, name: 'pillager', dist: 12 }], hurtAgo: 800 }), [], none)?.kind === 'fight', 'a pillager at 12: fight');
+  ok(C.decide(me({ mobs: [witch] }), [], none) === null, 'a witch near but no hurt: nothing');
+  ok(C.decide(me({ mobs: [{ id: 10, name: 'zombie', dist: 9 }], hurtAgo: 500 }), [], none) === null, 'a zombie at 9 is not a ranged attacker');
+  ok(C.decide(me({ mobs: [{ id: 11, name: 'skeleton', dist: 20 }], hurtAgo: 500 }), [], none) === null, 'a skeleton past 16: nothing');
+  const z = C.decide(me({ mobs: [witch, { id: 12, name: 'zombie', dist: 2 }], hurtAgo: 500 }), [], none);
+  ok(z?.kind === 'fight' && z.mob.id === 12 && !z.ranged, 'a zombie within 5 still comes first');
+});
+
 console.log(fails ? `${fails} FAILED` : 'all passed');
 process.exit(fails ? 1 : 0);

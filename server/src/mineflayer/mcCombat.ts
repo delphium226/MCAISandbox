@@ -80,10 +80,17 @@ export function armourToWear(carried: string[], worn: Partial<Record<ArmourDest,
 }
 
 export type Seen = { id: number; name: string; dist: number };
+/**
+ * #228: mobs that hurt from range (potions, arrows): a witch killed two members by day 58-61 blocks from home with no
+ * fight or flight, the reflex acting only on a mob within 5. Within RANGED_REACH of a member hurt in the last 3 s, with no
+ * other hostile within 5, the reflex shoots (a bow), closes and fights (armed, above RANGED_FIGHT), or runs.
+ */
+export const RANGED = new Set(['witch', 'skeleton', 'stray', 'bogged', 'pillager']);
+export const RANGED_REACH = 16, RANGED_FIGHT = 10;
 export type Decision =
   | { kind: 'flee'; mob: Seen }
-  | { kind: 'fight'; mob: Seen; cornered?: boolean }
-  | { kind: 'shelter'; mob: Seen }
+  | { kind: 'fight'; mob: Seen; cornered?: boolean; ranged?: boolean }
+  | { kind: 'shelter'; mob: Seen; ranged?: boolean }
   | { kind: 'defend'; mob: Seen; member: string }
   | null;
 
@@ -95,7 +102,7 @@ export type Decision =
  * armed member above 12 health defends a member within 8 blocks who was hurt in the last 3 s with a hostile within 5 of
  * them, unless 2 already defend against that mob.
  */
-export function decide(me: { health: number; armed: boolean; hurtAgo: number; mobs: Seen[]; swordNear?: boolean; ranAgo?: number },
+export function decide(me: { health: number; armed: boolean; hurtAgo: number; mobs: Seen[]; swordNear?: boolean; ranAgo?: number; bow?: boolean },
   members: Array<{ name: string; dist: number; hurtAgo: number; mobs: Seen[] }>, defenders: ReadonlyMap<number, ReadonlySet<string>>, reach = 8): Decision {
   const near = [...me.mobs].sort((p, q) => p.dist - q.dist);
   const creeper = near.find((m) => m.name === 'creeper' && m.dist < 5);
@@ -107,6 +114,13 @@ export function decide(me: { health: number; armed: boolean; hurtAgo: number; mo
     if (!me.armed && me.swordNear && mayRun) return { kind: 'shelter', mob: close };
     if (!me.armed && me.health > 10) return { kind: 'fight', mob: close };
     return mayRun ? { kind: 'shelter', mob: close } : { kind: 'fight', mob: close, cornered: true };
+  }
+  // (#228: hurt from range: the nearest witch, skeleton or pillager within RANGED_REACH)
+  const ranged = near.find((m) => RANGED.has(m.name) && m.dist <= RANGED_REACH);
+  if (ranged && me.hurtAgo < 3000) {
+    const bowShot = !!me.bow && ranged.dist >= MIN_RANGE && me.health > 6;
+    if (bowShot || (me.armed && me.health > RANGED_FIGHT)) return { kind: 'fight', mob: ranged, ranged: true };
+    if ((me.ranAgo ?? Infinity) >= 5000) return { kind: 'shelter', mob: ranged, ranged: true };
   }
   if (!me.armed || me.health <= 12) return null;
   for (const o of [...members].sort((p, q) => p.dist - q.dist)) {
@@ -230,7 +244,7 @@ function track(a: BotAgent): Track {
 }
 
 /** The counts (status and report): kills by mob, flees, shelters, defends, swords taken, bites, fights given up. */
-export const combatCounts = { kills: {} as Record<string, number>, huntsCalledOff: 0, fights: 0, flees: 0, shelters: 0, defends: 0, swordsTaken: 0, bites: 0, gaveUp: 0, armed: 0, towerVisits: 0, towerReached: 0, watchSpots: 0, watchOutside: 0 };
+export const combatCounts = { kills: {} as Record<string, number>, huntsCalledOff: 0, rangedFights: 0, rangedRuns: 0, fights: 0, flees: 0, shelters: 0, defends: 0, swordsTaken: 0, bites: 0, gaveUp: 0, armed: 0, towerVisits: 0, towerReached: 0, watchSpots: 0, watchOutside: 0 };
 
 /** Mob id -> the members fighting it (the 2-defender cap). */
 const defenders = new Map<number, Set<string>>();
@@ -288,7 +302,7 @@ export function combatTick(a: BotAgent): void {
     members.push({ name: o.name, dist: d, hurtAgo: now - ot.hurtAt, mobs: mobsNear(a, t, o.bot.entity.position, 5) });
   }
   const armed = armedOf(a);
-  const d = decide({ health: hp, armed, hurtAgo: now - t.hurtAt, mobs: mine.filter((m) => m.dist <= 16), swordNear: !armed && swordNear(a), ranAgo: now - t.ranAt }, members, defenders, reach);
+  const d = decide({ health: hp, armed, hurtAgo: now - t.hurtAt, mobs: mine.filter((m) => m.dist <= 16), swordNear: !armed && swordNear(a), ranAgo: now - t.ranAt, bow: bowReady(a) }, members, defenders, reach);
   if (!d) return;
   if (d.kind === 'shelter') t.ranAt = now;
   start(a, d);
@@ -317,28 +331,46 @@ function start(a: BotAgent, d: NonNullable<Decision>): void {
       const ran = await steerAway(a, mob, 4000, signal);
       return `ran from a creeper (creepers explode; ${ran} blocks)`;
     }
-    if (d.kind === 'shelter') return shelter(a, mob, signal);
+    if (d.kind === 'shelter') {
+      if (d.ranged) {
+        // (#228: out of the witch's or the archer's range, toward home when the hut is near)
+        combatCounts.rangedRuns++;
+        return `${await shelter(a, mob, signal)} (out of the ${what}'s range)`;
+      }
+      return shelter(a, mob, signal);
+    }
     if (d.kind === 'defend') combatCounts.defends++;
+    let pre = '';
+    if (d.kind === 'fight' && d.ranged) {
+      combatCounts.rangedFights++;
+      // (#228: a bow shoots it first; then the sword closes on it, melee's walk beyond 5 blocks)
+      if (bowReady(a) && mob.position.distanceTo(a.bot.entity.position) >= MIN_RANGE) {
+        const s = await shootDown(a, mob, signal, 6);
+        if (s.killed) return s.text;
+        pre = `${s.text}; `;
+      }
+      if (!armedOf(a) || !a.bot.entities[mob.id] || mob.isValid === false) return `${pre}the ${what} is out of reach`;
+    }
     const r = await melee(a, mob, signal, d.kind === 'fight' && d.cornered ? {} : { giveUpAt: 6 });
     if (r.low) {
       combatCounts.gaveUp++;
-      return `${r.text}; health low, so ${await shelter(a, mob, signal)}`;
+      return `${pre}${r.text}; health low, so ${await shelter(a, mob, signal)}`;
     }
     // (a creeper came within CREEPER_LEAVE in the fight: run from it now, not after the reflex ends and the next scan)
     if (r.creeper && r.creeper.isValid !== false) {
       combatCounts.flees++;
       const ran = await steerAway(a, r.creeper, 4000, signal);
-      return `${r.text}; ran ${ran} blocks from it`;
+      return `${pre}${r.text}; ran ${ran} blocks from it`;
     }
     await biteIfHurt(a);
-    return r.text;
+    return `${pre}${r.text}`;
   };
   if (d.kind === 'defend') {
     const s = defenders.get(d.mob.id) ?? new Set<string>();
     s.add(a.name);
     defenders.set(d.mob.id, s);
     why = `came to ${d.member}'s help against a ${what}`;
-  } else why = d.kind === 'flee' ? `a creeper came close` : `a ${what} attacked you${d.kind === 'fight' && !armedOf(a) ? ' (no weapon: fists)' : ''}`;
+  } else why = d.kind === 'flee' ? `a creeper came close` : d.ranged ? `a ${what} hurt you from range` : `a ${what} attacked you${d.kind === 'fight' && !armedOf(a) ? ' (no weapon: fists)' : ''}`;
   const release = () => {
     const s = defenders.get(d.mob.id);
     if (s) { s.delete(a.name); if (!s.size) defenders.delete(d.mob.id); }
