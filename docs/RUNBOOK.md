@@ -442,6 +442,11 @@ reset_site.py on a locked world only warns. CLI: `scripts/goal_map.mts catalogue
   on train 23's village (`scripts/bench/chatbench_fixture.json`), N times each (`N`, default 5; `CONC` 2; `ONLY=regex`;
   `JUDGE=0` rules only; `PEEK=1`; `DRY=1` routing and prompts only), and prints a scorecard per category (combat,
   gathering, exploring, building, talk); results in `runs/<date>/chat-tests/`. ~270 calls, ~0.3M tokens at N 5.
+  The live tier: `python scripts/run_series.py scripts/series/chat_live.json --detach` (world 4, w217_ring, 12 members,
+  hostile, 1x), then `python scripts/chat_live.py --world 4 [--only REGEX]` (sets the time, health and monsters per case,
+  says the line through `/api/say`, waits for answers and promised chores; ~20 min for 33 cases) and it runs
+  `scripts/bench/chatlive_score.mts LIVE.json` (bench rules and judge on the recorded talk prompts); stop with
+  `python scripts/runctl.py stop 4` and `python scripts/stack.py down test4`.
 
 ## Members' proposals and their triage (G5, goal 3; 2026-10-22)
 

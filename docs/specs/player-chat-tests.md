@@ -124,10 +124,16 @@ Each case runs N times (5 to start). A sample passes when all of these hold:
 The scorecard gives, per category, samples passed, cases passing every sample, routes right and the commonest failure;
 then the weakest category and the failures by cause.
 
-## The live tier (later)
+## The live tier (built, F361)
 
-A script on a test world from a checkpoint (`w217_ring` for combat), setting each case's situation (time with
-`time set`, health with `effect`, the person's position, a monster summoned where the line says), saying the line as
-SausageOfDoom4 (`POST /api/.../say`), then reading the member's `[talk]` lines and its next `choice-end` (did the promised
-chore run, did a refusal hold, did a "keep away" member stay away) within a few minutes. Its scorecard adds "did what it
-said" to the offline tier's "said the right thing".
+`scripts/chat_live.py` on a test world from `w217_ring` (train 23's C1 setup: `scripts/series/chat_live.json`, started
+detached first) says each line as SausageOfDoom4 through `POST /api/say` with the person's position (no `to`: routed as
+in the game; `pos` now stands in for an offline person's place in routing too), after setting what the world can set:
+the time (`time set`), a member's health (`damage`, natural regeneration off for the case), monsters summoned where the
+line says (tagged `chatlive`, killed after), a member moved (`spreadplayers`). It reads the answers from the request
+ledger, waits for a promise's chore to start (`ran`), and at the end for open promises to be kept or broken.
+`scripts/bench/chatlive_score.mts` then scores each reply with the bench's own rules and judge on the talk prompt the
+member really saw (its recorded call in `runs/model-calls/`), with the prompt taken as the truth; its scorecard adds
+routed, replied and "did what it said" (a promise's chore started), and counts a refusal right when no chore the case
+expects is on the member's live list (the bench-strict column does not). What it does not set: the empty pen, the wall's
+gap, last night's toll, what members carry (the checkpoint's own), monsters near now (not in the talk prompt).

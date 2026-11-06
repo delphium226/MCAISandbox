@@ -1995,11 +1995,11 @@ export class MineflayerWorld implements WorldAdapter {
    * and in range. Wakes are capped per speaker and listener (agents 2, humans 20 in 5 minutes): past it the line arrives
    * without one. Server lines (say, no player) reach every agent and wake none.
    */
-  private async routeChat(from: string, text: string) {
+  private async routeChat(from: string, text: string, at?: Vec3) {
     const listeners = [...this.agents.values()].filter((a) => a.name.toLowerCase() !== from.toLowerCase());
     if (!listeners.length) return;
     const human = !this.isAgent(from);
-    const pos = await this.speakerAt(from);
+    const pos = at ?? (await this.speakerAt(from));
     if (human && !pos && (/^(Server|Rcon)$/.test(from) || !/^[A-Za-z0-9_]{1,16}$/.test(from))) {
       for (const a of listeners) a.pushEvent('chat', `<${from}> ${text}`, { from, text });
       return;
@@ -6756,7 +6756,9 @@ export class MineflayerWorld implements WorldAdapter {
     this.spoken.set(`${from}\u0000${line}`, Date.now());
     void this.rcon.command(`tellraw @a ${JSON.stringify({ text: `<${from}> ${line}` })}`).catch(() => {});
     if (!a) {
-      this.chatQueue = this.chatQueue.then(() => this.routeChat(from, line)).catch((e: unknown) => console.error('[chat] routing failed:', e));
+      // (#233's live tier: `pos` stands for a person not in the game, so "the nearest member" routes from there)
+      const where = at ? new Vec3(at.x, at.y, at.z) : undefined;
+      this.chatQueue = this.chatQueue.then(() => this.routeChat(from, line, where)).catch((e: unknown) => console.error('[chat] routing failed:', e));
       return { ok: true };
     }
     const pos = at ? new Vec3(at.x, at.y, at.z) : await this.speakerAt(from);

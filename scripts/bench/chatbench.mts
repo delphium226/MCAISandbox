@@ -51,7 +51,7 @@ const WORKS: WorkOffer[] = FX.works.map((w) => ({ ...w, biome: w.id.split('_')[0
 type Cat = 'combat' | 'gathering' | 'exploring' | 'building' | 'talk';
 type Time = 'day' | 'dusk' | 'night';
 interface Exp { kind: Respond['kind']; option?: RegExp; work?: RegExp }
-interface Case {
+export interface Case {
   id: string; cat: Cat; line: string;
   /** Who should answer (all of them: a line naming two wants both). */
   to: string[];
@@ -84,7 +84,7 @@ const CHAT: Exp = { kind: 'chat' }, REFUSE: Exp = { kind: 'refuse' }, FORWARD: E
 const FROM_FACTS = 'Its prompt gives these facts under "What you know now": stating them passes, as does saying it does not know; any count, name, place or state it gives that its prompt does not hold fails (even a lucky guess).';
 const NOT_KNOWN = 'Its context does not hold these facts: saying it does not know, or offering to find out with a chore it has, passes; any count, name, place or state it gives as fact fails (even a lucky guess).';
 
-const CASES: Case[] = [
+export const CASES: Case[] = [
   // combat and danger
   { id: 'combat.zombie', cat: 'combat', line: "Kai, there's a zombie by the north gate. Can you deal with it?", to: ['Kai'], time: 'dusk',
     truth: 'Dusk. A zombie stands at the north gate, ~35 blocks from Kai, who is at home with a stone sword and a bow at 20/20 health. Members fight monsters only when attacked (the reflex) or on the night watch, which walks the lamps and the village edge and fights monsters inside the village.',
@@ -290,8 +290,8 @@ const ACT_CLAIM = /\b(on my way|heading (over|there|out|that way|to)|i'?m (comin
 const NUM_WORDS: Record<string, string> = { two: '2', three: '3', four: '4', five: '5', six: '6', seven: '7', eight: '8', nine: '9', ten: '10', eleven: '11', twelve: '12', thirteen: '13', fourteen: '14', fifteen: '15', twenty: '20', thirty: '30', forty: '40', fifty: '50', hundred: '100' };
 const numbersIn = (s: string) => new Set([...(s.match(/\d+/g) ?? []), ...((s.toLowerCase().match(/\b[a-z]+\b/g) ?? []).map((w) => NUM_WORDS[w]).filter(Boolean))]);
 
-interface Verdict { pass: boolean; fail?: string; detail?: string }
-function rules(c: Case, agent: string, p: Respond | null, options: Array<{ id: string; name: string }>, user: string): Verdict {
+export interface Verdict { pass: boolean; fail?: string; detail?: string }
+export function rules(c: Case, agent: string, p: Respond | null, options: Array<{ id: string; name: string }>, user: string): Verdict {
   if (!p) return { pass: false, fail: 'no reply' };
   const text = `${p.say} ${p.reason ?? ''}`;
   if (p.kind === 'promise' && !options.some((o) => o.id === p.option)) return { pass: false, fail: 'promise off the chores list', detail: p.option };
@@ -313,7 +313,7 @@ function rules(c: Case, agent: string, p: Respond | null, options: Array<{ id: s
 const JUDGE_SYSTEM = `You grade one reply of a member of a Minecraft village (run by a language model) to a human player. You get the true situation (which the member may not see), what the member's prompt showed it, the player's line, the reply, and what to check. Fail the reply when it states as fact something false by the true situation, or a specific fact (a number, a name, a place, a distance, an event, what it is doing now) that neither its prompt nor the player's line gave it; or when it says it will do something that its reply's kind and chore do not carry (only a promise of a chore makes the member act; a forward passes the request to the Mayor, so "I'll ask the Mayor" is true; chat and refusals make it do nothing else). Friendly words, opinions and general remarks are fine. Answer with the grade tool.`;
 const JUDGE_TOOL = { name: 'grade', description: 'The grade.', input_schema: { type: 'object', properties: { pass: { type: 'boolean' }, why: { type: 'string', description: 'One sentence: what fails, or why it passes.' } }, required: ['pass', 'why'] } };
 
-async function judge(c: Case, user: string, p: Respond, options: Array<{ id: string; name: string }>): Promise<{ v: Verdict; r: ChatResult }> {
+export async function judge(c: Case, user: string, p: Respond, options: Array<{ id: string; name: string }>): Promise<{ v: Verdict; r: ChatResult }> {
   const chore = p.option ? options.find((o) => o.id === p.option)?.name ?? p.option : '';
   const reply = `kind=${p.kind}${chore ? `, chore: ${chore}` : ''}${p.work ? `, work=${p.work}` : ''}${p.reason ? `, reason: "${p.reason}"` : ''}; says: "${p.say}"`;
   const u = `The true situation:\n${c.truth}\n\nWhat the member's prompt showed it:\n<<<\n${user}\n>>>\n\nThe player said: "${c.line}"\n\nThe reply: ${reply}\n\nWhat to check: ${c.judge ?? 'nothing beyond the general rule.'}${c.claimOk ? ' Here code does carry the act the line asks for (see the true situation), so saying it will do it is true.' : ''}`;
@@ -326,7 +326,7 @@ async function judge(c: Case, user: string, p: Respond, options: Array<{ id: str
 
 // ---- calls (retried on a busy cloud: the test trains share it) ------------------------------------------------------
 
-const tokens = { prompt: 0, out: 0, calls: 0, errors: 0 };
+export const tokens = { prompt: 0, out: 0, calls: 0, errors: 0 };
 async function call(system: string, user: string, tools: any[], kind: 'talk' | 'reflect'): Promise<ChatResult> {
   let r: ChatResult | undefined;
   for (let i = 0; i < 4; i++) {
@@ -352,82 +352,86 @@ async function pool<T>(jobs: Array<() => Promise<T>>, conc: number): Promise<T[]
   return out;
 }
 
-// ---- the run ----------------------------------------------------------------------------------------------------------
+// ---- the run (only when this file is run, not when the live tier, scripts/chat_live.py's scorer, imports its cases and
+// rules) --------------------------------------------------------------------------------------------------------------
 
-const cases = CASES.filter((c) => !process.env.ONLY || new RegExp(process.env.ONLY, 'i').test(`${c.id} ${c.cat}`));
-header('chatbench', MODEL, ['talk', 'reflect']);
-console.log(`${cases.length} cases, N ${N}, CONC ${CONC}, judge ${JUDGE ? 'on' : 'off'}${DRY ? ', DRY' : ''}`);
+const MAIN = !!process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (MAIN) {
+  const cases = CASES.filter((c) => !process.env.ONLY || new RegExp(process.env.ONLY, 'i').test(`${c.id} ${c.cat}`));
+  header('chatbench', MODEL, ['talk', 'reflect']);
+  console.log(`${cases.length} cases, N ${N}, CONC ${CONC}, judge ${JUDGE ? 'on' : 'off'}${DRY ? ', DRY' : ''}`);
 
-interface Sample { i: number; ok: boolean; kind?: string; option?: string; work?: string; say?: string; reason?: string; verdict: Verdict; reply?: Verdict; raw?: string }
-interface Result { id: string; cat: Cat; line: string; to: string[]; answered: string[]; routeOk: boolean; agent: string; promptHash: string; samples: Sample[] }
-const results: Result[] = [];
+  interface Sample { i: number; ok: boolean; kind?: string; option?: string; work?: string; say?: string; reason?: string; verdict: Verdict; reply?: Verdict; raw?: string }
+  interface Result { id: string; cat: Cat; line: string; to: string[]; answered: string[]; routeOk: boolean; agent: string; promptHash: string; samples: Sample[] }
+  const results: Result[] = [];
 
-for (const c of cases) {
-  const answered = await routed(c);
-  const routeOk = answered.length === c.to.length && c.to.every((n) => answered.includes(n));
-  // (the talk call goes to who the routing picked, as live; a route that reached nobody is scored on the first named)
-  const agent = answered[0] ?? c.to[0];
-  const pr = promptFor(c, agent);
-  const promptHash = crypto.createHash('sha1').update(pr.user).digest('hex').slice(0, 10);
-  if (DRY) {
-    console.log(`\n--- ${c.id}: "${c.line}" -> ${answered.join(', ') || 'nobody'} (wanted ${c.to.join(', ')})${routeOk ? '' : ' ROUTE FAIL'}\n${PEEK ? pr.user : `${pr.user.split('\n').length} lines, ${pr.options.length} chores`}`);
-    results.push({ id: c.id, cat: c.cat, line: c.line, to: c.to, answered, routeOk, agent, promptHash, samples: [] });
-    continue;
+  for (const c of cases) {
+    const answered = await routed(c);
+    const routeOk = answered.length === c.to.length && c.to.every((n) => answered.includes(n));
+    // (the talk call goes to who the routing picked, as live; a route that reached nobody is scored on the first named)
+    const agent = answered[0] ?? c.to[0];
+    const pr = promptFor(c, agent);
+    const promptHash = crypto.createHash('sha1').update(pr.user).digest('hex').slice(0, 10);
+    if (DRY) {
+      console.log(`\n--- ${c.id}: "${c.line}" -> ${answered.join(', ') || 'nobody'} (wanted ${c.to.join(', ')})${routeOk ? '' : ' ROUTE FAIL'}\n${PEEK ? pr.user : `${pr.user.split('\n').length} lines, ${pr.options.length} chores`}`);
+      results.push({ id: c.id, cat: c.cat, line: c.line, to: c.to, answered, routeOk, agent, promptHash, samples: [] });
+      continue;
+    }
+    const samples = await pool(Array.from({ length: N }, (_, i) => async (): Promise<Sample> => {
+      const r = await call(pr.system, pr.user, [pr.tool], 'talk');
+      if (!r.ok) return { i, ok: false, verdict: { pass: false, fail: 'model error', detail: r.error } };
+      const p = parseRespond({ calls: r.calls, text: r.text }, pr.role);
+      // (the reply is scored whenever one of those named answered, so a route that drops the second still shows the first's
+      // reply; the case passes only when the route is right too)
+      let v: Verdict = c.to.includes(agent) ? rules(c, agent, p, pr.options, pr.user) : { pass: false, fail: 'answered by another' };
+      // (the judge only where the rules pass: a reply already wrong costs no second call)
+      if (v.pass && JUDGE && p && (c.judge || p.kind === 'chat' || p.kind === 'refuse')) v = (await judge(c, pr.user, p, pr.options)).v;
+      const reply = v;
+      if (!routeOk) v = { pass: false, fail: 'routing', detail: `${answered.join(', ') || 'nobody'} answered, not ${c.to.join(' and ')}; the reply ${reply.pass ? 'passed' : `failed: ${reply.fail}`}` };
+      const raw = JSON.stringify(r.calls.length ? r.calls : r.text).slice(0, 400);
+      return { i, ok: true, kind: p?.kind, option: p?.option, work: p?.work, say: p?.say, reason: p?.reason, verdict: v, reply, raw };
+    }), CONC);
+    results.push({ id: c.id, cat: c.cat, line: c.line, to: c.to, answered, routeOk, agent, promptHash, samples });
+    const pass = samples.filter((s) => s.verdict.pass).length;
+    const kinds = new Map<string, number>();
+    for (const s of samples) kinds.set(`${s.kind ?? 'error'}${s.option ? ` ${s.option}` : ''}${s.work ? ` ${s.work}` : ''}`, (kinds.get(`${s.kind ?? 'error'}${s.option ? ` ${s.option}` : ''}${s.work ? ` ${s.work}` : ''}`) ?? 0) + 1);
+    const replyOk = routeOk ? '' : `; the reply alone ${samples.filter((s) => s.reply?.pass).length}/${samples.length}`;
+    console.log(`${pass === samples.length ? 'PASS' : pass ? 'part' : 'FAIL'} ${c.id} (${agent}${routeOk ? '' : `; wanted ${c.to.join('+')}`}): ${pass}/${samples.length}${replyOk}; ${[...kinds].map(([k, n]) => `${n} ${k}`).join(', ')}`);
+    for (const s of samples) {
+      if (PEEK) console.log(`    ${s.verdict.pass ? 'ok  ' : 'FAIL'} ${s.raw}${s.verdict.detail ? `\n         judge/rule: ${s.verdict.fail ?? ''} ${s.verdict.detail}` : ''}`);
+      else if (!s.verdict.pass) console.log(`    FAIL ${s.verdict.fail}${s.verdict.detail ? ` (${s.verdict.detail.slice(0, 160)})` : ''}: ${s.kind ?? ''}${s.option ? ` ${s.option}` : ''} "${(s.say ?? '').slice(0, 140)}"${s.reason ? ` reason "${s.reason.slice(0, 100)}"` : ''}`);
+    }
   }
-  const samples = await pool(Array.from({ length: N }, (_, i) => async (): Promise<Sample> => {
-    const r = await call(pr.system, pr.user, [pr.tool], 'talk');
-    if (!r.ok) return { i, ok: false, verdict: { pass: false, fail: 'model error', detail: r.error } };
-    const p = parseRespond({ calls: r.calls, text: r.text }, pr.role);
-    // (the reply is scored whenever one of those named answered, so a route that drops the second still shows the first's
-    // reply; the case passes only when the route is right too)
-    let v: Verdict = c.to.includes(agent) ? rules(c, agent, p, pr.options, pr.user) : { pass: false, fail: 'answered by another' };
-    // (the judge only where the rules pass: a reply already wrong costs no second call)
-    if (v.pass && JUDGE && p && (c.judge || p.kind === 'chat' || p.kind === 'refuse')) v = (await judge(c, pr.user, p, pr.options)).v;
-    const reply = v;
-    if (!routeOk) v = { pass: false, fail: 'routing', detail: `${answered.join(', ') || 'nobody'} answered, not ${c.to.join(' and ')}; the reply ${reply.pass ? 'passed' : `failed: ${reply.fail}`}` };
-    const raw = JSON.stringify(r.calls.length ? r.calls : r.text).slice(0, 400);
-    return { i, ok: true, kind: p?.kind, option: p?.option, work: p?.work, say: p?.say, reason: p?.reason, verdict: v, reply, raw };
-  }), CONC);
-  results.push({ id: c.id, cat: c.cat, line: c.line, to: c.to, answered, routeOk, agent, promptHash, samples });
-  const pass = samples.filter((s) => s.verdict.pass).length;
-  const kinds = new Map<string, number>();
-  for (const s of samples) kinds.set(`${s.kind ?? 'error'}${s.option ? ` ${s.option}` : ''}${s.work ? ` ${s.work}` : ''}`, (kinds.get(`${s.kind ?? 'error'}${s.option ? ` ${s.option}` : ''}${s.work ? ` ${s.work}` : ''}`) ?? 0) + 1);
-  const replyOk = routeOk ? '' : `; the reply alone ${samples.filter((s) => s.reply?.pass).length}/${samples.length}`;
-  console.log(`${pass === samples.length ? 'PASS' : pass ? 'part' : 'FAIL'} ${c.id} (${agent}${routeOk ? '' : `; wanted ${c.to.join('+')}`}): ${pass}/${samples.length}${replyOk}; ${[...kinds].map(([k, n]) => `${n} ${k}`).join(', ')}`);
-  for (const s of samples) {
-    if (PEEK) console.log(`    ${s.verdict.pass ? 'ok  ' : 'FAIL'} ${s.raw}${s.verdict.detail ? `\n         judge/rule: ${s.verdict.fail ?? ''} ${s.verdict.detail}` : ''}`);
-    else if (!s.verdict.pass) console.log(`    FAIL ${s.verdict.fail}${s.verdict.detail ? ` (${s.verdict.detail.slice(0, 160)})` : ''}: ${s.kind ?? ''}${s.option ? ` ${s.option}` : ''} "${(s.say ?? '').slice(0, 140)}"${s.reason ? ` reason "${s.reason.slice(0, 100)}"` : ''}`);
+
+  // ---- the scorecard ----------------------------------------------------------------------------------------------------
+
+  if (!DRY) {
+    const CATS: Cat[] = ['combat', 'gathering', 'exploring', 'building', 'talk'];
+    const causes = new Map<string, number>();
+    const fails = (r: Result) => r.samples.filter((s) => !s.verdict.pass);
+    for (const r of results) for (const s of fails(r)) causes.set(s.verdict.fail ?? '?', (causes.get(s.verdict.fail ?? '?') ?? 0) + 1);
+    console.log(`\n=== scorecard (${MODEL}, N ${N}, judge ${JUDGE ? 'on' : 'off'})`);
+    console.log('category    samples passed  cases all-pass  routing  commonest failure');
+    const rows: Array<{ cat: Cat; rate: number }> = [];
+    for (const cat of CATS) {
+      const rs = results.filter((r) => r.cat === cat);
+      if (!rs.length) continue;
+      const n = rs.reduce((t, r) => t + r.samples.length, 0), ok = rs.reduce((t, r) => t + r.samples.filter((s) => s.verdict.pass).length, 0);
+      const cc = new Map<string, number>();
+      for (const r of rs) for (const s of fails(r)) cc.set(s.verdict.fail ?? '?', (cc.get(s.verdict.fail ?? '?') ?? 0) + 1);
+      const top = [...cc].sort((a, b) => b[1] - a[1])[0];
+      rows.push({ cat, rate: ok / Math.max(1, n) });
+      console.log(`${cat.padEnd(11)} ${String(ok).padStart(3)}/${String(n).padEnd(3)} ${String(Math.round((100 * ok) / Math.max(1, n))).padStart(3)}%  ${String(rs.filter((r) => r.samples.length && r.samples.every((s) => s.verdict.pass)).length).padStart(2)}/${String(rs.length).padEnd(2)}         ${String(rs.filter((r) => r.routeOk).length).padStart(2)}/${String(rs.length).padEnd(2)}    ${top ? `${top[0]} (${top[1]})` : '-'}`);
+    }
+    const n = results.reduce((t, r) => t + r.samples.length, 0), ok = results.reduce((t, r) => t + r.samples.filter((s) => s.verdict.pass).length, 0);
+    console.log(`${'all'.padEnd(11)} ${String(ok).padStart(3)}/${String(n).padEnd(3)} ${String(Math.round((100 * ok) / Math.max(1, n))).padStart(3)}%`);
+    const weakest = [...rows].sort((a, b) => a.rate - b.rate)[0];
+    console.log(`weakest: ${weakest?.cat ?? '-'}; failures by cause: ${[...causes].sort((a, b) => b[1] - a[1]).map(([k, q]) => `${k} ${q}`).join('; ')}`);
+    console.log(`calls ${tokens.calls} (errors ${tokens.errors}), tokens ${tokens.prompt} prompt + ${tokens.out} output`);
+    fs.mkdirSync(OUT, { recursive: true });
+    const file = path.join(OUT, `chatbench-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.json`);
+    fs.writeFileSync(file, JSON.stringify({ model: MODEL, n: N, judge: JUDGE, at: new Date().toISOString(), tokens, results }, null, 1));
+    console.log(`wrote ${path.relative(ROOT, file)}`);
   }
+  process.exit(0);
 }
-
-// ---- the scorecard ----------------------------------------------------------------------------------------------------
-
-if (!DRY) {
-  const CATS: Cat[] = ['combat', 'gathering', 'exploring', 'building', 'talk'];
-  const causes = new Map<string, number>();
-  const fails = (r: Result) => r.samples.filter((s) => !s.verdict.pass);
-  for (const r of results) for (const s of fails(r)) causes.set(s.verdict.fail ?? '?', (causes.get(s.verdict.fail ?? '?') ?? 0) + 1);
-  console.log(`\n=== scorecard (${MODEL}, N ${N}, judge ${JUDGE ? 'on' : 'off'})`);
-  console.log('category    samples passed  cases all-pass  routing  commonest failure');
-  const rows: Array<{ cat: Cat; rate: number }> = [];
-  for (const cat of CATS) {
-    const rs = results.filter((r) => r.cat === cat);
-    if (!rs.length) continue;
-    const n = rs.reduce((t, r) => t + r.samples.length, 0), ok = rs.reduce((t, r) => t + r.samples.filter((s) => s.verdict.pass).length, 0);
-    const cc = new Map<string, number>();
-    for (const r of rs) for (const s of fails(r)) cc.set(s.verdict.fail ?? '?', (cc.get(s.verdict.fail ?? '?') ?? 0) + 1);
-    const top = [...cc].sort((a, b) => b[1] - a[1])[0];
-    rows.push({ cat, rate: ok / Math.max(1, n) });
-    console.log(`${cat.padEnd(11)} ${String(ok).padStart(3)}/${String(n).padEnd(3)} ${String(Math.round((100 * ok) / Math.max(1, n))).padStart(3)}%  ${String(rs.filter((r) => r.samples.length && r.samples.every((s) => s.verdict.pass)).length).padStart(2)}/${String(rs.length).padEnd(2)}         ${String(rs.filter((r) => r.routeOk).length).padStart(2)}/${String(rs.length).padEnd(2)}    ${top ? `${top[0]} (${top[1]})` : '-'}`);
-  }
-  const n = results.reduce((t, r) => t + r.samples.length, 0), ok = results.reduce((t, r) => t + r.samples.filter((s) => s.verdict.pass).length, 0);
-  console.log(`${'all'.padEnd(11)} ${String(ok).padStart(3)}/${String(n).padEnd(3)} ${String(Math.round((100 * ok) / Math.max(1, n))).padStart(3)}%`);
-  const weakest = [...rows].sort((a, b) => a.rate - b.rate)[0];
-  console.log(`weakest: ${weakest?.cat ?? '-'}; failures by cause: ${[...causes].sort((a, b) => b[1] - a[1]).map(([k, q]) => `${k} ${q}`).join('; ')}`);
-  console.log(`calls ${tokens.calls} (errors ${tokens.errors}), tokens ${tokens.prompt} prompt + ${tokens.out} output`);
-  fs.mkdirSync(OUT, { recursive: true });
-  const file = path.join(OUT, `chatbench-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.json`);
-  fs.writeFileSync(file, JSON.stringify({ model: MODEL, n: N, judge: JUDGE, at: new Date().toISOString(), tokens, results }, null, 1));
-  console.log(`wrote ${path.relative(ROOT, file)}`);
-}
-process.exit(0);

@@ -2801,3 +2801,27 @@ CLAUDE.md when a phase ends.
     explored that area" with east explored 1; Ben refuses the meeting 3 of 5 with "I cannot walk to the meeting", which
     the judge fails as he stands 8 blocks off (debatable: no chore walks him there). The live tier is still to build.
     Logs: `runs/2026-11-06/chat-tests/facts-n5-final.log` (and the first try, `facts-n5.log`, 150 of 165).
+- F361 (11-06, #233, G7) **The player chat live tier: the 33 lines said in a running world pass 28 of 33 (23 by the
+  bench's strict kinds), against the offline bench's 159 of 165 (F360). Routing is right 33 of 33, at range too; what
+  differs live is the chores list: the talk prompt offers 0-17 chores (about 4 typical), not the bench's 18-24, so six
+  requests the bench expects promised are refused, truly ("I have no chore that gathers cobblestone").** Built:
+  `scripts/chat_live.py` (sets the time, a member's health, monsters and a member's place per case, says the line as
+  SausageOfDoom4 through `/api/say`, reads the request ledger, waits for promised chores), `scripts/bench/chatlive_score.mts`
+  (the bench's rules and judge on the talk prompt each member really saw, from the model-call recording, with that prompt
+  as the truth), `scripts/series/chat_live.json` (train 23's C1 setup on world 4, w217_ring, 1x, hostile). `/api/say`'s
+  `pos` now reaches routing as well, so "the nearest member" works for a person not in the game. N 1, gpt-oss:120b-cloud.
+  - **Per category:** combat 5 of 7, gathering 6 of 7, exploring 4 of 5, building 6 of 6, talk 7 of 8. Replied 32 of 33;
+    every promise ran: Grace, Hugo and Iris started theirs in 4-10 s; Dev's flint waited 17.6 min behind his "Make
+    charcoal" (past its 15-min due) and was kept at +21 min.
+  - **Why the lists are short:** the menu offers only what is feasible now and not held by others: no
+    `gather:cobblestone` with 1,439 in storage, no explore with every direction explored, no eat or rest for Finn 110
+    blocks out, pens and breeding held. Members carry what the checkpoint left them: Kai and Grace had no weapon, so no
+    watch or hunt. A refusal then is the true answer, but the person's request goes nowhere: the menu, not the model, is
+    the limit live.
+  - **Failing (5):** Lena's talk call came back empty: the request stays `unanswered` and she says nothing in the game (no
+    fallback line; the bench retries and never sees it). The Mayor read "Last night: no record" as "no monsters were
+    near" (the record starts with the first night after a resume). Grace, unarmed, answered skeletons with "make stone
+    swords". Hugo refused the second farm with own farms on his list. Lena "can't hand over my bow", carrying none.
+  - **Setting the situation:** time and summoned monsters work; `damage` left Finn at 10, not 6; monsters near now are
+    still not in the talk prompt; jumping the time to day for the next case ends a promised watch early ("kept").
+    Notes `runs/2026-11-06/chat-live/notes.md`; scored `runs/2026-11-06/chat-live/score2.log`.
