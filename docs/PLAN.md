@@ -117,10 +117,14 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
      watchers reached 154 of 158 tower posts; bows 35 shots, 14 hits, 1 kill. But 26 / 37 deaths, most 100-220 blocks
      out at night (no curfew once members have beds, #230); hunts fail at once at health 11-14 (#231); the stone-stage
      "no" still reads "No wall for now" (#232). Pen restock and youngUntil still untested live (no pen fell to its line).
-  4. **Next: fixes #230, #231, #232 and the flint gravel source** (#225's follow-up: 3 of 10 trips failed), offline
-     checks, then a short train from `w217_ring` with nights that run, counting deaths outside the ring at night and an
-     emptied chicken pen's young.
-  5. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
+  4. **Fixes built** (3980616 #230 MC_NIGHT_BAND, d041765 #231, ab86120 #232, dfc381d #225 MC_GRAVEL_TRIPS; notes
+     `runs/2026-11-05/fixes-230-232/notes.md`; check `fixes_230_232.mts` fails on the old code): home band holds with
+     beds while nights run, hunts start when offered, the stone-stage ballot asks about towers, flint trips walk to
+     atlas gravel. Offline only.
+  5. **Next test train (23):** from `w217_ring`, nights that run, all flags on against a control arm with MC_NIGHT_BAND
+     and MC_GRAVEL_TRIPS off; count deaths outside the ring at night (train 22: 21/26, 27/37), hunts started vs picked,
+     far flint trips, and an emptied chicken pen's young (restock and youngUntil, still untested live).
+  6. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
      (#150-#163); #164 steps 3-5.
 
 ## Earlier phases
