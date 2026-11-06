@@ -1243,10 +1243,23 @@ export function huntStart(health: number): 'go' | 'heal' | 'no' {
  * called off: the member goes to the storage hut and eats, and the chore ends done (no drops), not as a failure the
  * chooser bans the hunt for. Its words, for the chore's end.
  */
-export function huntCallOff(health: number, resumed: boolean, healed = false): string {
-  const why = resumed ? 'hurt on the way out' : healed ? 'still hurt after resting' : 'hurt before it began';
-  return `called off the hunt: health ${Math.round(health)}, ${why} (a hunt goes out above ${HUNT_HEALTH - HUNT_SLACK})`;
+export function huntCallOff(health: number, resumed: boolean, healed = false, met = false, kills: Record<string, number> = {}): string {
+  // (#234: a resume after the hunt met prey was hurt in its fights, not on the way out; its earlier kills are told)
+  const why = resumed ? (met ? 'hurt in the hunt' : 'hurt on the way out') : healed ? 'still hurt after resting' : 'hurt before it began';
+  const n = Object.values(kills).reduce((x, q) => x + q, 0);
+  return `called off the hunt: health ${Math.round(health)}, ${why}${n ? ` after ${killWords(kills)}` : ''} (a hunt goes out above ${HUNT_HEALTH - HUNT_SLACK})`;
 }
+/** "3 kills (skeleton 2, spider 1)", "0 kills". */
+export function killWords(kills: Record<string, number>): string {
+  const n = Object.values(kills).reduce((x, q) => x + q, 0);
+  return `${n} kill${n === 1 ? '' : 's'}${n ? ` (${Object.entries(kills).map(([k, q]) => `${k.replace(/_/g, ' ')} ${q}`).join(', ')})` : ''}`;
+}
+/**
+ * #234: the hunt's kills and whether it met prey, kept in the action's memo (`kill:<mob>`, `met`), which a reflex putting
+ * the hunt back does not reset: train 24's ok hunts read "0 kills" after kills before a resume (Clara 3, Dev 10 bones).
+ */
+export const huntKills = (memo: Record<string, number>): Record<string, number> =>
+  Object.fromEntries(Object.entries(memo).filter(([k, q]) => k.startsWith('kill:') && q > 0).map(([k, q]) => [k.slice(5), q]));
 /**
  * The hunt's target: the one shot at last while it lives and is in reach (`focus`; train 22-23's bows hit 17 times and
  * killed once: each hit mob was left for the nearest one, or for the next spot), else huntTarget's.
@@ -1326,12 +1339,13 @@ const dropsCarried = (a: BotAgent): Record<string, number> => {
  * (huntRing). Ends at dawn, after huntMs, or hurt; then the drops go to storage. The reflex still fights back meanwhile.
  */
 export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number }>, bounds: Box, bandOf: () => SafetyBand | null, signal: AbortSignal, edge = HUNT_EDGE,
-  run?: { resumes?: number; firstStartedAt?: number }): Promise<string> {
+  run?: { resumes?: number; firstStartedAt?: number; memo?: Record<string, number> }): Promise<string> {
   const v = a.village();
   const home = v?.storage?.chests[0];
   if (!v || !home) throw new Error('hunt_edge: not in a village with storage');
   if (!armedOf(a)) throw new Error('hunt_edge: no weapon (take a sword from storage first)');
   const resumed = (run?.resumes ?? 0) > 0;
+  const memo = run ? (run.memo ??= {}) : {};
   // (#231: hurt by the start, the hunt is called off: home to the hut and a bite, and the chore ends done)
   const callOff = async (healed: boolean): Promise<string> => {
     const hp = a.bot.health ?? 0;
@@ -1341,8 +1355,19 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
     });
     await biteIfHurt(a);
     combatCounts.huntsCalledOff++;
-    const text = huntCallOff(hp, resumed, healed);
+    const text = huntCallOff(hp, resumed, healed, !!memo.met, huntKills(memo));
     console.log(`[hunt] ${a.name} ${v.name}: ${text}; at the storage hut, health ${Math.round(a.bot.health ?? 0)}`);
+    // (#234: the drops of the kills before, carried home: into storage now (the bow's arrows stay with it))
+    const prey = HUNT_DROPS.filter((k) => k !== 'arrow');
+    const c = counts(a);
+    if (memo.met && prey.some((k) => (c[k] ?? 0) > 0)) {
+      await STORAGE_SKILLS.deposit.run(a, { item: prey[0], also: prey.join(','), ifAny: true }, signal).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+      });
+      const left = counts(a);
+      const put = prey.filter((k) => (c[k] ?? 0) > (left[k] ?? 0)).map((k) => `${(c[k] ?? 0) - (left[k] ?? 0)} ${k.replace(/_/g, ' ')}`);
+      if (put.length) return `${text}; went to the storage hut to eat and heal, and deposited ${put.join(', ')}`;
+    }
     return `${text}; went to the storage hut to eat and heal`;
   };
   // (#231: within HUNT_SLACK of the offer's health, a bite and the regeneration first; the hunt goes either way)
@@ -1371,7 +1396,6 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
     d.hunt.nights[a.name] = (d.hunt.nights[a.name] ?? 0) + 1;
   }
   let before = dropsCarried(a);
-  const kills: Record<string, number> = {};
   const t = track(a);
   let ended = 'until dawn', i = Math.floor(Math.random() * Math.max(1, spots.length));
   // (#218: a creeper beside the prey made melee give up at once and the loop went straight back to the same spider, 6.2M
@@ -1412,8 +1436,9 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
         if (tgt && e && e.isValid !== false) {
           const at0 = e.position.clone();
           const r = await shootDown(a, e, signal);
+          if (r.shots) memo.met = 1;
           if (r.killed) {
-            kills[tgt.name] = (kills[tgt.name] ?? 0) + 1;
+            memo[`kill:${tgt.name}`] = (memo[`kill:${tgt.name}`] ?? 0) + 1;
             d.hunt.kills[tgt.name] = (d.hunt.kills[tgt.name] ?? 0) + 1;
             const last = a.bot.entities[e.id]?.position ?? at0;
             await walk(a, new goals.GoalNear(last.x, last.y, last.z, 1), 'the drops', signal, 20000).catch(ignore);
@@ -1433,9 +1458,10 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
         if (prey.dist > 20) await walk(a, new goals.GoalNear(prey.x, prey.y, prey.z, 4), 'the prey', signal, 30000).catch(ignore);
         const e = a.bot.entities[prey.id];
         if (!e || e.isValid === false) continue;
+        memo.met = 1;
         const r = await melee(a, e, signal, { giveUpAt: HUNT_LOW });
         if (r.killed) {
-          kills[prey.name] = (kills[prey.name] ?? 0) + 1;
+          memo[`kill:${prey.name}`] = (memo[`kill:${prey.name}`] ?? 0) + 1;
           d.hunt.kills[prey.name] = (d.hunt.kills[prey.name] ?? 0) + 1;
           // (the drops: onto each item near the kill once it can be picked up; melee hits from 3 blocks, and in the first
           // pair no zombie's flesh was picked up)
@@ -1491,8 +1517,8 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
     hunters.delete(a.name);
     if (repeats) console.log(`[hunt] ${a.name} ${v.name}: (the line before repeated ${repeats} more times)`);
   }
-  const n = Object.values(kills).reduce((x, q) => x + q, 0);
-  const head = `hunted ${Math.round((Date.now() - t0) / 1000)} s at the village edge (${ended}): ${n} kill${n === 1 ? '' : 's'}${n ? ` (${Object.entries(kills).map(([k, q]) => `${k.replace(/_/g, ' ')} ${q}`).join(', ')})` : ''}`;
+  // (#234: the kills of every run of this hunt, a resume's and the ones before it)
+  const head = `hunted ${Math.round((Date.now() - t0) / 1000)} s at the village edge (${ended}): ${killWords(huntKills(memo))}`;
   // (the drops to storage, with any carried from before; the hunt's count is what it added to the pack)
   const got = dropsCarried(a);
   if (!Object.values(got).some((q) => q > 0)) return `${head}; no drops`;
