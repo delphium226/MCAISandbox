@@ -2882,7 +2882,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (#217 steps 5 and 6: the watch on the wall and the bows, every 10 game minutes)
     if (line && (wallWatchOn() || bowsOn())) {
       const c = combatCounts, b = archeryCounts;
-      console.log(`[watch] tower posts reached ${c.towerReached} of ${c.towerVisits} visits; watch spots ${c.watchSpots} (${c.watchOutside} outside the ring); bows: ${b.shots} shots, ${b.hits} hits, ${b.kills} kills (${Object.entries(b.byMob).map(([k, q]) => `${k} ${q}`).join(', ') || 'none'}), ${b.held} held, ${b.taken} bows taken${bowsFirst() ? `; flint: ${flintCounts.trips} trips, ${flintCounts.flint} flint in ${flintCounts.digs} breaks; arrows picked up ${flintCounts.picked} (${flintCounts.sweeps} sweeps)` : ''}`);
+      console.log(`[watch] tower posts reached ${c.towerReached} of ${c.towerVisits} visits; watch spots ${c.watchSpots} (${c.watchOutside} outside the ring); bows: ${b.shots} shots, ${b.hits} hits, ${b.kills} kills (${Object.entries(b.byMob).map(([k, q]) => `${k} ${q}`).join(', ') || 'none'}), ${b.assists} sword kills after arrow hits, ${b.held} held, ${b.taken} bows taken; ranged attackers fought ${c.rangedFights}, run from ${c.rangedRuns}; hunts called off ${c.huntsCalledOff}${bowsFirst() ? `; flint: ${flintCounts.trips} trips, ${flintCounts.flint} flint in ${flintCounts.digs} breaks; arrows picked up ${flintCounts.picked} (${flintCounts.sweeps} sweeps)` : ''}`);
     }
   }
 

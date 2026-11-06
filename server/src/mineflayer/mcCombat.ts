@@ -20,7 +20,7 @@ import { STORAGE_SKILLS, storageContents, withdrawItems } from './mcStorage';
 import { noteHunted } from './mcMaterials';
 import { pickUpDrops } from './mcSurvival';
 import { at, checkAbort, goals, sleep, walk } from './mcUtil';
-import { MAX_RANGE, MIN_RANGE, bowReady, bowsOn, shootDown, takeBow } from './mcArchery';
+import { MAX_RANGE, MIN_RANGE, bowReady, bowsOn, noteAssist, shootDown, takeBow } from './mcArchery';
 import { pickUpArrows } from './mcFlint';
 
 // ---------------------------------------------------------------------------------------------
@@ -261,6 +261,8 @@ function mobsNear(a: BotAgent, t: Track, from: Vec3, r: number): Seen[] {
   return out;
 }
 
+/** The entity is still in the bot's world (not dead, not gone). */
+const alive = (a: BotAgent, e: Entity): boolean => !!a.bot.entities[e.id] && e.isValid !== false;
 const armedOf = (a: BotAgent) => a.bot.inventory.items().some((it) => isWeapon(it.name));
 const counts = (a: BotAgent) => {
   const c: Record<string, number> = {};
@@ -572,11 +574,13 @@ export async function melee(a: BotAgent, target: Entity, signal: AbortSignal, op
   if (!dead) return { text: `lost sight of the ${what} (${hits} hits)`, killed: false };
   const name = target.name ?? 'target';
   combatCounts.kills[name] = (combatCounts.kills[name] ?? 0) + 1;
+  // (a mob the bows hit first: the bow's assist, counted with the archery's)
+  const arrows = noteAssist(target.id);
   // (its drops: walked over when close)
   if (lastPos.distanceTo(bot.entity.position) < 4) await walk(a, new goals.GoalNear(lastPos.x, lastPos.y, lastPos.z, 0.5), 'the drops', signal, 2000).catch((e: Error) => {
     if (e.message === 'cancelled') throw e;
   });
-  return { text: `killed the ${what} (${hits} hits)`, killed: true, at: lastPos };
+  return { text: `killed the ${what} (${hits} hits${arrows ? `, after ${arrows} arrow hit${arrows === 1 ? '' : 's'}` : ''})`, killed: true, at: lastPos };
 }
 
 /** Put on the best armour carried, per slot (armour slots 5-8 are worn). */
@@ -979,6 +983,8 @@ export const guards = new Map<string, { village: string; since: number }>();
 const watchedNight = new Map<string, number>();
 /** Whether the member has kept watch this night already (#195: once a night; the menu offers it no more). */
 export const watchedTonight = (village: string, member: string): boolean => watchedNight.get(`${village}|${member}`) === dangerOf(village).night.at;
+/** The most arrows a watcher shoots at one stop. */
+export const WATCH_SHOTS = 8;
 /** The watch's health floor to start (the watch ends at 8: a hurt member took it and ended it at once, again and again). */
 export const WATCH_HEALTH = 12;
 export const guardsOf = (village: string): number => [...guards.values()].filter((g) => g.village === village).length;
@@ -1019,6 +1025,7 @@ export async function keepWatch(a: BotAgent, spots: Array<{ x: number; z: number
         return `kept watch ${Math.round((Date.now() - t0) / 1000)} s: ${visited} spots, ${kills} kills; ended hurt (health ${Math.round(a.bot.health ?? 0)})`;
       }
       const s = spots[i++ % spots.length];
+      let shotAt: Entity | null = null;
       // (on the ground at the spot: a goal in x and z alone took a guard down the mine to die at y 23, #196)
       const y0 = Math.floor(home?.y ?? a.bot.entity.position.y);
       const g = surfaceAt(a, s.x, s.z, y0);
@@ -1046,15 +1053,19 @@ export async function keepWatch(a: BotAgent, spots: Array<{ x: number; z: number
         const far = mobsNear(a, t, a.bot.entity.position, MAX_RANGE).filter((m) => m.dist >= MIN_RANGE).sort((p, q) => p.dist - q.dist)
           .map((m) => a.bot.entities[m.id]).filter((e): e is Entity => !!e && e.isValid !== false);
         let shot = 0;
+        // (bow fixes: up to WATCH_SHOTS a stop on the nearest until it dies or leaves range and sight, then the next; the
+        // old 4 a target left mobs hit 1-3 times for the next spot; one still alive is the sword's target below)
         for (const e of far.slice(0, 3)) {
-          const r = await shootDown(a, e, signal, 4);
+          if (shot >= WATCH_SHOTS) break;
+          const r = await shootDown(a, e, signal, WATCH_SHOTS - shot);
           if (!r.shots) continue;
           shot += r.shots;
           if (r.killed) {
             kills++;
             combatCounts.kills[e.name ?? '?'] = (combatCounts.kills[e.name ?? '?'] ?? 0) + 1;
-          }
+          } else if (a.bot.entities[e.id] && e.isValid !== false) shotAt = e;
           console.log(`[guard] ${a.name} ${v.name}: ${r.text} from ${s.tower ? 'the tower' : 'the spot'} at ${s.x},${s.z}`);
+          if (!r.killed) break;
         }
         // (#225, MC_BOWS_FIRST: the arrows that missed, picked up once no hostile is within 10: they despawn a minute after
         // they land)
@@ -1063,8 +1074,12 @@ export async function keepWatch(a: BotAgent, spots: Array<{ x: number; z: number
           if (got) console.log(`[arrows] ${a.name} ${v.name}: picked up ${got} arrows after the fight at ${s.x},${s.z}`);
         }
       }
-      const foe = mobsNear(a, t, new Vec3(s.x, a.bot.entity.position.y, s.z), 16).filter((m) => m.name !== 'creeper').sort((p, q) => p.dist - q.dist)
-        .map((m) => a.bot.entities[m.id]).find((e) => e && beyond(bounds, e.position.x, e.position.z, 0) === 0);
+      const inside = (e: Entity | undefined | null): e is Entity => !!e && e.isValid !== false && beyond(bounds, e.position.x, e.position.z, 0) === 0;
+      const near16 = (e: Entity) => e.position.distanceTo(new Vec3(s.x, a.bot.entity.position.y, s.z)) <= 16;
+      const foe = (shotAt && shotAt.name !== 'creeper' && inside(a.bot.entities[shotAt.id]) && near16(shotAt) ? shotAt : null)
+        ?? mobsNear(a, t, new Vec3(s.x, a.bot.entity.position.y, s.z), 16).filter((m) => m.name !== 'creeper').sort((p, q) => p.dist - q.dist)
+          .map((m) => a.bot.entities[m.id]).find(inside);
+      shotAt = null;
       if (foe) {
         const f0 = Date.now();
         const r = await melee(a, foe, signal, { giveUpAt: 8 });
@@ -1116,6 +1131,14 @@ export function huntStart(health: number): 'go' | 'heal' | 'no' {
 export function huntCallOff(health: number, resumed: boolean, healed = false): string {
   const why = resumed ? 'hurt on the way out' : healed ? 'still hurt after resting' : 'hurt before it began';
   return `called off the hunt: health ${Math.round(health)}, ${why} (a hunt goes out above ${HUNT_HEALTH - HUNT_SLACK})`;
+}
+/**
+ * The hunt's target: the one shot at last while it lives and is in reach (`focus`; train 22-23's bows hit 17 times and
+ * killed once: each hit mob was left for the nearest one, or for the next spot), else huntTarget's.
+ */
+export function huntPrey(seen: Spotted[], skip: ReadonlySet<number>, focus: number | null, inReach: (m: Spotted) => boolean): Spotted | null {
+  const f = focus === null ? undefined : seen.find((m) => m.id === focus && !skip.has(m.id) && inReach(m));
+  return f ?? huntTarget(seen.filter((m) => !skip.has(m.id)), inReach);
 }
 export const HUNT_EDGE = 32;
 /** The longest hunt (wall minutes at 1x), and the longest the night's sleeper waits for hunters out (mcSurvivalB's hold). */
@@ -1240,6 +1263,10 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
   // log lines and a heap OOM; now the hunter steps away first, a prey given up 3 times is skipped, 6 creeper give-ups end
   // the hunt, and a repeated line is logged once with its count)
   const gaveUp = new Map<number, number>(), skip = new Set<number>();
+  // (bow fixes: `bowSkip` holds mobs the bow cannot shoot (out of sight): they stay the sword's prey, where the old `skip`
+  // dropped them from the hunt; `focus` is the mob shot at last, kept until it dies or leaves reach)
+  const bowSkip = new Set<number>();
+  let focus: number | null = null;
   let creepers = 0, lastLine = '', repeats = 0;
   const ignore = (e: Error) => {
     if (e.message === 'cancelled') throw e;
@@ -1259,10 +1286,11 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
         const e = a.bot.entities[m.id];
         if (e) seen.push({ ...m, x: e.position.x, y: e.position.y, z: e.position.z });
       }
-      const prey = huntTarget(seen.filter((m) => !skip.has(m.id)), (m) => huntReach(bounds, home, band, m, edge));
+      const prey = huntPrey(seen, skip, focus, (m) => huntReach(bounds, home, band, m, edge));
+      focus = prey && prey.id === focus ? focus : null;
       // (#217 step 6, the user's Q1: with a bow, a creeper in reach is shot from range (gunpowder home), and prey 6+ out)
       if (bowReady(a)) {
-        const inRange = (m: Spotted) => !skip.has(m.id) && m.dist >= MIN_RANGE && m.dist <= MAX_RANGE && huntReach(bounds, home, band, m, edge);
+        const inRange = (m: Spotted) => !skip.has(m.id) && !bowSkip.has(m.id) && m.dist >= MIN_RANGE && m.dist <= MAX_RANGE && huntReach(bounds, home, band, m, edge);
         const creeper = seen.filter((m) => m.name === 'creeper' && inRange(m)).sort((p, q) => p.dist - q.dist)[0];
         const tgt = creeper ?? (prey && inRange(prey) ? prey : undefined);
         const e = tgt && a.bot.entities[tgt.id];
@@ -1278,7 +1306,10 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
             // (#225: the arrows that missed, while they lie)
             const got = await pickUpArrows(a, signal, 16, 15000).catch(() => 0);
             if (got) console.log(`[arrows] ${a.name} ${v.name}: picked up ${got} arrows after the hunt's kill`);
-          } else if (!r.shots || tgt.name === 'creeper') skip.add(tgt.id);
+          } else if (tgt.name === 'creeper') skip.add(tgt.id);
+          else if (!r.shots) bowSkip.add(tgt.id);
+          // (shot and alive: it stays the target, the sword's once it comes within MIN_RANGE)
+          else if (alive(a, e)) focus = tgt.id;
           console.log(`[hunt] ${a.name} ${v.name}: ${r.text} (bow, ${Math.round(Math.hypot(tgt.x - home.x, tgt.z - home.z))} blocks from home)`);
           if (r.shots) continue;
         }

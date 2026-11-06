@@ -63,7 +63,43 @@ export function nearLine(a: { x: number; y: number; z: number }, b: { x: number;
 
 // ---- Shooting --------------------------------------------------------------------------------------------------------
 
-export const archeryCounts = { shots: 0, hits: 0, kills: 0, held: 0, taken: 0, byMob: {} as Record<string, number> };
+export const archeryCounts = { shots: 0, hits: 0, kills: 0, held: 0, taken: 0, byMob: {} as Record<string, number>, assists: 0 };
+
+/**
+ * Bow kills: a mob hit by arrows and then finished with the sword (melee's kill) is the bow's assist. Train 22 and 23
+ * counted 17 hits and 1 kill: every hit mob came within 6 blocks or out of sight and the sword (or another member) killed
+ * it, uncounted. Mob id -> its arrow hits and the last one's time.
+ */
+const arrowHits = new Map<number, { n: number; t: number }>();
+export function noteArrowHit(id: number, now = Date.now()): void {
+  const h = arrowHits.get(id);
+  arrowHits.set(id, { n: (h?.n ?? 0) + 1, t: now });
+  if (arrowHits.size > 500) for (const [k, v] of arrowHits) if (now - v.t > 120000) arrowHits.delete(k);
+}
+/** The arrow hits a mob took in the last `ms` (0 if none): a kill after them is an assist (counted once). */
+export function arrowHitsOn(id: number, now = Date.now(), ms = 60000): number {
+  const h = arrowHits.get(id);
+  return h && now - h.t <= ms ? h.n : 0;
+}
+export function noteAssist(id: number, now = Date.now()): number {
+  const n = arrowHitsOn(id, now);
+  arrowHits.delete(id);
+  if (n) archeryCounts.assists++;
+  return n;
+}
+
+/**
+ * The target's motion a game tick, from its positions sampled through the draw (`samples`, oldest first, wall ms):
+ * mineflayer's `entity.velocity` for a mob is only what the last velocity packet said (a walking zombie sends moves, not
+ * velocities), so the lead was mostly nothing. Null with under 150 ms of samples.
+ */
+export function leadOf(samples: Array<{ t: number; x: number; z: number }>, scale = 1): { x: number; z: number } | null {
+  if (samples.length < 2) return null;
+  const a = samples[0], b = samples[samples.length - 1];
+  const ticks = ((b.t - a.t) / 50) * Math.max(1, scale);
+  if (b.t - a.t < 150 || ticks <= 0) return null;
+  return { x: (b.x - a.x) / ticks, z: (b.z - a.z) / ticks };
+}
 const PASSIVE = new Set(['chicken', 'cow', 'sheep', 'pig', 'rabbit', 'goat', 'horse', 'villager', 'wandering_trader']);
 
 const count = (a: BotAgent, name: string) => a.bot.inventory.items().filter((it) => it.name === name).reduce((n, it) => n + it.count, 0);
@@ -128,10 +164,15 @@ export async function shootAt(a: BotAgent, e: Entity, signal: AbortSignal): Prom
   const ms = Math.max(400, 1100 / Math.max(1, timeScale()));
   const hp0 = (e.health as number | undefined) ?? (e.metadata?.[9] as unknown as number | undefined) ?? 20;
   // (aimed again every 50 ms through the draw, led by the target's motion over the flight's ticks: step 0's probe hit a
-  // walking zombie 0 of 12 aimed once before the draw, 7 of 7 aimed again through it)
+  // walking zombie 0 of 12 aimed once before the draw, 7 of 7 aimed again through it; the motion from its positions over
+  // the last 400 ms, leadOf)
+  const samples: Array<{ t: number; x: number; z: number }> = [];
   const aimNow = async (): Promise<boolean> => {
     const eye = a.bot.entity.position.offset(0, 1.62, 0);
-    const vel = e.velocity ?? new Vec3(0, 0, 0);
+    const now = Date.now();
+    samples.push({ t: now, x: e.position.x, z: e.position.z });
+    while (samples.length > 2 && now - samples[0].t > 400) samples.shift();
+    const vel = leadOf(samples, timeScale()) ?? e.velocity ?? new Vec3(0, 0, 0);
     let aim = e.position.offset(0, (e.height ?? 1.8) * 0.5, 0);
     const ticks = Math.hypot(aim.x - eye.x, aim.z - eye.z) / 2.7;
     aim = aim.offset(vel.x * ticks, 0, vel.z * ticks);
@@ -155,21 +196,31 @@ export async function shootAt(a: BotAgent, e: Entity, signal: AbortSignal): Prom
   // (#225: where the village shot from, for the sweep of the arrows that missed)
   noteShot(a.village()?.name, a.bot.entity.position);
   const t0 = Date.now();
-  let hit = false, killed = false;
-  while (Date.now() - t0 < 1500) {
-    await sleep(100, signal);
-    if (!a.bot.entities[e.id] || e.isValid === false) {
-      killed = true;
-      hit = true;
-      break;
+  let hit = false, killed = false, hurt = false;
+  // (the hurt event as well as the health: a mob's health is not always sent to players)
+  const onHurt = (x: Entity) => {
+    if (x.id === e.id) hurt = true;
+  };
+  a.bot.on('entityHurt', onHurt);
+  try {
+    while (Date.now() - t0 < 1500) {
+      await sleep(100, signal);
+      if (!a.bot.entities[e.id] || e.isValid === false) {
+        killed = true;
+        hit = true;
+        break;
+      }
+      const hp = (e.health as number | undefined) ?? (e.metadata?.[9] as unknown as number | undefined);
+      if (hurt || (typeof hp === 'number' && hp < hp0)) {
+        hit = true;
+        break;
+      }
     }
-    const hp = (e.health as number | undefined) ?? (e.metadata?.[9] as unknown as number | undefined);
-    if (typeof hp === 'number' && hp < hp0) {
-      hit = true;
-      break;
-    }
+  } finally {
+    a.bot.removeListener('entityHurt', onHurt);
   }
   if (hit) archeryCounts.hits++;
+  if (hit && !killed) noteArrowHit(e.id);
   if (killed) {
     archeryCounts.kills++;
     archeryCounts.byMob[e.name ?? '?'] = (archeryCounts.byMob[e.name ?? '?'] ?? 0) + 1;

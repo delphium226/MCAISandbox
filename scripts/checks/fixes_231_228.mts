@@ -14,6 +14,7 @@ import { Vec3 } from 'vec3';
 
 process.env.MC_WORLD_MODE ??= 'hostile';
 const C = await import('../../server/src/mineflayer/mcCombat');
+const A = await import('../../server/src/mineflayer/mcArchery');
 const H = await import('../../server/src/mineflayer/mcHazard');
 let fails = 0;
 const ok = (cond: unknown, what: string) => {
@@ -98,6 +99,25 @@ await sec('#227', () => {
   ok(H.buriedAt(world({ '0,65,0': 'glass' }), { x: 0.5, y: 64, z: 0.5 }) === false, 'eyes in glass: no suffocation');
   ok(H.buriedAt(world({ '0,65,0': 'deepslate' }), { x: 0.5, y: 64, z: 0.5 }) === true, 'eyes in deepslate: buried');
   ok(H.buriedAt(() => null, { x: 0, y: 64, z: 0 }) === null, 'chunk not loaded: unknown (waited for)');
+});
+
+await sec('bows', () => {
+  ok(A.archeryCounts.assists === 0, 'assists counted');
+  A.noteArrowHit(42, 1000);
+  A.noteArrowHit(42, 2000);
+  ok(A.arrowHitsOn(42, 5000) === 2 && A.arrowHitsOn(43, 5000) === 0, 'arrow hits kept by mob');
+  ok(A.noteAssist(42, 6000) === 2 && A.archeryCounts.assists === 1 && A.noteAssist(42, 7000) === 0, 'a sword kill after 2 arrow hits is one assist, counted once');
+  A.noteArrowHit(44, 1000);
+  ok(A.noteAssist(44, 100000) === 0, 'a kill long after the arrows is not an assist');
+  const lead = A.leadOf([{ t: 0, x: 0, z: 0 }, { t: 200, x: 0.92, z: 0 }]);
+  ok(lead && Math.abs(lead.x - 0.23) < 1e-9 && lead.z === 0, "a zombie's walk (0.23 a tick) from its positions over 200 ms");
+  ok(A.leadOf([{ t: 0, x: 0, z: 0 }, { t: 100, x: 1, z: 0 }]) === null, 'under 150 ms of samples: no lead from them');
+  const sp = (id: number, name: string, dist: number) => ({ id, name, dist, x: dist, y: 64, z: 0 });
+  const seen = [sp(1, 'skeleton', 8), sp(2, 'skeleton', 14)];
+  ok(C.huntPrey(seen, new Set(), 2, () => true)?.id === 2, 'the hunt keeps the mob it shot (2) over a nearer one');
+  ok(C.huntPrey(seen, new Set(), 3, () => true)?.id === 1, 'its target gone: the nearest prey');
+  ok(C.huntPrey(seen, new Set(), 2, (m) => m.id !== 2)?.id === 1, 'its target out of reach: the nearest prey');
+  ok(C.WATCH_SHOTS >= 6, 'the watch shoots up to WATCH_SHOTS at a stop (was 4 a target)');
 });
 
 console.log(fails ? `${fails} FAILED` : 'all passed');
