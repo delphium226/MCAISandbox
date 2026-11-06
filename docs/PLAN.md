@@ -133,7 +133,12 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
   7. **Next test train (24):** from `w217_ring`, nights that run, train 23's setup, both arms on current code (no flag
      to split: compare against F357); count hunts called off vs went out, creeper flees ending hurt (train 23 36%),
      ranged-attacker fights and deaths, `[spawn] ... moved to the surface`, bow kills and assists.
-  8. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
+  8. **#233 player chat tests** (the user's, 11-06; 57b1e1f, F358): offline bench `scripts/bench/chatbench.mts` on the
+     user's 33 lines; baseline 103 of 165 (exploring 36%, combat 49%, talk 55%, building 70%, gathering 97%). Commonest
+     failure: invented facts (the talk prompt lacks health, time, chore, storage, explored land, last night); then
+     routing ("village" goes to the Mayor; of two named members only the first answers). Next: those two fixes, re-run
+     the bench; the live tier later.
+  9. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
      (#150-#163); #164 steps 3-5.
 
 ## Earlier phases
