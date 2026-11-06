@@ -1000,6 +1000,19 @@ export const HUNTED_NOT_BOUGHT = new Set(['string', 'bone']);
 /** A hunt starts above this health and ends at HUNT_LOW; it reaches the built bounds + HUNT_EDGE. */
 export const HUNT_HEALTH = 14;
 export const HUNT_LOW = 10;
+/**
+ * #231: the menu offers the hunt above HUNT_HEALTH; the hunt itself starts above HUNT_HEALTH - HUNT_SLACK, healing first
+ * (a bite while the bar is under 18, then up to HUNT_HEAL_MS for the regeneration) when at or under HUNT_HEALTH: the
+ * menu's health is seconds old by the start, and in train 22 61 of 68 hunt picks failed at once at health 11-14 against
+ * a start gate equal to the offer's.
+ */
+export const HUNT_SLACK = 3;
+export const HUNT_HEAL_MS = 30000;
+export const huntOffered = (health: number): boolean => health > HUNT_HEALTH;
+export function huntStart(health: number): 'go' | 'heal' | 'no' {
+  if (health > HUNT_HEALTH) return 'go';
+  return health > HUNT_HEALTH - HUNT_SLACK ? 'heal' : 'no';
+}
 export const HUNT_EDGE = 32;
 /** The longest hunt (wall minutes at 1x), and the longest the night's sleeper waits for hunters out (mcSurvivalB's hold). */
 export const HUNT_MIN = 4;
@@ -1075,7 +1088,21 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
   const home = v?.storage?.chests[0];
   if (!v || !home) throw new Error('hunt_edge: not in a village with storage');
   if (!armedOf(a)) throw new Error('hunt_edge: no weapon (take a sword from storage first)');
-  if ((a.bot.health ?? 20) <= HUNT_HEALTH) throw new Error(`hunt_edge: health ${Math.round(a.bot.health ?? 0)} (a hunt starts above ${HUNT_HEALTH})`);
+  // (#231: within HUNT_SLACK of the offer's health, a bite and the regeneration first; the hunt goes either way)
+  const start = huntStart(a.bot.health ?? 20);
+  if (start === 'no') throw new Error(`hunt_edge: health ${Math.round(a.bot.health ?? 0)} (a hunt starts above ${HUNT_HEALTH - HUNT_SLACK}; eat and rest first)`);
+  if (start === 'heal') {
+    const hp0 = Math.round(a.bot.health ?? 0);
+    const t1 = Date.now();
+    while (Date.now() - t1 < HUNT_HEAL_MS && (a.bot.health ?? 20) <= HUNT_HEALTH) {
+      checkAbort(signal);
+      const bite = (a.bot.food ?? 20) < 18 ? packBite(counts(a), Math.min(a.bot.food ?? 20, 14), a.bot.health ?? 20) : null;
+      if (bite) await eatOne(a, bite).then(() => { combatCounts.bites++; }, () => undefined);
+      await sleep(1000, signal);
+    }
+    console.log(`[hunt] ${a.name} ${v.name}: health ${hp0} -> ${Math.round(a.bot.health ?? 0)} before the hunt (food ${Math.round(a.bot.food ?? 0)}, ${Math.round((Date.now() - t1) / 1000)} s)`);
+    if ((a.bot.health ?? 20) <= HUNT_LOW) throw new Error(`hunt_edge: health ${Math.round(a.bot.health ?? 0)} (hurt while getting ready)`);
+  }
   const t0 = Date.now();
   // (registered here, not at import: mcSurvivalB and this module import each other)
   setNightHold(huntHold);

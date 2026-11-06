@@ -104,7 +104,7 @@ import { deathMemory, deathWords, type DeathCause } from './mcHazard';
 import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, etaMinutes, historyLines, initTalk, isStatusQuestion, matchWork, noRequestLine, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, statusFor, statusLines, talkSystem, talkTool, talkUser, updateRequest, withoutPlace, workWords, type PlayerRequest, type ReqProgress, type Respond, type WorkOffer } from '../playerTalk';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { isNight, nightTick } from './mcSurvivalB';
-import { HUNT_HEALTH, HUNTED_NOT_BOUGHT, anyBed, codeBand, huntWide, armTick, armsOn, bandWords, builtBounds, combatCounts, curfewActs, curfewTick, dangerOf, dangerTick, deathsFact, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, DIST_BINS, headingHome, homeByDuskOn, hunters, huntersOf, huntedTonight, huntMs, huntOn, isWeapon, pastBand, phaseOf, WATCH_HEALTH, watchedTonight, watchLoop, type SafetyBand } from './mcCombat';
+import { HUNTED_NOT_BOUGHT, anyBed, codeBand, huntOffered, huntWide, armTick, armsOn, bandWords, builtBounds, combatCounts, curfewActs, curfewTick, dangerOf, dangerTick, deathsFact, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, DIST_BINS, headingHome, homeByDuskOn, hunters, huntersOf, huntedTonight, huntMs, huntOn, isWeapon, pastBand, phaseOf, WATCH_HEALTH, watchedTonight, watchLoop, type SafetyBand } from './mcCombat';
 import { nightsFall, realHunger, worldMode } from '../worldMode';
 import { APPETITE, FOOD_POINTS, appetiteOn, barLevel, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
@@ -8270,7 +8270,7 @@ export class MineflayerWorld implements WorldAdapter {
     // members (slot keys as the watch's), a member once a night; skeletons and spiders first (bone and string for storage);
     // from nightfall, not dusk (hunts begun at dusk ended before a monster spawned, the first pair)
     if (huntOn() && v.complete && v.storage?.chests.length && phaseOf(this.timeOfDay()) === 'night' && !onWatch.has(a.name) && !hunters.has(a.name)
-      && (a.bot.health ?? 20) > HUNT_HEALTH && !huntedTonight(v.name, a.name) && a.bot.inventory.items().some((it) => isWeapon(it.name))) {
+      && huntOffered(a.bot.health ?? 20) && !huntedTonight(v.name, a.name) && a.bot.inventory.items().some((it) => isWeapon(it.name))) {
       const members = [...this.agents.values()].filter((x) => x.village()?.name === v.name).length;
       const cap = guardCap(members);
       const slots = Array.from({ length: cap }, (_, i) => `hunt:${i + 1}`);
