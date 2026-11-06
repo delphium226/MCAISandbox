@@ -130,15 +130,17 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
      #228 the reflex acts on ranged attackers; 4e241b7 #227 a log-in inside rock is moved to the surface; f06c2ae bows keep
      their target and sword finishes count; notes `runs/2026-11-06/fixes-231-228/notes.md`, check `fixes_231_228.mts`).
      No new flags. Offline only.
-  7. **Next test train (24):** from `w217_ring`, nights that run, train 23's setup, both arms on current code (no flag
-     to split: compare against F357); count hunts called off vs went out, creeper flees ending hurt (train 23 36%),
-     ranged-attacker fights and deaths, `[spawn] ... moved to the surface`, bow kills and assists.
-  8. **#233 player chat tests** (the user's, 11-06; 57b1e1f, F358): offline bench `scripts/bench/chatbench.mts` on the
-     user's 33 lines; baseline 103 of 165 (exploring 36%, combat 49%, talk 55%, building 70%, gathering 97%). Commonest
-     failure: invented facts (the talk prompt lacks health, time, chore, storage, explored land, last night); then
-     routing ("village" goes to the Mayor; of two named members only the first answers). Next: those two fixes, re-run
-     the bench; the live tier later.
-  9. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
+  7. **Train 24 done** (F359, 3b91c5e): no more `hunt_edge` failures (12 calls-off instead) but hunts go out no more
+     often; bows hit 53-61% with 4 arrow and 7 sword-after-arrow kills (train 23: 0); creeper flees ended hurt 15% / 33%;
+     ranged attackers fought 28 / 19. Deaths 10 / 26 on the same code: the arms' spread is wider than any fix, so no death
+     count measures a fix. #227 not exercised. New: #234 (hunt summaries and call-off wording), #235 (endermen kill members
+     who fight them).
+  8. **#233 player chat** (the user's, 11-06): bench `scripts/bench/chatbench.mts` baseline 103 of 165 (F358, 57b1e1f);
+     situation facts in the talk prompt and the routing fix take it to 159 of 165 (F360, 4fe7b6e). Next: the live tier
+     (lines said in game on a test world), then the 6 left.
+  9. **Next:** #235 endermen (do not fight them; never look at them), #234, and why hunts still go out rarely (#231);
+     the #233 live tier on a test world.
+  10. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
      (#150-#163); #164 steps 3-5.
 
 ## Earlier phases
