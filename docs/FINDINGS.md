@@ -2709,3 +2709,25 @@ CLAUDE.md when a phase ends.
     supply first), C1's two feather plucks bred back; no pen reached its restock line, so the restock and youngUntil
     are still untested live.
   - [stuck] 116 / 81, [lag] 0 / 0, busy 80 / 73%, $0.546 + $0.433. Report: runs/2026-11-05/train22/report.md.
+- F357 (11-06, train23, G8) **Home by dusk works: with MC_NIGHT_BAND 19 of 20 members the band reached walked home,
+  and deaths outside the ring at night fell to 12 (train 22: 21) against the control's 26; the tower ballot's words are
+  right; far gravel works once needed; the pen restock and youngUntil work live. But hunts still fail at the start (12
+  of 20 / 15 of 24), now at health 6-11 minutes after the pick.** C1 (world 4, every flag on) against C0 (world 5,
+  MC_NIGHT_BAND and MC_GRAVEL_TRIPS off); train 22's setup (checkpoint `w217_ring`, hostile, MC_VOTE=model, 12 members,
+  90 min after, 1x, nights left to run by rcon), code 161f190; C1's chicken pen killed to 0 at +35.
+  - **Deaths 17 / 32** (train 22: 26 / 37): outside the ring at night 12 / 26, inside at night 5 / 1; by chore C1 hunt
+    5, watch 2, initiative 2; C0 initiative 10, initiate 5 (the help and trips the band now brings home). 20 `[curfew]
+    heads home` lines in C1 (99-180 blocks out, 7 by day before dusk), 19 walked home, Grace died on the way from 180.
+  - **Hunts (#231):** picks 20 / 24 (31 / 37), went out 3 / 4; 12 / 15 failed "health 6-11 (a hunt starts above 11)"
+    1.3-4.6 min after the pick: the member is hurt between the menu and huntEdge's check. 11 heal lines (12-14 -> 12-15).
+  - **Stone-stage ballot (#232):** "No towers for now", no-voters "keep the wall as is"; refused first in both (5-8;
+    4-9, 6-7, 5-8 with 5-6 monsters shown, train 22 showed 7), passed 7-6 at +18.4 / 8-5 at +29.2; 21 of 21 parts by
+    +61.9 / 20 of 21 by +69.8 (t1 dropped, ground 4 above its base).
+  - **Flint (#225):** 5 trips each, 17 / 20 flint; C1's second trip went 124 blocks out after the first failed near (5
+    flint from 8 gravel); C0's near trips kept working after the same failure, so the far source was needed once.
+  - **Watch and bows:** tower posts 150 of 151 / 78 of 82 (C0 11 spots outside the ring); shots 14 / 2, hits 3 / 2,
+    kills 0. Hostiles inside the ring at night, mean per night: C1 1.1-3.5, C0 3.9-7.2.
+  - **Pen restock (#229):** emptied at +36.3, restocking at once; led in, 3 hatched, 6 bred; back at 5 at +49.3 (13
+    min); no breeding for 20 min while the young grew, then 11 of 12 by +88. 4 of the 9 young after the kill are not
+    in the census.
+  - [stuck] 62 / 113, [lag] 1 / 0, busy 75 / 78%, $0.513 + $0.468. Report: runs/2026-11-06/train23/report.md.
