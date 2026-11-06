@@ -33,7 +33,7 @@ const world = (set: Record<string, string>) => (p: Vec3): Cell => {
 };
 
 await sec('#231', async () => {
-  const chest = { x: 10, y: 64, z: 10 };
+  const chest = { x: 10, y: 64, z: 10, items: {} };
   const v = { name: 'P1', storage: { chests: [chest] } };
   const fake = (health: number) => ({
     name: 'Kai',

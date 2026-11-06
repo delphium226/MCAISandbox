@@ -15,7 +15,7 @@ const sec = async (name: string, f: () => Promise<void> | void) => {
   try { await f(); } catch (e) { ok(false, `${name}: ${(e as Error).message}`); }
 };
 
-const chest = { x: 10, y: 64, z: 10 };
+const chest = { x: 10, y: 64, z: 10, items: {} };
 const v = { name: 'P1', storage: { chests: [chest] } };
 const fake = (health: number, timeOfDay: number) => ({
   name: 'Clara',

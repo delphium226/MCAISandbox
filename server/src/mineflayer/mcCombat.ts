@@ -12,6 +12,7 @@ import type { Entity } from 'prismarine-entity';
 import type { BotAgent } from './botAgent';
 import type { Village } from '../village';
 import { rawSetting } from '../settings';
+import { FOOD_POINTS } from '../appetite';
 import { modeSpec } from '../worldMode';
 import { timeScale } from './mcRules';
 import { bedOf, packBite, eatOne, setNightHold } from './mcSurvivalB';
@@ -479,6 +480,50 @@ async function biteIfHurt(a: BotAgent): Promise<void> {
 }
 
 /**
+ * #231: the meal that lifts a hurt member's bar to REGEN_FOOD (vanilla heals only at 18 or more), from what `store` holds:
+ * packBite's choice and how many (at most 3), or null when the bar is there or the health full. Train 24: the hunt's heal
+ * and the call-off's "eat and heal" ate only carried food, members carry none (meals go back to storage), so 8 of 10 heals
+ * gained 0 health at food 15-17 and 23 of 24 call-offs reached the hut no better.
+ */
+export const REGEN_FOOD = 18;
+export function topUpMeal(store: Record<string, number>, food: number, health: number): { item: string; n: number } | null {
+  if (food >= REGEN_FOOD || health >= 20) return null;
+  const item = packBite(store, Math.min(food, 14), health);
+  if (!item) return null;
+  const pts = FOOD_POINTS[item] ?? 1;
+  return { item, n: Math.max(1, Math.min(3, store[item] ?? 0, Math.ceil((REGEN_FOOD - food) / pts))) };
+}
+/** Eat to REGEN_FOOD: carried food first, else a meal taken from storage (the hut within 64 blocks). Words, or ''. */
+async function topUp(a: BotAgent, signal: AbortSignal): Promise<string> {
+  const food0 = Math.round(a.bot.food ?? 20);
+  let meal = topUpMeal(counts(a), a.bot.food ?? 20, a.bot.health ?? 20);
+  const v = a.village();
+  const chest = v?.storage?.chests[0];
+  const p = a.bot.entity.position;
+  let took = '';
+  if (!meal && v && chest && Math.hypot(chest.x - p.x, chest.z - p.z) <= 64) {
+    const want = topUpMeal(storageContents(v), a.bot.food ?? 20, a.bot.health ?? 20);
+    if (want) {
+      const r = await withdrawItems(a, v, { [want.item]: want.n }, signal).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+        return null;
+      });
+      if (r && ((r.got as Record<string, number>)[want.item] ?? 0) > 0) { meal = want; took = ' from storage'; }
+    }
+  }
+  let eaten = 0;
+  for (let i = 0; meal && i < 3 && (a.bot.food ?? 20) < REGEN_FOOD; i++) {
+    const item = topUpMeal(counts(a), a.bot.food ?? 20, a.bot.health ?? 20)?.item;
+    if (!item) break;
+    const ok = await eatOne(a, item).then(() => true, () => false);
+    if (!ok) break;
+    eaten++;
+    combatCounts.bites++;
+  }
+  return eaten ? `ate ${eaten}${took} (food ${food0} -> ${Math.round(a.bot.food ?? 0)})` : '';
+}
+
+/**
  * To shelter (spec 2): without a weapon, to the storage hut for the best sword it holds (withdrawItems walks there), then
  * the fight; with one but hurt, to the hut and a bite; no hut within 64 blocks (or nothing to take): away for 8 s.
  */
@@ -510,8 +555,9 @@ async function shelter(a: BotAgent, mob: Entity, signal: AbortSignal): Promise<s
     await walk(a, new goals.GoalNear(chest.x, chest.y, chest.z, 3), 'the storage hut', signal, 20000).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
     });
-    await biteIfHurt(a);
-    return 'ran to the storage hut to recover';
+    // (#231: a meal from storage, so the health comes back)
+    const ate = await topUp(a, signal);
+    return `ran to the storage hut to recover${ate ? `; ${ate}` : ''}`;
   }
   await steerAway(a, mob, 8000, signal);
   await biteIfHurt(a);
@@ -1353,10 +1399,11 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
     if (Math.hypot(home.x - p.x, home.z - p.z) > 4) await walk(a, new goals.GoalNear(home.x, home.y, home.z, 3), 'the storage hut', signal, 60000).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
     });
-    await biteIfHurt(a);
+    // (#231: a meal from storage to the bar's 18, where health comes back)
+    const ate = await topUp(a, signal);
     combatCounts.huntsCalledOff++;
     const text = huntCallOff(hp, resumed, healed, !!memo.met, huntKills(memo));
-    console.log(`[hunt] ${a.name} ${v.name}: ${text}; at the storage hut, health ${Math.round(a.bot.health ?? 0)}`);
+    console.log(`[hunt] ${a.name} ${v.name}: ${text}; at the storage hut, health ${Math.round(a.bot.health ?? 0)}${ate ? `; ${ate}` : ''}`);
     // (#234: the drops of the kills before, carried home: into storage now (the bow's arrows stay with it))
     const prey = HUNT_DROPS.filter((k) => k !== 'arrow');
     const c = counts(a);
@@ -1375,14 +1422,14 @@ export async function huntEdge(a: BotAgent, spots: Array<{ x: number; z: number 
   if (start === 'no') return callOff(false);
   if (start === 'heal') {
     const hp0 = Math.round(a.bot.health ?? 0);
+    // (#231: to the bar's 18 first, from storage when nothing is carried: at 15-17 the 30 s gave no health)
+    const ate = await topUp(a, signal);
     const t1 = Date.now();
     while (Date.now() - t1 < HUNT_HEAL_MS && (a.bot.health ?? 20) <= HUNT_HEALTH) {
       checkAbort(signal);
-      const bite = (a.bot.food ?? 20) < 18 ? packBite(counts(a), Math.min(a.bot.food ?? 20, 14), a.bot.health ?? 20) : null;
-      if (bite) await eatOne(a, bite).then(() => { combatCounts.bites++; }, () => undefined);
       await sleep(1000, signal);
     }
-    console.log(`[hunt] ${a.name} ${v.name}: health ${hp0} -> ${Math.round(a.bot.health ?? 0)} before the hunt (food ${Math.round(a.bot.food ?? 0)}, ${Math.round((Date.now() - t1) / 1000)} s)`);
+    console.log(`[hunt] ${a.name} ${v.name}: health ${hp0} -> ${Math.round(a.bot.health ?? 0)} before the hunt (food ${Math.round(a.bot.food ?? 0)}, ${Math.round((Date.now() - t1) / 1000)} s${ate ? `; ${ate}` : ''})`);
     if ((a.bot.health ?? 20) <= HUNT_LOW) return callOff(true);
   }
   // (the hunt's length from its first start: a reflex puts it back in the queue and it starts again)
