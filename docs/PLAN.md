@@ -165,7 +165,12 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
      member-time at 14 or less), `[stuck]` edge walks (112), hunts offered and kills, pig and cow pens, bone and string
      stock; then the chat live tier again for `MC_TALK_PASS` (43f5192). Also why initiative chores send members 71-158 out
      at night.
-  14. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
+  14. **Scale to 50** (the user's, 11-07): branch `scale-50` on `private` (970a0f6, b720bea, e1351bf; worked in the clone
+     `D:\Projects\MCAISandbox-scale50`, test world 6), F363 there: one process now holds 50-75 staged bots
+     (`MC_FAST_BLOCKS`, `MC_SHARED_WORLD`, `MC_RCON_POOL`; limits raised to 150 members), 100 saturates it (loop p99
+     605 ms). Not merged. Open: #239 merge plan and player caps, #240 A* in worker threads, #241 event fan-out, #242 scans
+     by state id, #243 model throughput at 50 (unmeasured).
+  15. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
      (#150-#163); #164 steps 3-5.
 
 ## Earlier phases
