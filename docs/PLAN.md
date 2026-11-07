@@ -156,9 +156,16 @@ progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
      (45-59) and makes hunts safe (0 calls-off, 0 hunt deaths) but nearly empty (kills in hunts 4 / 5 against 54 / 46).
      Deaths 6 / 13, all 71-158 out, 17 of 19 at night, 10 on initiative chores. New: #237 (112 `[stuck]` walks to two
      raised ring spots), #238 (meals stop at food 14, so hurt members never heal: ~20% of member-time at health 14 or less).
-  12. **Next:** fixes #238 (eat to 18 when hurt) and #237 (ring spots on walkable ground); the user's call on empty hunts
-     (prey within 64 is hunted out); why initiative chores send members 71-158 out at night; the chat pass-on live.
-  13. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
+  12. **Fixes built** (offline): 0a45675 #238 hurt members eat to food 18, #237 hunt ring spots on level ground;
+     bc000ac (the user's, 11-07, DECISIONS: "Keep 64, restock pens", "(b) Hunt when monsters near") the hunt is offered
+     only with a skeleton or spider within 64 of the hut (`MC_HUNT_NEAR`), pigs get carrots (`MC_PIG_CARROTS`), led
+     animals pass the ring's gates.
+  13. **Next: test train 26** from `w217_ring` on worlds 4 and 5, train 25's setup: count the notes' lists
+     (`runs/2026-11-06/fixes-235-234/notes.md`, `runs/<date>/fixes-238-237/`): health over time (train 25: ~20% of
+     member-time at 14 or less), `[stuck]` edge walks (112), hunts offered and kills, pig and cow pens, bone and string
+     stock; then the chat live tier again for `MC_TALK_PASS` (43f5192). Also why initiative chores send members 71-158 out
+     at night.
+  14. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
      (#150-#163); #164 steps 3-5.
 
 ## Earlier phases
