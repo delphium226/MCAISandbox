@@ -2841,7 +2841,7 @@ CLAUDE.md when a phase ends.
     recovery only (2 meals in this train, both Dev's).
   - Deaths 6 / 13 (10 / 26), all 71-158 blocks out, 17 of 19 at night, 10 on initiative chores. Cost ~$0.47 / $0.54.
     Report `runs/2026-11-06/train25/report.md`.
-- F363 (11-07, #238, #237, #231, #233, test train 26) **Hurt members heal now: member-time at health 14 or less fell
+- F364 (11-07, #238, #237, #231, #233, test train 26) **Hurt members heal now: member-time at health 14 or less fell
   from 19-21% to 4%, and the hunt's walk no longer stalls at the towers (village-edge `[stuck]` 57 / 55 -> 0 / 6).**
   Both arms on a5c7af8, train 25's setup (w217_ring, hostile, 1x, nights run, 90 min, gpt-oss cloud), worlds 4 and 5;
   A1 every flag on, A2 `MC_HUNT_NEAR=off`. Health and storage sampled every 30 s / 2 min.
