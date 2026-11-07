@@ -2841,3 +2841,20 @@ CLAUDE.md when a phase ends.
     recovery only (2 meals in this train, both Dev's).
   - Deaths 6 / 13 (10 / 26), all 71-158 blocks out, 17 of 19 at night, 10 on initiative chores. Cost ~$0.47 / $0.54.
     Report `runs/2026-11-06/train25/report.md`.
+- F363 (11-07, #238, #237, #231, #233, test train 26) **Hurt members heal now: member-time at health 14 or less fell
+  from 19-21% to 4%, and the hunt's walk no longer stalls at the towers (village-edge `[stuck]` 57 / 55 -> 0 / 6).**
+  Both arms on a5c7af8, train 25's setup (w217_ring, hostile, 1x, nights run, 90 min, gpt-oss cloud), worlds 4 and 5;
+  A1 every flag on, A2 `MC_HUNT_NEAR=off`. Health and storage sampled every 30 s / 2 min.
+  - **#238:** at health <= 6 13-16 member-min (56-66), longest spell 5-7 min (15-25). Meals 92 / 81 (51 / 52), every
+    peckish line a hurt-only one; bread 231 -> 204 / 211, far above the guard. Eat chores doubled (81 / 80 against
+    39 / 38); A1's busy dip at +10-30 (64%) is "nothing feasible" idling, not meal holds.
+  - **#237:** all `[stuck]` 73 / 66 (115 / 148); ring spots moved to level ground 17 / 157, dropped 3 / 17, never all of
+    a hunt's; "still alive after 30 s" 0 / 0 (6 / 1).
+  - **`MC_HUNT_NEAR`:** on, the hunt was offered in 6 menus and went out twice (2 hunt + 2 reflex kills); off, 60 and 16
+    (2 + 5). Fuller hunts, fewer of them; bone in storage 7 against 13 at the end; string 0-1 in both. No hunt deaths.
+  - **`MC_PIG_CARROTS`:** carrots bought 5 / 4 times, pigs 2 -> 5 in both (train 25: 2 all run, never bred). Led cows
+    pass the ring (gate held open 2, lost on the way 0; train 25 A2 2).
+  - Endermen 0 deaths, 0 fights. Deaths 8 / 5 (6 / 13), all 92-158 out, none on a hunt. Cost ~$0.45 / $0.51.
+  - **#233 live tier with `MC_TALK_PASS`: 30 of 33** (F361 28), replied 33 of 33 (#236 holds). The pass-on routed all 4
+    "no chore" refusals, but no receiver promised: 3 chatted, 1 refused, Iris with gather:logs on her list ("Good
+    morning!"). New #244. Reports `runs/2026-11-07/train26/report.md`, `runs/2026-11-07/chat-live/notes.md`.
