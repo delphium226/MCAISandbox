@@ -13,6 +13,7 @@ import type { Monument, Village, StationName } from '../village';
 import { VILLAGE_RANGE, areaText } from '../village';
 import { COMPOST_CHANCE, DYE_BED, DYE_MIN, TALL_FLOWERS, bedKinds, dyeSteps, dyeYields, bedLine, bedStrip, compost, compostable, newBed, type DyeBed } from '../dyeBed';
 import { searchQuarry } from '../quarry';
+import { pigCarrotKeep } from '../farmSlots';
 import { monumentNoun, siteTaken } from '../monument';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
@@ -133,7 +134,9 @@ async function makeItem(a: BotAgent, v: Village, item: string, n: number, signal
 /** Bone meal from the composter: storage's spare seeds and crops put in (by command) until `n` are made or they run out. */
 async function makeBoneMeal(a: BotAgent, v: Village, bed: DyeBed, n: number, signal: AbortSignal): Promise<number> {
   const rcon = a.world.rcon;
-  const spare = compostable(storageContents(v));
+  // (MC_PIG_CARROTS: the pig pen's carrots are kept; train 25's storage held 1 all run)
+  const pigs = pigCarrotKeep((v.layouts ?? []).flatMap((l) => l.slots ?? []));
+  const spare = compostable(storageContents(v), pigs ? { wheat_seeds: 24, wheat: 64, carrot: pigs } : undefined);
   // (about 7 / 0.3 seeds a bone meal, a fifth over for the chance)
   const want: Record<string, number> = {};
   let need = n * 7 * 1.2;

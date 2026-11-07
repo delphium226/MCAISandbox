@@ -64,7 +64,9 @@ const plan = (item: string) => w.makePlan(v, good(item), '', store());
 const planText = (p: Any) => ('why' in p ? p.why : `${p.count}: ${Object.entries(p.inputs).map(([n, q]) => `${q} ${n}`).join(', ')}`);
 
 // the merchant's offers: appended after the old ones (a saved merchant's uses keep their indices)
-ok(OFFERS[OFFERS.length - 2]?.item === 'leather' && OFFERS[OFFERS.length - 1]?.item === 'sugar_cane' && SELLS.some((o) => o.item === 'leather'), `offers end with leather and sugar_cane (${OFFERS.length})`);
+// (MC_PIG_CARROTS appends the pigs' carrots after them)
+const tail = OFFERS[OFFERS.length - 1]?.item === 'carrot' ? OFFERS.slice(0, -1) : OFFERS;
+ok(tail[tail.length - 2]?.item === 'leather' && tail[tail.length - 1]?.item === 'sugar_cane' && SELLS.some((o) => o.item === 'leather'), `offers end with leather and sugar_cane (${OFFERS.length})`);
 
 // the seed first (B1): no cane farmed, 5 emeralds, 3 leather
 const caneFarmed = (v.layouts ?? []).some((l: Any) => (l.slots ?? []).some((q: Any) => q.kind === 'sugar_cane'));

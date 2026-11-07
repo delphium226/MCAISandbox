@@ -24,7 +24,7 @@ import { at, nearestBlocks, onVillageGround, stateAt } from './mcUtil';
 import { teleportHome, underHome } from './mcRescue';
 import { annexBusy, growBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, storeBusy, surfaceAt, wheatKeep, writeBoard } from './mcBuild';
 import { ironDone, ironLevelFull, ironStairsHeld, mineAreas, mineGives, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
-import { EGGS, PENS_BIG, PEN_KINDS, PEN_ORDER, PEN_VARIETY, SLOT_KINDS, SLOT_ORDER, enlargedSlot, penCap, penLure, penPlan, penSlotFit, penWords, restockLine, worksFurnaces } from '../farmSlots';
+import { EGGS, PENS_BIG, PEN_KINDS, PEN_ORDER, PEN_VARIETY, SLOT_KINDS, SLOT_ORDER, enlargedSlot, penCap, penLure, penPlan, penSlotFit, penWords, pigCarrotKeep, restockLine, worksFurnaces } from '../farmSlots';
 import { bowsOn, archeryCounts } from './mcArchery';
 import { BOW_NW, BOW_RANK, FLINT_TRIP_MAX, arrowsLying, bowsFirst, flintCounts, flintShort, gravelOut, gravelSkip, gravelSource, recentShots, type GravelSpot } from './mcFlint';
 import { ARMS_GOODS, BOW_GOODS, FOOD_GOODS, HUNT_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, ROD_GOOD, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
@@ -104,7 +104,7 @@ import { deathMemory, deathWords, type DeathCause } from './mcHazard';
 import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, emptyReplyLine, etaMinutes, historyLines, noChoreReason, passTarget, initTalk, isStatusQuestion, talkFacts, type TalkSituation, matchWork, noRequestLine, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, statusFor, statusLines, talkSystem, talkTool, talkUser, updateRequest, withoutPlace, workWords, type PlayerRequest, type ReqProgress, type Respond, type WorkOffer } from '../playerTalk';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { isNight, nightTick } from './mcSurvivalB';
-import { HUNTED_NOT_BOUGHT, anyBed, codeBand, groundCounts, huntOffered, huntWide, armTick, armsOn, bandWords, builtBounds, combatCounts, curfewActs, curfewTick, dangerOf, dangerTick, deathsFact, beyond, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, DIST_BINS, headingHome, homeByDuskOn, hunters, huntersOf, huntedTonight, huntMs, huntOn, isWeapon, pastBand, phaseOf, WATCH_HEALTH, watchedTonight, watchLoop, type SafetyBand } from './mcCombat';
+import { HUNTED_NOT_BOUGHT, HUNT_HOME, huntNearOn, huntPreyNear, anyBed, codeBand, groundCounts, huntOffered, huntWide, armTick, armsOn, bandWords, builtBounds, combatCounts, curfewActs, curfewTick, dangerOf, dangerTick, deathsFact, beyond, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, DIST_BINS, headingHome, homeByDuskOn, hunters, huntersOf, huntedTonight, huntMs, huntOn, isWeapon, pastBand, phaseOf, WATCH_HEALTH, watchedTonight, watchLoop, type SafetyBand } from './mcCombat';
 import { modeSpec, nightsFall, realHunger, worldMode } from '../worldMode';
 import { APPETITE, FOOD_POINTS, appetiteOn, barLevel, chooseMeal, drain, foodPoints, foodText, holdMeal, hurtKeep, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
@@ -5177,6 +5177,8 @@ export class MineflayerWorld implements WorldAdapter {
    * otherwise (the trade's own keeps).
    */
   tradeKeep(v: Village, item: string): number | undefined {
+    // (MC_PIG_CARROTS: a pig pen's carrots while no slot grows a pig's food)
+    if (item === 'carrot') return pigCarrotKeep((v.layouts ?? []).flatMap((l) => l.slots ?? [])) || undefined;
     if (!lettersCurrent(v)) return undefined;
     const store = storageContents(v);
     const farmed = (v.layouts ?? []).some((l) => (l.slots ?? []).some((q) => q.kind === 'sugar_cane'));
@@ -5297,6 +5299,7 @@ export class MineflayerWorld implements WorldAdapter {
     for (const sp of this.library.specs) for (const n of Object.keys(sp.needs ?? {})) out.add(n);
     // (#21, MC_LETTERS: leather while the rung's books want it, cane while no slot farms it, spec 9 B1)
     if (lettersCurrent(v)) for (const n of ['leather', 'sugar_cane']) if ((this.tradeKeep(v, n) ?? 0) > 0) out.add(n);
+    if ((this.tradeKeep(v, 'carrot') ?? 0) > 0) out.add('carrot');
     try {
       if (CHOOSE.families.has('furnish')) for (const n of Object.keys(this.decorDemand(v))) out.add(n);
     } catch {
@@ -7972,7 +7975,9 @@ export class MineflayerWorld implements WorldAdapter {
         if (startInst && busy.has(`farmkind:${kind}`)) continue;
         // (#21, MC_LETTERS: the age of letters' first cane farm from storage, the merchant's cane, spec 9 B1)
         const seed = kind === 'sugar_cane' && !farmed.has(kind) && lettersCurrent(v);
-        if (farmed.has(kind) || seed) {
+        // (MC_PIG_CARROTS: the pig pen's carrots, bought from the merchant, start a carrot farm that then feeds the pen)
+        const pigSeed = kind === 'carrots' && !farmed.has(kind) && pigCarrotKeep(layouts.flatMap((l) => l.slots ?? [])) > 0;
+        if (farmed.has(kind) || seed || pigSeed) {
           // Farmed elsewhere: from storage when it holds a start's worth (its harvests are the stock), never from a sighting
           const spec = SLOT_KINDS[kind];
           const stock = store[spec.take] ?? 0;
@@ -7984,12 +7989,12 @@ export class MineflayerWorld implements WorldAdapter {
           add({
             id: `start:${kind}`, kind: 'start', key, holds: startInst ? [`farmkind:${kind}`] : [], excludes, name: `Start a ${words(kind)} farm`, rank: 200 + s,
             ...(fs ? { at: { x: Math.floor((fs.x1 + fs.x2) / 2), z: Math.floor((fs.z1 + fs.z2) / 2) } } : {}),
-            facts: `from storage (${stock} ${words(spec.take)} there; ${seed ? 'bought from the merchant for the age of letters' : `the village farms ${words(kind)} on another slot`}); ${freeSlots.length} free slot${freeSlots.length === 1 ? '' : 's'}; ${record('start')}${others('start')}`,
+            facts: `from storage (${stock} ${words(spec.take)} there; ${seed ? 'bought from the merchant for the age of letters' : pigSeed ? "bought from the merchant for the pig pen; a farm grows the pigs' food" : `the village farms ${words(kind)} on another slot`}); ${freeSlots.length} free slot${freeSlots.length === 1 ? '' : 's'}; ${record('start')}${others('start')}`,
             effect: `a ${words(kind)} farm to harvest${layouts[free.k - 1]?.grow ? ` in neighbourhood ${layouts[free.k - 1].grow}` : ''}`,
           }, { kind: 'start', k: free.k, j: free.j, slotKind: kind, x: 0, y: 0, z: 0, store: true });
           continue;
         }
-        if (seed) continue;
+        if (seed || pigSeed) continue;
         if ((this.slotSkip.get(skip) ?? 0) > now || !home) continue;
         const ok = facts.ok();
         const seen = facts.sightings(kind)
@@ -8380,14 +8385,18 @@ export class MineflayerWorld implements WorldAdapter {
       const cap = guardCap(members);
       const slots = Array.from({ length: cap }, (_, i) => `hunt:${i + 1}`);
       const slot = slots.find((k) => !excluded([`${k}=`], busy));
-      if (slot) {
+      // (MC_HUNT_NEAR, the user's 11-07: only while a member sees a skeleton or spider within the hunt's 64 of the hut)
+      const home = v.storage.chests[0];
+      const prey = !slot || !huntNearOn() ? 0 : huntPreyNear([...this.agents.values()].filter((x) => x.village()?.name === v.name && x.bot?.entities).flatMap((x) => Object.values(x.bot.entities)), home, this.safetyBand(v));
+      if (slot && huntNearOn() && !prey) reasons.hunt = `no skeleton or spider within ${HUNT_HOME} blocks of the storage hut`;
+      else if (slot) {
         const h = dangerOf(v.name).hunt;
         const kills = Object.values(h.kills).reduce((n, q) => n + q, 0);
         const st = storageContents(v);
         const min = Math.max(1, Math.round(huntMs() / 60000));
         add({
           id: 'hunt', kind: 'hunt', key: slot, excludes: [`${slot}=`], name: 'Hunt at the village edge', rank: 125,
-          facts: `${huntersOf(v.name)} of ${cap} hunters out; skeletons and spiders first, within ${huntWide(anyBed(this.agents.values()), this.safetyBand(v)) ? 48 : 32} blocks of the village, ~${min} min, then the drops to storage (it holds ${st.bone ?? 0} bone, ${st.string ?? 0} string); the hunt has killed ${kills} so far`,
+          facts: `${huntersOf(v.name)} of ${cap} hunters out; skeletons and spiders first, within ${HUNT_HOME} blocks of the storage hut${huntNearOn() ? ` (${prey} seen there now)` : ''}, ~${min} min, then the drops to storage (it holds ${st.bone ?? 0} bone, ${st.string ?? 0} string); the hunt has killed ${kills} so far`,
           effect: 'bone and string for storage (bone meal, fishing rods); the merchant is not asked for them',
         }, { kind: 'hunt' });
       }

@@ -34,7 +34,7 @@ import { yardMaterials } from './mcKiln';
 import { Materials, WOODS, chargedItem, describeWork, gatherTasks, label, woodName, woodPart, type Counts } from './mcMaterials';
 import { STORAGE_SKILLS, forgiveDebt, holdingStorageTask, ownTools, partsForFuel, refreshStorage, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS, STATION_REACH, holdVillageFurnace, placeStation, recordStation, stationNear, stationSpot, stationsReady, villageStation, villageStationCell } from './mcSurvival';
-import { wallTaken } from './mcWalls';
+import { leading, wallTaken } from './mcWalls';
 import { ContentionError, at, checkAbort, goals, nearestBlocks, num, onVillageGround, reach, sleep, standableY, stateAt, str, syncInventory, unmoved, walk, withColumnCache } from './mcUtil';
 import { atlasSites } from './mcSiteAtlas';
 import { taskCalls } from '../taskBrain';
@@ -4962,6 +4962,8 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
     // Home in hops: no digging, building or sprinting on the way (they keep up at ~2.5 m/s, the bot walks 4.3), and no drop
     // over 3, the most an animal's own path takes (a 6-block face held them at its edge; F205's live facts)
     const startY = me().y;
+    // (the ring's gates stay open near the member while the animals follow: train 25's cows were shut out)
+    leading.add(name);
     Object.assign(mv, { canDig: false, scafoldingBlocks: [], allow1by1towers: false, allowSprinting: false, maxDropDown: 3 });
     const [ax, az] = P.approach;
     const dist = () => Math.hypot(me().x - (ax + 0.5), me().z - (az + 0.5));
@@ -5088,6 +5090,7 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
       await teleportHome(a, signal).catch(() => null);
     throw e;
   } finally {
+    leading.delete(name);
     Object.assign(mv, saved);
     a.bot.pathfinder.setGoal(null);
     // (no signal-aware waits here: a stop must not skip them, review M4)

@@ -149,7 +149,14 @@ export function noteGates(villages: Iterable<Village>): void {
 }
 
 const gateFacing = (axis: 'x' | 'z') => (axis === 'x' ? 'south' : 'east');
-export const gateStats = { closed: 0, seenOpen: 0 };
+export const gateStats = { closed: 0, seenOpen: 0, heldForLead: 0 };
+/**
+ * Members leading animals home (start_pen's hops). The gatekeeper leaves a gate open while one is within LEAD_HOLD of it:
+ * in train 25 both cow restocks lost their cow at the ring (48 and 56 blocks from the pen), the gate shut behind the
+ * member before the cow, 3-12 blocks back, came through.
+ */
+export const leading = new Set<string>();
+export const LEAD_HOLD = 8;
 const lastClose = new Map<string, number>();
 
 /**
@@ -173,6 +180,10 @@ export async function gateTick(agents: Iterable<BotAgent>, command: (c: string) 
     const near = bots.some((a) => a.bot.entity.position.distanceTo(c) < 2.5)
       || Object.values(seer!.bot.entities).some((e) => e.type === 'player' && e.position.distanceTo(c) < 2.5);
     if (near || now - (lastClose.get(g) ?? 0) < 1500) continue;
+    if (bots.some((a) => leading.has(a.name) && a.bot.entity.position.distanceTo(c) < LEAD_HOLD)) {
+      gateStats.heldForLead++;
+      continue;
+    }
     lastClose.set(g, now);
     gateStats.closed++;
     await command(`setblock ${x} ${y} ${z} minecraft:${b.name}[facing=${p.facing ?? 'south'},open=false]`).catch(() => '');
@@ -237,7 +248,7 @@ export function wallLine(v: Village): string {
   const water = Object.keys(w.water ?? {}).length;
   const c = w.castle;
   const castle = c ? `; castle ${c.state}: ${Object.keys(c.done).length} of ${c.parts.length} parts (${c.parts.filter((p) => p.kind === 'tower').length} towers, ${c.parts.filter((p) => p.kind === 'gatehouse').length} gatehouses), ${Object.keys(c.dropped ?? {}).length} dropped, stone placed ${castleStats.stone}` : '';
-  return `[wall] ${v.name}: ${w.state}; ${done} of ${w.segs.length} segments done, ${built} of ${cells} cells built, ${gates} gates, ${w.gaps?.length ?? 0} gaps, ${water} dammed, ${w.down?.length ?? 0} to take down; gates shut ${gateStats.closed} (seen open ${gateStats.seenOpen}); hostiles inside the ring ${r?.now ?? 0} now, at night mean ${mean}, peak ${r?.peak ?? 0} (${r?.samples ?? 0} samples), entered ${r?.entered ?? 0}${castle}`;
+  return `[wall] ${v.name}: ${w.state}; ${done} of ${w.segs.length} segments done, ${built} of ${cells} cells built, ${gates} gates, ${w.gaps?.length ?? 0} gaps, ${water} dammed, ${w.down?.length ?? 0} to take down; gates shut ${gateStats.closed} (seen open ${gateStats.seenOpen}, held open for led animals ${gateStats.heldForLead}); hostiles inside the ring ${r?.now ?? 0} now, at night mean ${mean}, peak ${r?.peak ?? 0} (${r?.samples ?? 0} samples), entered ${r?.entered ?? 0}${castle}`;
 }
 
 // ---- The build ---------------------------------------------------------------------------------

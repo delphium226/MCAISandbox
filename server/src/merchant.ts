@@ -12,6 +12,7 @@ import { CUTTER } from './cutter';
 import { DYE_BED } from './dyeBed';
 import { FURNISH } from './furnish';
 import { STRING } from './supply';
+import { PIG_CARROTS } from './farmSlots';
 
 /** On by default since s42 (Stg2: purchases only of what the village uses); MC_MERCHANT=off turns it off. */
 export const MERCHANT_ON = (rawSetting('MC_MERCHANT') ?? 'on') === 'on';
@@ -65,6 +66,8 @@ export const SELLS: MerchantOffer[] = [
   // (#217 step 6, MC_BOWS: the fletcher's trade when the chain is short: flint for arrows (no gravel trip yet), and arrows.
   // Last, for the same reason; only in worlds with monsters, where the bow goods are made)
   ...(BOWS ? [{ item: 'flint', n: 4, emeralds: 1, stock: 8, dir: 'sells' as const }, { item: 'arrow', n: 8, emeralds: 1, stock: 4, dir: 'sells' as const }] : []),
+  // (MC_PIG_CARROTS: a farmer's carrots for a pig pen while no slot grows them. Last, for the same reason)
+  ...(PIG_CARROTS ? [{ item: 'carrot', n: 4, emeralds: 1, stock: 4, dir: 'sells' as const }] : []),
 ];
 
 export const OFFERS: MerchantOffer[] = [...BUYS, ...SELLS];

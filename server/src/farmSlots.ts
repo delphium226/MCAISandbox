@@ -220,6 +220,22 @@ export const ANNEX_VARIED: [number, number] = [25, 13];
  * where it stands (enlargedSlot: its far end moved out to the annex's edge).
  */
 export const PENS_BIG = !/^(off|0|false|no)$/i.test(rawSetting('MC_PENS_BIG') ?? 'on');
+
+/**
+ * MC_PIG_CARROTS (on; the user's 11-07, "restock pens" after train 25): a pig pen breeds on carrots, potatoes or beetroot,
+ * and no slot grows them without a vanilla village's field, so train 25's pigs stayed 2 of 5 all run on storage's one
+ * carrot (breeding needs 2). While a pig pen is built and no slot farms a pig's food, storage keeps PIG_FOOD_KEEP carrots:
+ * the merchant sells them, the composter leaves them (as the appetite does), and a carrot farm may start from them.
+ */
+export const PIG_CARROTS = !/^(off|0|false|no)$/i.test(rawSetting('MC_PIG_CARROTS') ?? 'on');
+export const PIG_FOOD_KEEP = 8;
+/** The carrots storage keeps for the pigs (0 when none are wanted): see PIG_CARROTS. */
+export function pigCarrotKeep(slots: Array<{ kind?: string; pen?: { built?: boolean } }>): number {
+  if (!PIG_CARROTS) return 0;
+  if (!slots.some((s) => s.kind === 'pig' && s.pen?.built)) return 0;
+  if (slots.some((s) => s.kind === 'carrots' || s.kind === 'potatoes' || s.kind === 'beetroots')) return 0;
+  return PIG_FOOD_KEEP;
+}
 export const ANNEX_BIG: [number, number] = [25, 18];
 /** The doubled shapes (insides 3x6 to 9x14 and an L of 76; twice 9, 15, 25, 35, 63 and 37 or a little more). */
 export const PEN_SHAPES_BIG: Record<string, PenShape> = {

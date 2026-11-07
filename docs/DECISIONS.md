@@ -1018,3 +1018,10 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   refill**: bows and arrows take priority over the wall build from now on, both in the order work is built and in the
   village's own work order. If the chickens are all taken for feathers, members restock the chicken pen. Animal pens are
   made twice as big, and members breed the animals to fill them.
+- 11-06 (the user, after train 24's hunt findings, F359) **The hunt reaches about 64 blocks from the storage hut**
+  ("Yes, limit to 64"), beds or not, in place of the built bounds + 32/48 (94e6d12).
+- 11-07 (the user, after train 25, F362: hunts at 64 safe but nearly empty, kills 4 / 5 against 54 / 46) **Keep the
+  reach at 64 and restock the pens; hunt only when monsters are near** ("Keep 64, restock pens", then "(b) Hunt when
+  monsters near"): the hunt is offered only while a skeleton or spider is within 64 of the storage hut
+  (`MC_HUNT_NEAR`); the pig pen gets carrots to breed (`MC_PIG_CARROTS`: the merchant sells them while no slot grows a
+  pig's food) and led animals are no longer shut out by the ring's gates. The creeper step-away was not taken up.

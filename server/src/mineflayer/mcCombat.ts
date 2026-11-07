@@ -1314,6 +1314,17 @@ export function huntReachHome(home: { x: number; y: number; z: number }, band: S
   return !band || !pastBand(band, home, p.x, p.z);
 }
 /**
+ * MC_HUNT_NEAR (on; the user's 11-07, "(b) Hunt when monsters near"): the menu offers the hunt only while some member sees a
+ * skeleton or spider (HUNT_PREY) within the hunt's reach of the storage hut. Train 25's 64-block reach made hunts safe and
+ * empty: 17 / 14 went out, 2 / 1 killed anything. `mobs` are every member's sightings (an entity may come twice).
+ */
+export const huntNearOn = (): boolean => flagOn('MC_HUNT_NEAR');
+export function huntPreyNear(mobs: Iterable<{ id: number; name?: string; position: { x: number; y: number; z: number } }>, home: { x: number; y: number; z: number }, band: SafetyBand | null): number {
+  const ids = new Set<number>();
+  for (const m of mobs) if (m.name && HUNT_PREY.has(m.name) && huntReachHome(home, band, m.position)) ids.add(m.id);
+  return ids.size;
+}
+/**
  * The hunt's walk within HUNT_HOME: the ring's spots at most `r` - 8 from the hut (a mob seen from the spot is then in
  * reach); fewer than 3 left (a village wider than the reach), a circle of radius `r` - 16 round the hut, a spot every ~`step`.
  */
