@@ -416,8 +416,44 @@ async function shearWool(a: BotAgent, v: Village, signal: AbortSignal): Promise<
   return `sheared wool for your bed: ${now.n} ${now.item} (${String(msg ?? '').slice(0, 100)})`;
 }
 
+/**
+ * shear_for_yard (MC_TALK_BIG, askedWork.ts): `count` white wool (up to 32) for a person's requested work, sheared at the
+ * atlas's sheep with shears from the member's hands or storage, or made from 2 of storage's iron; the chore's deposit
+ * takes the wool to the yard. Shears borrowed go back to storage. Other colours sheared stay in storage for beds.
+ */
+async function shearForYard(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('shear_for_yard: not in a village');
+  const want = Math.max(1, Math.min(32, Math.floor(Number(args.count ?? 16)) || 16));
+  const held = async () => (await a.world.rcon.count(a.name, 'shears').catch(() => 0)) >= 1;
+  let borrowed = false;
+  try {
+    if (!(await held())) {
+      if ((storageContents(v).shears ?? 0) >= 1) await withdrawItems(a, v, { shears: 1 }, signal).catch((e: Error) => { if (e.message === 'cancelled') throw e; });
+      if (!(await held()) && (storageContents(v).iron_ingot ?? 0) >= 2) {
+        await withdrawItems(a, v, { iron_ingot: 2 }, signal);
+        await SURVIVAL_SKILLS.craft.run(a, { item: 'shears', count: 1 }, signal).catch((e: Error) => { if (e.message === 'cancelled') throw e; });
+      }
+      if (!(await held())) throw new Error('shear_for_yard: no shears in your inventory or in storage, and no 2 iron to make a pair');
+      borrowed = true;
+    }
+    const at = sheepPlace(a, v);
+    if (typeof at === 'string') throw new Error(`shear_for_yard: ${at}`);
+    const before = await a.world.rcon.count(a.name, 'white_wool').catch(() => 0);
+    const msg = await WOOL.skill.run(a, { ...at, count: want, radius: 32 }, signal);
+    const got = (await a.world.rcon.count(a.name, 'white_wool').catch(() => 0)) - before;
+    console.log(`[asked] ${v.name}: ${a.name} sheared ${got} white wool at ${at.x},${at.z} for the requested work`);
+    if (got < 1) throw new Error(`shear_for_yard: no white wool sheared (${String(msg ?? '').slice(0, 120)})`);
+    return `sheared ${got} white wool for the requested work (${String(msg ?? '').slice(0, 100)})`;
+  } finally {
+    if ((borrowed || (storageContents(v).shears ?? 0) < 1) && !signal.aborted && (await a.world.rcon.count(a.name, 'shears').catch(() => 0)) > 0)
+      await STORAGE_SKILLS.deposit.run(a, { item: 'shears' }, signal).catch(() => '');
+  }
+}
+
 export const HOME_SKILLS: Record<string, McSkill> = {
   home_basics: { run: homeBasics },
   decorate_home: { run: decorateHome },
   shear_for_bed: { run: shearForBed },
+  shear_for_yard: { run: shearForYard },
 };

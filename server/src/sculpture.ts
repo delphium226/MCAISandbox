@@ -42,7 +42,7 @@ export const COLOUR_BLOCKS: Record<string, string> = {
   fence: 'oak_fence',
 };
 /** Other words for the colours (and the closest easy colour for those the village cannot make). */
-const COLOUR_ALIAS: Record<string, string> = {
+export const COLOUR_ALIAS: Record<string, string> = {
   grey: 'gray', light_grey: 'light_gray', silver: 'light_gray', dark_grey: 'dark_gray', cream: 'yellow', beige: 'yellow', tan: 'yellow',
   gold: 'yellow', golden: 'yellow', sand: 'yellow', pink: 'red', crimson: 'red', scarlet: 'red', rust: 'orange', copper: 'orange', amber: 'orange',
   planks: 'wood', wooden: 'wood', timber: 'wood', oak: 'wood', bark: 'log', cobblestone: 'gray', cobble: 'gray', diorite: 'white', andesite: 'light_gray',
@@ -96,14 +96,42 @@ function argsOf(raw: unknown[], names: string[]): Record<string, unknown> {
   return out;
 }
 /** Coordinates a program may write (wider than the box: what is outside it is clipped with a note, not looped over). */
-const SPAN = 32;
+const SPAN = 48;
 const clampC = (n: number) => Math.max(-SPAN, Math.min(SPAN, n));
 
 /** Whether a program's calls draw a figure (any block() or box()) rather than a house. */
 export const isSculpture = (calls: Array<[string, ...unknown[]]>) => calls.some(([fn]) => fn === 'block' || fn === 'box');
 
-/** The calls read into a figure: block() and box() in order (a later one over an earlier), plinth(), note(). */
-export function readSculpture(calls: Array<[string, ...unknown[]]>, notes: string[]): SculptSpec {
+/** MC_TALK_BIG (askedWork.ts): the colours with no easy block as concrete in their colour, resolved as any block. */
+const BIG_COLOURS: Record<string, string> = {
+  green: 'green_concrete', lime: 'lime_concrete', blue: 'blue_concrete', light_blue: 'light_blue_concrete', cyan: 'cyan_concrete', purple: 'purple_concrete',
+  magenta: 'magenta_concrete', pink: 'pink_concrete', black: 'black_concrete', violet: 'purple_concrete', olive: 'green_concrete',
+};
+/** A word resolved as a real block (askedWork's resolver; undefined: not a block name). */
+export type BlockResolver = (word: string) => { block: string | null; note?: string } | undefined;
+/** MC_TALK_BIG: a block id as the resolver gives it (the nearest the village can get, with a note), a colour with no easy
+ *  block as its concrete, else the colour's easy block. */
+function bigBlock(v: unknown, notes: string[], resolve: BlockResolver): string | null {
+  const w = word(v).replace(/\[.*$/, '');
+  if (EMPTY.test(w)) return null;
+  const r = resolve(w) ?? (BIG_COLOURS[w] ? resolve(BIG_COLOURS[w]) : undefined);
+  if (r) {
+    if (r.note) notes.push(r.note);
+    return r.block;
+  }
+  return colourBlock(v, notes);
+}
+
+/** The box a figure is drawn in: across, layers with the plinth, furnace runs, and whether it is a big work (MC_TALK_BIG:
+ *  glass is never unsmelted). */
+export interface SculptLimits { side: number; up: number; smelts: number; big: boolean }
+export const SMALL_LIMITS: SculptLimits = { side: V2_LIMITS.maxBox, up: V2_LIMITS.maxLayers, smelts: MAX_SMELTS, big: false };
+
+/** The calls read into a figure: block() and box() in order (a later one over an earlier), plinth(), note(). With
+ *  `resolve` (MC_TALK_BIG), blocks are named by id and resolved; notes said once. */
+export function readSculpture(calls: Array<[string, ...unknown[]]>, notes: string[], resolve?: BlockResolver): SculptSpec {
+  const said = notes.length;
+  const blockOf = (v: unknown) => (resolve ? bigBlock(v, notes, resolve) : colourBlock(v, notes));
   const cells = new Map<string, string>();
   let plinth: string | null = 'cobblestone', note = '';
   const skipped = new Set<string>();
@@ -121,7 +149,7 @@ export function readSculpture(calls: Array<[string, ...unknown[]]>, notes: strin
           notes.push(`block(${raw.map((r) => JSON.stringify(r)).join(', ').slice(0, 40)}) has no x, y, z: skipped`);
           break;
         }
-        set(clampC(x), clampC(y), clampC(z), colourBlock(a.colour ?? a.color ?? a.material ?? a.block ?? 'gray', notes));
+        set(clampC(x), clampC(y), clampC(z), blockOf(a.colour ?? a.color ?? a.material ?? a.block ?? 'gray'));
         break;
       }
       case 'box': {
@@ -132,7 +160,7 @@ export function readSculpture(calls: Array<[string, ...unknown[]]>, notes: strin
           break;
         }
         const [x1, y1, z1, x2, y2, z2] = (c as number[]).map(clampC);
-        const b = colourBlock(a.colour ?? a.color ?? a.material ?? a.block ?? 'gray', notes);
+        const b = blockOf(a.colour ?? a.color ?? a.material ?? a.block ?? 'gray');
         for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++)
           for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++)
             for (let z = Math.min(z1, z2); z <= Math.max(z1, z2); z++) set(x, y, z, b);
@@ -152,23 +180,24 @@ export function readSculpture(calls: Array<[string, ...unknown[]]>, notes: strin
         skipped.add(fn);
     }
   }
+  if (resolve) notes.splice(said, notes.length - said, ...new Set(notes.slice(said)));
   return { cells, plinth, note };
 }
 
 /** A figure in a few words: "a 5x7 statue, 9 high, in diorite, polished granite and sandstone on a cobblestone plinth". */
-export function sculptureWords(d: Design, what = 'figure'): string {
+export function sculptureWords(d: Design, what = 'figure', plinth = true): string {
   const count: Record<string, number> = {};
   d.layers.forEach((layer, li) => layer.forEach((row) => {
-    for (const ch of row) if (li > 0 && d.palette[ch]) count[d.palette[ch]] = (count[d.palette[ch]] ?? 0) + 1;
+    for (const ch of row) if ((li > 0 || !plinth) && d.palette[ch]) count[d.palette[ch]] = (count[d.palette[ch]] ?? 0) + 1;
   }));
   const mats = Object.entries(count).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k]) => k.replace(/_/g, ' '));
-  const base = d.palette[d.layers[0]?.[0]?.[0] ?? '.'];
+  const base = plinth ? d.palette[d.layers[0]?.[0]?.[0] ?? '.'] : undefined;
   const list = mats.length > 1 ? `${mats.slice(0, -1).join(', ')} and ${mats.at(-1)}` : mats[0] ?? 'stone';
   return `a ${d.width}x${d.depth} ${what}, ${d.height} high, in ${list}${base ? ` on a ${base.replace(/_/g, ' ')} plinth` : ''}`;
 }
 
 /** The figure drawn as a design grid: its cells' box (clipped to the limits), the plinth as layer 0, the figure above. */
-export function compileSculpture(spec: SculptSpec, name: string, description = 'a sculpture'): { design: Design | null; notes: string[]; why?: string } {
+export function compileSculpture(spec: SculptSpec, name: string, description = 'a sculpture', lim: SculptLimits = SMALL_LIMITS): { design: Design | null; notes: string[]; why?: string } {
   const notes: string[] = [];
   const pts = [...spec.cells.entries()].map(([k, b]) => {
     const [x, y, z] = k.split(',').map(Number);
@@ -177,7 +206,14 @@ export function compileSculpture(spec: SculptSpec, name: string, description = '
   if (!pts.length) return { design: null, notes, why: 'the program drew no blocks' };
   const minOf = (k: 'x' | 'y' | 'z') => Math.min(...pts.map((p) => p[k]));
   const x0 = minOf('x'), y0 = minOf('y'), z0 = minOf('z');
-  const maxSide = V2_LIMITS.maxBox, maxUp = V2_LIMITS.maxLayers - (spec.plinth ? 1 : 0);
+  // (MC_TALK_BIG: a work drawn the full height has no plinth rather than its top layer cut: bigbench's towers and obelisks
+  // drew y 0..29 or 0..30 in 7 of 8 samples; over 30 the rest is still clipped)
+  const full = lim.big && !!spec.plinth && Math.max(...pts.map((p) => p.y)) - y0 + 1 >= lim.up;
+  if (full) {
+    notes.push(`no plinth: the work fills all ${lim.up} layers`);
+    spec = { ...spec, plinth: null };
+  }
+  const maxSide = lim.side, maxUp = lim.up - (spec.plinth ? 1 : 0);
   const inBox = pts.filter((p) => p.x - x0 < maxSide && p.z - z0 < maxSide && p.y - y0 < maxUp);
   if (inBox.length < pts.length) notes.push(`${pts.length - inBox.length} blocks outside ${maxSide}x${maxSide} and ${maxUp} high left out`);
   if (y0 !== 0) notes.push(`the figure's lowest blocks at y=${y0} set on the plinth`);
@@ -210,9 +246,10 @@ function hollow(spec: SculptSpec): SculptSpec | null {
   for (const k of hidden) cells.delete(k);
   return { ...spec, cells };
 }
-/** Smelted blocks swapped for unsmelted ones (stone and stone bricks to cobblestone, glass to white). */
-function unsmelt(spec: SculptSpec): SculptSpec | null {
-  const swap: Record<string, string> = { stone: 'cobblestone', stone_bricks: 'cobblestone', smooth_stone: 'cobblestone', glass: COLOUR_BLOCKS.white };
+/** Smelted blocks swapped for unsmelted ones (stone and stone bricks to cobblestone, glass to white; a big work's glass
+ *  is what was asked for and stays). */
+function unsmelt(spec: SculptSpec, big = false): SculptSpec | null {
+  const swap: Record<string, string> = { stone: 'cobblestone', stone_bricks: 'cobblestone', smooth_stone: 'cobblestone', ...(big ? {} : { glass: COLOUR_BLOCKS.white }) };
   if (![...spec.cells.values()].some((b) => swap[b]) && !(spec.plinth && swap[spec.plinth])) return null;
   return { ...spec, cells: new Map([...spec.cells].map(([k, b]) => [k, swap[b] ?? b])), plinth: spec.plinth && (swap[spec.plinth] ?? spec.plinth) };
 }
@@ -221,22 +258,22 @@ function unsmelt(spec: SculptSpec): SculptSpec | null {
  * A figure drawn within the box, `budget` units and MAX_SMELTS: over the bill its hidden inside goes first, then the
  * smelted blocks; still over, no design and why in words. `problems` (the world's hard-to-gather check) is asked last.
  */
-export function fitSculpture(spec: SculptSpec, budget: number, bill: ProgramBill & { problems?: (d: Design) => string[] } = {}, name = 'sculpture', description?: string):
+export function fitSculpture(spec: SculptSpec, budget: number, bill: ProgramBill & { problems?: (d: Design) => string[] } = {}, name = 'sculpture', description?: string, lim: SculptLimits = SMALL_LIMITS):
   { design: Design | null; cuts: string[]; notes: string[]; why?: string } {
   const cuts: string[] = [];
   let s = spec;
   for (let i = 0; i < 4; i++) {
-    const c = compileSculpture(s, name, description);
+    const c = compileSculpture(s, name, description, lim);
     if (!c.design) return { design: null, cuts, notes: c.notes, why: c.why };
     const units = bill.units?.(c.design) ?? 0, smelts = bill.smelts?.(c.design) ?? 0;
-    const over = units > budget, smelty = smelts > MAX_SMELTS;
+    const over = units > budget, smelty = smelts > lim.smelts;
     if (!over && !smelty) {
       const p = bill.problems?.(c.design) ?? [];
       if (p.length) return { design: null, cuts, notes: c.notes, why: `the village cannot get its materials: ${p.join('; ').slice(0, 160)}` };
       return { design: c.design, cuts, notes: c.notes };
     }
-    const next = smelty ? unsmelt(s) ?? hollow(s) : hollow(s) ?? unsmelt(s);
-    if (!next) return { design: null, cuts, notes: c.notes, why: over ? `it needs ${units} units of materials, over the ${budget} the village gives a requested work` : `it needs ${smelts} furnace runs, over ${MAX_SMELTS}` };
+    const next = smelty ? unsmelt(s, lim.big) ?? hollow(s) : hollow(s) ?? unsmelt(s, lim.big);
+    if (!next) return { design: null, cuts, notes: c.notes, why: over ? `it needs ${units} units of materials, over the ${budget} the village gives a requested work` : `it needs ${smelts} furnace runs, over ${lim.smelts}` };
     cuts.push(next.cells.size < s.cells.size ? 'hollow inside' : 'unsmelted stone');
     s = next;
   }
@@ -258,3 +295,27 @@ stone post), "fence" (a thin wooden post). There is no green, blue or purple, an
 Make it readable from the street: big simple shapes with box() (a body, a head, legs, a base), then block() for the details
 (eyes, a beak, a comb). A figure 5 to 9 blocks in its longest direction reads well. Each block costs one unit.
 Example (a lamp post on a step): plinth("stone_bricks"); box(1,0,1,3,0,3,"gray"); box(2,1,2,2,5,2,"wall"); block(2,6,2,"glass"); note("A lamp post")`;
+
+/** MC_TALK_BIG: the sculpture functions at full size, in real blocks (talkDesign.ts' prompt for a big request). */
+export function sculptureDocBig(side: number, up: number): string {
+  return `For a statue, sculpture, monument, pyramid, obelisk, tower, arch, wall, fountain, pillar or any work that is not an
+ordinary house-like building (and for any building wider than 11 or in a special material), do not call body() or the
+house's parts: draw it with these instead:
+box(x1, y1, z1, x2, y2, z2, block)   fill every block from one corner to the other (both included)
+block(x, y, z, block)                one block; a later call over an earlier one replaces it, "air" empties it
+plinth(material)                     the one-block base code sets under the work: "cobblestone" (default), "stone_bricks",
+                                     "sandstone", "stone", "planks" or "none"
+note(text)                           one sentence: what the work is
+x runs left to right, z back to front (the front, highest z, faces the street), y up from 0 (standing on the plinth). The
+whole work must fit 0..${side - 1} in x and z and 0..${up - 2} in y: up to ${side}x${side}, ${up} high with its plinth.
+block: a Minecraft block id in the material the person asked for: blue_stained_glass, red_wool, white_concrete,
+orange_terracotta, terracotta, quartz_block, sandstone, smooth_stone, stone_bricks, polished_andesite, deepslate_bricks,
+bricks, cut_copper, spruce_planks, glass... or a colour word (white, gray, red, yellow, orange, brown...) for plain stone in
+that colour. Use the material the person named; code swaps what the village cannot get for the nearest it can and says so.
+Build volumes with box(): a stepped pyramid is one box per step, a tower a box of walls and box(..., "air") inside it, a
+wall one box. Loops are fine (for (let i = 0; i < 15; i++) box(...)); never loop block() over a whole volume. Most works
+are 5 to 60 calls. Each block costs a unit; code hollows a solid work's hidden inside only when it is over the budget.
+Make the size the person asked for ("30 blocks" wide or high means 30); with no size, make it big enough to read from the
+street (10 to 20 blocks).
+Example (a 9-wide stepped pyramid of sandstone with a glass top): plinth("none"); for (let i = 0; i < 4; i++) box(i, i, i, 8 - i, i, 8 - i, "sandstone"); block(4, 4, 4, "yellow_stained_glass"); note("A stepped pyramid")`;
+}

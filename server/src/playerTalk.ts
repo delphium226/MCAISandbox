@@ -14,6 +14,7 @@ import path from 'node:path';
 import type { ToolDef } from './world';
 import { rawSetting } from './settings';
 import { offerLine, type DesignOffer } from './talkDesign';
+import { TALK_BIG } from './askedWork';
 
 export const PLAYER_TALK = {
   on: !/^(off|0|false|no)$/i.test(rawSetting('MC_TALK') ?? 'on'),
@@ -397,6 +398,19 @@ const MAYOR_DESIGN_SYSTEM = `You are the Mayor of a Minecraft village whose memb
 - place: copy the person's own words for where it should go ("by the river", "here", "next to the hall"), or leave it empty. Code finds the spot.
 - say: one short friendly line in your own voice. Do not give times, distances or coordinates: code adds them.`;
 
+// (MC_TALK_BIG, askedWork.ts: works up to 30x30x30 in any material are designed; only the truly huge is refused)
+const MAYOR_BIG_SYSTEM = `You are the Mayor of a Minecraft village whose members are run by language models. A person, a human player, has spoken to you. Answer them once with the respond tool.
+- kind=build when they ask the village to build something. work names what we build, the first of these that fits what they asked:
+  1. a pre-designed building from "Pre-designed buildings that match their words": its id (a real building, drawn in full);
+  2. a work from "Works we can build": its id; or "houses" for houses to live in;
+  3. "design" when none of those fits and it is something built of blocks that stands in one place, up to about 30x30 blocks and 30 high: a building (a bakery, a school), a statue or sculpture of an animal, a person or a thing, a pyramid, a tower, an obelisk, a fountain, an arch, a wall, a pillar, a monument, a gate, a garden feature, in any material they name (glass, stained glass, wool, concrete, terracotta, quartz, copper, stone, wood...). Our architect draws it at the size and in the material they asked; the village gathers and makes the materials (big works take an hour or more, built in parts; code swaps a material the village cannot get for the nearest and says so). Set what to it in a few words with the size and material they asked ("a 30-block blue glass pyramid", "a red wool castle tower", "a statue of a chicken") and nearest to the id of the listed building closest to it. A statue of a creature is a figure made of blocks: design it, do not refuse it. A big work within 30x30x30 is design, not refuse.
+- kind=refuse for what cannot be built of blocks in one place in this game (items, tools or food to hand over, live creatures or pets, fighting, magic, anything outside this game) and for anything larger than about 30x30x30 (a city, a skyscraper, a mountain, a statue 100 blocks high); reason says why in one plain sentence (for one too big, that we build up to 30x30x30), and nearest names the listed building closest to what they asked.
+- A line a member passes on to you is the person's request to you: answer what they asked (build, refuse or chat) as if they had said it to you.
+- kind=chat for greetings, questions and talk that asks nothing to be built: say answers from what you know of the village.
+- About the person's requests (what happened, where, when), say only what "Their requests now" shows: if it says a request is not started, do not say it is being built; give no place it does not give. Code adds the facts after your line.
+- place: copy the person's own words for where it should go ("by the river", "here", "next to the hall"), or leave it empty. Code finds the spot.
+- say: one short friendly line in your own voice. Do not give times, distances, sizes in blocks or coordinates: code adds them.`;
+
 // (#233, F358: asked what its prompt did not show, the model made it up: "no monsters were spotted" after a night of 14
 // and a death; asked to eat or rest, it chatted "I'll rest soon" with both on its list; "I don't have a bow" while it
 // carried one)
@@ -412,7 +426,7 @@ const MAYOR_RULES = `${FACT_RULES}
 - You cannot call a vote: the members vote on the wall's stages and the public works when the village puts them to a ballot. Say so rather than refuse the idea.`;
 
 export const talkSystem = (role: 'mayor' | 'member', designs = false) =>
-  (role === 'mayor' ? `${designs ? MAYOR_DESIGN_SYSTEM : MAYOR_SYSTEM}\n${MAYOR_RULES}` : `${MEMBER_SYSTEM}\n${MEMBER_RULES}`);
+  (role === 'mayor' ? `${designs ? (TALK_BIG.on ? MAYOR_BIG_SYSTEM : MAYOR_DESIGN_SYSTEM) : MAYOR_SYSTEM}\n${MAYOR_RULES}` : `${MEMBER_SYSTEM}\n${MEMBER_RULES}`);
 
 export function talkTool(role: 'mayor' | 'member', designs = false): ToolDef {
   const kinds = role === 'mayor' ? ['chat', 'build', 'refuse'] : ['chat', 'promise', 'forward', 'refuse'];
@@ -425,7 +439,7 @@ export function talkTool(role: 'mayor' | 'member', designs = false): ToolDef {
     props.work = { type: 'string', description: designs ? 'kind=build: the id of a pre-designed building or a work from the lists, "houses", or "design" for a new building or decorative work (a statue, a fountain...) our architect draws.' : 'kind=build: the id of a work from the list, or "houses".' };
     props.place = { type: 'string', description: "kind=build: the person's words for where, or empty." };
     if (designs) {
-      props.what = { type: 'string', description: 'work=design: what to draw in a few words ("a bakery", "a statue of a chicken").' };
+      props.what = { type: 'string', description: TALK_BIG.on ? 'work=design: what to draw in a few words, with the size and material asked ("a bakery", "a statue of a chicken", "a 30-block blue glass pyramid").' : 'work=design: what to draw in a few words ("a bakery", "a statue of a chicken").' };
       props.nearest = { type: 'string', description: 'work=design or kind=refuse: the id of the listed building closest to what they asked.' };
     }
   } else props.option = { type: 'string', description: 'kind=promise: the id of a chore from your list.' };
@@ -560,7 +574,7 @@ export function talkUser(c: TalkCtx): string {
     c.status ? `Their requests now (from the village's records; say nothing about them these do not show):\n${c.status.length ? c.status.map((l) => `- ${l}`).join('\n') : '- none open'}` : '',
     c.designs ? (c.designs.length ? `Pre-designed buildings that match their words (id: name, kind, size):\n${c.designs.map(offerLine).join('\n')}`
       : `No pre-designed building matches their words. Some others the village could build (id: name, kind, size):\n${(c.otherDesigns ?? []).map(offerLine).join('\n')}`) : '',
-    c.works ? `Works we can build (id: what, size in units of work):\n${c.works.map((w) => `- ${w.id}: ${w.words} (${w.units})`).join('\n')}\n- houses: a street of houses for members${c.designs ? '\n- design: a building or a small decorative work (a statue, a fountain, an arch...) none of the above fits, drawn new by our architect' : ''}` : '',
+    c.works ? `Works we can build (id: what, size in units of work):\n${c.works.map((w) => `- ${w.id}: ${w.words} (${w.units})`).join('\n')}\n- houses: a street of houses for members${c.designs ? `\n- design: ${TALK_BIG.on ? 'a building or a work of blocks up to 30x30x30 in any material (a statue, a pyramid, a tower, an obelisk, an arch, a fountain...)' : 'a building or a small decorative work (a statue, a fountain, an arch...)'} none of the above fits, drawn new by our architect` : ''}` : '',
     c.options ? `Your chores (id: what):\n${c.options.map((o) => `- ${o.id}: ${o.name}`).join('\n')}` : '',
     `${c.via ? `${c.via} passes on what ${c.from} said to them` : `${c.from} says to you`}:\n${c.lines.map((l) => `"${l}"`).join('\n')}`,
   ].filter(Boolean).join('\n\n');

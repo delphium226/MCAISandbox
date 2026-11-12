@@ -228,7 +228,9 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
   }
   if (parts[1] === 'requests' && req.method === 'GET') {
     const v = url.searchParams.get('village') ?? undefined;
-    return sendJson(res, 200, { on: PLAYER_TALK.on, requests: requestsOf(v).slice(-100).reverse(), people: peopleOf(v) });
+    // (each with its progress as the talk prompt reads it: a requested work's parts built, MC_TALK_BIG)
+    const open = (r: { status: string }) => r.status === 'queued' || r.status === 'under_way';
+    return sendJson(res, 200, { on: PLAYER_TALK.on, requests: requestsOf(v).slice(-100).reverse().map((r) => (open(r) ? { ...r, progress: w.requestProgress(r) } : r)), people: peopleOf(v) });
   }
   if (parts[1] === 'proposals') {
     if (!parts[2] && req.method === 'GET') return sendJson(res, 200, allProposals(url.searchParams.get('village') ?? undefined));

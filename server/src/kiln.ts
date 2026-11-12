@@ -20,7 +20,12 @@ export const KILN = {
 /** What the kiln smelts (input -> output). */
 // (#162 tier 3, chain B: raw copper for the copper roof, loaded only when a plan asks for its ingots: monument.ts kilnWants)
 // (stone into smooth stone: the civic tier's stone kinds have smooth-stone pads and courses; no cathedral asks for it)
-export const KILN_SMELTS: Record<string, string> = { cobblestone: 'stone', sand: 'glass', raw_copper: 'copper_ingot', stone: 'smooth_stone' };
+export const KILN_SMELTS: Record<string, string> = { cobblestone: 'stone', sand: 'glass', raw_copper: 'copper_ingot', stone: 'smooth_stone',
+  // (MC_TALK_BIG, askedWork.ts: a requested work's terracotta from clay, bricks from clay balls, iron blocks from raw iron,
+  // glazed terracotta from the dyed)
+  clay: 'terracotta', clay_ball: 'brick', raw_iron: 'iron_ingot',
+  ...Object.fromEntries(['white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray', 'light_gray', 'cyan', 'purple', 'blue', 'brown', 'green', 'red', 'black']
+    .map((c) => [`${c}_terracotta`, `${c}_glazed_terracotta`])) };
 /** A furnace's input slot, and an item's cook at 1x (ms). */
 export const SLOT = 64, COOK_MS = 10000;
 

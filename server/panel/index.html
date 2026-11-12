@@ -2655,10 +2655,10 @@ function projectsHtml(v) {
   const tk = extraData.get(`talk:${v.name}`)?.data;
   const asks = (tk?.requests || []).filter((r) => r.kind === 'build' && ['queued', 'under_way', 'done', 'failed'].includes(r.status)).slice(0, 4);
   for (const r of asks) {
-    const done = r.status === 'done', bad = r.status === 'failed';
+    const done = r.status === 'done', bad = r.status === 'failed', pr = r.progress;
     row(`${esc(cap(r.what || words(String(r.piece || '').replace(/^civic:/, '')) || 'a request'))} <span class="sub">(${esc(r.from)}'s request)</span>`, esc(r.status.replace('_', ' ')),
-      done ? 100 : 0, done ? 'var(--st-good)' : bad ? 'var(--st-critical)' : 'var(--c1)',
-      `"${esc(r.text)}"${r.drawing ? ' · the architect is drawing it' : ''}${r.eta && !done ? ` · ETA ~${r.eta} min` : ''}${bad && (r.reason || r.outcome) ? ` · ${esc(r.reason || r.outcome)}` : ''}`);
+      done ? 100 : pr?.of ? (100 * (pr.done || 0)) / pr.of : 0, done ? 'var(--st-good)' : bad ? 'var(--st-critical)' : 'var(--c1)',
+      `"${esc(r.text)}"${r.drawing ? ' · the architect is drawing it' : ''}${pr?.of && !done ? ` · ${pr.done || 0} of ${pr.of} parts built` : pr?.state && !done && !r.drawing ? ` · ${esc(pr.state)}` : ''}${r.eta && !done ? ` · ETA ~${r.eta} min` : ''}${bad && (r.reason || r.outcome) ? ` · ${esc(r.reason || r.outcome)}` : ''}`);
   }
   return rows.join('') || '<div class="empty">no civic building, monument, ladder or request yet</div>';
 }

@@ -40,7 +40,7 @@ const building = new Set<string>();
 
 /** The plan of a bill against what is had, as the yard's arithmetic wants it (Materials.plan); with the stonecutter
  *  (#162, MC_MONUMENT_DETAIL) a plan that cuts the stone pieces rather than crafting them. */
-const cutPlans = new WeakMap<object, Materials>(), craftPlans = new WeakMap<object, Materials>();
+const cutPlans = new WeakMap<object, Materials>(), craftPlans = new WeakMap<object, Materials>(), askedPlans = new WeakMap<object, Materials>();
 export const planOf = (w: { materials: { plan: PlanOf }; registry?: ConstructorParameters<typeof Materials>[0] }, m?: Monument): PlanOf => {
   const p = yardMaterials(w, m);
   return p ? (bill, have) => p.plan(bill, have) : (bill, have) => w.materials.plan(bill, have);
@@ -53,6 +53,13 @@ export const yardMaterials = (w: { registry?: ConstructorParameters<typeof Mater
   // (#202: cut only where a carver cuts, a detail record; another's build crafts its stairs, 6 cobblestone for 4, and the
   // Zytglogge's top waited on 112 cobblestone stairs the yard's 122 cobblestone were planned to cover)
   const cutting = CUTTER.on && (!m || !!(m as Monument & { detail?: boolean }).detail);
+  // (MC_TALK_BIG: a person's requested work, askedWork.ts: dyes asked for as such (the dyer makes them), terracotta from
+  // clay, concrete from powder)
+  if (m && (m as Monument & { asked?: unknown }).asked) {
+    let q = askedPlans.get(w);
+    if (!q) askedPlans.set(w, (q = new Materials(w.registry, { yard: true, dyes: DYE_BED.on, asked: true })));
+    return q;
+  }
   const plans = cutting ? cutPlans : craftPlans;
   let p = plans.get(w);
   // (#162's dye bed: the dyes asked for as such, the dyer makes them; #202: the yard's sandstone made from sand)

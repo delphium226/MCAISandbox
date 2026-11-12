@@ -21,7 +21,8 @@
  */
 import { aKind, civicEntries, civicScale, drawCivic, type CivicEntry } from './civic';
 import { LIBRARY_DOC, describeSpec, extractProgram, houseFromRun, requoteNotes, runProgramIsolated, type HouseSpec, type ProgramBill } from './houseProgram';
-import { SCULPTURE_DOC, fitSculpture, isSculpture, readSculpture, sculptureWords } from './sculpture';
+import { SCULPTURE_DOC, fitSculpture, isSculpture, readSculpture, sculptureDocBig, sculptureWords, type BlockResolver, type SculptLimits } from './sculpture';
+import { TALK_BIG } from './askedWork';
 import { familyWords } from './homeDesign';
 import { CallWithdrawn, callModel, parseSpec, type ModelSpec } from './modelCall';
 import { usage, isCloudModel } from './modelUsage';
@@ -162,6 +163,18 @@ const PUBLIC_SYSTEM = 'You are the architect of a Minecraft village. A person as
   + '(a tower for a lighthouse, a lookout or a belfry; a long body with wings for a hall; stone walls and a base for a strong building; '
   + 'wide windows for a shop or a school).\n\n' + SCULPTURE_DOC;
 
+// (MC_TALK_BIG, askedWork.ts: works up to 30x30x30 in real blocks)
+const PUBLIC_SYSTEM_BIG = () => 'You are the architect of a Minecraft village. A person asked the village for a public building or a work of '
+  + `blocks up to ${TALK_BIG.side}x${TALK_BIG.side}x${TALK_BIG.up} (a statue, a pyramid, a tower, an obelisk, an arch, a fountain...) that is not in its pattern book, `
+  + 'and you draw it. Reply with only a short JavaScript program in one ```js block that calls the library below, then nothing else.\n\nFor an '
+  + 'ordinary building up to 11x11:\n'
+  + LIBRARY_DOC.replace('note(text)                     one sentence: why this house suits you', 'note(text)                     one sentence: what this building is')
+  + '\nThe library was made for houses: make a public building from the same parts so that it reads as what was asked from the street.\n\n'
+  + sculptureDocBig(TALK_BIG.side, TALK_BIG.up);
+
+/** The big work's limits (MC_TALK_BIG). */
+export const BIG_LIMITS = (): SculptLimits => ({ side: TALK_BIG.side, up: TALK_BIG.up, smelts: TALK_BIG.smelts, big: true });
+
 export interface PublicContext {
   /** The person's own words. */
   text: string;
@@ -172,7 +185,17 @@ export interface PublicContext {
 }
 
 /** The architect's prompt for one requested building. */
-export function buildPublicPrompt(ctx: PublicContext, budget: number): { system: string; user: string } {
+export function buildPublicPrompt(ctx: PublicContext, budget: number, big = false): { system: string; user: string } {
+  if (big) return {
+    system: PUBLIC_SYSTEM_BIG(),
+    user: [
+      `A person said to the Mayor: "${ctx.text.slice(0, 200)}"`,
+      `Draw ${ctx.what} for the village, in the material and at the size the person asked for.`,
+      `The village builds in the ${ctx.family} style (${familyWords(ctx.family, ctx.wood)}).`,
+      `Budget: ${budget} units of materials. A work costs about a unit a block: a solid 30-base stepped pyramid is about 4,500 blocks, a 9x9 tower 30 high with hollow walls about 1,000, an 11x11 statue about 300. Code hollows a solid work's hidden inside only when it is over the budget.`,
+      `Write ${ctx.what} as the person would want it, with note() saying what it is.`,
+    ].join('\n'),
+  };
   const lines = [
     `A person said to the Mayor: "${ctx.text.slice(0, 200)}"`,
     `Draw ${ctx.what} for the village.`,
@@ -196,6 +219,8 @@ export interface PublicRequest {
   call?: typeof callModel;
   /** The world's hard-to-gather check on a figure (mcWorld materialTasks' problems): a figure it fails is not drawn. */
   problems?: (d: Design) => string[];
+  /** MC_TALK_BIG: a work up to 30x30x30 whose blocks are named by id and resolved (askedWork.ts makeResolver). */
+  big?: { resolve: BlockResolver };
 }
 export interface PublicResult {
   design: Design | null;
@@ -229,7 +254,7 @@ export async function castPublic(req: PublicRequest): Promise<PublicResult> {
   const out: PublicResult = { design: null, cuts: [], notes: [], unknown: [], code: '', said: '' };
   const t0 = Date.now();
   try {
-    const p = buildPublicPrompt(req.ctx, req.budget);
+    const p = buildPublicPrompt(req.ctx, req.budget, !!req.big);
     if ((isCloudModel(req.spec.model) && !usage.allows('decisions')) || usage.blocked(req.spec.model, req.agent)) return { ...out, why: 'budget' };
     const r = await (req.call ?? callModel)({
       spec: req.spec, system: p.system, user: p.user, tools: [], level: 'low', agent: req.agent, kind: 'home', priority: 'human',
@@ -244,9 +269,10 @@ export async function castPublic(req: PublicRequest): Promise<PublicResult> {
     // (a statue, fountain or arch: block() and box() draw a figure, sculpture.ts, not a house)
     if (isSculpture(run.calls)) {
       const notes: string[] = [];
-      const sp = readSculpture(run.calls, notes);
-      const thing = req.ctx.what.replace(/^(a|an|the)\s+/i, '').split(/\s+/).slice(0, 4).join(' ') || 'figure';
-      const f = fitSculpture(sp, req.budget, { ...req.bill, ...(req.problems ? { problems: req.problems } : {}) }, req.name, req.ctx.what);
+      const sp = readSculpture(run.calls, notes, req.big?.resolve);
+      // (MC_TALK_BIG: the asked size left to the words' numbers: "a 30-block pyramid" is "a 30x30 pyramid, 15 high")
+      const thing = req.ctx.what.replace(/^(a|an|the)\s+/i, '').replace(req.big ? /^\d+[- ]?(blocks?|metres?|meters?|m)?[- ]?(high|tall|wide|across|long)?\s+/i : /^$/, '').split(/\s+/).slice(0, 4).join(' ') || 'figure';
+      const f = fitSculpture(sp, req.budget, { ...req.bill, ...(req.problems ? { problems: req.problems } : {}) }, req.name, req.ctx.what, req.big ? BIG_LIMITS() : undefined);
       out.unknown = run.unknown;
       out.notes = [...notes, ...f.notes];
       out.said = sp.note.trim().replace(/\s+/g, ' ');
@@ -254,7 +280,7 @@ export async function castPublic(req: PublicRequest): Promise<PublicResult> {
       if (run.error) out.error = run.error;
       if (!f.design) return { ...out, why: 'fit', error: f.why ?? run.error };
       out.cuts = f.cuts;
-      out.form = sculptureWords(f.design, thing);
+      out.form = sculptureWords(f.design, thing, !!sp.plinth);
       out.design = { ...f.design, name: req.name, description: `${req.ctx.what}: ${out.form}`, by: 'program' };
       return out;
     }

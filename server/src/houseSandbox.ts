@@ -12,8 +12,9 @@
 import vm from 'node:vm';
 import { Worker } from 'node:worker_threads';
 
-// (calls 400: a sculpture, sculpture.ts, is drawn block by block, and a figure's details are a call each)
-export const PROGRAM_LIMITS = { chars: 4000, calls: 400, ms: 200, unknownRetries: 6 };
+// (calls 400: a sculpture, sculpture.ts, is drawn block by block, and a figure's details are a call each; 2000 since
+// MC_TALK_BIG's 30x30x30 works, whose loops of box() and block() run longer)
+export const PROGRAM_LIMITS = { chars: 4000, calls: 2000, ms: 200, unknownRetries: 6 };
 /** The worker's limits: its heap (MB), and how long it may live from its start (the vm caps run inside it). */
 export const WORKER_LIMITS = { maxOldGenerationSizeMb: 48, maxYoungGenerationSizeMb: 8, codeRangeSizeMb: 8, stackSizeMb: 2, timeoutMs: 3000 };
 export const LIBRARY_NAMES = ['house', 'body', 'wing', 'tower', 'bay', 'porch', 'chimney', 'roof', 'walls', 'base', 'frame', 'windows', 'shutters', 'door', 'note',

@@ -63,7 +63,7 @@ const GATHER = new Set(['coal', 'raw_iron', 'raw_copper', 'raw_gold', 'white_woo
 export const YARD_MADE = ['sandstone', 'red_sandstone'];
 
 /** Gathered items that take finding (ores underground, animals): charcoal from logs beats coal ore, for example. */
-const GATHER_COST: Record<string, number> = { coal: 2, raw_iron: 3, raw_copper: 3, raw_gold: 4, leather: 3, white_wool: 2, clay_ball: 2, sugar_cane: 2, vine: 2, cod: 3, salmon: 3,
+const GATHER_COST: Record<string, number> = { clay: 2, coal: 2, raw_iron: 3, raw_copper: 3, raw_gold: 4, leather: 3, white_wool: 2, clay_ball: 2, sugar_cane: 2, vine: 2, cod: 3, salmon: 3,
   ...Object.fromEntries(FLOWER_ITEMS.map((f) => [f, 2])), cactus: 2 };
 // (a stripped log has no recipe, but no village finds one: it takes an axe on a log, a step no chore does; at 1 it tied
 // with "any logs" and a smoker planned from 4 stripped warped stems, F237)
@@ -167,6 +167,8 @@ export interface Option {
   /** Items made per run. */
   out: number;
   ins: Counts;
+  /** MC_TALK_BIG (`asked` plans): concrete set from its powder by the builder (water: a command), not a table's craft. */
+  wet?: true;
 }
 
 let smeltTable: Map<string, Option[]> | undefined;
@@ -291,6 +293,8 @@ export interface Step {
   input?: string;
   /** #162: a craft done at the stonecutter (a plan made with `cut`). */
   cut?: true;
+  /** MC_TALK_BIG: concrete set from its powder (runJob swaps the powder for the block by command). */
+  wet?: true;
 }
 
 export interface MaterialPlan {
@@ -372,10 +376,16 @@ export class Materials {
    * sandstone trip: the Zytglogge's 108 sandstone pieces were planned as gathered and its stage waited for good; and the
    * quarry's stones gathered as they lie, cut or not.
    */
-  constructor(private registry: Registry, private opts: { cut?: boolean; dyes?: boolean; gems?: boolean; yard?: boolean } = {}) {
+  constructor(private registry: Registry, private opts: { cut?: boolean; dyes?: boolean; gems?: boolean; yard?: boolean; asked?: boolean } = {}) {
     // (`gems`, #22's diamond forge: diamonds as mined, so a plan takes them from stock; the diamond block's recipe loops)
     this.gathered = new Set([...GATHER, ...(opts.cut || opts.yard ? CUT_GATHER : []), ...(opts.dyes ? Object.keys(registry.itemsByName).filter((n) => /_dye$/.test(n)) : []), ...(opts.gems ? ['diamond'] : [])]);
     if (opts.yard) for (const n of YARD_MADE) this.gathered.delete(n);
+    // (MC_TALK_BIG, `asked`: a requested work's terracotta smelted from clay dug near the village, not the badlands' as it
+    // lies; clay as blocks, crafted from the balls by the trip, askedWork.ts' routes)
+    if (opts.asked) {
+      this.gathered.delete('terracotta');
+      this.gathered.add('clay');
+    }
   }
 
   /** Crafting recipes (variant recipes merged into "any:" ones) and smelting for an item. */
@@ -383,9 +393,18 @@ export class Materials {
     const cached = this.options.get(name);
     if (cached) return cached;
     const out: Option[] = [];
+    // (MC_TALK_BIG, `asked` with `dyes`: a dye is the dyer's, never planned from a pitcher plant or a torchflower the yard
+    // has no way to: cyan terracotta asked for one)
+    if (this.opts.asked && this.opts.dyes && /_dye$/.test(name)) {
+      this.options.set(name, out);
+      return out;
+    }
     if (FAMILY_RECIPES[name]) out.push(FAMILY_RECIPES[name]);
     const dyed = DYED_WOOL.exec(name);
     if (dyed) out.push({ kind: 'craft', out: 1, ins: { white_wool: 1, [`${dyed[1]}_dye`]: 1 } });
+    // (MC_TALK_BIG: concrete from its powder, wetted at the build)
+    const concrete = this.opts.asked ? /^(\w+)_concrete$/.exec(name) : null;
+    if (concrete) out.push({ kind: 'craft', out: 1, ins: { [`${concrete[1]}_concrete_powder`]: 1 }, wet: true });
     const item = this.registry.itemsByName[name];
     const recipes = (item && (this.registry.recipes as Record<number, any[]>)[item.id]) || [];
     const groups = new Map<string, { exact: Option; general: Option; n: number }>();
@@ -555,7 +574,7 @@ export class Materials {
         continue;
       }
       const runs = Math.ceil(need / o.out);
-      steps.push({ do: o.kind === 'smelt' ? 'smelt' : 'craft', item: n, runs, makes: runs * o.out, ...(o.kind !== 'craft' ? { input: Object.keys(o.ins)[0] } : {}), ...(o.kind === 'cut' ? { cut: true as const } : {}) });
+      steps.push({ do: o.kind === 'smelt' ? 'smelt' : 'craft', item: n, runs, makes: runs * o.out, ...(o.kind !== 'craft' || o.wet ? { input: Object.keys(o.ins)[0] } : {}), ...(o.kind === 'cut' ? { cut: true as const } : {}), ...(o.wet ? { wet: true as const } : {}) });
       if (o.kind === 'smelt') smelts += runs;
       // Surplus from a batch (6 planks make 3 doors) stays in the pool for later uses
       if (runs * o.out > need) surplus[n] = (surplus[n] ?? 0) + runs * o.out - need;

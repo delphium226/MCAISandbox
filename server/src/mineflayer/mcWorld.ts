@@ -122,6 +122,11 @@ import { PICKS, drawRank, setSupplyCheck } from '../shortlist';
 import { CIVIC, CIVIC_KEEP, aKind, civicOptions, civicsStanding, civicDone, civicKit, codePick, CIVIC_SYSTEM, CIVIC_TOOL, CIVIC_SITE_FAILS, checkCivic, civicPrompt, civicLine, civicEntry, civicScale, civicsOf, type CivicBuilt, type CivicOption } from '../civic';
 import { buildGathers, newCivic, monumentType, sandstoneShort, sandstoneStandBack, sandstoneStandIn, unsuppliable } from '../monument';
 import { TALK_DESIGNS, askedName, castPublic, civicIdOf, civicPiece, failWords, matchDesign, sampler, shortlist, type DesignOffer, type PublicResult } from '../talkDesign';
+import { ASKED_BLOCK, ASKED_PRESET, TALK_BIG, namesMaterial, askedCathedral, askedEta, askedNoun, askedRoute, askedWords, bigBudget, easyOf, isAskedPreset, makeResolver, slowShare } from '../askedWork';
+import { COLOUR_ALIAS, COLOUR_BLOCKS } from '../sculpture';
+import { V2_LIMITS as TALK_V2 } from '../buildingGen';
+import { askedStandIn, newAsked } from '../monument';
+import { yardMaterials } from './mcKiln';
 import { stoneStandIn, DEEP_BLOCKS, deepStandIn, GEM_STAND, DYE_FAILS, DYE_WAIT_MIN, dyeStandIn, dyeStood, furnishLeaveOut, leftOutItems, refurnishOn, COPPER_ROOF, COPPER_BLOCKS, copperFrom, copperOn, copperReached, copperStandIn, reroofReturns } from '../monument';
 import { DEEP_KEEP, deepenForStone, setKeepCopper } from './mcMine';
 import { BED_WOOL, WILD_SHEAR_KEY, noteWildShear, penOrder, shearsFirst, wildShearWait } from '../bedWool';
@@ -1120,7 +1125,8 @@ export class MineflayerWorld implements WorldAdapter {
   monumentSmelts(m: Monument): number {
     const bill = monumentPlan(m).bill;
     let s = this.monumentSmeltsOf.get(bill);
-    if (s === undefined) this.monumentSmeltsOf.set(bill, (s = this.materials.plan(bill, {}).fuel.smelts));
+    // (MC_TALK_BIG: an asked work's by its own planner: its terracotta, iron and bricks are smelted too)
+    if (s === undefined) this.monumentSmeltsOf.set(bill, (s = (m3(m).asked ? planOf(this, m)(bill, {}) : this.materials.plan(bill, {})).fuel.smelts));
     return s;
   }
 
@@ -4652,6 +4658,8 @@ export class MineflayerWorld implements WorldAdapter {
   /** Dye chores failed, by village and dye (the dyes' stand-in). */
   private dyeFails = new Map<string, number>();
   private stoneWait = new Map<string, { since: number; last: number }>();
+  /** MC_TALK_BIG: an asked work's raw item wanted since (its yard's count last grew), by village and item. */
+  private askedSeen = new Map<string, { since: number; last: number; had: number }>();
   /** #202 (MC_SAND_TRIPS): sand spots whose expedition brought nothing, and such trips, by village. */
   private sandSkip = new Map<string, Set<string>>();
   private sandFails = new Map<string, number>();
@@ -7023,7 +7031,9 @@ export class MineflayerWorld implements WorldAdapter {
       // (pre-designed first: "design" while the shortlist holds a building of the kind the person's words name takes it,
       // the one the Mayor named nearest if it is one: requestbench's pub went to the architect once in six)
       const named = designs.filter((o) => o.score >= 10);
-      const civic = asked && !/^design$/i.test(asked) ? matchDesign(designs, asked) : named.length ? named.find((o) => o.id === p.nearest) ?? named[0] : undefined;
+      // (MC_TALK_BIG: not when the person named a material or a size: "a red wool castle tower" is drawn, not a stone tower house)
+      const own = TALK_BIG.on && /^design$/i.test(asked) && namesMaterial(r.text);
+      const civic = asked && !/^design$/i.test(asked) ? matchDesign(designs, asked) : named.length && !own ? named.find((o) => o.id === p.nearest) ?? named[0] : undefined;
       if (civic) {
         const c = this.talkCivicCheck(v, r, p, civic);
         if ('why' in c) return refuse(c.why);
@@ -7172,15 +7182,19 @@ export class MineflayerWorld implements WorldAdapter {
     }
     const place = this.talkPlace(v, r, p.place), home = villageHome(v);
     const where = place ? (place.x !== undefined && home ? ` ${place.words} (${bearing(home, { x: place.x, z: place.z! })})${place.note ? `; ${place.note}` : ''}` : `; ${place.note ?? ''}`) : '';
-    const line = answerLine(p.say, `our architect is drawing up ${what}${where}`);
+    const line = answerLine(p.say, `our architect is drawing up ${what}${where}${TALK_BIG.on ? '; I will tell you its size and how long it takes' : ''}`);
     updateRequest(r.id, { kind: 'build', status: 'queued', drawing: true, say: p.say, answer: line, what, ...(near ? { nearest: near.id } : {}), ...(place ? { place } : {}) });
     this.talkSay(a.name, line);
     if (MEMORY.on) applyWrites(v.name, a.name, { remember: `${r.from} (a person) asked for ${what}${place ? ` ${place.words}` : ''}; our architect draws it` }, 'world', Date.now());
     this.talkDrawing.add(r.id);
     const family = v.vanillaBiome ? villageBiome(v.vanillaBiome) : this.currentStyle(v) ?? 'plains';
     console.log(`[talk] ${v.name}: the architect (${label(spec!)}) draws ${r.id}: ${what} (${family}, ${this.catalogWoodOf(v)})`);
-    const res: PublicResult = await castPublic({ agent: a.name, spec: spec!, ctx: { text: r.text, what, family, wood: this.catalogWoodOf(v) }, budget: LANDMARK_UNITS, bill: this.homeBill(), name: askedName(what, r.id),
-      problems: (d) => this.materialTasks(d, d.name).problems })
+    // (MC_TALK_BIG, askedWork.ts: up to 30x30x30 in real blocks, resolved against what the village can get; the budget by
+    // its members)
+    const big = TALK_BIG.on;
+    const res: PublicResult = await castPublic({ agent: a.name, spec: spec!, ctx: { text: r.text, what, family, wood: this.catalogWoodOf(v) }, budget: big ? bigBudget(this.growMembers(v).length) : LANDMARK_UNITS,
+      bill: big ? this.askedBill() : this.homeBill(), name: askedName(what, r.id),
+      ...(big ? { big: { resolve: this.askedResolver(v) } } : { problems: (d: Design) => this.materialTasks(d, d.name).problems }) })
       .catch((e: unknown) => ({ design: null, cuts: [], notes: [], unknown: [], code: '', said: '', why: 'error' as const, error: String((e as Error)?.message ?? e).slice(0, 120) }));
     this.talkDrawing.delete(r.id);
     this.talkDrawn(v, r, res, what, near);
@@ -7198,6 +7212,9 @@ export class MineflayerWorld implements WorldAdapter {
     if (!cur || cur.status !== 'queued') return;
     const thing = what.replace(/^(a|an|the) /i, '');
     const code = res.code.replace(/\s+/g, ' ').slice(0, 600);
+    // (MC_TALK_BIG: a work over 11x11x12 or 400 blocks, or in a material outside the easy list, is built in parts as a civic
+    // record, askedWork.ts; a small one in easy blocks goes the public work's way as before)
+    if (res.design && res.form && TALK_BIG.on && this.askedNeeds(res.design)) return this.talkAskedDrawn(v, r, res, what);
     let placed = '';
     const q = res.design ? (() => {
       v.designs[res.design!.name] = res.design!;
@@ -7242,6 +7259,56 @@ export class MineflayerWorld implements WorldAdapter {
     tell(`${r.from}, I am sorry: ${failWords(why, res.error)}${near ? `; the nearest we could build is ${near.title} (${aKind(near.kind)}), ask me for it` : ''}.`);
   }
 
+  /** MC_TALK_BIG: the planner of an asked record (the yard's: dyes as such, terracotta from clay, concrete from powder). */
+  private askedPlanner(): Materials {
+    return yardMaterials(this, { asked: true } as unknown as Monument)!;
+  }
+  /** MC_TALK_BIG: an asked work's units and furnace runs by its planner. */
+  private askedBill() {
+    const pl = this.askedPlanner();
+    return { units: (d: Design) => Object.values(pl.plan(designBill(d)).gather).reduce((t, q) => t + q, 0), smelts: (d: Design) => pl.plan(designBill(d)).fuel.smelts };
+  }
+  /** MC_TALK_BIG: the architect's block words resolved for a village: a block whose chain the yard has, else the nearest. */
+  private askedResolver(v: Village) {
+    const pl = this.askedPlanner();
+    return makeResolver({ known: (n) => !!this.registry.blocksByName[n] && !!this.registry.itemsByName[n], plan: (b) => pl.plan(b), colours: new Set(this.makeableColours(v)), colourBlocks: COLOUR_BLOCKS, alias: COLOUR_ALIAS, wood: this.catalogWoodOf(v) });
+  }
+  /** MC_TALK_BIG: whether a drawn work is built in parts (an asked record): over 11x11x12 or TALK_BIG.small blocks, in a
+   *  material outside the easy list, or with no neighbourhood pad for it. */
+  private askedNeeds(d: Design): boolean {
+    return d.width > TALK_V2.maxBox || d.depth > TALK_V2.maxBox || d.height > TALK_V2.maxLayers || d.blocks > TALK_BIG.small || !padFor([d]) || this.materialTasks(d, d.name).problems.length > 0;
+  }
+  /** MC_TALK_BIG: a big work drawn: its design kept and the request queued as an asked record (begun by talkCivicStart as
+   *  a person's civic building is), the Mayor saying its size, parts, ETA and what was swapped. */
+  private talkAskedDrawn(v: Village, r: PlayerRequest, res: PublicResult, what: string) {
+    const d = res.design!, thing = what.replace(/^(a|an|the) /i, '');
+    v.designs[d.name] = d;
+    this.villages.save();
+    const members = this.growMembers(v).length, pl = this.askedPlanner();
+    const c = askedCathedral({ design: d, what, noun: askedNoun(what) });
+    const eta = askedEta(d.blocks, members, slowShare(d, (b) => pl.plan(b)), timeScale());
+    const m = v.monument;
+    const ahead = requestsOf(v.name).filter((x) => x.id !== r.id && (x.status === 'queued' || x.status === 'under_way') && civicIdOf(x.piece)).length;
+    const busy = !v.complete ? ', after the village is finished' : m ? `, after the ${monumentType(m) === 'civic' ? presetWords(m.preset).replace(/^the /, '') : monumentNoun(m)} under way` : ahead ? ', after the public works asked for before it' : '';
+    const subs = res.notes.filter((n) => / built in /.test(n));
+    const form = `${res.form}${res.cuts.length ? ` (cut to fit: ${[...new Set(res.cuts)].join(', ')})` : ''}`;
+    updateRequest(r.id, { drawing: undefined, piece: civicPiece(`${ASKED_PRESET}${d.name}`), units: d.blocks, eta, outcome: `drawn: ${form}`.slice(0, 200) });
+    const swaps = subs.length ? `; ${subs.slice(0, 3).join('; ')}${subs.length > 3 ? ` and ${subs.length - 3} more swaps` : ''}` : '';
+    const mayor = this.mayorOf(v);
+    if (mayor) this.talkSay(mayor.name, `${r.from}, our architect has drawn your ${thing}: ${form}; ${d.blocks} blocks in ${c.jobs.length} parts over ${c.stageNames.length} stages, about ${eta} min of work for our ${members} members${busy}${swaps}.`);
+    console.log(`[talk] ${v.name}: the architect drew ${r.id} (${what}) as ${d.name}, an asked record: ${form}, ${d.blocks} blocks, ${c.jobs.length} jobs in ${c.stageNames.length} stages, ETA ${eta} min${res.notes.length ? `; notes: ${res.notes.join('; ').slice(0, 300)}` : ''} (${res.ms ?? '?'} ms); "${res.said.slice(0, 120)}"; code: ${res.code.replace(/\s+/g, ' ').slice(0, 600)}`);
+  }
+
+  /** The panel's and the API's progress of a request (talkProgress). */
+  requestProgress(r: PlayerRequest): ReqProgress | undefined {
+    const v = this.villages.villages.get(r.village.toLowerCase());
+    try {
+      return v ? this.talkProgress(v, r, Date.now()) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   /** MC_TALK_DESIGNS: a person's civic building waiting for its turn (the tier's own pick and the monument wait for it). */
   private talkCivicWaiting(v: Village): boolean {
     return requestsOf(v.name).some((r) => r.status === 'queued' && !!civicIdOf(r.piece));
@@ -7253,25 +7320,32 @@ export class MineflayerWorld implements WorldAdapter {
     const last = civicsOf(v).at(-1);
     if (last && now - (last.built ?? last.at) < (CIVIC.gap * 60000) / timeScale()) return false;
     const id = civicIdOf(r.piece)!, e = civicEntry(id);
-    if (!e) {
+    // (MC_TALK_BIG: a person's requested work drawn by the architect, its design kept in the village's designs)
+    const askedD = isAskedPreset(id) ? v.designs[id.slice(ASKED_PRESET.length)] : undefined;
+    if (!e && !askedD) {
       updateRequest(r.id, { status: 'failed', outcome: `no building ${id}`, closed: now });
       return false;
     }
-    const scale = civicScale(id);
-    const rec = newCivic(id, scale, this.catalogWoodOf(v), now);
+    const scale = askedD ? 1 : civicScale(id);
+    const rec = askedD ? newAsked({ design: askedD, what: r.what ?? `the ${askedWords(id)}`, noun: askedNoun(r.what ?? askedWords(id)), by: r.from }, this.catalogWoodOf(v), now)
+      : newCivic(id, scale, this.catalogWoodOf(v), now);
     rec.arch = { by: r.from, reason: `asked for by ${r.from}: "${r.text.slice(0, 100)}"` };
     // (the site search starts from the place asked, mcBuild's monumentSite)
     if (r.place?.x !== undefined) (rec as { near?: { x: number; z: number } }).near = { x: r.place.x, z: r.place.z! };
-    Object.assign(rec, civicKit(v, kilnSize(this.materials.plan(monumentPlan(rec).bill, {}).fuel.smelts)));
+    const smelts = askedD ? planOf(this, rec)(monumentPlan(rec).bill, {}).fuel.smelts : this.materials.plan(monumentPlan(rec).bill, {}).fuel.smelts;
+    Object.assign(rec, civicKit(v, kilnSize(smelts)));
+    // (an asked work's dye flowers, as the cathedral's: picked where they grow when the dyer is off)
+    if (askedD) rec.flowers = dyeFlowers(DYE_BED.on ? this.dyeCounts(v) : this.flowerCounts(v));
     v.monument = rec;
     this.villages.save();
     updateRequest(r.id, { status: 'under_way', started: now });
-    const text = `The village begins ${e.title}, ${aKind(e.kind)} (1:${scale}), as ${r.from} asked${r.place?.words ? ` (${r.place.words})` : ''}`;
+    const title = askedD ? cathedralName(rec) : e!.title;
+    const text = `The village begins ${title}, ${askedD ? `${askedD.blocks} blocks in ${monumentPlan(rec).jobs.length} parts` : `${aKind(e!.kind)} (1:${scale})`}, as ${r.from} asked${r.place?.words ? ` (${r.place.words})` : ''}`;
     if (M3.news) this.monumentNews(v, text, 'Mayor');
     else this.villages.note(v, text);
     console.log(`[talk] ${v.name}: ${r.from}'s ${r.id} begins the civic ${monumentLine(rec)}${r.place?.x !== undefined ? ` near ${r.place.x},${r.place.z}` : ''}`);
     const m = this.mayorOf(v);
-    if (m) this.talkSay(m.name, `${r.from}, work on ${e.title} has begun${r.place?.words ? ` ${r.place.words}` : ''}.`);
+    if (m) this.talkSay(m.name, `${r.from}, work on ${title} has begun${r.place?.words ? ` ${r.place.words}` : ''}.`);
     return true;
   }
 
@@ -9104,7 +9178,8 @@ export class MineflayerWorld implements WorldAdapter {
         // (M2, #145, MC_KILN: a plan of the stage's bill against the yard and the kiln's load: the yard holds made goods)
         const wants = KILN.on ? stageWantsPlanned(m, planOf(this, m)) : stageWants(m, (b) => this.monumentRaw(m, b));
         // (#162 tier 3, chain B: the iron mine keeps the copper ore it meets while the roof wants raw copper)
-        if (COPPER_ROOF.on) setKeepCopper(!!m3(m).copper && (wants.raw_copper ?? 0) > 0);
+        // (MC_TALK_BIG: and an asked work's copper blocks)
+        if (COPPER_ROOF.on || m3(m).asked) setKeepCopper((!!m3(m).copper || !!m3(m).asked) && (wants.raw_copper ?? 0) > 0);
         // (#199: until the kiln stands, the yard wants its furnaces' cobblestone (kilnStone) too, claimed or gathered as the
         // stage's: a timber civic building's stage wanted 2 and the kiln waited on 64)
         // (before the kiln's record: its build takes the furnaces' cobblestone off the yard before it is ready)
@@ -9118,6 +9193,81 @@ export class MineflayerWorld implements WorldAdapter {
           if (k > 0) {
             console.log(monumentType(m) === 'civic' ? `[civic] ${v.name}: ${k} ${item} in storage claimed for the ${N}'s yard` : `[monument] ${v.name}: ${k} ${item} in storage claimed for the ${N}'s yard (stock first)`);
             if (k >= q) continue;
+          }
+          // (MC_TALK_BIG, askedWork.ts: an asked work's raw items by their routes; one with no way to it, or whose yard has
+          // not grown for MC_TALK_BIG_WAIT game minutes, or 4 failed chores, stands in: the blocks made from it as their
+          // easy look, from the first job the yard does not cover. Logs, sand, cobblestone, stones and flowers: below)
+          if (m3(m).asked) {
+            const route = askedRoute(item);
+            if (route !== 'yard') {
+              const wk = `${v.name}:asked:${item}`;
+              const seen = this.askedSeen.get(wk), had = m.yard[item] ?? 0;
+              const since = !seen || now - seen.last > 2 * 60000 || had > seen.had ? now : seen.since;
+              this.askedSeen.set(wk, { since, last: now, had });
+              const fails = (this.dyeFails.get(wk) ?? 0) + (route === 'dye' ? this.dyeFails.get(`${v.name}:dye:${item}`) ?? 0 : 0);
+              const noWay = !route || (route === 'dye' && !dyeBedOn(v)) || ((route === 'ore' || route === 'deep') && !v.mine?.iron);
+              const late = now - since > TALK_BIG.wait * 60000 / timeScale();
+              if (noWay || late || fails >= 4) {
+                this.askedSeen.delete(wk);
+                const subs = askedStandIn(m, item, planOf(this, m), (b) => easyOf(b, COLOUR_BLOCKS, COLOUR_ALIAS));
+                this.villages.save();
+                const why = noWay ? `no way to ${item.replace(/_/g, ' ')} here` : late ? `no ${item.replace(/_/g, ' ')} came in ${TALK_BIG.wait} min` : `${fails} chores for ${item.replace(/_/g, ' ')} failed`;
+                console.log(`[asked] ${v.name}: the ${N}'s ${subs.map((x) => `${x.block} -> ${x.as} from job ${x.from}`).join(', ') || 'blocks'} stand in (${why}; short ${q} ${item})`);
+                if (subs.length && M3.news) this.monumentNews(v, `The ${N} goes on in ${[...new Set(subs.map((x) => x.as.replace(/_/g, ' ')))].join(', ')}: ${why}`, a.name);
+                continue;
+              }
+              if (route === 'dye') {
+                if (bedBuilding(v)) continue;
+                const n = Array.from({ length: Math.min(4, Math.ceil(q / 16)) }, (_, i) => i + 1).find((i) => !busy.has(`monument:dye:${item}:${i}`));
+                if (!n || (this.monumentBack.get(`${v.name}:dye:${item}`) ?? 0) > now) continue;
+                const key = `monument:dye:${item}:${n}`, amount = Math.min(16, q);
+                add({
+                  id: `monument:dye:${item}`, kind: 'monument', key, excludes: [`${key}=`], rank: 160,
+                  name: `Make ${amount} ${item.replace(/_/g, ' ')} for the ${N} (stage ${st}: ${stageName})`,
+                  facts: `the ${N}'s stage ${st} still wants ${q} ${item}; dyes come from flowers, lapis and bone meal, mixed at the table`,
+                  effect: `+${amount} ${item} in the ${N}'s yard`,
+                }, { kind: 'monument', step: 'dye', item, amount });
+                continue;
+              }
+              if (route === 'wool' || route === 'clay') {
+                const lane = route === 'wool' ? 'shear' : 'clay';
+                const n = Array.from({ length: Math.min(3, Math.ceil(q / 32)) }, (_, i) => i + 1).find((i) => !busy.has(`monument:${lane}:${i}`));
+                if (!n || (this.monumentBack.get(`${v.name}:${lane}`) ?? 0) > now) continue;
+                const key = `monument:${lane}:${n}`, amount = Math.min(32, q);
+                add({
+                  id: `monument:${lane}`, kind: 'monument', key, excludes: [`${key}=`], rank: 160,
+                  name: route === 'wool' ? `Shear ${amount} wool for the ${N} (stage ${st}: ${stageName})` : `Dig clay for ${amount} clay blocks for the ${N} (stage ${st}: ${stageName})`,
+                  facts: route === 'wool' ? `the ${N}'s stage ${st} still wants ${q} white wool; the sheep near the village are sheared, with shears from storage or made from 2 iron`
+                    : `the ${N}'s stage ${st} still wants ${q} clay for its terracotta; clay lies under shallow water and in riverbeds, 4 balls a block`,
+                  effect: `+${amount} ${item.replace(/_/g, ' ')} in the ${N}'s yard`,
+                }, { kind: 'monument', step: route === 'wool' ? 'shear' : 'clay', item, amount });
+                continue;
+              }
+              if (route === 'gather') {
+                const n = Array.from({ length: Math.min(3, Math.ceil(q / 32)) }, (_, i) => i + 1).find((i) => !busy.has(`monument:gather:${item}:${i}`));
+                if (!n || (this.monumentBack.get(`${v.name}:gather:${item}`) ?? 0) > now) continue;
+                const key = `monument:gather:${item}:${n}`, amount = Math.min(32, q);
+                add({
+                  id: `monument:gather:${item}`, kind: 'monument', key, excludes: [`${key}=`], rank: 160,
+                  name: `Gather ${amount} ${item.replace(/_/g, ' ')} for the ${N} (stage ${st}: ${stageName})`,
+                  facts: `the ${N}'s stage ${st} still wants ${q} ${item}; its yard holds ${m.yard[item] ?? 0}`,
+                  effect: `+${amount} ${item} in the ${N}'s yard`,
+                }, { kind: 'monument', step: 'gather', item, material: 'flowers', amount, block: ASKED_BLOCK[item] ?? item, deposit: item });
+                continue;
+              }
+              // (ore, deep: the iron mine's trips keep it, into storage, claimed for the yard on the next look)
+              const n = Array.from({ length: 2 }, (_, i) => i + 1).find((i) => !busy.has(`monument:deep:${i}`));
+              if (!n || (this.monumentBack.get(`${v.name}:deep`) ?? 0) > now) continue;
+              if (IRON_AGE && (ironLevelFull(v.name, a.name, now) || ironStairsHeld(v.name, a.name, v.mine, now))) continue;
+              const key = `monument:deep:${n}`;
+              add({
+                id: 'monument:deep', kind: 'monument', key, excludes: [`${key}=`], rank: 160,
+                name: `Dig the iron mine for ${item.replace(/_/g, ' ')} for the ${N} (stage ${st}: ${stageName})`,
+                facts: `the ${N}'s stage ${st} still wants ${q} ${item}; the iron mine's tunnels keep the ore and stone they meet`,
+                effect: `+${item.replace(/_/g, ' ')} in storage for the ${N}'s yard`,
+              }, { kind: 'monument', step: 'deep', item });
+              continue;
+            }
           }
           // (#162, MC_DYE_BED: a dye the stage wants, made by the dyer: up to 8 a chore, 2 at once)
           if (/_dye$/.test(item) && dyeBedOn(v)) {
@@ -11179,6 +11329,24 @@ export class MineflayerWorld implements WorldAdapter {
           console.log(`[monument] ${v.name}: ${worker.name} makes ${d.amount} ${d.item} for stage ${currentStage(m)}`);
           return;
         }
+        // (MC_TALK_BIG: an asked work's wool sheared and its clay dug and made into blocks, both to the yard)
+        if (d.step === 'shear' || d.step === 'clay') {
+          const ids = d.step === 'shear'
+            ? [worker.enqueue('shear_for_yard', { count: d.amount, chore: true }), worker.enqueue('deposit', { item: 'white_wool', chore: true })]
+            : [worker.enqueue('collect', { block: 'clay', count: 4 * d.amount, chore: true }), worker.enqueue('craft', { item: 'clay', count: d.amount, chore: true }), worker.enqueue('deposit', { item: 'clay', chore: true })];
+          worker.memory.monumentGather = d.item;
+          const failed = (why: string) => {
+            if (why === 'cancelled' || ids[0].code) return;
+            this.monumentBack.set(`${v.name}:${d.step}`, Date.now() + 3 * 60000);
+            const fk = `${v.name}:asked:${d.item}`;
+            this.dyeFails.set(fk, (this.dyeFails.get(fk) ?? 0) + 1);
+          };
+          this.setChore(v, worker, opt.key, ids, d.step === 'shear' ? `shear wool for the ${N}` : `dig clay for the ${N}`, failed, meta, opt.holds, opt);
+          const c = this.chores.get(worker.name.toLowerCase());
+          if (c) c.choice.monument = { item: d.item, material: 'flowers', n: d.amount };
+          console.log(`[asked] ${v.name}: ${worker.name} goes to ${d.step === 'shear' ? 'shear' : 'dig clay for'} ${d.amount} ${d.item} (stage ${currentStage(m)})`);
+          return;
+        }
         if (d.step === 'furnish') {
           const make = worker.enqueue('make_furnishing', { item: d.item, count: d.amount, chore: true });
           const deposit = worker.enqueue('deposit', { item: 'all', chore: true });
@@ -12241,7 +12409,7 @@ type OptionRun =
   | { kind: 'monument'; step: 'site' } | { kind: 'monument'; step: 'job'; job: number }
   | { kind: 'monument'; step: 'sandtrip'; x: number; y: number; z: number; dist: number; key: string; amount: number }
   | { kind: 'monument'; step: 'gather'; item: string; material: Material | 'flowers'; amount: number; block: string; deposit: string; bulk?: true }
-  | { kind: 'monument'; step: 'kiln'; lane: number } | { kind: 'monument'; step: 'cut' } | { kind: 'monument'; step: 'dye'; item: string; amount: number } | { kind: 'monument'; step: 'deep'; item: string } | { kind: 'monument'; step: 'gem'; item: string; amount: number } | { kind: 'monument'; step: 'furnish'; item: string; amount: number }
+  | { kind: 'monument'; step: 'kiln'; lane: number } | { kind: 'monument'; step: 'cut' } | { kind: 'monument'; step: 'dye'; item: string; amount: number } | { kind: 'monument'; step: 'deep'; item: string } | { kind: 'monument'; step: 'gem'; item: string; amount: number } | { kind: 'monument'; step: 'furnish'; item: string; amount: number } | { kind: 'monument'; step: 'shear'; item: string; amount: number } | { kind: 'monument'; step: 'clay'; item: string; amount: number }
   | { kind: 'grow'; houseless: number }
   | { kind: 'eat'; level: number; item: string; n: number; own?: boolean }
   | { kind: 'own'; what: 'chest' }

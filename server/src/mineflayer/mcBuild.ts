@@ -683,7 +683,9 @@ async function makeHeld(a: BotAgent, v: Village | undefined, need: Counts, short
       try {
         // (every other craft and smelt told the spare kind too: the craft skill's own plank choice and smelting's fuel took
         // the logs and planks fetched for later steps, F165, F169)
-        if (st.do === 'craft') await SURVIVAL_SKILLS.craft.run(a, { item: st.item === 'any:planks' ? `${spareKind(i + 1)}_planks` : st.item, count: st.makes, wood: spareKind(i + 1) }, signal);
+        // (MC_TALK_BIG: concrete set from its powder: the powder taken and the block given by command, as water would)
+        if (st.wet && st.input) await wetConcrete(a, st.input, st.item, st.makes);
+        else if (st.do === 'craft') await SURVIVAL_SKILLS.craft.run(a, { item: st.item === 'any:planks' ? `${spareKind(i + 1)}_planks` : st.item, count: st.makes, wood: spareKind(i + 1) }, signal);
         else {
           // "Any logs" (charcoal) from the kind with logs to spare, else whichever is carried: the first log carried was the
           // birch fetched for the lamps' fence planks, smelted, and the planks then failed (Minevale29)
@@ -902,6 +904,16 @@ const DIR_NAMES: Record<string, string> = { '1,0': 'east', '-1,0': 'west', '0,1'
  * Run a job: reserve its ground, stand by it, then clear (top-down) and place (bottom-up) with /fill and /setblock,
  * merging vertical runs of the same block. Returns the summary ("placed N blocks, cleared M; skipped ...").
  */
+/** MC_TALK_BIG: n concrete powder in hand set into concrete (by command: water hardens it in the game), counted on the
+ *  server (lesson 4). */
+async function wetConcrete(a: BotAgent, powder: string, block: string, n: number): Promise<void> {
+  const have = await a.world.rcon.count(a.name, powder);
+  if (have < n) throw new Error(`${n} ${powder} wanted to set into ${block}, ${have} in hand`);
+  await a.world.rcon.command(`clear ${a.name} minecraft:${powder} ${n}`);
+  await a.world.rcon.command(`give ${a.name} minecraft:${block} ${n}`);
+  await syncInventory(a).catch(() => undefined);
+}
+
 export async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): Promise<string> {
   const pay = charged(a, job);
   const v = a.village();

@@ -233,10 +233,11 @@ export function monumentMayBegin(v: Village, ironReached: boolean, others: Villa
 /** The civic record leaves the monument's place (MC_CIVIC): built, or given up when its site failed; listed in the
  *  village's `civics` with the kiln, lodge and quarries for the next record. Returns the entry. */
 export function civicDone(v: Village, now: number): CivicBuilt {
-  const m = v.monument! as Village['monument'] & { arch?: { by: string } };
+  const m = v.monument! as Village['monument'] & { arch?: { by: string }; asked?: { noun: string; design: { blocks: number } } };
   const e = civicEntry(m.preset);
   const c: CivicBuilt = {
-    preset: m.preset, kind: e?.kind ?? 'building', scale: m.scale, at: m.at, blocks: drawCivic(m.preset, m.scale).design.blocks,
+    // (MC_TALK_BIG: a person's requested work, its drawing on the record)
+    preset: m.preset, kind: m.asked?.noun ?? e?.kind ?? 'building', scale: m.scale, at: m.at, blocks: m.asked ? m.asked.design.blocks : drawCivic(m.preset, m.scale).design.blocks,
     ...(m.built ? { built: m.built } : { built: now }), ...(m.site ? { site: { x1: m.site.x1, z1: m.site.z1, x2: m.site.x2, z2: m.site.z2, y: m.site.y } } : {}),
     ...(m.arch?.by ? { by: m.arch.by } : {}),
     ...(m.state !== 'built' ? { skipped: `its site found no ground (${m.fails ?? 0} tries)` } : {}),
