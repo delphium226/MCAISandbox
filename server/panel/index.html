@@ -945,6 +945,8 @@ async function refreshExtras() {
   if (v && route.top === 'overview') jobs.push(fetchExtra(`charv:${v.name}`, `/api/character?village=${encodeURIComponent(v.name)}`));
   // (the console's series and projects: every 30 s, only while the Overview is open)
   if (v && route.top === 'overview') jobs.push(fetchExtra(`tl:${v.name}`, `/api/timeline?village=${encodeURIComponent(v.name)}&bin=10`, 30000), fetchExtra(`civic:${v.name}`, `/api/civic?village=${encodeURIComponent(v.name)}`, 30000));
+  // (a person's build requests for the Overview's projects, MC_TALK; the same data as Society > Talk)
+  if (v && route.top === 'overview') jobs.push(fetchExtra(`talk:${v.name}`, `/api/requests?village=${encodeURIComponent(v.name)}`, 30000));
   if (v && ((route.top === 'society' && sub === 'relations') || route.top === 'overview')) jobs.push(fetchExtra(`chars:${v.name}`, `/api/character/series?village=${encodeURIComponent(v.name)}&matrix=${route.top === 'society' ? 1 : 0}`));
   if (!jobs.length) return;
   if ((await Promise.all(jobs)).some(Boolean) && lastData) render(lastData);
@@ -2627,7 +2629,7 @@ function consoleTiles(d, v) {
       pp.length > 1 ? sparkBars(pp, 'var(--c1)', `loop p99 (ms), the worst in each part of the last ${Math.round((perfRing.length * 10) / 60)} min: ${pp.map(Math.round).join(', ')}`) : ''),
   ].join('')}</section>`;
 }
-/** The projects: civic buildings, the monument's jobs, the ladder's stage, growth. */
+/** The projects: civic buildings, the monument's jobs, the ladder's stage, growth, and people's build requests. */
 function projectsHtml(v) {
   const cv = ocData('civic', v);
   if (!cv) return '<div class="empty">loading…</div>';
@@ -2649,7 +2651,16 @@ function projectsHtml(v) {
   else if (l && l.reached.length) row('Ladder of ages', 'all reached', 100, 'var(--st-good)', esc(l.reached.join(', ')));
   const h = cv.homes;
   if (h) row('Growth', plural(h.owned, 'home'), h.members ? (100 * h.owned) / h.members : 0, 'var(--c1)', `${plural(h.neighbourhoods, 'neighbourhood')}, ${plural(h.built, 'house')} built${h.growing ? '; growing now' : ''}`);
-  return rows.join('') || '<div class="empty">no civic building, monument or ladder yet</div>';
+  // (a person's build requests, MC_TALK: the newest 4 taken on as builds, from /api/requests; Society > Talk has them all)
+  const tk = extraData.get(`talk:${v.name}`)?.data;
+  const asks = (tk?.requests || []).filter((r) => r.kind === 'build' && ['queued', 'under_way', 'done', 'failed'].includes(r.status)).slice(0, 4);
+  for (const r of asks) {
+    const done = r.status === 'done', bad = r.status === 'failed';
+    row(`${esc(cap(r.what || words(String(r.piece || '').replace(/^civic:/, '')) || 'a request'))} <span class="sub">(${esc(r.from)}'s request)</span>`, esc(r.status.replace('_', ' ')),
+      done ? 100 : 0, done ? 'var(--st-good)' : bad ? 'var(--st-critical)' : 'var(--c1)',
+      `"${esc(r.text)}"${r.drawing ? ' · the architect is drawing it' : ''}${r.eta && !done ? ` · ETA ~${r.eta} min` : ''}${bad && (r.reason || r.outcome) ? ` · ${esc(r.reason || r.outcome)}` : ''}`);
+  }
+  return rows.join('') || '<div class="empty">no civic building, monument, ladder or request yet</div>';
 }
 /** Society: laws in force (their vote), pursuits by state, trade and food. */
 function societyHtml(v) {
