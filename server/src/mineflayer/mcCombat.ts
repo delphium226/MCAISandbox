@@ -392,6 +392,46 @@ export function combatTick(a: BotAgent): void {
   start(a, d);
 }
 
+/**
+ * A member's fighting state for the panel (GET /api/overview's `combat`, mob modes only, ~200 bytes): armour worn by slot,
+ * its best weapon, bow and arrows, the reflex running and since when, when it was last hurt, the nearest monster within 24,
+ * the hunt it is on, its defence minutes and nights, and its deaths by cause.
+ */
+export function combatView(a: BotAgent) {
+  const bot = a.bot;
+  const items = bot.inventory?.items?.() ?? [];
+  const has = (n: string) => items.filter((it) => it.name === n).reduce((s, it) => s + it.count, 0);
+  const worn = ([5, 6, 7, 8] as const).map((i) => bot.inventory?.slots?.[i]?.name ?? null);
+  const t = tracks.get(a);
+  const p = bot.entity?.position;
+  let nearest: { name: string; dist: number } | null = null;
+  if (t && p) {
+    for (const id of t.ids) {
+      const e = bot.entities[id];
+      if (!e || e.isValid === false || !e.name) continue;
+      const d = e.position.distanceTo(p);
+      if (d <= 24 && (!nearest || d < nearest.dist)) nearest = { name: e.name, dist: Math.round(d) };
+    }
+  }
+  const v = a.village();
+  const dg = v ? dangers.get(v.name) : undefined;
+  const hunt = hunters.get(a.name);
+  const deaths = (a.memory.deaths ?? {}) as Record<string, number>;
+  return {
+    armour: { head: worn[0], torso: worn[1], legs: worn[2], feet: worn[3] },
+    weapon: WEAPONS.find((w) => has(w) > 0) ?? null,
+    bow: has('bow'), arrows: has('arrow'),
+    reflex: a.reflexNow,
+    hurtAt: t?.hurtAt || null,
+    nearest,
+    hunting: hunt ? hunt.since : null,
+    defence: dg?.chores[a.name] ?? null,
+    watchNights: dg?.watchNights[a.name] ?? 0,
+    huntNights: dg?.hunt.nights[a.name] ?? 0,
+    deaths: Object.keys(deaths).length ? deaths : null,
+  };
+}
+
 /** Storage within 64 blocks holds a sword. */
 function swordNear(a: BotAgent): boolean {
   const v = a.village();

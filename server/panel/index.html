@@ -288,6 +288,7 @@
   .flexrow > .card, .flexrow > .wide > .card { min-width: 0; }
   /* The Overview console (design A): tiles, alerts and projects | the map | society, the member heat table, three charts */
   .runbar { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; padding: 6px 16px; border-bottom: 1px solid var(--line); font-size: 13px; background: var(--panel); }
+  .dmeter { display: inline-block; vertical-align: middle; width: 140px; height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; } .dmeter i { display: block; height: 100%; background: var(--accent); }
   .runbar .meter { width: 160px; height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; } .runbar .meter i { display: block; height: 100%; background: var(--accent); }
   .runbar.ended { background: color-mix(in srgb, var(--st-good) 14%, var(--panel)); }
   .oc-h { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin: 0 0 8px; }
@@ -495,7 +496,7 @@ $('theme').onclick = () => {
 // Every tab has an address (#/village/tasks/failed, #/members/Ada/mind); each section remembers its last sub-tab ----
 const L1 = [['overview', 'Overview'], ['village', 'Village'], ['members', 'Members'], ['society', 'Society'], ['economy', 'Economy'], ['run', 'Run']];
 const L2 = {
-  village: [['buildings', 'Buildings'], ['tasks', 'Tasks'], ['storage', 'Storage'], ['life', 'Life'], ['tech', 'Tech'], ['ladder', 'Ladder'], ['land', 'Land']],
+  village: [['buildings', 'Buildings'], ['tasks', 'Tasks'], ['storage', 'Storage'], ['life', 'Life'], ['tech', 'Tech'], ['ladder', 'Ladder'], ['defence', 'Defence'], ['land', 'Land']],
   members: [['now', 'Now'], ['mind', 'Mind'], ['social', 'Social'], ['character', 'Character'], ['chores', 'Chores'], ['model', 'Model'], ['log', 'Log']],
   society: [['votes', 'Votes'], ['initiatives', 'Initiatives'], ['proposals', 'Proposals'], ['talk', 'Talk'], ['rules', 'Rules'], ['people', 'People'], ['relations', 'Relations'], ['needs', 'Needs'], ['instincts', 'Instincts'], ['culture', 'Culture']],
   economy: [['market', 'Market'], ['wealth', 'Wealth'], ['board', 'Board'], ['research', 'Research'], ['goals', 'Goals']],
@@ -703,6 +704,7 @@ function memberView(a) {
       ${wealthLine(a)}
     </div>
     ${appetiteBar(a)}
+    ${combatLine(a)}
     ${st.lastError ? `<div class="warnbox clamp" title="${esc(st.lastError)}">${esc(st.lastError)}</div>` : ''}
     <div class="vitals" style="margin-top:4px">
       <span title="health">health ${a.health}</span><span title="food">food ${a.food}</span>
@@ -911,7 +913,7 @@ function talkBody(v) {
   const rs = e.data.requests || [], ps = e.data.people || [];
   if (!rs.length) return offBox('Nobody has spoken to the village yet', 'Use the Talk bar at the bottom, or say "Mayor, ..." in the game.');
   const people = ps.length ? `<div class="sub">${ps.map((p) => `<b>${esc(p.name)}</b>: ${p.lines} lines, ${p.asks} asked, ${p.done} done, ${p.refused} refused, first ${ago(p.first)} ago`).join(' · ')}</div>` : '';
-  return card(`Requests, newest first`, people + `<ul class="list">${rs.map((r) => `<li><b>${esc(r.from)}</b> to ${esc(r.to)}${r.via ? ` <span class="sub">(via ${esc(r.via)})</span>` : ''}: "${esc(r.text)}" <span class="state" style="--c:${TALK_COLOR[r.status] || 'var(--muted)'}">${esc(r.status.replace('_', ' '))}</span> <span class="sub">${esc(r.id)}, ${ago(r.at)} ago${r.eta ? `, ETA ~${r.eta} min` : ''}${r.place && r.place.x !== undefined ? `, at ${r.place.x},${r.place.z}` : ''}</span>${r.answer ? `<div class="sub">${esc(r.to)}: ${esc(r.answer)}</div>` : ''}${r.outcome || r.reason ? `<div class="sub">${esc(r.reason || r.outcome)}</div>` : ''}</li>`).join('')}</ul>`);
+  return card(`Requests, newest first`, people + `<ul class="list">${rs.map((r) => `<li><b>${esc(r.from)}</b> to ${esc(r.to)}${r.via ? ` <span class="sub">(via ${esc(r.via)})</span>` : ''}: "${esc(r.text)}" <span class="state" style="--c:${TALK_COLOR[r.status] || 'var(--muted)'}">${esc(r.status.replace('_', ' '))}</span> <span class="sub">${esc(r.id)}, ${ago(r.at)} ago${r.eta ? `, ETA ~${r.eta} min` : ''}${r.place && r.place.x !== undefined ? `, at ${r.place.x},${r.place.z}` : ''}</span>${r.answer ? `<div class="sub">${esc(r.to)}: ${esc(r.answer)}</div>` : ''}${r.reason ? `<div class="sub">${esc(r.reason)}</div>` : ''}${r.outcome ? `<div class="sub">${/^passed to/.test(r.outcome) ? '<b>&#8618;</b> ' : ''}${esc(r.outcome)}</div>` : ''}</li>`).join('')}</ul>`);
 }
 async function refreshExtras() {
   if (paused || !lastData) return;
@@ -1270,6 +1272,97 @@ function villageMind(v) {
 const card = (label, html, extra = '') => `<div class="card"${extra}>${label ? `<div class="label">${label}</div>` : ''}${html}</div>`;
 const offBox = (title, text) => `<div class="offbox"><b>${title}</b>${text}</div>`;
 
+/** Survival's reflex names as the panel says them (botAgent.runReflex's `what`). */
+const REFLEX_WORDS = { 'combat fight': 'fighting', 'combat defend': 'defending a member', 'combat flee': 'running from a creeper', 'combat evade': 'evading an enderman',
+  'combat shelter': 'sheltering', arm: 'arming at the storage hut', curfew: 'going home for the night', burning: 'putting out fire', eat: 'eating (hurt)', sleep: 'sleeping' };
+const reflexWords = (r) => (r ? REFLEX_WORDS[r.what] || r.what : '');
+const ARMOUR_TIER = (n) => (n ? n.replace(/_(helmet|chestplate|leggings|boots)$/, '') : '');
+/** A member's arms in a few words: armour pieces (by tier), weapon, bow and arrows. */
+function armsWords(c) {
+  if (!c) return '';
+  const worn = Object.values(c.armour || {}).filter(Boolean);
+  const tiers = [...new Set(worn.map(ARMOUR_TIER))];
+  return [worn.length ? `${worn.length}/4 armour${tiers.length ? ` (${tiers.join(', ')})` : ''}` : 'no armour', c.weapon ? words(c.weapon) : 'no weapon',
+    c.bow ? `bow, ${plural(c.arrows || 0, 'arrow')}` : c.arrows ? plural(c.arrows, 'arrow') : ''].filter(Boolean).join(' · ');
+}
+/** The member's fighting state on its Now tab (mob modes only): arms, the reflex, the nearest monster, last hurt, deaths. */
+function combatLine(a) {
+  const c = a.combat;
+  if (!c) return '';
+  const hurt = c.hurtAt && Date.now() - c.hurtAt < 600000 ? `hurt ${ago(c.hurtAt)} ago` : '';
+  const near = c.nearest ? `<span style="color:${c.nearest.dist <= 8 ? 'var(--bad)' : 'var(--warn)'}">${esc(words(c.nearest.name))} ${c.nearest.dist} blocks away</span>` : '';
+  const deaths = c.deaths ? Object.entries(c.deaths).map(([k, n]) => `${n} ${esc(k)}`).join(', ') : '';
+  const parts = [`<span title="armour worn, best weapon carried, bow and arrows">${esc(armsWords(c))}</span>`,
+    c.reflex ? `<b style="color:var(--warn)" title="the reflex runs in code; the model hears afterwards">${esc(reflexWords(c.reflex))} (${ago(c.reflex.at)})</b>` : '',
+    c.hunting ? `<b>on the hunt</b> (${ago(c.hunting)})` : '', near, hurt,
+    deaths ? `<span class="bad" title="deaths by cause">died ${deaths}</span>` : ''].filter(Boolean);
+  return `<div class="vitals" style="margin-top:2px">${parts.map((x) => `<span>${x}</span>`).join('')}</div>`;
+}
+/** Tiles in the Overview's survival style. */
+const dtiles = (tiles) => `<div class="oc-dtiles">${tiles.map(([x, k]) => `<div><b>${esc(x)}</b><span>${esc(k)}</span></div>`).join('')}</div>`;
+const barOf = (done, of) => { const p = of ? Math.round((100 * done) / of) : 0; return `<span class="meter dmeter" title="${p}%"><i style="width:${p}%"></i></span>`; };
+/** Village > Defence: the wall and its stone stage, the danger count's detail, the hunt, bows, the reflex's counts, and
+ *  each member's arms and defence record. Only a world with monsters has any (survival (c)-(d), #217, #225, #231, #235). */
+function defenceBody(v) {
+  if (!worldNotPeaceful()) return offBox('No monsters in this world', 'The world is peaceful: no fights, walls or hunts. With <span class="mono">MC_WORLD_MODE=hostile</span> (or normal) this tab shows the wall, the danger count, hunts, bows and each member\'s arms.');
+  const dg = world?.danger?.[v.name], cb = world?.combat || {}, ar = world?.archery, fl = world?.flint, w = v.wallSummary;
+  const out = [];
+  // The wall and its stone stage
+  if (w) {
+    const castle = w.castle;
+    const kinds = castle ? Object.entries(castle.kinds).map(([k, x]) => `<tr><td>${esc(cap(k))}s</td><td class="mono">${x.done} of ${x.of}</td><td>${barOf(x.done, x.of)}</td></tr>`).join('') : '';
+    out.push(card(`Wall · ${w.state === 'refused' ? 'refused' : `${w.built} of ${w.cells} ring cells`}`,
+      `<div class="sub">${w.state === 'refused' ? 'Members voted against a wall' : 'Voted'} ${ago(w.at)} ago${w.vote ? ` (${esc(w.vote)})` : ''}${w.deaths != null ? `, with ${plural(w.deaths, 'death')} on the count` : ''}.</div>`
+      + (w.state === 'voted' ? `<div style="margin:6px 0">${barOf(w.built, w.cells)} <span class="sub">${w.segsDone} of ${plural(w.segs, 'segment')} closed · ${plural(w.gates, 'gate')} · ${w.gaps} cells left out (water, lava, another's work) · ${w.water} water cells read${w.down ? ` · ${w.down} old cells to take down` : ''}${w.backedOff ? ` · ${w.backedOff} segments backed off after failing` : ''}</span></div>` : '')
+      + (castle ? `<div class="label" style="margin-top:8px">Stone stage (towers and gatehouses) · ${castle.state === 'refused' ? 'refused' : `${castle.done} of ${castle.parts} parts`}</div>
+        <div class="sub">${castle.state === 'refused' ? 'Refused' : 'Voted'} ${ago(castle.at)} ago${castle.vote ? ` (${esc(castle.vote)})` : ''}.${world?.castle ? ` ${world.castle.stone} stone laid, ${world.castle.parts} parts built, ${world.castle.failed} failed this run.` : ''}</div>
+        ${castle.state === 'voted' && kinds ? `<table style="width:auto"><tbody>${kinds}</tbody></table>` : ''}
+        ${castle.dropped.length ? `<div class="sub">Dropped: ${castle.dropped.map((x) => `${esc(x.id)} (${esc(x.why)})`).join(', ')}</div>` : ''}` : '')
+      + (world?.gates ? `<div class="sub" style="margin-top:6px">Gates: closed ${world.gates.closed} times, seen open ${world.gates.seenOpen}, held open for led animals ${world.gates.heldForLead}.</div>` : '')));
+  } else out.push(card('Wall', '<div class="empty">no wall voted or refused yet (it goes to a vote once growth is done, or after deaths)</div>'));
+  // The danger count's detail, the hunt
+  if (dg) {
+    const huntKills = Object.entries(dg.hunt?.kills || {}).sort((x, y) => y[1] - x[1]).map(([k, n]) => `${n} ${words(k)}`).join(', ');
+    const drops = Object.entries(dg.hunt?.drops || {}).sort((x, y) => y[1] - x[1]).map(([k, n]) => `${n} ${words(k)}`).join(', ');
+    const hunters = Object.keys(dg.hunt?.nights || {}).length;
+    const ks = (dg.killMs || []).slice().sort((x, y) => x - y), med = ks.length ? ks[Math.floor(ks.length / 2)] : null;
+    out.push(card('Danger and the hunt', dtiles([[dg.hurtNear ?? 0, `hits on members near home${dg.lastHurtNear ? ` (last: ${dg.lastHurtNear})` : ''}`],
+      [hunters, `hunters (${sumOf(Object.values(dg.hunt?.nights || {}))} hunt nights)`], [dg.hunt?.deaths ?? 0, 'hunters killed on the hunt'],
+      [cb.huntsCalledOff ?? 0, 'hunts called off (hurt, healed, no prey)'], [med != null ? `${(med / 1000).toFixed(1)} s` : '–', `watch's median hit-to-kill (${ks.length} fights)`]])
+      + `<div class="sub" style="margin-top:8px">${huntKills ? `Hunted: ${esc(huntKills)}.` : 'Nothing hunted yet.'}${drops ? ` Brought to storage: ${esc(drops)}.` : ''}</div>`));
+  }
+  // The reflex and bows
+  const killed = Object.entries(cb.kills || {}).sort((x, y) => y[1] - x[1]).map(([k, n]) => `${n} ${words(k)}`).join(', ');
+  out.push(card('Fights (the reflex, every village in this world)', dtiles([[cb.fights ?? 0, `fights (${cb.rangedFights ?? 0} against archers and witches)`], [cb.defends ?? 0, 'came to a member\'s help'],
+    [cb.flees ?? 0, 'ran from creepers'], [`${cb.evades ?? 0} / ${cb.averts ?? 0}`, 'endermen evaded / gazes turned off them'],
+    [`${cb.shelters ?? 0} / ${cb.rangedRuns ?? 0}`, 'sheltered / ran out of range'], [cb.gaveUp ?? 0, 'fights given up on low health'],
+    [cb.bites ?? 0, 'bites eaten when hurt'], [`${cb.swordsTaken ?? 0} / ${cb.armed ?? 0}`, 'swords taken in a fight / armed at dusk'],
+    [`${cb.towerReached ?? 0} of ${cb.towerVisits ?? 0}`, 'tower posts reached by watchers'], [`${cb.watchSpots ?? 0} / ${cb.watchOutside ?? 0}`, 'watch spots / outside the wall']])
+    + (killed ? `<div class="sub" style="margin-top:8px">Killed: ${esc(killed)}.</div>` : '')));
+  if (ar) {
+    const byMob = Object.entries(ar.byMob || {}).map(([k, n]) => `${n} ${words(k)}`).join(', ');
+    out.push(card('Bows', dtiles([[ar.shots, 'arrows shot'], [ar.shots ? `${ar.hits} (${Math.round((100 * ar.hits) / ar.shots)}%)` : ar.hits, 'hits'],
+      [ar.kills, 'arrow kills'], [ar.assists, 'kills finished by the sword after arrows'], [ar.taken, 'bows taken from storage'], [ar.held, 'shots held (a member in the line)']])
+      + (byMob ? `<div class="sub" style="margin-top:8px">Shot dead: ${esc(byMob)}.</div>` : '')
+      + (fl ? `<div class="sub">Flint: ${fl.trips} gravel trips, ${fl.gravel} gravel dug, ${fl.flint} flint, ${fl.picked} arrows picked up${fl.far ? `, ${fl.far} trips far out` : ''}.</div>` : '')));
+  }
+  // Each member's arms and record
+  const ms = (lastData?.agents || []).filter((a) => a.village === v.name).sort(byAgent);
+  if (ms.length) {
+    const rows = ms.map((a) => {
+      const c = a.combat || {}, d = dg?.chores?.[a.name] || {};
+      const def = Object.entries(d).map(([k, q]) => `${words(k)} ${Math.round(q)}`).join(', ');
+      const deaths = c.deaths ? sumOf(Object.values(c.deaths)) : 0;
+      return `<tr><td><a href="${hrefOf('members', 'now', a.name)}"><b>${esc(a.name)}</b></a></td><td class="mono"${a.health < 10 ? ' style="color:var(--bad)"' : ''}>${a.dead ? 'dead' : a.health}</td>
+        <td>${esc(armsWords(c))}</td><td>${c.reflex ? `<b style="color:var(--warn)">${esc(reflexWords(c.reflex))}</b>` : c.hunting ? 'hunting' : ''}</td>
+        <td>${c.nearest ? `${esc(words(c.nearest.name))} ${c.nearest.dist}` : ''}</td><td class="mono">${c.watchNights || ''}</td><td class="mono">${c.huntNights || ''}</td>
+        <td class="sub">${esc(def)}</td><td class="mono"${deaths ? ' style="color:var(--bad)"' : ''}>${deaths || ''}</td></tr>`;
+    }).join('');
+    out.push(card('Members\' arms and watches', `<div style="overflow-x:auto"><table><thead><tr><th>Member</th><th>Health</th><th>Arms</th><th>Reflex now</th><th>Nearest monster</th><th>Watch nights</th><th>Hunt nights</th><th title="game minutes in each defence chore">Defence min</th><th>Deaths</th></tr></thead><tbody>${rows}</tbody></table></div>`));
+  }
+  return survivalCard(v) + out.join('');
+}
+
 /** A Village sub-tab's page. */
 function villageTab(v, tab) {
   const tasks = v.tasks || [];
@@ -1324,6 +1417,7 @@ function villageTab(v, tab) {
     return `${card('', techTreeSvg(techtrees?.[v.name]) || '<div class="empty">no tech tree yet</div>')}
       ${card(`Made · ${tech.length} kinds`, `${wk ? `<div class="sub">works plot ${esc(wk.state)} <span class="mono">${area(wk)}</span>${fs.length ? `; furnaces ${fs.join('; ')}` : '; no furnace yet'}</div>` : ''}${list(tech, ([nm, t]) => `<b>${esc(words(nm))}</b> <span class="sub">${esc(t.how)} ${t.n}, by ${esc(t.by)}, ${ago(t.at)} ago</span><div class="sub clamp" title="${esc(t.via)}">${esc(t.via)}</div>`)}`)}`;
   }
+  if (tab === 'defence') return defenceBody(v);
   if (tab === 'land') {
     const now = Date.now();
     const ground = (v.reservations || []).filter((r) => r.until > now);
@@ -2042,6 +2136,7 @@ function flags(a) {
   if (ev.some((e) => e.type === 'system' && /^Rescue:/.test(e.text))) out.push('<span class="flag">got stuck (rescued)</span>');
   if ((st.failuresSincePlan || 0) >= 3) out.push(`<span class="flag bad">${st.failuresSincePlan} failures lately</span>`);
   if (a.health < 20 && !a.dead) out.push(`<span class="flag">health ${a.health}</span>`);
+  if (a.combat?.reflex && /^combat/.test(a.combat.reflex.what)) out.push(`<span class="flag bad" title="the combat reflex is running">${esc(reflexWords(a.combat.reflex))}</span>`);
   if (appetiteOf(a)?.state === 'hungry') out.push('<span class="flag bad" title="appetite at 6 of 20 or below: only food work until fed">hungry</span>');
   return out.join('');
 }
@@ -2226,8 +2321,9 @@ function villageLife(v) {
     if (!s.kind) continue;
     if (s.annex) {
       const p = s.pen || {};
-      const animal = s.kind === 'cow' ? 'cow' : 'chicken';
-      const extra = [p.born ? `${p.born} born` : '', p.eggs ? `${plural(p.eggs, 'egg')} collected` : '', p.milk ? `${p.milk} milk` : ''].filter(Boolean).join(', ');
+      const animal = words(s.kind) || 'chicken';
+      const extra = [p.born ? `${p.born} born` : '', p.hatched ? `${p.hatched} hatched` : '', p.eggs ? `${plural(p.eggs, 'egg')} collected` : '', p.milk ? `${p.milk} milk` : '', p.wool ? `${p.wool} wool sheared` : '',
+        p.grownAt ? 'enlarged' : '', p.restocking ? 'restocking (no plucking until 4)' : ''].filter(Boolean).join(', ');
       items.push([`${cap(animal)} pen`, s.laying ? 'animals being led in' : p.built ? plural(p.animals || 0, animal) : 'being fenced', extra]);
     } else farm(`${cap(words(s.kind))} farm`, s.planted, s.harvests, 0);
   }
@@ -2662,7 +2758,10 @@ function survivalCard(v) {
       <div><div class="sub" style="margin-bottom:6px">Deaths by time of day</div><div style="display:flex;align-items:flex-end;justify-content:space-around;height:${H + 24}px;border-bottom:1px solid var(--line)">${cols}</div>
         <div class="sub" style="display:flex;justify-content:space-around;padding-top:4px">${ph.map(([k]) => `<span>${k}</span>`).join('')}</div></div>
       <div class="sub"><div style="margin-bottom:6px">Last night: ${dg.lastNight ? `${plural(dg.lastNight.out, 'member')} out after dark, ${plural(dg.lastNight.deaths, 'death')}` : 'none ended yet'}; tonight so far: ${plural(dg.night?.deaths || 0, 'death')}.</div>
-        ${dist ? `<div>Where they died, from home: ${dist}.</div>` : ''}${killed ? `<div>Killed: ${esc(killed)}.</div>` : ''}</div></div></section>`;
+        ${dist ? `<div>Where they died, from home: ${dist}.</div>` : ''}${killed ? `<div>Killed: ${esc(killed)}.</div>` : ''}
+        ${dg.hunt && Object.keys(dg.hunt.nights || {}).length ? `<div>Hunt: ${plural(Object.keys(dg.hunt.nights).length, 'hunter')}, ${sumOf(Object.values(dg.hunt.kills || {}))} kills, ${plural(dg.hunt.deaths || 0, 'hunter')} killed.</div>` : ''}
+        ${v.wallSummary ? `<div>Wall: ${v.wallSummary.state === 'refused' ? 'refused' : `${v.wallSummary.built} of ${v.wallSummary.cells} cells`}${v.wallSummary.castle?.state === 'voted' ? `; stone stage ${v.wallSummary.castle.done} of ${v.wallSummary.castle.parts} parts` : ''}.</div>` : ''}
+        <div style="margin-top:6px"><a href="${hrefOf('village', 'defence')}">The wall, hunts, bows and each member's arms</a></div></div></div></section>`;
 }
 /** The rest of the Overview under the console: the village head, its mood, who is doing what, what happened. */
 function overviewBottom(d, v) {

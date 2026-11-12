@@ -104,7 +104,7 @@ import { deathMemory, deathWords, type DeathCause } from './mcHazard';
 import { PLAYER_TALK, addRequest, answerLine, bearing, billWords, clampTo, dirPoint, emptyReplyLine, etaMinutes, historyLines, noChoreReason, passTarget, initTalk, isStatusQuestion, talkFacts, type TalkSituation, matchWork, noRequestLine, offerWorks, parseRespond, placeOf, promiseLines, promiseTags, requestById, requestsOf, statusFor, statusLines, talkSystem, talkTool, talkUser, updateRequest, withoutPlace, workWords, type PlayerRequest, type ReqProgress, type Respond, type WorkOffer } from '../playerTalk';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { isNight, nightTick } from './mcSurvivalB';
-import { HUNTED_NOT_BOUGHT, HUNT_HOME, huntNearOn, huntPreyNear, anyBed, codeBand, groundCounts, huntOffered, huntWide, armTick, armsOn, bandWords, builtBounds, combatCounts, curfewActs, curfewTick, dangerOf, dangerTick, deathsFact, beyond, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, DIST_BINS, headingHome, homeByDuskOn, hunters, huntersOf, huntedTonight, huntMs, huntOn, isWeapon, pastBand, phaseOf, WATCH_HEALTH, watchedTonight, watchLoop, type SafetyBand } from './mcCombat';
+import { HUNTED_NOT_BOUGHT, HUNT_HOME, huntNearOn, huntPreyNear, anyBed, codeBand, groundCounts, huntOffered, huntWide, armTick, armsOn, bandWords, builtBounds, combatCounts, combatView, curfewActs, curfewTick, dangerOf, dangerTick, deathsFact, beyond, groundLightSpots, groundsLightOn, guardCap, guards as onWatch, guardsOf, guardsOn, DIST_BINS, headingHome, homeByDuskOn, hunters, huntersOf, huntedTonight, huntMs, huntOn, isWeapon, pastBand, phaseOf, WATCH_HEALTH, watchedTonight, watchLoop, type SafetyBand } from './mcCombat';
 import { modeSpec, nightsFall, realHunger, worldMode } from '../worldMode';
 import { APPETITE, FOOD_POINTS, appetiteOn, barLevel, chooseMeal, drain, foodPoints, foodText, holdMeal, hurtKeep, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
@@ -2101,6 +2101,11 @@ export class MineflayerWorld implements WorldAdapter {
     const v = agent.village();
     const e = appetiteOn(v) ? v!.food!.members[agent.name] : undefined;
     return e ? { ...e, state: stateOf(e.level, e.health) } : null;
+  }
+
+  /** Survival: a member's fighting state for the panel (mcCombat.ts combatView), null without monsters. */
+  combatOf(agent: WorldAgent): Record<string, unknown> | null {
+    return modeSpec().mobs && agent instanceof BotAgent ? combatView(agent) : null;
   }
 
   /** Levels set for tests (POST /api/village/:v/appetite): the members named, or every member in the world; the record

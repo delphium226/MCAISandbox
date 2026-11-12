@@ -120,6 +120,8 @@ export class BotAgent implements WorldAgent {
   private movements: InstanceType<typeof Movements> | null = null;
   /** The self-defence reflex, while it runs: it pauses the queue. */
   private reflex: AbortController | null = null;
+  /** The reflex runReflex started (combat, arm, curfew, eat, sleep...) and when, for the panel; null when none runs. */
+  reflexNow: { what: string; at: number } | null = null;
   /** Where recent moves failed (a rescue starts when they keep failing from one spot). */
   private moveFails: Array<{ p: Vec3; t: number }> = [];
   private lastHurt = 0;
@@ -748,6 +750,7 @@ export class BotAgent implements WorldAgent {
     this.interrupt();
     const ac = new AbortController();
     this.reflex = ac;
+    const shown = (this.reflexNow = { what, at: Date.now() });
     fn(ac.signal).then(
       (msg) => (done ? done(msg) : console.log(`[hazard] ${this.name} ${what}: ${msg} (health ${Math.round(this.bot.health ?? 0)})`)),
       (e: Error) => {
@@ -757,6 +760,7 @@ export class BotAgent implements WorldAgent {
       },
     ).finally(() => {
       if (this.reflex === ac) this.reflex = null;
+      if (this.reflexNow === shown) this.reflexNow = null;
       this.hazardEnded = Date.now();
       this.halt();
     });

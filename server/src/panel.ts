@@ -159,6 +159,8 @@ function agentOverview(a: WorldAgent) {
     choice: a.world.choiceStatus?.(a) ?? null,
     // (s30's appetite, where the village keeps one: the bar's level and state, meals, the last meal, minutes hungry)
     ...appetiteView(a),
+    // (survival: armour, weapons, the reflex running, last hurt, nearest monster, hunt and defence; mob modes only)
+    ...(() => { const c = a.world.combatOf?.(a); return c ? { combat: c } : {}; })(),
   };
 }
 
@@ -255,6 +257,35 @@ export function economyView(v: Village) {
   };
 }
 
+/**
+ * The village wall (survival (d) spec 5, #217) for the Defence tab, in place of its record (~20 kB of cells at a 700-cell
+ * ring): the ballot, the ring's cells built of all, gates, gaps and water cells, segments backed off; the stone stage's
+ * parts by kind (done of all), those dropped and why. Null with no wall voted or refused.
+ */
+export function wallView(v: Village) {
+  const w = v.wall;
+  if (!w) return null;
+  const now = Date.now();
+  const cells = w.segs.reduce((s, g) => s + g.cells.length, 0);
+  const gates = w.segs.reduce((s, g) => s + g.cells.filter((c) => c.gate).length, 0);
+  const built = Object.keys(w.built).length;
+  const segsDone = w.segs.filter((g) => g.cells.every((c) => w.built[`${c.x},${c.z}`])).length;
+  const c = w.castle;
+  const kinds: Record<string, { done: number; of: number }> = {};
+  for (const p of c?.parts ?? []) {
+    const k = (kinds[p.kind] ??= { done: 0, of: 0 });
+    k.of++;
+    if (c!.done[p.id]) k.done++;
+  }
+  return {
+    state: w.state, at: w.at, vote: w.vote ?? null, deaths: w.deaths ?? null,
+    cells, built, gates, segs: w.segs.length, segsDone, gaps: w.gaps?.length ?? 0, water: Object.keys(w.water ?? {}).length,
+    down: w.down?.length ?? 0, backedOff: Object.values(w.back ?? {}).filter((t) => t > now).length,
+    castle: c ? { state: c.state, at: c.at, vote: c.vote ?? null, deaths: c.deaths ?? null, kinds, done: Object.keys(c.done).length, parts: c.parts.length,
+      dropped: Object.entries(c.dropped ?? {}).map(([id, why]) => ({ id, why })), backedOff: Object.values(c.back ?? {}).filter((t) => t > now).length } : null,
+  };
+}
+
 /** Phase N's needs for the village card's tab (spec_needs_v2): kind -> level, status, line and minutes above LOW
  *  (~100 bytes a need; /api/needs has the full state). Null with MC_NEEDS off or no view, and the tab says so. */
 function needsSummary(w: WorldAdapter, village: string) {
@@ -288,7 +319,8 @@ export function overview(w: WorldAdapter, opts: { agents?: Set<string>; designs?
   const villages = vs.map((v, i) => {
     // (spec_vote1: only the last vote, ~8 kB at 25 ballots; /api/votes has them all)
     // (the raw need states are swapped for their summary with each need's line, as needGauges; `needs` is the mayor's add_need)
-    const { designs, votes, needStates: _needStates, ...rest } = v;
+    // (the wall's record is its cells, ~20 kB: wallView's summary goes in its place)
+    const { designs, votes, needStates: _needStates, wall: _wall, ...rest } = v;
     const vote = votes?.length ? votes[votes.length - 1] : null;
     // (A2: the village's decisions by source, fallbacks and the chosen positions for the header's chip, ~250 bytes)
     const choices = w.choiceSummary?.(v.name) ?? null;
@@ -297,7 +329,8 @@ export function overview(w: WorldAdapter, opts: { agents?: Set<string>; designs?
     rest.runMs = w.villages.age(v);
     // (#10: each neighbourhood's name by layout number, an old village's worked out as it will be stored)
     const hoodNames = Object.fromEntries(neighbourhoodNames(v));
-    return send ? { ...rest, ...foodView(v), ...marketView(v), ...economyView(v), choices, vote, needGauges, hoodNames, designs: Object.fromEntries(keyed[i].map(([k, d, key]) => [k, { ...d, elevations: cachedElevations(d, key) }])) } : { ...rest, ...foodView(v), ...marketView(v), ...economyView(v), choices, vote, needGauges, hoodNames };
+    const wallSummary = wallView(v);
+    return send ? { ...rest, ...foodView(v), ...marketView(v), ...economyView(v), choices, vote, needGauges, hoodNames, wallSummary, designs: Object.fromEntries(keyed[i].map(([k, d, key]) => [k, { ...d, elevations: cachedElevations(d, key) }])) } : { ...rest, ...foodView(v), ...marketView(v), ...economyView(v), choices, vote, needGauges, hoodNames, wallSummary };
   });
   return { world: { kind: w.kind, ticks: w.ticks, time: Date.now() }, agents: agents.map(agentOverview), villages, designsEtag, usage: usage.summary() };
 }

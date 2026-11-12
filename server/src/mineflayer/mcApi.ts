@@ -32,6 +32,9 @@ import { SETTING_CHANGES, rawSetting, setSetting, settingsNow } from '../setting
 import { RULES, addLaw, boardSigns, enact, liveClaims, liveReports } from '../rules';
 import { CUSTOMS, CUSTOM_IDS, seed as seedCustom, seeds, type CustomId } from '../customs';
 import { combatCounts, dangerView } from './mcCombat';
+import { archeryCounts } from './mcArchery';
+import { flintCounts } from './mcFlint';
+import { castleStats, gateStats } from './mcWalls';
 
 // GET /api/perf's figures (E.1: [lag] shows only stalls over 2 s): the event loop's delay, sampled every 10 ms and started
 // over every minute, reported over that minute and the one before it (a stall recorded just before a restart would be
@@ -267,6 +270,8 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
       growFarms: GROW_FARMS, appetite: { rate: APPETITE.rate, idle: APPETITE.idle, start: APPETITE.start },
       // (survival (c): the combat reflex's counts, mcCombat.ts)
       combat: combatCounts,
+      // (#217/#225: bows (shots, hits, kills by mob, assists), the gravel trips for flint, the wall's gates and stone stage)
+      archery: archeryCounts, flint: flintCounts, gates: gateStats, castle: castleStats,
       // (survival (d): the danger count by village, mcCombat.ts)
       danger: dangerView(), agents: [...w.agents.values()].map((a) => a.name) });
   }

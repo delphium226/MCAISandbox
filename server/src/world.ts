@@ -227,6 +227,9 @@ export interface WorldAdapter {
   mayClaim?(agent: WorldAgent, task?: Task): boolean;
   /** s30: a member's appetite and its state, or null where the village keeps none. */
   appetiteOf?(agent: WorldAgent): (Appetite & { state: string }) | null;
+  /** Survival: a member's armour, weapons, reflex, last hurt, nearest monster, hunt and defence record for the panel; null
+   *  in a world without monsters. */
+  combatOf?(agent: WorldAgent): Record<string, unknown> | null;
 }
 
 /** A2: the kinds of chores a complete village's idle members choose among (S.9 adds the works plot, making and
