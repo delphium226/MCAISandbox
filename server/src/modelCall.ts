@@ -236,6 +236,9 @@ const pct = (xs: number[], p: number) => {
   return s[Math.min(s.length - 1, Math.ceil(p * s.length) - 1)];
 };
 
+/** The gate's live window for the panel (liveView). */
+const LIVE_MS = 10 * 60000;
+
 export class CallGate {
   private keys = new Map<string, KeyState>();
   private seq = 0;
@@ -243,6 +246,13 @@ export class CallGate {
   private total = new Map<CallPriority, ClassStats>();
   private recent = new Map<CallPriority, ClassStats>();
   private recentKeys = new Map<string, { maxInFlight: number; maxQueue: number }>();
+  /** Every call that left a gated key's queue (sent or withdrawn) in the last LIVE_MS, for the panel's gauge (liveView). */
+  private live: Array<{ at: number; key: string; wait: number; withdrawn?: boolean }> = [];
+  private note(key: string, wait: number, withdrawn?: boolean) {
+    const at = this.now();
+    this.live.push({ at, key, wait, ...(withdrawn ? { withdrawn } : {}) });
+    while (this.live.length > 5000 || (this.live.length && at - this.live[0].at > LIVE_MS)) this.live.shift();
+  }
 
   constructor(private slots: Map<string, number>, private now: () => number = Date.now) {}
 
@@ -292,6 +302,7 @@ export class CallGate {
           this.recentKeys.set(key, r);
           const waitMs = this.now() - since;
           this.stat(priority, (s) => { s.calls++; s.waits.push(waitMs); });
+          this.note(key, waitMs);
           let released = false;
           resolve({
             waitMs,
@@ -312,6 +323,7 @@ export class CallGate {
         if (timer) clearTimeout(timer);
         signal?.removeEventListener('abort', onAbort);
         this.stat(priority, (s) => s.withdrawn++);
+        this.note(key, this.now() - since, true);
         reject(new CallWithdrawn(key, this.now() - since, why));
       };
       const onAbort = () => leave('its caller stopped waiting');
@@ -365,6 +377,29 @@ export class CallGate {
       ...(recent ? {} : { maxLow: k.maxLow }),
     }]));
     return { classes, keys };
+  }
+
+  /**
+   * The panel's gauge (GET /api/overview's `gate`): per gated key, its slots, calls in flight and queued now, the oldest
+   * queued call's wait so far, and over the last LIVE_MS the calls sent, their wait (p50, p90, max, ms) and those withdrawn.
+   */
+  liveView() {
+    const now = this.now();
+    const live = this.live.filter((e) => now - e.at <= LIVE_MS);
+    const keys = new Set([...this.keys.keys(), ...live.map((e) => e.key)]);
+    return {
+      windowMs: LIVE_MS,
+      keys: Object.fromEntries([...keys].map((key) => {
+        const k = this.keys.get(key);
+        const sent = live.filter((e) => e.key === key && !e.withdrawn).map((e) => e.wait);
+        return [key, {
+          slots: this.slotsFor(key), inFlight: k?.inFlight ?? 0, queued: k?.queue.length ?? 0,
+          oldestMs: k?.queue.length ? now - Math.min(...k.queue.map((w) => w.since)) : 0,
+          calls: sent.length, p50: pct(sent, 0.5), p90: pct(sent, 0.9), max: sent.length ? Math.max(...sent) : 0,
+          withdrawn: live.filter((e) => e.key === key && e.withdrawn).length,
+        }];
+      })),
+    };
   }
 
   /** The `[gate]` line for the time since the last one (and starts the next); null when no call came to the gate. */

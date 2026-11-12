@@ -332,7 +332,8 @@ export function overview(w: WorldAdapter, opts: { agents?: Set<string>; designs?
     const wallSummary = wallView(v);
     return send ? { ...rest, ...foodView(v), ...marketView(v), ...economyView(v), choices, vote, needGauges, hoodNames, wallSummary, designs: Object.fromEntries(keyed[i].map(([k, d, key]) => [k, { ...d, elevations: cachedElevations(d, key) }])) } : { ...rest, ...foodView(v), ...marketView(v), ...economyView(v), choices, vote, needGauges, hoodNames, wallSummary };
   });
-  return { world: { kind: w.kind, ticks: w.ticks, time: Date.now() }, agents: agents.map(agentOverview), villages, designsEtag, usage: usage.summary() };
+  // (the call gate now and over 10 minutes, for the Overview's model-call gauge: are model calls the bottleneck?)
+  return { world: { kind: w.kind, ticks: w.ticks, time: Date.now() }, agents: agents.map(agentOverview), villages, designsEtag, usage: usage.summary(), gate: gate.liveView() };
 }
 
 /** A memory object made safe to send: long strings cut, long arrays cut to their last 30, depth 5 (s34's Memory tab). */

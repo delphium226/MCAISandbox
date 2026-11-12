@@ -2448,6 +2448,10 @@ function attentionItems(d, v) {
   const add = (level, title, sub, href, where) => out.push({ level, title, sub, href, where });
   const b = lastUsage?.budget;
   if (b?.blocked) add('critical', 'Cloud calls are paused', 'the hour\'s token budget is spent', '#/run/cost', 'Run › Models and cost');
+  for (const [key, k] of Object.entries(d.gate?.keys || {})) {
+    if (!k.slots || !gateLevel(k)) continue;
+    add(gateLevel(k) === 'bad' ? 'serious' : 'warning', `Model calls queue (${key})`, `${k.inFlight}/${k.slots} in flight, ${k.queued} queued, wait p90 ${Math.round(k.p90 / 1000)} s${k.withdrawn ? `, ${k.withdrawn} withdrawn` : ''}`, '#/overview', 'Model calls');
+  }
   const now = Date.now();
   if (v) {
     const cv = ocData('civic', v), tl = ocData('tl', v);
@@ -2763,6 +2767,32 @@ function survivalCard(v) {
         ${v.wallSummary ? `<div>Wall: ${v.wallSummary.state === 'refused' ? 'refused' : `${v.wallSummary.built} of ${v.wallSummary.cells} cells`}${v.wallSummary.castle?.state === 'voted' ? `; stone stage ${v.wallSummary.castle.done} of ${v.wallSummary.castle.parts} parts` : ''}.</div>` : ''}
         <div style="margin-top:6px"><a href="${hrefOf('village', 'defence')}">The wall, hunts, bows and each member's arms</a></div></div></div></section>`;
 }
+/** The Overview's model-call gauge, one row per gated key (the overview's `gate`, the call gate's last 10 minutes): calls
+ *  in flight of the slots, queued now, the wait p90; amber once anything queues, red when the p90 passes 30 s or calls were
+ *  withdrawn; the hourly budget's pause. */
+const GATE_RED_MS = 30000;
+function gateLevel(k) {
+  if (k.withdrawn || k.p90 > GATE_RED_MS || k.oldestMs > GATE_RED_MS) return 'bad';
+  return k.queued ? 'warn' : '';
+}
+function gateGauge(d) {
+  const g = d.gate, b = d.usage?.budget || lastUsage?.budget;
+  const keys = Object.entries(g?.keys || {}).filter(([, k]) => k.slots > 0);
+  if (!keys.length && !b?.blocked) return '';
+  const secs = (ms) => (ms >= 10000 ? `${Math.round(ms / 1000)} s` : `${(ms / 1000).toFixed(1)} s`);
+  const rows = keys.map(([key, k]) => {
+    const lv = gateLevel(k), c = lv === 'bad' ? 'var(--bad)' : lv === 'warn' ? 'var(--warn)' : 'var(--good)';
+    const pctIn = k.slots ? Math.min(100, Math.round((100 * k.inFlight) / k.slots)) : 0;
+    return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="dot" style="background:${c}"></span><b class="mono">${esc(key)}</b>
+      <span class="dmeter" title="${k.inFlight} of ${k.slots} slots in use"><i style="width:${pctIn}%;background:${c}"></i></span>
+      <span>${k.inFlight}/${k.slots} in flight</span><span${k.queued ? ` style="color:${c}"` : ''}>${k.queued} queued${k.queued ? ` (oldest ${secs(k.oldestMs)})` : ''}</span>
+      <span class="sub" title="calls sent in the last ${Math.round(g.windowMs / 60000)} minutes and their wait at the gate">${k.calls} sent in ${Math.round(g.windowMs / 60000)} min · wait p50 ${secs(k.p50)}, <span style="color:${k.p90 > GATE_RED_MS ? 'var(--bad)' : 'inherit'}">p90 ${secs(k.p90)}</span>, max ${secs(k.max)}</span>
+      ${k.withdrawn ? `<span class="bad">${k.withdrawn} withdrawn unsent</span>` : ''}</div>`;
+  }).join('');
+  const paused = b?.blocked ? `<div class="bad">Cloud calls are paused: the hour's token budget is spent${b.retryAt ? ` (until ${new Date(b.retryAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})` : ''}.</div>` : '';
+  return `<section class="card" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline"><div class="oc-h" style="margin:0">Model calls</div><a href="#/run/cost" class="sub">Models and cost</a></div>
+    <div style="display:grid;gap:6px;margin-top:6px">${rows}${paused}</div></section>`;
+}
 /** The rest of the Overview under the console: the village head, its mood, who is doing what, what happened. */
 function overviewBottom(d, v) {
   const inV = v ? d.agents.filter((a) => a.village === v.name) : [];
@@ -2770,8 +2800,8 @@ function overviewBottom(d, v) {
   const who = `<div class="wide card"><div class="label" style="display:flex;gap:8px"><span>Who is doing what</span><span class="spacer"></span><a href="${hrefOf('members')}" style="text-transform:none;letter-spacing:0">All members</a></div>`
     + (v ? simpleAgents(inV, v.name) : '') + (loose.length || !v ? `${v ? '<div class="label" style="margin-top:12px">In no village</div>' : ''}${simpleAgents(loose, 'loose')}` : '') + '</div>';
   const happened = `<div class="narrow card"><div class="label" style="display:flex;gap:8px"><span>What happened</span><span class="spacer"></span><a href="#/run/events" style="text-transform:none;letter-spacing:0">Every event</a></div>${happenedList(v, d.agents)}</div>`;
-  if (!v) return `<div class="flexrow">${who}${happened}</div>`;
-  return memberTable(d, v) + consoleCharts(v) + survivalCard(v)
+  if (!v) return `${gateGauge(d)}<div class="flexrow">${who}${happened}</div>`;
+  return gateGauge(d) + memberTable(d, v) + consoleCharts(v) + survivalCard(v)
     + `<h2>The village</h2>${overviewStrip(v, inV)}${villageMoodCard(v)}<div class="flexrow" style="margin-top:14px">${who}${happened}</div>`;
 }
 document.addEventListener('mouseover', (e) => {
