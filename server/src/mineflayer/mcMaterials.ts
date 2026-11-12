@@ -54,8 +54,9 @@ export const SMELT_FALLBACK: Record<string, string> = {
 const GATHER = new Set(['coal', 'raw_iron', 'raw_copper', 'raw_gold', 'white_wool', 'clay_ball', 'sand', 'red_sand', 'sandstone', 'red_sandstone', 'terracotta', 'dirt', 'gravel', 'sugar_cane', 'leather', 'vine', 'wheat', 'cod', 'salmon',
   // (10-22, the flowers knowledge gap: what collect and the farms give that dyes are made of; the cactus smelts to green dye)
   ...FLOWER_ITEMS, 'cactus', 'beetroot',
-  // (#104, MC_VANILLA_ALL: diorite, the snowy pieces' stand-in for snow and ice, mined as it lies, not made from quartz)
-  ...(!/^(off|0|false|no)$/i.test(rawSetting('MC_VANILLA_ALL') ?? 'on') ? ['diorite'] : [])]);
+  // (#104, MC_VANILLA_ALL: diorite, the snowy pieces' stand-in for snow and ice, mined as it lies, not made from quartz;
+  // granite too, 11-12: a requested statue's red and orange, sculpture.ts, collected where it lies as the quarry's is)
+  ...(!/^(off|0|false|no)$/i.test(rawSetting('MC_VANILLA_ALL') ?? 'on') ? ['diorite', 'granite'] : [])]);
 
 /** #202: gathered elsewhere, but made for the monument's yard (4 sand a sandstone; red sandstone from red sand, which no
  *  trip brings, so a record wanting it stays off the shortlists). */
@@ -73,7 +74,7 @@ const gatherCost = (name: string) => GATHER_COST[name] ?? (/^stripped_/.test(nam
  * for 10 minutes, Accept5), so a village design should not need it.
  */
 const EASY_GATHER_BASE = /^(any:logs|any:cobblestone|.*_(log|stem)|cobblestone|stone|sand|red_sand|sandstone|red_sandstone|dirt|gravel|(.*_)?terracotta)$/;
-const EASY_GATHER = !/^(off|0|false|no)$/i.test(rawSetting('MC_VANILLA_ALL') ?? 'on') ? new RegExp(EASY_GATHER_BASE.source.replace('|dirt|', '|dirt|diorite|')) : EASY_GATHER_BASE;
+const EASY_GATHER = !/^(off|0|false|no)$/i.test(rawSetting('MC_VANILLA_ALL') ?? 'on') ? new RegExp(EASY_GATHER_BASE.source.replace('|dirt|', '|dirt|diorite|granite|')) : EASY_GATHER_BASE;
 export const hardToGather = (gather: Counts) => Object.keys(gather).filter((n) => !EASY_GATHER.test(n));
 
 /** Not obtainable in a peaceful overworld: Nether blocks and hostile-mob drops (also the activity validator's, activities.ts). */

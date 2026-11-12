@@ -4,7 +4,8 @@
  * castPublic, its real prompt), run, compiled and fitted by code at LANDMARK_UNITS. Measures whether the library can
  * express buildings that are not houses: programs that run, buildings that fit and pass validateDesign, the box, 12
  * layers, LANDMARK_UNITS and 32 smelts; the features each request implies (a tower for a lighthouse, wide windows for a
- * school...) in the building built; invented functions; latency.
+ * school...) in the building built; invented functions; latency. Figures (11-12, sculpture.ts: a chicken statue, a
+ * fountain, an arch...) must come back drawn as figures (box()/block()), pass without a door and use the easy blocks.
  *
  * Usage: node node_modules/tsx/dist/cli.mjs scripts/bench/talkprogbench.mts
  * Env: MODEL (default qwen3.8:27b), OLLAMA (default http://127.0.0.1:11436), N (samples, default 3), TEMP (0.7),
@@ -23,7 +24,7 @@ process.env.MC_TIME_SCALE = '1';
 const T = await import('../../server/src/talkDesign');
 const { V2_LIMITS } = await import('../../server/src/buildingGen');
 const { LANDMARK_UNITS, MAX_SMELTS, validateDesign } = await import('../../server/src/designs');
-const { Materials, designBill } = await import('../../server/src/mineflayer/mcMaterials');
+const { Materials, designBill, hardToGather } = await import('../../server/src/mineflayer/mcMaterials');
 type Design = import('../../server/src/village').Design;
 type HouseSpec = import('../../server/src/houseProgram').HouseSpec;
 
@@ -50,10 +51,12 @@ const cost = (d: Design) => {
   return { units: Object.values(plan.gather).reduce((t, q) => t + q, 0) + 1, smelts: plan.fuel.smelts };
 };
 const bill = { units: (d: Design) => cost(d).units, smelts: (d: Design) => cost(d).smelts };
-function problems(d: Design): string[] {
+function problems(d: Design, door = true): string[] {
   const p: string[] = [];
-  const { errors } = validateDesign({ ...d, layers: d.layers.map((l) => [...l]), palette: { ...d.palette } }, 'bench', { isPlaceable, states: true, requireDoor: true });
+  const { errors } = validateDesign({ ...d, layers: d.layers.map((l) => [...l]), palette: { ...d.palette } }, 'bench', { isPlaceable, states: true, requireDoor: door });
   p.push(...errors);
+  const plan = materials.plan(designBill(d)), hard = hardToGather(plan.gather);
+  if (hard.length || plan.problems.length) p.push(`hard: ${[...hard, ...plan.problems].join(',')}`);
   if (d.width > V2_LIMITS.maxBox || d.depth > V2_LIMITS.maxBox) p.push(`box ${d.width}x${d.depth}`);
   if (d.height > V2_LIMITS.maxLayers) p.push(`${d.height} layers`);
   const c = cost(d);
@@ -75,7 +78,7 @@ const FEATURES: Record<string, (s: HouseSpec) => boolean> = {
   glass: (s) => s.glass === 'glass' && s.windows !== 'none',
 };
 
-interface Desc { id: string; family: string; text: string; what: string; want: string[] }
+interface Desc { id: string; family: string; text: string; what: string; want: string[]; figure?: boolean }
 // (none of these is one of the civic tier's kinds nor a vanilla work)
 const DESCS: Desc[] = [
   { id: 'bakery', family: 'plains', text: 'Mayor, please build a bakery by the river', what: 'a bakery', want: ['chimney'] },
@@ -90,6 +93,12 @@ const DESCS: Desc[] = [
   { id: 'apothecary', family: 'snowy', text: 'Mayor, could we get an apothecary shop?', what: 'an apothecary', want: ['porch'] },
   { id: 'courthouse', family: 'plains', text: 'the village needs a courthouse', what: 'a courthouse', want: ['big', 'stone'] },
   { id: 'post_office', family: 'savanna', text: 'please build a post office near the market', what: 'a post office', want: ['porch'] },
+  // (figures: drawn block by block, sculpture.ts)
+  { id: 'chicken', family: 'plains', text: 'mayor, please build a statue of a chicken here', what: 'a statue of a chicken', want: [], figure: true },
+  { id: 'fountain', family: 'plains', text: 'Mayor, could we have a fountain in the middle of the village?', what: 'a fountain', want: [], figure: true },
+  { id: 'arch', family: 'desert', text: 'build a stone arch over the road please', what: 'a stone arch', want: [], figure: true },
+  { id: 'horse', family: 'taiga', text: 'a statue of a horse by the gate would be lovely', what: 'a statue of a horse', want: [], figure: true },
+  { id: 'mayor_statue', family: 'savanna', text: 'build a statue of the Mayor in the square', what: 'a statue of the Mayor', want: [], figure: true },
 ];
 
 const MODEL = process.env.MODEL ?? 'qwen3.8:27b';
@@ -120,8 +129,8 @@ for (const [i, d] of DESCS.filter((x) => !only || only.has(x.id)).entries()) {
       }) as never,
     });
     const b = r.built;
-    const form = b ? `${b.body.width}x${b.body.depth}x${b.body.storeys}${b.wings.length ? `+${b.wings.length}w` : ''}${b.towers.length ? `+${b.towers.length}t` : ''}${b.bays.length ? '+b' : ''}${b.porch ? '+p' : ''}${b.chimney ? '+c' : ''} ${b.walls}/${b.roof}` : `none:${r.why}`;
-    const pr = r.design ? problems(r.design) : ['no design'];
+    const form = r.figure && r.design ? `figure ${r.design.width}x${r.design.depth}x${r.design.height} ${Object.values(r.design.palette).join('/')}` : b ? `${b.body.width}x${b.body.depth}x${b.body.storeys}${b.wings.length ? `+${b.wings.length}w` : ''}${b.towers.length ? `+${b.towers.length}t` : ''}${b.bays.length ? '+b' : ''}${b.porch ? '+p' : ''}${b.chimney ? '+c' : ''} ${b.walls}/${b.roof}` : `none:${r.why}`;
+    const pr = r.design ? [...problems(r.design, !r.figure), ...(!!d.figure !== !!r.figure ? [d.figure ? 'drawn as a building' : 'drawn as a figure'] : [])] : ['no design'];
     const got = b ? d.want.filter((f) => FEATURES[f](b)) : [];
     const row = { id: d.id, s, ok: !!r.design, pass: !!r.design && !pr.length, problems: pr, want: d.want.length ? got.length / d.want.length : 1, missing: d.want.filter((f) => !got.includes(f)),
       form, units: r.design ? bill.units(r.design) : undefined, height: r.design?.height, cuts: r.cuts, unknown: r.unknown, error: r.error, said: r.said, desc: r.design?.description, ms: Date.now() - t0, code: r.code };

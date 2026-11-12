@@ -74,6 +74,13 @@ const CASES: Array<[string, 'mayor' | 'member', string, (r: R) => boolean]> = [
   ['designs: a spaceship (refuse)', 'mayor', designed(['Mayor, build me a spaceship to fly to the moon']), (r) => r?.kind === 'refuse' && !!r.reason],
   ['designs: a skyscraper (refuse)', 'mayor', designed(['build a 100-storey skyscraper']), (r) => r?.kind === 'refuse' && !!r.reason],
   ['designs: more houses', 'mayor', designed(['Mayor, we need more houses for everyone']), (r) => r?.kind === 'build' && /^houses?$/i.test(r.work ?? '')],
+  // (11-12: a statue was refused, "The village only builds listed buildings, not statues"; small decorative works are designed)
+  ['designs: a statue of a chicken (design)', 'mayor', designed(['mayor, please build a statue of a chicken here']), (r) => r?.kind === 'build' && r.work === 'design' && /chicken/i.test(r.what ?? '') && /here/.test(r.place ?? '')],
+  ['designs: a chicken statue passed on (design)', 'mayor', designed(['zane, please build a statue of a chicken here'], { via: 'Zane' }), (r) => r?.kind === 'build' && r.work === 'design' && /chicken/i.test(r.what ?? '')],
+  ['designs: a fountain (design)', 'mayor', designed(['Mayor, could we have a fountain in the middle of the village?']), (r) => r?.kind === 'build' && r.work === 'design' && /fountain/i.test(r.what ?? '')],
+  ['designs: a stone arch (design)', 'mayor', designed(['build a stone arch over the road please']), (r) => r?.kind === 'build' && r.work === 'design' && /arch/i.test(r.what ?? '')],
+  ['designs: a pet chicken (refuse)', 'mayor', designed(['Mayor, give me a pet chicken to keep']), (r) => r?.kind === 'refuse' && !!r.reason],
+  ['designs: a 200-block statue (refuse)', 'mayor', designed(['build a 200 block tall statue of a giant that reaches the clouds']), (r) => r?.kind === 'refuse' && !!r.reason],
   ['member: logs (promise)', 'member', member(['Ada, can you get me some logs?']), (r) => r?.kind === 'promise' && r.option === 'gather:logs'],
   ['member: bake bread (promise)', 'member', member(['Ada, we are hungry, could you bake some bread']), (r) => r?.kind === 'promise' && r.option === 'make:bread'],
   ['member: a church (forward)', 'member', member(['Ada, can the village build a church?']), (r) => r?.kind === 'forward'],

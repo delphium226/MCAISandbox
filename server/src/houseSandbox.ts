@@ -12,10 +12,13 @@
 import vm from 'node:vm';
 import { Worker } from 'node:worker_threads';
 
-export const PROGRAM_LIMITS = { chars: 4000, calls: 120, ms: 200, unknownRetries: 6 };
+// (calls 400: a sculpture, sculpture.ts, is drawn block by block, and a figure's details are a call each)
+export const PROGRAM_LIMITS = { chars: 4000, calls: 400, ms: 200, unknownRetries: 6 };
 /** The worker's limits: its heap (MB), and how long it may live from its start (the vm caps run inside it). */
 export const WORKER_LIMITS = { maxOldGenerationSizeMb: 48, maxYoungGenerationSizeMb: 8, codeRangeSizeMb: 8, stackSizeMb: 2, timeoutMs: 3000 };
-export const LIBRARY_NAMES = ['house', 'body', 'wing', 'tower', 'bay', 'porch', 'chimney', 'roof', 'walls', 'base', 'frame', 'windows', 'shutters', 'door', 'note'];
+export const LIBRARY_NAMES = ['house', 'body', 'wing', 'tower', 'bay', 'porch', 'chimney', 'roof', 'walls', 'base', 'frame', 'windows', 'shutters', 'door', 'note',
+  // (the talk build's sculptures, sculpture.ts: a figure block by block)
+  'block', 'box', 'plinth'];
 
 /** The library inside the context: each function records its call (as JSON, inside the time cap) and returns the API, so
  *  chained calls work too. Natives are captured before the program runs. */

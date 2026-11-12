@@ -8,27 +8,35 @@
  *    civic path (a civic record: its own site, yard, kiln and jobs) where the person asked, one at a time.
  * 2. Coded: when nothing listed fits, the Mayor answers `design` and the village's architect writes the building as a
  *    short program against the house library (#175, houseProgram.ts), run in a worker, compiled and fitted by code, and
- *    built as a public work. A program that fails gives the listed building the Mayor named as nearest, with a line
- *    saying so; no model (the local server down, the budget spent) gives a refusal naming it.
+ *    built as a public work. A statue, fountain, arch or other figure is drawn block by block instead (sculpture.ts: box()
+ *    and block() in colours code turns into easy blocks, set on a plinth). A program that fails gives the listed building
+ *    the Mayor named as nearest, with a line saying what failed; no model (the budget spent) gives a refusal naming it.
  *
  * World-free: the matcher, the offers and their lines, the program prompt and call. mcWorld.ts routes, places and builds.
  *
  * Settings (read once):
  *   MC_TALK_DESIGNS        on (default) | off: the two tiers; off, the Mayor offers the vanilla works alone as before
- *   MC_TALK_PROGRAM_MODEL  the architect's model (default MC_HOME_PROGRAM_MODEL's, ollama:qwen3.8:27b on the pinned local
- *                          server)
+ *   MC_TALK_PROGRAM_MODEL  the architect's model (default ollama:gpt-oss:120b-cloud, every role's; a local model whose
+ *                          server is not reachable falls back to it, mcWorld.ts talkDesignStart)
  */
 import { aKind, civicEntries, civicScale, drawCivic, type CivicEntry } from './civic';
-import { LIBRARY_DOC, describeSpec, extractProgram, houseFromProgramIsolated, type HouseSpec, type ProgramBill } from './houseProgram';
+import { LIBRARY_DOC, describeSpec, extractProgram, houseFromRun, requoteNotes, runProgramIsolated, type HouseSpec, type ProgramBill } from './houseProgram';
+import { SCULPTURE_DOC, fitSculpture, isSculpture, readSculpture, sculptureWords } from './sculpture';
 import { familyWords } from './homeDesign';
 import { CallWithdrawn, callModel, parseSpec, type ModelSpec } from './modelCall';
 import { usage, isCloudModel } from './modelUsage';
 import { rawSetting } from './settings';
 import type { Design } from './village';
 
+/** The architect's model when none is set, and the fallback for a local one that is down. */
+export const TALK_ARCHITECT_DEFAULT = 'ollama:gpt-oss:120b-cloud';
+
 export const TALK_DESIGNS = {
   on: !/^(off|0|false|no)$/i.test(rawSetting('MC_TALK_DESIGNS') ?? 'on'),
-  model: parseSpec(rawSetting('MC_TALK_PROGRAM_MODEL') ?? rawSetting('MC_HOME_PROGRAM_MODEL') ?? 'ollama:qwen3.8:27b'),
+  // (11-12: the cloud model by default, as every role's: the local qwen3.8 it had is not running in cloud-only runs, and
+  // the Mayor then could not have a chicken statue drawn; a local model set here that is down falls back to `fallback`)
+  model: parseSpec(rawSetting('MC_TALK_PROGRAM_MODEL') || TALK_ARCHITECT_DEFAULT),
+  fallback: parseSpec(TALK_ARCHITECT_DEFAULT),
 };
 /** Test hook. */
 export function setTalkDesigns(s: Partial<typeof TALK_DESIGNS>): void { Object.assign(TALK_DESIGNS, s); }
@@ -146,12 +154,13 @@ export function matchDesign(offers: DesignOffer[], asked: string): DesignOffer |
 
 // ---- tier 2: the coded design ------------------------------------------------------------------------------------------
 
-const PUBLIC_SYSTEM = 'You are the architect of a Minecraft village. A person asked the village for a public building that is not in its pattern '
-  + 'book, and you draw it. Reply with only a short JavaScript program in one ```js block that calls the library below, then nothing else.\n\n'
+const PUBLIC_SYSTEM = 'You are the architect of a Minecraft village. A person asked the village for a public building or a small decorative '
+  + 'work (a statue, a fountain, an arch...) that is not in its pattern book, and you draw it. Reply with only a short JavaScript program in one '
+  + '```js block that calls the library below, then nothing else.\n\nFor a building:\n'
   + LIBRARY_DOC.replace('note(text)                     one sentence: why this house suits you', 'note(text)                     one sentence: what this building is')
   + '\nThe library was made for houses: make a public building from the same parts so that it reads as what was asked from the street '
   + '(a tower for a lighthouse, a lookout or a belfry; a long body with wings for a hall; stone walls and a base for a strong building; '
-  + 'wide windows for a shop or a school).';
+  + 'wide windows for a shop or a school).\n\n' + SCULPTURE_DOC;
 
 export interface PublicContext {
   /** The person's own words. */
@@ -168,7 +177,7 @@ export function buildPublicPrompt(ctx: PublicContext, budget: number): { system:
     `A person said to the Mayor: "${ctx.text.slice(0, 200)}"`,
     `Draw ${ctx.what} for the village.`,
     `The village builds in the ${ctx.family} style (${familyWords(ctx.family, ctx.wood)}).`,
-    `Budget: ${budget} units of materials. A plain 5x5 building is about 90 units, a 7x7 one-storey about 120 and two-storey about 215; a wing adds about 45, a tower about 60. Code cuts what is over the budget.`,
+    `Budget: ${budget} units of materials. A plain 5x5 building is about 90 units, a 7x7 one-storey about 120 and two-storey about 215; a wing adds about 45, a tower about 60. A figure costs a unit a block (a solid 5x7x8 statue about 200; code hollows its hidden inside when over). Code cuts what is over the budget.`,
     `Write ${ctx.what} as the person would want it, with note() saying what it is.`,
   ];
   return { system: PUBLIC_SYSTEM, user: lines.join('\n') };
@@ -185,6 +194,8 @@ export interface PublicRequest {
   maxWaitMs?: number;
   /** Injected in checks; callModel by default. */
   call?: typeof callModel;
+  /** The world's hard-to-gather check on a figure (mcWorld materialTasks' problems): a figure it fails is not drawn. */
+  problems?: (d: Design) => string[];
 }
 export interface PublicResult {
   design: Design | null;
@@ -194,6 +205,10 @@ export interface PublicResult {
   unknown: string[];
   code: string;
   said: string;
+  /** What was drawn in words ("a 7x7 two-storey stone bricks building", "a 5x7 statue, 9 high, in diorite...") and whether
+   *  it is a figure (sculpture.ts) rather than a building. */
+  form?: string;
+  figure?: boolean;
   /** Why no building: down (no model server), budget, model (no code), error (the program's), fit (none fits), timeout. */
   why?: 'down' | 'budget' | 'model' | 'error' | 'fit' | 'timeout' | 'withdrawn';
   error?: string;
@@ -222,14 +237,35 @@ export async function castPublic(req: PublicRequest): Promise<PublicResult> {
     });
     out.ms = r.ms;
     out.code = extractProgram(r.reply.text ?? '');
-    if (!/\w+\s*\(/.test(out.code)) return { ...out, why: 'model', error: (r.reply.text ?? '').slice(0, 120) };
-    const h = await houseFromProgramIsolated(out.code, req.ctx.family, req.budget, req.bill, req.name, req.ctx.wood);
+    if (!/\w+\s*\(/.test(out.code)) return { ...out, why: 'model', error: `no program in the reply: ${(r.reply.text ?? '').slice(0, 100)}` };
+    let run = await runProgramIsolated(out.code);
+    const fixed = /^syntax/.test(run.error ?? '') ? requoteNotes(out.code) : out.code;
+    if (fixed !== out.code) run = await runProgramIsolated(fixed);
+    // (a statue, fountain or arch: block() and box() draw a figure, sculpture.ts, not a house)
+    if (isSculpture(run.calls)) {
+      const notes: string[] = [];
+      const sp = readSculpture(run.calls, notes);
+      const thing = req.ctx.what.replace(/^(a|an|the)\s+/i, '').split(/\s+/).slice(0, 4).join(' ') || 'figure';
+      const f = fitSculpture(sp, req.budget, { ...req.bill, ...(req.problems ? { problems: req.problems } : {}) }, req.name, req.ctx.what);
+      out.unknown = run.unknown;
+      out.notes = [...notes, ...f.notes];
+      out.said = sp.note.trim().replace(/\s+/g, ' ');
+      out.figure = true;
+      if (run.error) out.error = run.error;
+      if (!f.design) return { ...out, why: 'fit', error: f.why ?? run.error };
+      out.cuts = f.cuts;
+      out.form = sculptureWords(f.design, thing);
+      out.design = { ...f.design, name: req.name, description: `${req.ctx.what}: ${out.form}`, by: 'program' };
+      return out;
+    }
+    const h = houseFromRun(run, req.ctx.family, req.budget, req.bill, req.name, req.ctx.wood);
     out.unknown = h.run.unknown;
     out.notes = h.notes;
     out.said = h.spec.note.trim().replace(/\s+/g, ' ');
     if (h.run.error) out.error = h.run.error;
-    if (!h.fit) return { ...out, why: h.run.calls.length ? 'fit' : 'error' };
+    if (!h.fit) return { ...out, why: h.run.calls.length ? 'fit' : 'error', ...(h.run.calls.length && !out.error ? { error: 'even the plainest building is over the budget' } : {}) };
     out.built = h.fit.spec;
+    out.form = publicWords(h.fit.spec);
     out.cuts = h.fit.cuts;
     out.design = { ...h.fit.design, name: req.name, description: `${req.ctx.what}: ${publicWords(h.fit.spec)}`, by: 'program' };
     return out;
@@ -242,8 +278,11 @@ export async function castPublic(req: PublicRequest): Promise<PublicResult> {
   }
 }
 
-/** A failed program's reason in a person's words. */
-export function failWords(why: PublicResult['why']): string {
-  return why === 'down' || why === 'budget' || why === 'timeout' || why === 'withdrawn' ? 'our architect cannot draw new buildings just now'
-    : why === 'fit' ? 'our architect could not make it fit what the village can build' : "our architect's drawing did not work out";
+/** A failed program's reason in a person's words, with what failed when known (`error`, cut to a clause). */
+export function failWords(why: PublicResult['why'], error?: string): string {
+  const what = error ? ` (${error.replace(/\s+/g, ' ').replace(/[.\s]+$/, '').slice(0, 100)})` : '';
+  return why === 'down' ? `our architect's model cannot be reached just now${what}` : why === 'budget' ? 'our architect has used up its model budget for this hour'
+    : why === 'timeout' || why === 'withdrawn' ? 'our architect did not answer in time'
+    : why === 'fit' ? `our architect could not make it fit what the village can build${what}` : why === 'model' ? 'our architect answered without a drawing'
+    : `our architect's drawing did not work out${what}`;
 }
