@@ -2254,10 +2254,11 @@ function reopenLanding(reg: { note: (v: Village, s: string) => void; save: () =>
 export const DEEP_TRIP_Y = -40;
 
 /** Whether the village wants its chain deep: diamond its current rung (MC_DIAMOND_AGE, MC_LADDER, MC_IRON_AGE), or the
- *  enchantment rung's obsidian stage with no level at y 0 or below (rungs test 11-14: the enchantment run's mine stood at
- *  y 31, so make_obsidian, which needs a deep level's still lava, was never offered). */
+ *  enchantment rung's obsidian stage with no level at y 0 or below, or with its deepest level searched dry of still lava
+ *  (rungs test 11-14: enchantment3's deepest level, y -8, had none near its tunnels, and 15 trips found none). */
 export const diamondWanted = (v: Village): boolean => DIAMOND_AGE && IRON_AGE && LADDER
-  && (v.ladder?.current === 'diamond' || (ENCHANTMENT_AGE && v.ladder?.current === 'enchantment' && (v.ladder?.stage ?? 0) === 0 && (chainDeepest(v.mine) ?? 99) > 0));
+  && (v.ladder?.current === 'diamond' || (ENCHANTMENT_AGE && v.ladder?.current === 'enchantment' && (v.ladder?.stage ?? 0) === 0
+    && ((chainDeepest(v.mine) ?? 99) > 0 || (v.enchant?.dry !== undefined && v.enchant.dry <= (chainDeepest(v.mine) ?? 99)))));
 
 /** The members given an iron pickaxe or better (the forge's record; one each, however many were forged). */
 export function picksGiven(m: Mine | undefined): number {

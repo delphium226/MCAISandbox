@@ -583,8 +583,9 @@ export interface Village {
   maps?: { cells?: Record<string, { id: number; by: string; t: number }>; hung?: Record<string, number> };
   /** G8's enchantment rung (MC_ENCHANTMENT_AGE; mcBuild.ts place_enchanting_table, use_xp_bottles, enchant_books): the
    *  enchanting table's cell once the server shows it there, the members' experience levels as `xp query` last read them,
-   *  and the village's enchanter (the member the levels collect in: the bottles and the enchanting are offered to it). */
-  enchant?: { table?: [number, number, number]; levels?: Record<string, number>; enchanter?: string };
+   *  and the village's enchanter (the member the levels collect in: the bottles and the enchanting are offered to it);
+   *  `dry`: the deep level make_obsidian searched and found no still lava near (its y; the chain then goes deeper). */
+  enchant?: { table?: [number, number, number]; levels?: Record<string, number>; enchanter?: string; dry?: number };
   /** G8's sea rung (MC_SEA_AGE; mcBuild.ts build_dock): the dock's plan (enchantSea.ts planDock), how many of its blocks the
    *  server shows, and whether it is whole; a failed plan's reason and time (planned again after 30 minutes). */
   sea?: { dock?: { cells?: Array<{ x: number; y: number; z: number; block: string }>; laid?: number; done?: boolean; fail?: string; at?: number } };

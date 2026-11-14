@@ -8594,6 +8594,10 @@ async function makeObsidian(a: BotAgent, args: Record<string, unknown>, signal: 
     await teleportHome(a, signal).catch(() => null);
     const none = `found no still lava within reach of the deep level's tunnels at y ${deep.y} (${lava.length} still lava blocks near, ${cells.length} tunnel cells): obsidian waits for lava the tunnels come near`;
     console.log(`[enchant] ${v.name}: ${a.name} ${none}`);
+    // (rungs test 11-14: enchantment3 sent 15 trips to the same dry level at y -8; the level is marked dry, the option
+    // waits for a deeper one and the mine's chain goes down toward the diamond level, where lava lakes lie)
+    v.enchant = { ...v.enchant, dry: deep.y };
+    a.world.villages.save();
     return none;
   }
   let cast = 0;

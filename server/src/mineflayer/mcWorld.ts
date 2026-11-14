@@ -5541,7 +5541,9 @@ export class MineflayerWorld implements WorldAdapter {
     // placed, the enchanter's bottles and books; each while its stage is current)
     if (enchantmentCurrent(v)) {
       const held = (item: string) => (a ? heldItems(a, item) : 0);
-      const deep = (ironLevelFeet(v.mine).sort((p, q) => p.y - q.y)[0]?.y ?? 99) <= 0;
+      // (a deepest level searched dry is no deep level for the obsidian: the trip waits for a deeper one)
+      const low = ironLevelFeet(v.mine).sort((p, q) => p.y - q.y)[0]?.y ?? 99;
+      const deep = low <= 0 && v.enchant?.dry !== low;
       const water = (store.water_bucket ?? 0) + held('water_bucket'), buckets = (store.bucket ?? 0) + held('bucket');
       if (counter === 'obsidian' && !water && buckets > 0 && !back('fill_bucket'))
         tag('rung:fill_bucket', 'Fill a bucket with water for the obsidian', `${buckets} empty buckets and no water bucket in storage or in hand; the nearest still water at the surface`,
