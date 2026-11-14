@@ -96,10 +96,38 @@ async function stepIn(a: BotAgent, cell: Cell, signal: AbortSignal, ms = 15000):
   }
   for (const t0 = Date.now(); Date.now() - t0 < ms && dimOf(a) === d0;) await sleep(100, signal);
   if (dimOf(a) === d0) return false;
-  await sleep(1500, signal);
+  // (off the arrival portal at once: a member left standing in it is carried back once Paper's cooldown ends; the first
+  // live trip went home and straight back to the Nether while its chunks loaded, nether1 11-14)
+  await stepOut(a, signal);
   await bot.waitForChunksToLoad().catch(() => undefined);
   bot.pathfinder.setGoal(null);
   return true;
+}
+
+/** Out of the portal the bot arrived in: the first cell beside it (four ways) with room and firm ground, walked to with the
+ *  controls (no path: the portal's cells are in the avoid list); its chunk read first, up to 3 s. */
+async function stepOut(a: BotAgent, signal: AbortSignal): Promise<void> {
+  const bot = a.bot;
+  const feet = () => bot.entity.position.floored();
+  for (let i = 0; i < 30 && !nameAt(a, feet().x, feet().y - 1, feet().z); i++) await sleep(100, signal);
+  const inPortal = () => nameAt(a, feet().x, feet().y, feet().z) === 'nether_portal';
+  if (!inPortal()) return;
+  const f = feet();
+  const room = (x: number, y: number, z: number) => {
+    const g = nameAt(a, x, y - 1, z);
+    return AIR.test(nameAt(a, x, y, z)) && AIR.test(nameAt(a, x, y + 1, z)) && !!g && !AIR.test(g) && !/^(lava|fire|soul_fire|water|nether_portal)$/.test(g);
+  };
+  const out = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => ({ x: f.x + dx, y: f.y, z: f.z + dz })).find((c) => room(c.x, c.y, c.z));
+  if (!out) return;
+  try {
+    await bot.lookAt(new Vec3(out.x + 0.5, out.y + 1.6, out.z + 0.5), true);
+    bot.setControlState('forward', true);
+    for (let t = 0; t < 40 && inPortal(); t++) await sleep(50, signal);
+    // (a step past the portal's face, not to the platform's edge)
+    await sleep(150, signal);
+  } finally {
+    bot.clearControlStates();
+  }
 }
 
 /**
@@ -261,12 +289,22 @@ export async function leavePortal(a: BotAgent, v: Village, signal: AbortSignal):
 
 /** A pickaxe in hand for the Nether's blocks (they drop nothing without one): the member's, else one from storage. */
 async function pickaxe(a: BotAgent, v: Village, signal: AbortSignal, best: string[]): Promise<string | null> {
-  for (const n of best) if ((await count(a, n)) > 0) return n;
-  const store = storageContents(v);
-  const n = best.find((q) => (store[q] ?? 0) > 0);
+  let n = null as string | null;
+  for (const q of best) if (!n && (await count(a, q)) > 0) n = q;
+  if (!n) {
+    const store = storageContents(v);
+    const q = best.find((k) => (store[k] ?? 0) > 0);
+    if (!q) return null;
+    await withdrawItems(a, v, { [q]: 1 }, signal);
+    if ((await count(a, q)) > 0) n = q;
+  }
   if (!n) return null;
-  await withdrawItems(a, v, { [n]: 1 }, signal);
-  return (await count(a, n)) > 0 ? n : null;
+  // (in hand, and in Mineflayer's own view of the inventory: the first live trip held a pickaxe the server counted and the
+  // bot did not see, and every nylium dig was refused for want of one, nether1 11-14)
+  await syncInventory(a).catch(() => undefined);
+  const it = a.bot.inventory.items().find((q) => q.name === n);
+  if (it) await a.bot.equip(it, 'hand').catch(() => undefined);
+  return it ? n : null;
 }
 
 /** The way home in a trip's `finally`: a cut-short trip (its signal aborted) is recalled at once; otherwise the walk back,
