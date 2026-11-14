@@ -8576,6 +8576,9 @@ async function makeObsidian(a: BotAgent, args: Record<string, unknown>, signal: 
     await withdrawItems(a, v, { diamond_pickaxe: 1 }, signal);
     if ((await picks()) < 1) throw new Error('make_obsidian: the diamond pickaxe could not be taken from storage');
   }
+  // (rungs test 11-14: the first trip's water bucket went back to storage, and every later trip failed in fill_bucket for
+  // want of an empty one: a stored water bucket is taken first)
+  if ((await serverCount(a, 'water_bucket')) < 1 && (storageContents(v).water_bucket ?? 0) > 0) await withdrawItems(a, v, { water_bucket: 1 }, signal).catch(() => undefined);
   if ((await serverCount(a, 'water_bucket')) < 1) notes.push(await fillBucket(a, {}, signal));
   const want = Math.max(1, Math.min(ENCHANT_OBSIDIAN, Number(args.n) || ENCHANT_OBSIDIAN));
   const before = await serverCount(a, 'obsidian');
@@ -8587,7 +8590,9 @@ async function makeObsidian(a: BotAgent, args: Record<string, unknown>, signal: 
   const targets = lavaTargets(lava, cells, want + 3);
   if (!targets.length) {
     await teleportHome(a, signal).catch(() => null);
-    return `found no still lava within reach of the deep level's tunnels at y ${deep.y} (${lava.length} still lava blocks near, ${cells.length} tunnel cells): obsidian waits for lava the tunnels come near`;
+    const none = `found no still lava within reach of the deep level's tunnels at y ${deep.y} (${lava.length} still lava blocks near, ${cells.length} tunnel cells): obsidian waits for lava the tunnels come near`;
+    console.log(`[enchant] ${v.name}: ${a.name} ${none}`);
+    return none;
   }
   let cast = 0;
   for (const t of targets) {
@@ -8632,7 +8637,10 @@ async function makeObsidian(a: BotAgent, args: Record<string, unknown>, signal: 
   // (out of the deep first, lesson 101: the chore's deposit is at the hut)
   await teleportHome(a, signal).catch(() => null);
   const tail = notes.length ? ` (${notes.join('; ').slice(0, 300)})` : '';
-  if (!got) return `cast no obsidian at the deep level at y ${deep.y}: ${cast} cast, none brought up${tail}`;
+  if (!got) {
+    console.log(`[enchant] ${v.name}: ${a.name} cast no obsidian at y ${deep.y}: ${cast} cast, none brought up${tail}`);
+    return `cast no obsidian at the deep level at y ${deep.y}: ${cast} cast, none brought up${tail}`;
+  }
   const out = `made ${got} obsidian from still lava at the deep level (y ${deep.y}): water poured from a bucket on still lava and taken back up, the obsidian mined with a diamond pickaxe`;
   a.world.villages.note(v, `${a.name} ${out}`);
   console.log(`[enchant] ${v.name}: ${a.name} ${out}${tail}`);
