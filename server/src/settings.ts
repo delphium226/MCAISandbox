@@ -283,7 +283,7 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'MC_LADDER_START (tests, #22): the rung a village\'s new ladder starts on instead of iron, the rungs it needs counted reached; for a test of a later rung from a checkpoint saved before the ladder began (e.g. diamond).' },
   { name: 'MC_LAW_BACKING', type: 'string', default: '', group: 'social', live: false, values: ['failures'], read: 'society.ts',
     describe: '#164 (off by default): failures counts a night\'s back of a law also when the backer\'s failed chores that day name the law\'s target (their messages, not only the chore lines; train 7 refused 85-92% of backs).' },
-  { name: 'MC_LETTERS', type: 'flag', default: 'off', group: 'ladder', live: false, requires: ['MC_LADDER'], read: 'ladderFlags.ts',
+  { name: 'MC_LETTERS', type: 'flag', default: 'on', group: 'ladder', live: false, requires: ['MC_LADDER'], read: 'ladderFlags.ts',
     describe: 'MC_LETTERS (with MC_LADDER, #21): the age of letters\' four counted stages (cane, leather, books, the library), the rung\'s make goods, the merchant\'s leather and sugar cane, the cane harvest\'s replanting and the library\'s shelving.' },
   { name: 'MC_LETTERS_PACE', type: 'flag', default: 'on', group: 'ladder', live: false, requires: ['MC_LETTERS'], read: 'ladderFlags.ts',
     describe: 'MC_LETTERS_PACE (#134): the letters rung at 1x: while the cane slots hold fewer than a slot\'s 14 stalks the merchant sells cane for them and harvests (or a top-up visit) replant from storage; and the first market stall is posted as a village work at completion (with MC_MERCHANT), so the merchant...' },

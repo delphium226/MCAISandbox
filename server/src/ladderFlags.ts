@@ -14,7 +14,8 @@ export const ORE_MINE = flag('MC_ORE_MINE');
 export const IRON_STAIRS2 = flag('MC_IRON_STAIRS2');
 /** MC_LETTERS (with MC_LADDER, #21): the age of letters' four counted stages (cane, leather, books, the library), the
  *  rung's make goods, the merchant's leather and sugar cane, the cane harvest's replanting and the library's shelving. */
-export const LETTERS = flag('MC_LETTERS');
+/** (on by default since 11-14, the user's; MC_LETTERS=off turns it off) */
+export const LETTERS = !/^(off|0|false|no)$/i.test(rawSetting('MC_LETTERS') ?? 'on');
 /** MC_LETTERS_PACE (#134): the letters rung at 1x: while the cane slots hold fewer than a slot's 14 stalks the merchant
  *  sells cane for them and harvests (or a top-up visit) replant from storage; and the first market stall is posted as a
  *  village work at completion (with MC_MERCHANT), so the merchant comes early. */

@@ -25,6 +25,10 @@ implemented left the ladder stays at its last rung reached. Today, with letters,
 then a ballot of letters, copper and trade (the first real ballot), then the two left, then the last, then diamond
 alone, then nothing. As rungs are implemented they join the ballot in their tier with no further change here.
 
+**MC_LETTERS on by default (11-14, the user's: "Yes, turn it on").** The ballot after iron now offers letters with the
+other tier-2 rungs by default, and the rungs after letters (maps in tier 3, enchantment in tier 4) become reachable with
+the default flags. `MC_LETTERS=off` turns it off (letters back in words, off the ballot; maps and enchantment with it).
+
 Checks: `ladder_unit` (the rule, tier 2 rung by rung, then diamond, nothing after), `diamond_unit`
 (MC_LADDER_START=diamond; diamond only after tier 2), `trade_copper_unit` (#246, #247).
 
