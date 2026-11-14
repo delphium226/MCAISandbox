@@ -55,7 +55,7 @@ import { pathLamps, planPadPaths, planRailLine, poweredRun } from '../padPaths';
 import { parseRefit } from '../refit';
 import { CHOOSE } from '../choose';
 import { COPPER_AGE, DIAMOND_AGE, IRON_AGE, LETTERS, LETTERS_PACE, OWN_TOOLS } from '../ladderFlags';
-import { BEES_APIARY, COPPER_CANOPY, ENCHANT_BOOKS, ENCHANT_OBSIDIAN, MACHINES_POWERED, MAPS_WALL_WORK, RAIL_LINE_MAX, cellKey as mapKey, chartPoint, mapCell, villageCentre, wallCells } from '../ladder';
+import { BEES_APIARY, COPPER_CANOPY, breedRoom, ENCHANT_BOOKS, ENCHANT_OBSIDIAN, MACHINES_POWERED, MAPS_WALL_WORK, RAIL_LINE_MAX, cellKey as mapKey, chartPoint, mapCell, villageCentre, wallCells } from '../ladder';
 import { APIARY_NESTS, MAP_WALL_FRAMES } from '../smallWorks';
 import { boardSigns, claimRule, zoneBoxes } from '../rules';
 import { boardCells } from '../streetPlan';
@@ -5283,7 +5283,7 @@ async function breedPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
   const { v, j, key, slot, sels, rcon, count, tagged, toGate, pen, kind } = penOf(a, args, 'breed_pen');
   // (#139: the lure the bot holds two of, else the one storage holds, of a kind's several; the cap by the pen's inside area)
   const food = penLures(kind).find((l) => a.bot.inventory.items().filter((it) => it.name === l).reduce((n, it) => n + it.count, 0) >= 2) ?? penLure(kind, storageContents(v));
-  const cap = penCap(kind, slot);
+  const cap = breedRoom(v, penCap(kind, slot));
   if (slotBusy.has(key)) throw new ContentionError(`breed_pen: annex slot ${j} is busy`, 'busy', `slot:${key}`);
   slotBusy.add(key);
   let refund = 0;

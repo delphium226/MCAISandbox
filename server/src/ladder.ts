@@ -409,6 +409,9 @@ export const copperCurrent = (v: Village): boolean => COPPER_AGE && LADDER && v.
 
 /** Whether husbandry is the current rung (MC_HUSBANDRY_AGE and MC_LADDER on). */
 export const husbandryCurrent = (v: Village): boolean => HUSBANDRY_AGE && LADDER && v.ladder?.current === 'husbandry';
+/** The most a pen is bred to: its cap, twice that while husbandry's stage 2 (young bred) is current (rungs test 11-14: three
+ *  pens of 5, 8 and 12 were full at 12 young of the 20, and stage 2 could not end). */
+export const breedRoom = (v: Village, cap: number): number => (husbandryCurrent(v) && stageCounter(v) === 'bred' ? 2 * cap : cap);
 /** Whether music is the current rung (MC_MUSIC_AGE and MC_LADDER on). */
 export const musicCurrent = (v: Village): boolean => MUSIC_AGE && LADDER && v.ladder?.current === 'music';
 

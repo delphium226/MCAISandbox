@@ -79,6 +79,14 @@ const cols = (i: IronLevel) => Array.from({ length: i.steps }, (_, k) => `${i.x 
   ok(MM.openShaft(reg, v, m, undefined, t) === '' && m.iron === i, 'none laid');
   ok(MM.ironDone(m, t + 60000), 'the dig option goes');
   ok(!MM.ironDone(m, t + 31 * 60000), 'and comes back after the wait, for the next trip to look again');
+  // (rungs test 11-14: the copper rung's keep opens heights up to 48, nearest to it first, and a look at once)
+  (m as { shaftTried?: number }).shaftTried = t - 1000;
+  MM.setKeepCopper(true);
+  const cu = MM.shaftChoices(m);
+  ok(cu.length > 0 && cu[0].target > 28, `copper kept: a shaft above the iron heights (${cu[0]?.target})`);
+  ok(!MM.ironDone(m, t + 60000), 'copper kept since the last look: the dig is offered again at once');
+  MM.setKeepCopper(false);
+  ok(MM.shaftChoices(m).length === 0, 'copper no longer kept: no height left again');
 }
 
 // A level not finished, a level waiting on its retry: no shaft

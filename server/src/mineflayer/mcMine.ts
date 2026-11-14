@@ -1229,8 +1229,16 @@ const IRON_GOOD_Y = 28;
 const KEEP = /^(?:deepslate_)?(iron|coal)_ore$/;
 /** #162 tier 3, chain B (MC_COPPER_ROOF): copper ore kept too while a monument's copper roof wants raw copper (mcWorld
  *  sets it on each look at the yard's wants; the copper rung's "copper kept from the iron mine"). */
-let keepCopper = false;
-export const setKeepCopper = (on: boolean) => void (keepCopper = on);
+let keepCopper = false, keepCopperSince = 0;
+export const setKeepCopper = (on: boolean) => {
+  if (on && !keepCopper) keepCopperSince = Date.now();
+  keepCopper = on;
+};
+/** Rungs test 11-14: a mine worked out at its iron heights (every height from IRON_GOOD_Y down taken near the hut, as in
+ *  w217_ring's 5,304 cells) left the copper rung's first stage nothing to dig. While copper ore is kept a new shaft may
+ *  aim up to COPPER_GOOD_Y (copper ore peaks near y 48), the nearest to it first, and one is looked for at once when the
+ *  keep begins. */
+const COPPER_GOOD_Y = 48;
 const COPPER_ORE = /^(?:deepslate_)?copper_ore$/;
 /** MC_DIAMOND_AGE: diamond, redstone and lapis ore kept by a miner with an iron pickaxe (one that can take them: so a
  *  stone one's iron trips dig on as before; the diamond rung's trips need an iron pickaxe, digIron and the menu). */
@@ -1562,10 +1570,11 @@ export function shaftChoices(m: Mine): Array<{ from: number; L: number; foot: { 
   if (mf) parents.push({ from: -1, L: mf.L, foot: { x: mf.x, z: mf.z } });
   all.forEach((p, k) => { const f = ironColumns(p).at(-1); if (f && p.level !== undefined) parents.push({ from: k, L: p.level, foot: f }); });
   const out: Array<{ from: number; L: number; foot: { x: number; z: number }; target: number; score: number }> = [];
+  const top = keepCopper ? COPPER_GOOD_Y : IRON_GOOD_Y, aim = keepCopper ? COPPER_GOOD_Y : IRON_Y;
   for (const p of parents)
-    for (let t = Math.min(p.L - SHAFT_GAP, IRON_GOOD_Y); t >= Math.max(IRON_FLOOR_Y, p.L - IRON_MAX_STEPS + 1); t--) {
+    for (let t = Math.min(p.L - SHAFT_GAP, top); t >= Math.max(IRON_FLOOR_Y, p.L - IRON_MAX_STEPS + 1); t--) {
       if (feet.some((q) => Math.abs(q.y - t) < SHAFT_GAP && Math.hypot(q.x - p.foot.x, q.z - p.foot.z) < SHAFT_NEAR)) continue;
-      out.push({ ...p, target: t, score: Math.abs(t - IRON_Y) + (p.L - t) / 8 });
+      out.push({ ...p, target: t, score: Math.abs(t - aim) + (p.L - t) / 8 });
     }
   return out.sort((p, q) => p.score - q.score).map(({ score: _s, ...c }) => c);
 }
@@ -1617,7 +1626,7 @@ function shaftDue(m: Mine | undefined, now: number): boolean {
   const i = m?.iron as IronRetry | undefined;
   if (!IRON_AGE || !m || !i?.finished || i.retryAt !== undefined || i.level === undefined) return false;
   const t = (m as ShaftMine).shaftTried;
-  return t === undefined || now - t >= IRON_RETRY_MS;
+  return t === undefined || now - t >= IRON_RETRY_MS || (keepCopper && t < keepCopperSince);
 }
 
 /**
