@@ -36,14 +36,27 @@ ok(news?.kind === 'rung' && !st.current && st.reached.length === 1 && st.reached
 ok(st.reached[0].workers.length === 4 && st.reached[0].workers[3][0] === 'Eve', 'each stage\'s workers kept');
 ok(/reached the iron age/.test(L.progressLine(village, t0 + 50, 600000)), 'the line after the rung');
 const opts = L.rungOptions(village);
-ok(opts.join(',') === 'letters,diamond,copper,machines', `the ballot's options after iron, at most 4: ${opts.join(', ')}`);
+// (11-14: only implemented rungs, and only the lowest tier not yet reached: letters (tier 2) with MC_LETTERS, else diamond)
+ok(opts.join(',') === (L.LETTERS ? 'letters' : L.DIAMOND_AGE ? 'diamond' : ''), `the ballot's options after iron: implemented, simplest tier first: ${opts.join(', ')}`);
+ok((['enchantment', 'nether', 'copper', 'machines', 'trade'] as const).every((r) => !L.rungImplemented(r)), 'the rungs in words are not implemented');
+ok(L.rungImplemented('iron') && L.rungImplemented('diamond') === L.DIAMOND_AGE && L.rungImplemented('letters') === L.LETTERS, 'iron, letters and diamond implemented with their flags');
+{
+  // letters reached: diamond (tier 3) opens; diamond reached too: nothing implemented is left, enchantment's words are not offered
+  const v2 = { name: 'T2', complete: true } as unknown as import('../../server/src/village').Village;
+  const s2 = L.ladderOf(v2, t0)!;
+  s2.current = undefined;
+  s2.reached = [{ rung: 'iron', t: t0, workers: [] }, { rung: 'letters', t: t0, workers: [] }] as never;
+  ok(L.rungOptions(v2).join(',') === (L.DIAMOND_AGE ? 'diamond' : ''), `letters reached: diamond next (${L.rungOptions(v2).join(', ')})`);
+  s2.reached.push({ rung: 'diamond', t: t0, workers: [] } as never);
+  ok(L.rungOptions(v2).length === 0, 'every implemented rung reached: no ballot');
+}
 for (const id of opts) {
   const pv = L.rungPreview(id);
   ok(pv.length <= 200 && pv.length > 20, `${id} preview (${pv.length}): ${pv}`);
 }
 ok(/foundry must build: .*obsidian/i.test(L.rungPreview('enchantment')), 'enchantment\'s preview names the ticketed skill');
 L.openRungBallot(village, opts);
-ok(st.offered?.length === 4 && /choosing its next ambition/.test(L.progressLine(village, t0 + 60, 600000)), 'a ballot open: offered, and the line says so');
+ok(st.offered?.length === opts.length && /choosing its next ambition/.test(L.progressLine(village, t0 + 60, 600000)), 'a ballot open: offered, and the line says so');
 L.chooseRung(village, 'letters', opts, t0 + 70);
 ok(st.current === 'letters' && !st.offered && st.ballots.length === 1, 'the winner becomes the current rung');
 ok(/not built yet/.test(L.progressLine(village, t0 + 80, 600000)), `a stage without a counter says so: ${L.progressLine(village, t0 + 80, 600000)}`);

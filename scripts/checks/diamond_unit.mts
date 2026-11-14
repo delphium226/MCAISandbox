@@ -44,7 +44,7 @@ const make = (level: number | undefined, current = 'diamond', picks = 3): Villag
 if (START) {
   const v = { name: 'T', complete: true } as unknown as Village;
   const s = L.ladderOf(v, 1)!;
-  ok(s.current === 'diamond' && s.reached.map((r) => r.rung).join() === 'iron' && L.rungOptions(v).join() === 'letters,copper,machines,trade', `MC_LADDER_START=diamond: starts on diamond, iron reached (${L.progressLine(v, 2, 1)})`);
+  ok(s.current === 'diamond' && s.reached.map((r) => r.rung).join() === 'iron' && L.rungOptions(v).join() === (L.LETTERS ? 'letters' : ''), `MC_LADDER_START=diamond: starts on diamond, iron reached (${L.progressLine(v, 2, 1)})`);
   process.exit(fails ? 1 : 0);
 }
 if (OFF) {

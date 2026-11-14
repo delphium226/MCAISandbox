@@ -34,6 +34,9 @@ export interface RungDef {
   /** What it builds, for the ballot's preview. */
   what: string;
   after: RungId[];
+  /** How advanced the rung is (1 iron; 2 letters, trade, copper; 3 diamond, machines; 4 enchantment; 5 the Nether): the
+   *  ballot offers a rung only once every implemented rung of a lower tier is reached (the user's, 11-14). */
+  tier: number;
   stages: [StageDef, StageDef, StageDef, StageDef];
   /** A rough time, for the preview. */
   time: string;
@@ -55,7 +58,7 @@ export { DIAMOND_Y };
  *  MC_LETTERS. */
 export const RUNG_DEFS: Record<RungId, RungDef> = {
   iron: {
-    id: 'iron', name: 'the iron age', what: 'iron mining, smelting and iron tools for members', after: [], time: 'about 2-3 hours',
+    id: 'iron', name: 'the iron age', what: 'iron mining, smelting and iron tools for members', after: [], tier: 1, time: 'about 2-3 hours',
     stages: [
       { words: '{n} of {t} cells dug at the iron levels', counter: 'cells', target: 600, feeds: /^iron:dig\b/ },
       { words: '{n} of {t} raw iron brought up', counter: 'raw_iron', target: 30, feeds: /^iron:dig\b/ },
@@ -64,7 +67,7 @@ export const RUNG_DEFS: Record<RungId, RungDef> = {
     ],
   },
   letters: {
-    id: 'letters', name: 'the age of letters', what: 'paper, books and a library', after: ['iron'], time: 'about 2-3 hours',
+    id: 'letters', name: 'the age of letters', what: 'paper, books and a library', after: ['iron'], tier: 2, time: 'about 2-3 hours',
     // (the feeds test the option's id or its alias: a cane slot's harvest is `slot:K:J` whatever it grows, so the world
     // passes `slot:sugar_cane`; the merchant's buy names the item it would buy, `activity:lib:buy:leather`)
     stages: LETTERS
@@ -77,7 +80,7 @@ export const RUNG_DEFS: Record<RungId, RungDef> = {
       : [{ words: 'a sugar cane farm' }, { words: '27 paper' }, { words: '9 books (leather bought from the merchant)' }, { words: 'a library: 3 bookshelves and a lectern' }],
   },
   diamond: {
-    id: 'diamond', name: 'the diamond age', what: 'a deep mine past lava, diamonds and a diamond pickaxe', after: ['iron'], time: 'about 3-4 hours',
+    id: 'diamond', name: 'the diamond age', what: 'a deep mine past lava, diamonds and a diamond pickaxe', after: ['iron'], tier: 3, time: 'about 3-4 hours',
     // (the last two count one counter, diamond pickaxes given to deep miners: the first, then one each)
     stages: DIAMOND_AGE
       ? [
@@ -89,23 +92,23 @@ export const RUNG_DEFS: Record<RungId, RungDef> = {
       : [{ words: 'the deep stair from the iron level down to y -32' }, { words: '4 iron pickaxes held by deep miners' }, { words: '10 diamonds' }, { words: 'a diamond pickaxe' }],
   },
   enchantment: {
-    id: 'enchantment', name: 'the age of enchantment', what: 'obsidian, an enchanting table and enchanted tools', after: ['letters', 'diamond'], time: 'about 3-4 hours',
+    id: 'enchantment', name: 'the age of enchantment', what: 'obsidian, an enchanting table and enchanted tools', after: ['letters', 'diamond'], tier: 4, time: 'about 3-4 hours',
     stages: [{ words: '4 obsidian' }, { words: 'the enchanting table in the library' }, { words: '8 levels held by an enchanter' }, { words: '5 enchanted tools or books' }],
   },
   nether: {
-    id: 'nether', name: 'the Nether', what: 'a portal, an expedition, piglin barter and netherite', after: ['enchantment'], time: 'many hours',
+    id: 'nether', name: 'the Nether', what: 'a portal, an expedition, piglin barter and netherite', after: ['enchantment'], tier: 5, time: 'many hours',
     stages: [{ words: 'a lit portal' }, { words: 'an expedition bringing back 64 Nether blocks' }, { words: '20 barters with piglins at a bastion' }, { words: 'a netherite upgrade' }],
   },
   copper: {
-    id: 'copper', name: 'the copper age', what: 'copper from the mine, copper roofs, a lightning rod and a spyglass', after: ['iron'], time: 'about 2 hours',
+    id: 'copper', name: 'the copper age', what: 'copper from the mine, copper roofs, a lightning rod and a spyglass', after: ['iron'], tier: 2, time: 'about 2 hours',
     stages: [{ words: '64 copper ore kept from the iron mine' }, { words: 'copper blocks and cut copper for a work' }, { words: 'waxed copper roofs' }, { words: 'a lightning rod and a spyglass' }],
   },
   machines: {
-    id: 'machines', name: 'the age of machines', what: 'a hopper egg collector, rails and redstone', after: ['iron'], time: 'about 3 hours',
+    id: 'machines', name: 'the age of machines', what: 'a hopper egg collector, rails and redstone', after: ['iron'], tier: 3, time: 'about 3 hours',
     stages: [{ words: 'a hopper egg collector' }, { words: '16 rails and a minecart' }, { words: 'a rail line from the mine to the hut' }, { words: 'a powered rail line' }],
   },
   trade: {
-    id: 'trade', name: 'the age of trade', what: 'merchant sales, market stalls and emeralds', after: ['iron'], time: 'about 2 hours',
+    id: 'trade', name: 'the age of trade', what: 'merchant sales, market stalls and emeralds', after: ['iron'], tier: 2, time: 'about 2 hours',
     stages: [{ words: '20 merchant sales' }, { words: 'a market stall per neighbourhood' }, { words: '50 emeralds in the village chest' }, { words: '10 merchant orders filled' }],
   },
 };
@@ -275,11 +278,20 @@ export function progressLine(v: Village, now: number, dayMs: number): string {
   return (news || (lastName ? `The village has reached ${lastName}.` : '')) + next;
 }
 
-/** The rungs a ballot may offer now: not reached, not current, every earlier rung reached; the trunk first, at most 4. */
+/** A rung the code can finish: every stage counted (a stage in words only would hold the village on it for good). */
+export function rungImplemented(id: RungId): boolean {
+  return RUNG_DEFS[id].stages.every((s) => !!s.counter && !!s.target);
+}
+
+/** The rungs a ballot may offer now (the user's, 11-14): implemented, not reached, not current, every earlier rung
+ *  reached, and of the lowest tier among the implemented rungs not yet reached (simpler rungs first); at most 4. */
 export function rungOptions(v: Village): RungId[] {
   const st = v.ladder;
   const reached = new Set((st?.reached ?? []).map((r) => r.rung));
-  return ORDER.filter((r) => !reached.has(r) && r !== st?.current && RUNG_DEFS[r].after.every((a) => reached.has(a))).slice(0, 4);
+  const open = ORDER.filter((r) => rungImplemented(r) && !reached.has(r) && r !== st?.current);
+  if (!open.length) return [];
+  const tier = Math.min(...open.map((r) => RUNG_DEFS[r].tier));
+  return open.filter((r) => RUNG_DEFS[r].tier === tier && RUNG_DEFS[r].after.every((a) => reached.has(a))).slice(0, 4);
 }
 
 /** A rung's preview for the ballot (at most 200 characters): what it builds, its stages, the skills it needs. */
