@@ -1570,11 +1570,14 @@ export function shaftChoices(m: Mine): Array<{ from: number; L: number; foot: { 
   if (mf) parents.push({ from: -1, L: mf.L, foot: { x: mf.x, z: mf.z } });
   all.forEach((p, k) => { const f = ironColumns(p).at(-1); if (f && p.level !== undefined) parents.push({ from: k, L: p.level, foot: f }); });
   const out: Array<{ from: number; L: number; foot: { x: number; z: number }; target: number; score: number }> = [];
-  const top = keepCopper ? COPPER_GOOD_Y : IRON_GOOD_Y, aim = keepCopper ? COPPER_GOOD_Y : IRON_Y;
+  // (rungs test 11-14: heights above IRON_GOOD_Y up to COPPER_GOOD_Y come last, so a mine worked out at its iron heights
+  // still opens a shallower shaft (iron thins above y 28 but is there; the village had no iron left for shears, rails or
+  // compasses); while copper is kept they come first, nearest COPPER_GOOD_Y)
+  const aim = keepCopper ? COPPER_GOOD_Y : IRON_Y;
   for (const p of parents)
-    for (let t = Math.min(p.L - SHAFT_GAP, top); t >= Math.max(IRON_FLOOR_Y, p.L - IRON_MAX_STEPS + 1); t--) {
+    for (let t = Math.min(p.L - SHAFT_GAP, COPPER_GOOD_Y); t >= Math.max(IRON_FLOOR_Y, p.L - IRON_MAX_STEPS + 1); t--) {
       if (feet.some((q) => Math.abs(q.y - t) < SHAFT_GAP && Math.hypot(q.x - p.foot.x, q.z - p.foot.z) < SHAFT_NEAR)) continue;
-      out.push({ ...p, target: t, score: Math.abs(t - aim) + (p.L - t) / 8 });
+      out.push({ ...p, target: t, score: Math.abs(t - aim) + (p.L - t) / 8 + (!keepCopper && t > IRON_GOOD_Y ? 1000 : 0) });
     }
   return out.sort((p, q) => p.score - q.score).map(({ score: _s, ...c }) => c);
 }

@@ -70,7 +70,13 @@ const cols = (i: IronLevel) => Array.from({ length: i.steps }, (_, k) => `${i.x 
   const m = fresh();
   const i = m.iron!;
   const shafts = MM.shaftChoices(m);
-  // (a level at every height from 28 down, at each candidate's foot)
+  // (rungs test 11-14: heights above 28, up to 48, come after every iron height; first while copper is kept)
+  const firstHigh = shafts.findIndex((c) => c.target > 28);
+  ok(firstHigh > 0 && shafts.slice(firstHigh).every((c) => c.target > 28), `the shallower heights come last (${firstHigh} of ${shafts.length})`);
+  MM.setKeepCopper(true);
+  ok(MM.shaftChoices(m)[0]?.target > 28, `copper kept: a height above the iron ones first (${MM.shaftChoices(m)[0]?.target})`);
+  MM.setKeepCopper(false);
+  // (a level at every height up to 48, at each candidate's foot)
   const fill: IronLevel[] = [];
   for (const c of shafts) if (!fill.some((f) => f.level === c.target && f.x === c.foot.x && f.z === c.foot.z)) fill.push({ x: c.foot.x, z: c.foot.z, y: c.target, dir: [1, 0], steps: 0, level: c.target, legs: [], dug: 0, got: {} });
   m.ironPast = [...m.ironPast!, ...fill];
@@ -79,14 +85,11 @@ const cols = (i: IronLevel) => Array.from({ length: i.steps }, (_, k) => `${i.x 
   ok(MM.openShaft(reg, v, m, undefined, t) === '' && m.iron === i, 'none laid');
   ok(MM.ironDone(m, t + 60000), 'the dig option goes');
   ok(!MM.ironDone(m, t + 31 * 60000), 'and comes back after the wait, for the next trip to look again');
-  // (rungs test 11-14: the copper rung's keep opens heights up to 48, nearest to it first, and a look at once)
+  // (the copper rung's keep: a look at once when it begins)
   (m as { shaftTried?: number }).shaftTried = t - 1000;
   MM.setKeepCopper(true);
-  const cu = MM.shaftChoices(m);
-  ok(cu.length > 0 && cu[0].target > 28, `copper kept: a shaft above the iron heights (${cu[0]?.target})`);
   ok(!MM.ironDone(m, t + 60000), 'copper kept since the last look: the dig is offered again at once');
   MM.setKeepCopper(false);
-  ok(MM.shaftChoices(m).length === 0, 'copper no longer kept: no height left again');
 }
 
 // A level not finished, a level waiting on its retry: no shaft
