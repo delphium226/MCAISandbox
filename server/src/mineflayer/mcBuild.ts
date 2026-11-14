@@ -15,7 +15,8 @@
  */
 import { Vec3 } from 'vec3';
 import type { Area, Design, RailLineRecord, Reservation, Structure, Village } from '../village';
-import { MINE_SUPPORT, deepChain, deepPicksShort, diamondWanted, hasIronPick, inIronLevel, ironTrip, mineAreas, mineFacesGoing, nearMineFace } from './mcMine';
+import { MINE_SUPPORT, deepChain, deepPicksShort, diamondWanted, hasIronPick, inIronLevel, ironLevelCells, ironLevelFeet, ironTrip, mineAreas, mineFacesGoing, nearMineFace, walkInMine, walkToIronLevel } from './mcMine';
+import { BOOK_ENCHANTS, enchantChoice, lavaTargets, levelOf, planDock, tableSpots } from '../enchantSea';
 import { teleportHome } from './mcRescue';
 import { cellKey, libraryOf, setLibrary, type LibraryCell, type LibraryRecord } from './mcLibrary';
 import { FARM_TRIP_RANGE, PARTS_MAKE, SCOUT_RANGE, STATION_NAMES, STATIONS_TASK, VILLAGE_RANGE, areaText, overlaps, partClaim, preparedAt, signCall, signTask, villageHome, type StationName } from '../village';
@@ -54,7 +55,7 @@ import { pathLamps, planPadPaths, planRailLine, poweredRun } from '../padPaths';
 import { parseRefit } from '../refit';
 import { CHOOSE } from '../choose';
 import { COPPER_AGE, DIAMOND_AGE, IRON_AGE, LETTERS, LETTERS_PACE, OWN_TOOLS } from '../ladderFlags';
-import { BEES_APIARY, COPPER_CANOPY, MACHINES_POWERED, MAPS_WALL_WORK, RAIL_LINE_MAX, cellKey as mapKey, chartPoint, mapCell, villageCentre, wallCells } from '../ladder';
+import { BEES_APIARY, COPPER_CANOPY, ENCHANT_BOOKS, ENCHANT_OBSIDIAN, MACHINES_POWERED, MAPS_WALL_WORK, RAIL_LINE_MAX, cellKey as mapKey, chartPoint, mapCell, villageCentre, wallCells } from '../ladder';
 import { APIARY_NESTS, MAP_WALL_FRAMES } from '../smallWorks';
 import { boardSigns, claimRule, zoneBoxes } from '../rules';
 import { boardCells } from '../streetPlan';
@@ -7958,6 +7959,13 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   wax_copper: { run: waxCopper },
   chart_map: { check: (x) => (num(x.i, 'i'), num(x.j, 'j'), undefined), run: chartMap },
   hang_maps: { run: hangMaps },
+  // (G8's tier-4 rungs: the enchantment rung's water, obsidian, table, levels and enchanting; the sea rung's dock)
+  fill_bucket: { run: fillBucket },
+  make_obsidian: { run: makeObsidian },
+  place_enchanting_table: { run: placeEnchantingTable },
+  use_xp_bottles: { run: useXpBottles },
+  enchant_books: { run: enchantBooks },
+  build_dock: { run: buildDock },
   bake_cake: { run: bakeCake },
   // (s30's appetite: a meal from the village storage, a chore code queues for a peckish member, never a model's tool)
   eat_meal: { run: eatMeal },
@@ -8460,4 +8468,422 @@ async function hangMaps(a: BotAgent, _args: Record<string, unknown>, signal: Abo
     console.log(`[maps] ${v.name}: ${a.name} ${out}`);
   }
   return `${out}${notes.length ? ` (${notes.join('; ')})` : ''}`;
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// G8's tier-4 rungs (docs/specs/ladder-rungs.md): enchantment (MC_ENCHANTMENT_AGE, #23, #19) and the sea (MC_SEA_AGE). As
+// the tier-3 rungs': every block placed by command charged to the inventory (runJob, or a take before each command), every
+// count read from the server, the village's record written only after the server confirmed it.
+// ---------------------------------------------------------------------------------------------
+
+const AIRS = /^(air|cave_air|void_air)$/;
+
+/** An `xp query` of the member's levels (null without an answer). */
+async function levelsNow(a: BotAgent): Promise<number | null> {
+  return levelOf(await a.world.rcon.command(`xp query ${a.name} levels`).catch(() => ''));
+}
+
+/** A member's levels recorded on the village (the ladder's levels stage reads the highest), and the enchanter named once. */
+function noteLevels(a: BotAgent, v: Village, levels: number, enchanter = false) {
+  v.enchant = { ...v.enchant, levels: { ...v.enchant?.levels, [a.name]: levels }, ...(enchanter && !v.enchant?.enchanter ? { enchanter: a.name } : {}) };
+  a.world.villages.save();
+}
+
+/**
+ * The enchantment rung's water: an empty bucket (the member's, else one from storage) filled at the nearest still water at
+ * the surface, by a real use of the bucket on it, read back from the server; when the use did not take and the member stands
+ * by water the server shows still, the bucket is filled by a charged command (the bucket taken, a water bucket given).
+ */
+async function fillBucket(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('fill_bucket: not in a village');
+  if ((await serverCount(a, 'water_bucket')) > 0) return 'a water bucket in hand already';
+  if ((await serverCount(a, 'bucket')) < 1) {
+    const have = storageContents(v).bucket ?? 0;
+    if (!have) throw new Error('fill_bucket: no bucket (the storage holds none; the forge makes one of 3 iron ingots)');
+    await withdrawItems(a, v, { bucket: 1 }, signal);
+    if ((await serverCount(a, 'bucket')) < 1) throw new Error('fill_bucket: the bucket could not be taken from storage');
+  }
+  const reg = a.world.registry, waterId = reg.blocksByName.water.id;
+  const still = (p: Vec3) => {
+    const b = a.bot.blockAt(p), up = a.bot.blockAt(p.offset(0, 1, 0));
+    return !!b && b.name === 'water' && Number(b.getProperties().level ?? 0) === 0 && !!up && AIRS.test(up.name);
+  };
+  const search = () => nearestBlocks(a, [waterId], 48, 48).filter(still);
+  let found = search();
+  if (!found.length) {
+    // (none in sight: the atlas' nearest chunk of mostly water within 96 of the village)
+    const home = villageHome(v) ?? { x: Math.floor(a.bot.entity.position.x), z: Math.floor(a.bot.entity.position.z) };
+    const c = a.world.atlas.near(home.x, home.z, 96).filter((q) => q.water >= 40)
+      .sort((p, q) => Math.hypot(p.cx * 16 + 8 - home.x, p.cz * 16 + 8 - home.z) - Math.hypot(q.cx * 16 + 8 - home.x, q.cz * 16 + 8 - home.z))[0];
+    if (!c) throw new Error('fill_bucket: no water known within 96 blocks of the village');
+    await walk(a, new goals.GoalNearXZ(c.cx * 16 + 8, c.cz * 16 + 8, 8), `the water at ${c.cx * 16 + 8},${c.cz * 16 + 8}`, signal, 90000).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+    found = search();
+  }
+  const w = found[0];
+  if (!w) throw new Error('fill_bucket: no still water at the surface near here');
+  await walk(a, new goals.GoalNear(w.x, w.y + 1, w.z, 2), `the water at ${w.x},${w.y},${w.z}`, signal, 60000).catch((e: Error) => {
+    if (e.message === 'cancelled') throw e;
+  });
+  const bucket = a.bot.inventory.items().find((it) => it.name === 'bucket') ?? (await syncInventory(a).then(() => a.bot.inventory.items().find((it) => it.name === 'bucket')));
+  if (bucket) {
+    await a.bot.equip(bucket, 'hand').catch(() => undefined);
+    await a.bot.lookAt(new Vec3(w.x + 0.5, w.y + 0.9, w.z + 0.5), true).catch(() => undefined);
+    a.bot.activateItem();
+    await sleep(600, signal);
+    a.bot.deactivateItem();
+  }
+  if ((await serverCount(a, 'water_bucket')) > 0) {
+    await syncInventory(a).catch(() => {});
+    return `filled a water bucket at ${w.x},${w.y},${w.z}`;
+  }
+  const by = a.bot.entity.position.distanceTo(new Vec3(w.x + 0.5, w.y + 0.5, w.z + 0.5));
+  if (by <= 5 && passed(await a.world.rcon.command(`execute if block ${w.x} ${w.y} ${w.z} minecraft:water[level=0]`).catch(() => ''))
+    && (await a.world.rcon.take(a.name, 'minecraft:bucket', 1).catch(() => 0)) === 1) {
+    await a.world.rcon.give(a.name, 'minecraft:water_bucket', 1).catch(() => '');
+    await syncInventory(a).catch(() => {});
+    if ((await serverCount(a, 'water_bucket')) > 0) return `filled a water bucket at ${w.x},${w.y},${w.z} (by command: the bucket's use did not take)`;
+  }
+  throw new Error(`fill_bucket: the bucket did not fill at ${w.x},${w.y},${w.z} (${by.toFixed(1)} blocks off)`);
+}
+
+/**
+ * The enchantment rung's first stage: obsidian cast at the deep level. The member (with a diamond pickaxe: obsidian drops
+ * nothing to a lesser one; and a water bucket, filled first when it has an empty one) walks down to the deepest iron level,
+ * finds still lava within reach of its tunnels (enchantSea.ts lavaTargets; the mine keeps a block between its tunnels and
+ * lava, so the lava lies behind a wall), and at each: the lava read still from the server, the water poured on it and taken
+ * back (the source turned to obsidian by command once the member holds a water bucket), confirmed, then mined with the
+ * diamond pickaxe for real and its drop brought to the member. The hole is sealed when it opens on a tunnel next to lava.
+ * Counted on the server before and after; the chore's deposit puts it in storage.
+ */
+async function makeObsidian(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('make_obsidian: not in a village');
+  const m = v.mine;
+  const deep = ironLevelFeet(m).sort((p, q) => p.y - q.y)[0];
+  if (!m || !deep || deep.y > 0) throw new Error('make_obsidian: the mine has no level below y 0 yet (the diamond age digs one; lava lies there)');
+  const rcon = (c: string) => a.world.rcon.command(c).catch(() => '');
+  const notes: string[] = [];
+  const picks = async () => (await serverCount(a, 'diamond_pickaxe')) + (await serverCount(a, 'netherite_pickaxe'));
+  if ((await picks()) < 1) {
+    if (!(storageContents(v).diamond_pickaxe ?? 0)) throw new Error('make_obsidian: no diamond pickaxe (obsidian drops nothing to a lesser one; the deep miners hold the diamond age\'s, and the storage holds none)');
+    await withdrawItems(a, v, { diamond_pickaxe: 1 }, signal);
+    if ((await picks()) < 1) throw new Error('make_obsidian: the diamond pickaxe could not be taken from storage');
+  }
+  if ((await serverCount(a, 'water_bucket')) < 1) notes.push(await fillBucket(a, {}, signal));
+  const want = Math.max(1, Math.min(ENCHANT_OBSIDIAN, Number(args.n) || ENCHANT_OBSIDIAN));
+  const before = await serverCount(a, 'obsidian');
+  if (!(await walkToIronLevel(a, v, deep.k, signal))) throw new Error(`make_obsidian: could not walk down to the deep level at y ${deep.y}`);
+  const reg = a.world.registry;
+  const cells = ironLevelCells(m, deep.k);
+  const lava = nearestBlocks(a, [reg.blocksByName.lava.id], 40, 128, undefined, { min: deep.y - 3, max: deep.y + 4 })
+    .filter((p) => Number(a.bot.blockAt(p)?.getProperties().level ?? 1) === 0).map((p) => ({ x: p.x, y: p.y, z: p.z }));
+  const targets = lavaTargets(lava, cells, want + 3);
+  if (!targets.length) {
+    await teleportHome(a, signal).catch(() => null);
+    return `found no still lava within reach of the deep level's tunnels at y ${deep.y} (${lava.length} still lava blocks near, ${cells.length} tunnel cells): obsidian waits for lava the tunnels come near`;
+  }
+  let cast = 0;
+  for (const t of targets) {
+    if (cast >= want) break;
+    checkAbort(signal);
+    const { x, y, z } = t.lava, at = new Vec3(x, y, z);
+    await walkInMine(a, new Vec3(t.stand.x + 0.5, t.stand.y, t.stand.z + 0.5), 1.2, signal, 60000).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+    if (!passed(await rcon(`execute if block ${x} ${y} ${z} minecraft:lava[level=0]`))) continue;
+    if ((await serverCount(a, 'water_bucket')) < 1) {
+      notes.push('no water bucket left');
+      break;
+    }
+    // (the water poured on the still lava casts it to obsidian; the member takes its water back up with the bucket)
+    await rcon(`setblock ${x} ${y} ${z} minecraft:obsidian replace`);
+    if (!passed(await rcon(`execute if block ${x} ${y} ${z} minecraft:obsidian`))) continue;
+    a.bot.world.setBlockStateId(at, reg.blocksByName.obsidian.defaultState);
+    cast++;
+    const pick = a.bot.inventory.items().find((it) => /^(diamond|netherite)_pickaxe$/.test(it.name)) ?? (await syncInventory(a).then(() => a.bot.inventory.items().find((it) => /^(diamond|netherite)_pickaxe$/.test(it.name))));
+    const block = a.bot.blockAt(at);
+    if (!pick || !block) {
+      notes.push(`the obsidian at ${x},${y},${z} was left standing (${pick ? 'not in view' : 'no diamond pickaxe in hand'})`);
+      continue;
+    }
+    await a.bot.equip(pick, 'hand');
+    await a.bot.dig(block, true).catch((e: Error) => notes.push(`the dig at ${x},${y},${z}: ${e.message.slice(0, 60)}`));
+    await sleep(500, signal);
+    await rcon(`tp @e[type=minecraft:item,x=${x},y=${y},z=${z},distance=..3,nbt={Item:{id:"minecraft:obsidian"}}] ${a.name}`);
+    await sleep(600, signal);
+    // (a hole that opens on a tunnel beside more lava is sealed, so the lava cannot flow in)
+    const near = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].map(([dx, dy, dz]) => blockName(a, x + dx, y + dy, z + dz) ?? '');
+    if (passed(await rcon(`execute if block ${x} ${y} ${z} minecraft:air`)) && near.some((n) => n === 'lava') && near.some((n) => AIRS.test(n))) {
+      const fill = (await serverCount(a, 'cobbled_deepslate')) > 0 ? 'cobbled_deepslate' : 'cobblestone';
+      const took = (await a.world.rcon.take(a.name, `minecraft:${fill}`, 1).catch(() => 0)) === 1;
+      await rcon(`setblock ${x} ${y} ${z} minecraft:${fill}`);
+      notes.push(`sealed the hole at ${x},${y},${z}${took ? '' : ' (no stone in hand: set free, for safety)'}`);
+    }
+  }
+  await syncInventory(a).catch(() => {});
+  const got = Math.max(0, (await serverCount(a, 'obsidian')) - before);
+  // (out of the deep first, lesson 101: the chore's deposit is at the hut)
+  await teleportHome(a, signal).catch(() => null);
+  const tail = notes.length ? ` (${notes.join('; ').slice(0, 300)})` : '';
+  if (!got) return `cast no obsidian at the deep level at y ${deep.y}: ${cast} cast, none brought up${tail}`;
+  const out = `made ${got} obsidian from still lava at the deep level (y ${deep.y}): water poured from a bucket on still lava and taken back up, the obsidian mined with a diamond pickaxe`;
+  a.world.villages.note(v, `${a.name} ${out}`);
+  console.log(`[enchant] ${v.name}: ${a.name} ${out}${tail}`);
+  return `${out}${tail}`;
+}
+
+/**
+ * The enchantment rung's second stage: the enchanting table (the member's, else storage's) placed in the library (the
+ * letters rung's), on an inner floor cell with room, the one with most bookshelves in the table's reach first (they raise the
+ * levels on offer; enchantSea.ts tableSpots): taken from the member, set by command, confirmed, the cell recorded.
+ */
+async function placeEnchantingTable(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('place_enchanting_table: not in a village');
+  const rcon = (c: string) => a.world.rcon.command(c).catch(() => '');
+  const t0 = v.enchant?.table;
+  if (t0 && passed(await rcon(`execute if block ${t0.join(' ')} minecraft:enchanting_table`))) return `the enchanting table stands in the library already at ${t0.join(',')}`;
+  const L = a.world.libraryPlan(v);
+  if (!L) throw new Error('place_enchanting_table: the village has no library (the age of letters builds one)');
+  if ((await serverCount(a, 'enchanting_table')) < 1) {
+    if (!(storageContents(v).enchanting_table ?? 0)) throw new Error('place_enchanting_table: no enchanting table (the workshop makes one of a book, 2 diamonds and 4 obsidian)');
+    await withdrawItems(a, v, { enchanting_table: 1 }, signal);
+    if ((await serverCount(a, 'enchanting_table')) < 1) throw new Error('place_enchanting_table: the enchanting table could not be taken from storage');
+  }
+  if (inIronLevel(a)) await teleportHome(a, signal);
+  const st = L.structure;
+  await walk(a, new goals.GoalNearXZ(Math.floor((st.x1 + st.x2) / 2), Math.floor((st.z1 + st.z2) / 2), 3), `the ${L.label}`, signal, 90000).catch((e: Error) => {
+    if (e.message === 'cancelled') throw e;
+  });
+  const floor = L.cells.find((c) => c.part === 'lectern')?.y ?? Math.min(...L.cells.map((c) => c.y));
+  const name = (x: number, y: number, z: number) => blockName(a, x, y, z) ?? '';
+  const free = (x: number, y: number, z: number) => AIRS.test(name(x, y, z));
+  const room = (x: number, y: number, z: number) => free(x, y, z) && free(x, y + 1, z) && !free(x, y - 1, z) && name(x, y - 1, z) !== '';
+  const spots = tableSpots({ x1: st.x1, z1: st.z1, x2: st.x2, z2: st.z2 }, floor, room, (x, y, z) => name(x, y, z) === 'bookshelf', free);
+  if (!spots.length) throw new Error(`place_enchanting_table: no free floor cell in the ${L.label} at y ${floor}`);
+  for (const s of spots) {
+    checkAbort(signal);
+    if (!passed(await rcon(`execute if block ${s.x} ${s.y} ${s.z} minecraft:air`))) continue;
+    if ((await a.world.rcon.take(a.name, 'minecraft:enchanting_table', 1).catch(() => 0)) !== 1) throw new Error('place_enchanting_table: the enchanting table could not be taken from the member');
+    await rcon(`execute unless entity @e[type=!item,x=${s.x},y=${s.y},z=${s.z},dx=0,dy=0,dz=0] run setblock ${s.x} ${s.y} ${s.z} minecraft:enchanting_table`);
+    await sleep(400, signal);
+    if (!passed(await rcon(`execute if block ${s.x} ${s.y} ${s.z} minecraft:enchanting_table`))) {
+      await a.world.rcon.give(a.name, 'minecraft:enchanting_table', 1).catch(() => '');
+      continue;
+    }
+    v.enchant = { ...v.enchant, table: [s.x, s.y, s.z] };
+    a.world.villages.save();
+    await syncInventory(a).catch(() => {});
+    const out = `placed the enchanting table in the ${L.label} at ${s.x},${s.y},${s.z} (${s.shelves} bookshelves in its reach)`;
+    a.world.villages.note(v, `${a.name} ${out}`);
+    console.log(`[enchant] ${v.name}: ${a.name} ${out}`);
+    return out;
+  }
+  await syncInventory(a).catch(() => {});
+  throw new Error(`place_enchanting_table: none of ${spots.length} floor cells in the ${L.label} took the table`);
+}
+
+/**
+ * The enchantment rung's levels: bottles o' enchanting (the merchant's, from storage) thrown at the member's own feet, a
+ * real throw (the bottle breaks and its experience flies to the member); the levels read from the server before and after
+ * and recorded, the member named the village's enchanter if none is. keep_inventory (every mode) keeps levels on a death.
+ */
+async function useXpBottles(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('use_xp_bottles: not in a village');
+  const want = Math.max(1, Math.min(16, Number(args.n) || 8));
+  if ((await serverCount(a, 'experience_bottle')) < want) {
+    const have = storageContents(v).experience_bottle ?? 0;
+    if (have) await withdrawItems(a, v, { experience_bottle: Math.min(have, want) }, signal);
+  }
+  const n = Math.min(want, await serverCount(a, 'experience_bottle'));
+  if (!n) throw new Error('use_xp_bottles: no bottles o\' enchanting (the merchant sells them, 2 emeralds each)');
+  const lv0 = (await levelsNow(a)) ?? 0;
+  await syncInventory(a).catch(() => {});
+  for (let i = 0; i < n; i++) {
+    checkAbort(signal);
+    const b = a.bot.inventory.items().find((it) => it.name === 'experience_bottle');
+    if (!b) break;
+    await a.bot.equip(b, 'hand');
+    await a.bot.look(a.bot.entity.yaw, -Math.PI / 2, true);
+    a.bot.activateItem();
+    await sleep(700, signal);
+  }
+  await sleep(2500, signal);
+  const left = await serverCount(a, 'experience_bottle');
+  const lv1 = (await levelsNow(a)) ?? lv0;
+  noteLevels(a, v, lv1, true);
+  await syncInventory(a).catch(() => {});
+  const out = `threw ${n - left} bottles o' enchanting: level ${lv0} to ${lv1}`;
+  console.log(`[enchant] ${v.name}: ${a.name} ${out}`);
+  return out;
+}
+
+/**
+ * The enchantment rung's last stage: books enchanted at the village's table by the member (its levels, the storage's books
+ * and lapis): the table's window opened (Mineflayer's enchantment table), the book and the lapis put in, the cheapest offer
+ * the member can pay for taken (a level and a lapis; enchantSea.ts enchantChoice). When the window does not answer, the
+ * book is enchanted by a charged command (a book, a lapis and a level taken; an enchanted book of a level-1 enchantment
+ * given). Enchanted books counted on the server before and after.
+ */
+async function enchantBooks(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('enchant_books: not in a village');
+  const t = v.enchant?.table;
+  if (!t) throw new Error('enchant_books: the village has no enchanting table placed yet');
+  const rcon = (c: string) => a.world.rcon.command(c).catch(() => '');
+  if (!passed(await rcon(`execute if block ${t.join(' ')} minecraft:enchanting_table`))) {
+    v.enchant = { ...v.enchant, table: undefined };
+    a.world.villages.save();
+    throw new Error(`enchant_books: the enchanting table is gone from ${t.join(',')}`);
+  }
+  let levels = (await levelsNow(a)) ?? 0;
+  if (levels < 1) throw new Error('enchant_books: no experience levels (a book takes a level and a lapis at the table; bottles o\' enchanting and the deep level\'s ores give levels)');
+  const want = Math.max(1, Math.min(ENCHANT_BOOKS, Number(args.n) || ENCHANT_BOOKS, levels));
+  const store = storageContents(v);
+  const short: Counts = {};
+  for (const item of ['book', 'lapis_lazuli']) {
+    const q = Math.min(want - (await serverCount(a, item)), store[item] ?? 0);
+    if (q > 0) short[item] = q;
+  }
+  if (Object.keys(short).length) await withdrawItems(a, v, short, signal);
+  const n = Math.min(want, await serverCount(a, 'book'), await serverCount(a, 'lapis_lazuli'));
+  if (!n) throw new Error('enchant_books: no book or no lapis to enchant with (books from the workshop, lapis from the deep level or the merchant)');
+  if (inIronLevel(a)) await teleportHome(a, signal);
+  await walk(a, new goals.GoalNear(t[0], t[1], t[2], 2), 'the enchanting table', signal, 90000).catch((e: Error) => {
+    if (e.message === 'cancelled') throw e;
+  });
+  await syncInventory(a).catch(() => {});
+  const before = await serverCount(a, 'enchanted_book');
+  let atTable = 0, byCmd = 0;
+  const notes: string[] = [];
+  for (let i = 0; i < n && levels >= 1; i++) {
+    checkAbort(signal);
+    const had = await serverCount(a, 'enchanted_book');
+    const block = a.bot.blockAt(new Vec3(t[0], t[1], t[2]));
+    let ok = false;
+    if (block?.name === 'enchanting_table') {
+      const win = await Promise.race([a.bot.openEnchantmentTable(block), sleep(8000, signal).then(() => null)]).catch(() => null);
+      if (win) {
+        try {
+          const book = a.bot.inventory.items().find((it) => it.name === 'book'), lapis = a.bot.inventory.items().find((it) => it.name === 'lapis_lazuli');
+          if (book && lapis) {
+            await win.putTargetItem(book);
+            await win.putLapis(lapis);
+            await Promise.race([new Promise<void>((res) => (win as unknown as { once: (e: string, f: () => void) => void }).once('ready', () => res())), sleep(4000, signal)]);
+            const choice = enchantChoice(win.enchantments, levels, lapis.count);
+            if (choice >= 0) {
+              await Promise.race([win.enchant(choice), sleep(6000, signal).then(() => { throw new Error('the enchant did not answer'); })]);
+              await win.takeTargetItem().catch(() => undefined);
+            } else notes.push('the table offered nothing the member could pay for');
+          }
+        } catch (e) {
+          notes.push(`the table: ${(e as Error).message.slice(0, 60)}`);
+        } finally {
+          try {
+            await win.close();
+          } catch {
+            // (closed already)
+          }
+        }
+        await sleep(400, signal);
+        ok = (await serverCount(a, 'enchanted_book')) > had;
+        if (ok) atTable++;
+      } else notes.push('the table\'s window did not open');
+    }
+    if (!ok) {
+      // (the charged command: a book, a lapis and a level taken, an enchanted book given; both forms of the component tried)
+      const kind = BOOK_ENCHANTS[(before + i) % BOOK_ENCHANTS.length];
+      if ((await a.world.rcon.take(a.name, 'minecraft:book', 1).catch(() => 0)) !== 1) break;
+      if ((await a.world.rcon.take(a.name, 'minecraft:lapis_lazuli', 1).catch(() => 0)) !== 1) {
+        await a.world.rcon.give(a.name, 'minecraft:book', 1).catch(() => '');
+        break;
+      }
+      await rcon(`xp add ${a.name} -1 levels`);
+      for (const c of [`give ${a.name} minecraft:enchanted_book[minecraft:stored_enchantments={"minecraft:${kind}":1}] 1`, `give ${a.name} minecraft:enchanted_book[minecraft:stored_enchantments={levels:{"minecraft:${kind}":1}}] 1`]) {
+        await rcon(c);
+        if ((await serverCount(a, 'enchanted_book')) > had) {
+          ok = true;
+          break;
+        }
+      }
+      if (ok) byCmd++;
+      else {
+        await a.world.rcon.give(a.name, 'minecraft:book', 1).catch(() => '');
+        await a.world.rcon.give(a.name, 'minecraft:lapis_lazuli', 1).catch(() => '');
+        await rcon(`xp add ${a.name} 1 levels`);
+        notes.push('the command did not enchant the book');
+        break;
+      }
+    }
+    levels = (await levelsNow(a)) ?? levels - 1;
+    await syncInventory(a).catch(() => {});
+  }
+  noteLevels(a, v, levels, true);
+  const got = Math.max(0, (await serverCount(a, 'enchanted_book')) - before);
+  await syncInventory(a).catch(() => {});
+  const tail = notes.length ? ` (${[...new Set(notes)].join('; ').slice(0, 200)})` : '';
+  if (!got) return `enchanted no book at the enchanting table${tail}`;
+  const out = `enchanted ${got} book${got === 1 ? '' : 's'} at the enchanting table (${atTable} at the table${byCmd ? `, ${byCmd} by a charged command: the table's window did not answer` : ''}); ${levels} levels left`;
+  a.world.villages.note(v, `${a.name} ${out}`);
+  console.log(`[enchant] ${v.name}: ${a.name} ${out}${tail}`);
+  return `${out}${tail}`;
+}
+
+/**
+ * The sea rung's dock: planned once (enchantSea.ts planDock) on the water nearest the village (the atlas' chunks of mostly
+ * water within 96, then the surface water in sight there), a deck of planks out over the water at the shore's level with
+ * fence posts down to the bed and a torch on each far corner; built by runJob (charged, the planks from storage or sawn from
+ * its logs), each block read back from the server. A failed plan is kept 30 minutes.
+ */
+async function buildDock(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('build_dock: not in a village');
+  const reg = a.world.villages;
+  const home = villageHome(v) ?? { x: Math.floor(a.bot.entity.position.x), z: Math.floor(a.bot.entity.position.z) };
+  const rec = v.sea?.dock ?? {};
+  if (rec.fail && Date.now() - (rec.at ?? 0) < 30 * 60000) throw new Error(`build_dock: ${rec.fail}`);
+  const rcon = (c: string) => a.world.rcon.command(c).catch(() => '');
+  if (!rec.cells?.length) {
+    const chunks = a.world.atlas.near(home.x, home.z, 96).filter((q) => q.water >= 24)
+      .sort((p, q) => Math.hypot(p.cx * 16 + 8 - home.x, p.cz * 16 + 8 - home.z) - Math.hypot(q.cx * 16 + 8 - home.x, q.cz * 16 + 8 - home.z));
+    const c = chunks[0];
+    if (c && Math.hypot(a.bot.entity.position.x - (c.cx * 16 + 8), a.bot.entity.position.z - (c.cz * 16 + 8)) > 24)
+      await walk(a, new goals.GoalNearXZ(c.cx * 16 + 8, c.cz * 16 + 8, 10), `the water at ${c.cx * 16 + 8},${c.cz * 16 + 8}`, signal, 120000).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+      });
+    await a.bot.waitForChunksToLoad().catch(() => {});
+    const py = Math.floor(a.bot.entity.position.y);
+    const waters = nearestBlocks(a, [a.world.registry.blocksByName.water.id], 40, 600, undefined, { min: py - 12, max: py + 6 })
+      .filter((p) => AIRS.test(blockName(a, p.x, p.y + 1, p.z) ?? '')).map((p) => ({ x: p.x, y: p.y, z: p.z }));
+    const wood = v.catalogWood ?? v.wood ?? 'oak';
+    const plan = planDock((x, y, z) => blockName(a, x, y, z), waters, home, wood);
+    // (off every other village's ground and works)
+    const others = [...reg.villages.values()].filter((o) => o !== v);
+    const taken = plan?.cells.find((q) => others.some((o) => o.plots.some((p) => q.x >= p.x1 - 2 && q.x <= p.x2 + 2 && q.z >= p.z1 - 2 && q.z <= p.z2 + 2) || o.structures.some((s) => q.x >= s.x1 - 1 && q.x <= s.x2 + 1 && q.z >= s.z1 - 1 && q.z <= s.z2 + 1)));
+    const fail = !plan ? `no water near the village holds a dock (${waters.length} surface water cells looked at${c ? ` by ${c.cx * 16 + 8},${c.cz * 16 + 8}` : ', no water chunk known within 96'})` : taken ? `the dock's water lies on another village's ground at ${taken.x},${taken.z}` : '';
+    v.sea = { ...v.sea, dock: fail ? { fail, at: Date.now() } : { cells: plan!.cells, laid: 0, at: Date.now() } };
+    reg.save();
+    console.log(`[sea] ${v.name}: the dock ${fail ? `could not be planned: ${fail}` : `planned from ${plan!.root.x},${plan!.root.y},${plan!.root.z}, ${plan!.len} out over the water (${plan!.cells.length} blocks)`}`);
+    if (fail) throw new Error(`build_dock: ${fail}`);
+  }
+  const cells = v.sea!.dock!.cells!;
+  if (v.sea!.dock!.done) return `the dock is built already (${cells.length} blocks)`;
+  const box = { x1: Math.min(...cells.map((q) => q.x)), z1: Math.min(...cells.map((q) => q.z)), x2: Math.max(...cells.map((q) => q.x)), z2: Math.max(...cells.map((q) => q.z)) };
+  const deck = Math.max(...cells.filter((q) => /_planks$/.test(q.block)).map((q) => q.y));
+  const summary = await runJob(a, { targets: cells.map((q) => ({ x: q.x, y: q.y, z: q.z, block: q.block })), area: box, y: deck, what: 'the dock' }, signal);
+  await sleep(600, signal);
+  let laid = 0;
+  for (const q of cells) if (passed(await rcon(`execute if block ${q.x} ${q.y} ${q.z} minecraft:${q.block.replace(/\[.*$/, '')}`))) laid++;
+  const done = laid === cells.length;
+  v.sea = { ...v.sea, dock: { ...v.sea!.dock, laid, done } };
+  reg.save();
+  const out = done ? `the dock is built out over the water: ${laid} blocks confirmed` : `built ${laid} of ${cells.length} blocks of the dock`;
+  reg.note(v, `${a.name}: ${out}`);
+  console.log(`[sea] ${v.name}: ${a.name} ${out}`);
+  return `${out} (${summary})`;
 }

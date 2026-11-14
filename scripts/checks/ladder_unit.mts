@@ -40,7 +40,7 @@ const opts = L.rungOptions(village);
 // (MC_COPPER_AGE), trade (MC_TRADE_AGE), husbandry and music... in the ballot's order, at most 4, else diamond)
 const tier2 = L.RUNG_ORDER.filter((r) => L.RUNG_DEFS[r].tier === 2 && L.rungImplemented(r));
 ok(opts.join(',') === (tier2.length ? tier2.slice(0, 4).join(',') : L.DIAMOND_AGE ? 'diamond' : ''), `the ballot's options after iron: implemented, simplest tier first: ${opts.join(', ')}`);
-ok((['enchantment', 'nether'] as const).every((r) => !L.rungImplemented(r)) && L.rungImplemented('machines') === (L.MACHINES_AGE && L.IRON_AGE), 'the rungs in words are not implemented');
+ok(!L.rungImplemented('nether') && L.rungImplemented('enchantment') === (L.ENCHANTMENT_AGE && L.IRON_AGE) && L.rungImplemented('machines') === (L.MACHINES_AGE && L.IRON_AGE), 'the Nether in words is not implemented; enchantment with its flags');
 ok(L.rungImplemented('iron') && L.rungImplemented('diamond') === L.DIAMOND_AGE && L.rungImplemented('letters') === L.LETTERS
   && L.rungImplemented('trade') === L.TRADE_AGE && L.rungImplemented('copper') === L.COPPER_AGE, 'iron, letters, trade, copper and diamond implemented with their flags');
 {
@@ -59,6 +59,10 @@ ok(L.rungImplemented('iron') && L.rungImplemented('diamond') === L.DIAMOND_AGE &
   }
   ok(!L.DIAMOND_AGE || L.rungOptions(v2).includes('diamond'), 'diamond among tier 3');
   for (const r of L.RUNG_ORDER.filter((x) => L.RUNG_DEFS[x].tier === 3)) s2.reached.push({ rung: r, t: t0, workers: [] } as never);
+  // (tier 4: the sea after copper, enchantment with MC_IRON_AGE (off here) after letters and diamond)
+  const tier4 = L.RUNG_ORDER.filter((r) => L.RUNG_DEFS[r].tier === 4 && L.rungImplemented(r) && L.RUNG_DEFS[r].after.every((a) => s2.reached.some((q) => q.rung === a)));
+  ok(L.rungOptions(v2).join(',') === tier4.join(','), `tier 3 reached: tier 4 next (${L.rungOptions(v2).join(', ') || 'none'})`);
+  for (const r of L.RUNG_ORDER.filter((x) => L.RUNG_DEFS[x].tier === 4)) s2.reached.push({ rung: r, t: t0, workers: [] } as never);
   ok(L.rungOptions(v2).length === 0, 'every implemented rung reached: no ballot');
 }
 for (const id of opts) {

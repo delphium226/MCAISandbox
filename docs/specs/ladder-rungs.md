@@ -17,7 +17,7 @@ to be on the ballot at any time. don't offer advanced rungs before simpler rungs
 | 1 | iron | always first |
 | 2 | letters, trade, copper, husbandry, music | built from what the village already does (cane, the merchant, the iron mine's side ore, the pens) |
 | 3 | diamond, machines, bees, maps | the deep mine; machines' powered rails (gold and redstone, bought); bees after husbandry and copper; maps after letters |
-| 4 | enchantment | needs letters (a book, a library) and diamond (2 diamonds, a pickaxe for obsidian) |
+| 4 | enchantment, the sea | enchantment needs letters (a book, a library) and diamond (2 diamonds, a pickaxe for obsidian); the sea needs copper (the lighthouse's lightning rod) |
 | 5 | the Nether | needs obsidian from enchantment; a second dimension |
 
 A ballot with one option is no ballot: the village takes it up ("the one open to it"), as before. With nothing
@@ -279,14 +279,123 @@ in game. Risks: the map id's read (`SelectedItem` may be gone from 26.1's player
 highest id); the frame's summon NBT (`Facing`, `Item.components`) is untested on 26.1; the far areas may lie over water;
 maps needs MC_LETTERS on to reach the ballot (after letters).
 
-### 4. Enchantment (tier 4, 2-3 sessions, #23 and #19)
+### 4. Enchantment (tier 4, #23 and #19): built 11-14, `MC_ENCHANTMENT_AGE` (on, with MC_IRON_AGE), after letters and diamond
 
-- Obsidian: water poured on still lava (bucket skills: fill, pour) or mined with the diamond pickaxe. Lava lies at the
-  deep mine's levels, which diamond already reaches and guards.
-- The enchanting table (a book, 2 diamonds, 4 obsidian) placed in the library.
-- **Experience** is the hard part: an enchanter must earn and keep 8 levels (mining ore, smelting, breeding). Nothing
-  tracks experience now: #19's XP budget (who earns it, who must not spend it on death in hostile mode).
-- Enchanting through the table's window (Mineflayer's `openEnchantmentTable`), lapis from the mine.
+| Stage | Counter, target | Counted where | Feeds |
+|---|---|---|---|
+| 1. obsidian cast from still lava in the deep mine | `obsidian`, 4 | make_obsidian's "made N obsidian from still lava at the deep level" (counted on the server before and after; `ladder.ts enchantCounts`) | `rung:obsidian`, `rung:fill_bucket`, `iron:forge:bucket` |
+| 2. the enchanting table made and placed in the library | `etable`, 1 | a level: `v.enchant.table`, written by place_enchanting_table once `execute if block` shows the table | `make:enchanting_table`, `make:book`, `rung:place_table`, `iron:dig` (diamonds) |
+| 3. 8 experience levels held by the village's enchanter | `xplevel`, 8 | a level: the highest of `v.enchant.levels`, each read by `xp query NAME levels` (mcWorld.ts levelsTick, once a game minute; use_xp_bottles, enchant_books) | `rung:xp_bottles`, `activity:lib:buy:experience_bottle`, `activity:lib:sell`, `iron:dig`, `iron:smelt` |
+| 4. 5 books enchanted at the enchanting table | `enchanted`, 5 | enchant_books' "enchanted N books at the enchanting table" (the server's count of enchanted books before and after) | `rung:enchant`, `make:book`, `activity:lib:buy:lapis_lazuli` |
+
+- **Water** (`fill_bucket`, option `rung:fill_bucket` while stage 1 is current, a bucket stored and no water bucket): the
+  member takes a bucket from storage, finds still water at the surface (`nearestBlocks`, else the atlas' nearest chunk of
+  mostly water within 96 of the village), and uses the bucket on it for real (`activateItem`), the water bucket read back
+  from the server; when the use did not take and the member stands within 5 of water the server shows still, by a charged
+  command (the bucket taken, a water bucket given; said so in the message). The forge makes the village a bucket while
+  stage 1 is current and none is stored or held (`forgeNeed`).
+- **Obsidian** (`make_obsidian`, option `rung:obsidian` while stage 1 is current, for a member holding a diamond pickaxe or
+  with one in storage, a bucket somewhere, and a mine level below y 0): the member walks down to the deepest iron level
+  (`walkToIronLevel`, no digging on the way), finds still lava (`level=0`) within 3.5 blocks of a tunnel cell (`enchantSea.ts
+  lavaTargets`; the mine keeps a block between its tunnels and lava, so it lies behind a wall), and at each, the lava read
+  still on the server and a water bucket in hand, the source is set to obsidian by command (the water poured and taken
+  back up: the bucket keeps its water), confirmed, then **mined for real** with the diamond pickaxe (`bot.dig`; Paper times
+  it, some 9 seconds) and the drop brought to the member by command. A hole that opens on a tunnel next to more lava is
+  sealed with a stone the member carries (set free with a note when it carries none). Then home (lesson 101); the chore's
+  deposit stores the obsidian. Obsidian and diamonds joined the planner's gathered items (`mcMaterials.ts GATHER`: no
+  recipe, and the diamond block's loops), so the workshop plans the table from stock; lapis did not (blue dye would be
+  planned from it instead of the monument's cornflowers: kiln_unit caught it).
+- **The table** (`ENCHANT_GOODS`: the table of a book, 2 diamonds and 4 obsidian; `place_enchanting_table`, option
+  `rung:place_table` once one is stored and the library stands): in the letters rung's library (`libraryPlan`), on an inner
+  floor cell (the lectern's level) with room, the one with most bookshelves in the table's reach first (`tableSpots`:
+  vanilla's 32 places two out on its level and the one above, the cell between free), taken from the member, set by
+  command, confirmed, recorded.
+- **Experience**: XP in this world comes from the deep level's ores (lapis, redstone, diamond, coal: the deep miners keep
+  them), the furnaces' takes (iron smelting's `takeOutput`), breeding and fishing, and bottles o' enchanting, which the
+  merchant now sells (2 emeralds each, 8 a restock, vanilla's clerics sell them; storage keeps 4 while stage 3 is current,
+  so lib:buy buys them). **The enchanter**: the member the levels collect in, `ladder.ts enchanterOf` (the one named while
+  in the village, else the member holding most levels); the bottles (`use_xp_bottles`: up to 8 thrown at the member's own
+  feet, a real throw, the levels read before and after) and the enchanting are offered to it (anyone holding a level may
+  enchant). `keep_inventory` is on in every mode (worldMode.ts), and it keeps experience on a death too, so hostile mode
+  loses no levels. The stage counts the highest level any member holds, so levels earned by a miner count as well.
+- **Enchanting** (`enchant_books`, option `rung:enchant` for a member holding a level, with the table placed and a book and
+  a lapis stored): at the table, Mineflayer's `openEnchantmentTable`, the book and the lapis put in, the cheapest offer the
+  member can pay for taken (`enchantChoice`: slot i costs i + 1 levels and lapis), the book taken out. When the window does
+  not open or answer (Mineflayer on 26.1 is untested), a charged command: a book, a lapis and a level taken, an enchanted
+  book of a level-1 enchantment given (`stored_enchantments`, both the 1.21.5+ and the older component forms tried; refunded
+  if neither gives one). The message says how many each way. Storage keeps a lapis a book still to enchant (lib:buy buys
+  them, 2 for an emerald, 4 a restock). The stage counts **books**: an enchanted book is an item of its own the server
+  counts, where an enchanted tool is the same item as a plain one.
+
+Targets: 4 obsidian, one trip once a water bucket and a diamond pickaxe are at hand; 2 diamonds for the table, some 100
+deep cells dug; 8 levels are 112 experience points, some 16 bottles (32 emeralds) or the deep level's ores and the
+furnaces over an hour; 5 books are 5 levels, 5 lapis and 15 cane with 5 leather. With 50 members about 2-3 hours, mostly
+the levels.
+
+A live run should watch: `[enchant] ... made N obsidian from still lava` (or "found no still lava within reach": how
+often), "sealed the hole", `placed the enchanting table in the library at X,Y,Z (N bookshelves in its reach)`, `[enchant]
+... levels ...; the enchanter NAME`, `threw N bottles o' enchanting: level A to B`, `enchanted N books ... (A at the table,
+B by a charged command)`. Check the table with `execute if block X Y Z minecraft:enchanting_table` and a book's
+enchantment with `data get entity NAME Inventory`. Risks: the deep level may have no still lava within reach of its
+tunnels (the mine keeps away from it; nothing else seeks it); the diamond pickaxes are the deep miners' (with MC_OWN_TOOLS
+off a given tool stays in its holder's inventory, so the option goes to them, or to anyone once one is in storage);
+`bot.dig` through a wall the bot cannot see may be refused; the table's window on 26.1 (the command stands in, said so);
+the merchant's bottles wait on sales; MC_LETTERS must be on (it is, since 11-14) for the library and the rung's place
+after letters.
+
+### The sea (tier 4): built 11-14, `MC_SEA_AGE` (on), after copper
+
+The draft's prismarine and conduit need an ocean monument: guardians (hostile, under water, Mining Fatigue) and water
+breathing, impractical for Mineflayer bots; and there is no ocean near the test sites. Real water is near all of them,
+counted in the test world's region files (`mc/testworld`, the water surface at y 62, sampled every 4 blocks within 128 of
+each site): minevale3 a lake 66-80 blocks off (z 28 to 44 east of it, 1-3 deep), minevale4 30 off, woods-sand 23 off,
+hills 60 off. So the sea became the village's water: boats, a dock, a fishing fleet's catch and a lighthouse. **After
+copper**, not machines: the lighthouse carries the copper age's lightning rod (and its spyglass is a sailor's tool); rails
+and powered rails have nothing to do with the water. Tier 4 because the ballot keeps it until tier 3 is done.
+
+| Stage | Counter, target | Counted where | Feeds |
+|---|---|---|---|
+| 1. boats made for the village's fleet | `boats`, 3 | a make's "put into storage: N birch_boat" (any `_boat` or `_raft`; `seaCounts`) | `make:<wood>_boat` |
+| 2. a dock built out over the nearest water | `dock`, 1 | a level: `v.sea.dock.done`, set by build_dock when the server shows every block | `rung:dock` |
+| 3. fish caught by the fleet | `fish`, 24 | the fishing activity's "caught N fish", once its deposit landed (as letters' leather) | `activity:lib:fish`, `make:fishing_rod` |
+| 4. a lighthouse built | `lighthouse`, 1 | a level: the built `lighthouse` rung work | `help:lighthouse`, `make:lantern`, `make:lightning_rod` |
+
+- **Boats** (`SEA_GOODS`, the boat named by the catalogue's wood in villageReads.ts, `enchantSea.ts boatOf`: bamboo a raft,
+  the Nether woods oak): three in storage, 5 planks each.
+- **The dock** (`build_dock`, option `rung:dock` while stage 2 is current): planned once (`planDock`) from the atlas' nearest
+  chunk of mostly water within 96 of the village, then the surface water in sight there: from a shore cell (land at the
+  water's level or one above, room over it) a deck of planks 3 wide runs 6 out (4 at least) one above the water (the
+  shore's level), every deck cell over water with two of air above; fence posts under its far corners down to the bed (6
+  at most), a fence and a torch on each far corner; the shore nearest the village first; off other villages' ground. Built
+  by `runJob` (charged, planks from storage or sawn), every block read back with `execute if block`. A failed plan is kept
+  30 minutes, then tried again.
+- **Fish**: the existing fishing activity (`activity:lib:fish`, the foundry's fish skill), its catches counted while the
+  stage is current; fishing from the dock is not forced (the activity finds its own water).
+- **The lighthouse** (`smallWorks.ts RUNG_WORKS`, 3x3, ten high: a cobblestone base and hollow tower, as an initiative
+  gathers cobblestone, a plank floor, a lamp room of four fence posts round a lantern under a slab roof, the lightning rod
+  on top), posted by the village (`postRungWorks`) once storage holds a lantern (an iron ingot's nuggets and a torch) and a
+  lightning rod (3 copper ingots), taken as gathered; the workshop makes both while it is not posted.
+
+Targets: 3 boats are 15 planks; the dock about 18 planks, 4-12 fences and 2 torches, one or two trips; 24 fish some 4
+fishing trips; the lighthouse some 70 blocks. About 2 hours with 50 members.
+
+A live run should watch: `make:<wood>_boat` makes, `[sea] ... the dock planned from X,Y,Z, N out over the water` (or
+"could not be planned: ..."), `[sea] ... the dock is built out over the water: N blocks confirmed`, the fishing lines'
+"caught N fish", `[ladder] ... posts iN, a lighthouse`, "the lighthouse waits for 1 lantern, 1 lightning_rod". Look at the
+dock in game. Risks: a village whose water is a pond too small for a 3x4 deck has no dock (logged, retried every 30
+minutes; nothing else offers the stage); fishing must be offered (the activity needs a rod and its research); the dock's
+walk to the water may fail on cliffs; the lighthouse needs a 5x5 spot on a plot.
+
+### The ballot and tier 4
+
+Once every implemented tier-3 rung is reached the ballot offers tier 4: enchantment (after letters and diamond) and the
+sea (after copper), then the other, then nothing (the Nether is words). Fixed on the way: a rung that can never be offered
+(one of its earlier rungs neither reached nor implemented: maps or enchantment with MC_LETTERS off) no longer holds its
+tier open (`rungOptions`' `reachable`): with letters off, the sea is offered once the rest of tier 3 is reached.
+Checks: `tier4_unit` (83 cases: the two rungs' stages, feeds, goods, keeps, counts, the enchanter, the lava targets, the
+table's cell, the dock's plan on fixtures, the table's offer, XP points, the lighthouse's design, the planner's recipes, the
+skills registered, the ballot; a run with both flags off; a run with MC_LETTERS off); `ladder_unit` expects the sea after
+tier 3; the merchant checks allow the new goods.
 
 ### 5. The Nether (tier 5, 4-6 sessions, #25, research)
 
@@ -324,7 +433,6 @@ Minecraft's progression has more than the seven rungs above. Candidates, with th
 
 | Rung | Stages (draft) | Tier | Notes |
 |---|---|---|---|
-| **The sea** | a boat, a dock, prismarine from an ocean monument, a conduit | 4 | needs water travel and guardians (hostile mode) |
 | **Brewing** | a brewing stand (blaze rod), Nether wart farm, 10 potions | 6 | after the Nether |
 | **The End** | eyes of ender (ender pearls, blaze powder), the stronghold found, the portal lit, the dragon | 7 | the last rung; far off |
 
@@ -338,5 +446,5 @@ line's plan and powered run, the designs, the map areas, the ballot, the flags o
 ## Order of work
 
 1. Trade, 2. copper (both built 11-14: tier 2 has three rungs, the first real ballot after iron), 3. husbandry (optional, tier 2),
-4. machines, 5. bees and maps (tier 3; all three built 11-14), 6. enchantment, 7. the Nether (spec first). Each rung goes into a test
+4. machines, 5. bees and maps (tier 3; all three built 11-14), 6. enchantment and the sea (tier 4, built 11-14), 7. the Nether (spec first). Each rung goes into a test
 train with its flag on and off.

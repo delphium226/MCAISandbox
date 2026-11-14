@@ -57,6 +57,10 @@ const GATHER = new Set(['coal', 'raw_iron', 'raw_copper', 'raw_gold', 'white_woo
   // (the music rung's note blocks: redstone as the deep mine keeps it or the merchant sells it; its only recipe is from the
   // redstone block, whose recipe is from redstone, and that cycle left a note block with no plan)
   'redstone',
+  // (the enchantment rung's table: obsidian cast at the deep level (make_obsidian) has no recipe, and its diamonds as the
+  // deep level brings them up, so a make plans them from stock (#22's `gems` planner for every plan; the diamond block's
+  // recipe loops). Not lapis: blue dye would be planned from it, not from the cornflowers the monument's glass counts on)
+  'obsidian', 'diamond',
   // (#104, MC_VANILLA_ALL: diorite, the snowy pieces' stand-in for snow and ice, mined as it lies, not made from quartz;
   // granite too, 11-12: a requested statue's red and orange, sculpture.ts, collected where it lies as the quarry's is)
   ...(!/^(off|0|false|no)$/i.test(rawSetting('MC_VANILLA_ALL') ?? 'on') ? ['diorite', 'granite'] : [])]);

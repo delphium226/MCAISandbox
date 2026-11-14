@@ -6,7 +6,7 @@
  * arbitrage check; the world summons it, restocks it and charges trades (mcWorld.ts, the trade skill).
  */
 import type { Counts } from './mineflayer/mcMaterials';
-import { BEES_AGE, COPPER_AGE, IRON_AGE, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE } from './ladderFlags';
+import { BEES_AGE, COPPER_AGE, ENCHANTMENT_AGE, IRON_AGE, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE } from './ladderFlags';
 import { rawSetting } from './settings';
 import { CUTTER } from './cutter';
 import { DYE_BED } from './dyeBed';
@@ -85,6 +85,9 @@ export const SELLS: MerchantOffer[] = [
   ...(MACHINES_AGE && IRON_AGE ? [{ item: 'gold_ingot', n: 1, emeralds: 2, stock: 6, dir: 'sells' as const }] : []),
   ...(!MUSIC_AGE && ((MACHINES_AGE && IRON_AGE) || MAPS_AGE) ? [{ item: 'redstone', n: 2, emeralds: 1, stock: 4, dir: 'sells' as const }] : []),
   ...(BEES_AGE ? [{ item: 'bee_nest', n: 1, emeralds: 6, stock: 2, dir: 'sells' as const }] : []),
+  // (the tier-4 rungs. MC_ENCHANTMENT_AGE: bottles o' enchanting, as vanilla's clerics sell them (the levels stage: some 16
+  // bottles make 8 levels), and lapis for the table, which the deep level meets too; each bought only while the rung wants it)
+  ...(ENCHANTMENT_AGE && IRON_AGE ? [{ item: 'experience_bottle', n: 1, emeralds: 2, stock: 8, dir: 'sells' as const }, { item: 'lapis_lazuli', n: 2, emeralds: 1, stock: 4, dir: 'sells' as const }] : []),
 ];
 
 export const OFFERS: MerchantOffer[] = [...BUYS, ...SELLS];

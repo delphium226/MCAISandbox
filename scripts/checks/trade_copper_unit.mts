@@ -181,7 +181,7 @@ if (MODE === 'orders') {
   const { SELLS } = await import('../../server/src/merchant');
   const shard = SELLS.find((o) => o.item === 'amethyst_shard');
   // (later rungs' goods may follow it: MC_MUSIC_AGE's redstone)
-  ok(!!shard && SELLS.slice(SELLS.indexOf(shard) + 1).every((o) => ['redstone', 'bell', 'gold_ingot', 'bee_nest'].includes(o.item)), `the merchant sells an amethyst shard, last but for later rungs' goods (${shard?.emeralds} emeralds)`);
+  ok(!!shard && SELLS.slice(SELLS.indexOf(shard) + 1).every((o) => ['redstone', 'bell', 'gold_ingot', 'bee_nest', 'experience_bottle', 'lapis_lazuli'].includes(o.item)), `the merchant sells an amethyst shard, last but for later rungs' goods (${shard?.emeralds} emeralds)`);
   const SW = await import('../../server/src/smallWorks');
   const { designBill } = await import('../../server/src/mineflayer/mcMaterials');
   const k = SW.smallWorkKind(L.COPPER_CANOPY);

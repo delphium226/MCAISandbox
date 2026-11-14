@@ -216,6 +216,20 @@ function mapWall(w: string): Design {
   ]);
 }
 
+/** The sea rung (MC_SEA_AGE): a 3x3 lighthouse ten high, a cobblestone base and hollow tower (what an initiative gathers), a
+ *  plank floor and a lamp room of four fence posts round a lantern under a slab roof, the copper age's lightning rod on top. */
+function lighthouse(w: string): Design {
+  const tower = ['CCC', 'C.C', 'CCC'];
+  return design('lighthouse', w, 'a lighthouse: a cobblestone tower with a lantern in its lamp room and a lightning rod on top', {
+    C: 'cobblestone', P: `${w}_planks`, F: `${w}_fence`, L: 'lantern[hanging=false]', S: `${w}_slab[type=bottom]`, R: 'lightning_rod[facing=up]',
+  }, [
+    ['CCC', 'CCC', 'CCC'], tower, tower, tower, tower, tower, ['PPP', 'PPP', 'PPP'],
+    ['F.F', '.L.', 'F.F'],
+    ['SSS', 'SSS', 'SSS'],
+    ['...', '.R.', '...'],
+  ]);
+}
+
 /** A 3x3 signpost: a sign facing south on a two-high fence post. */
 function signpost(w: string): Design {
   return design('signpost', w, 'a signpost: a sign on a fence post', {
@@ -518,6 +532,8 @@ export const RUNG_WORKS: SmallWorkKind[] = [
   // (MC_BEES_AGE: the apiary of the nests bought from the merchant; MC_MAPS_AGE: the map wall and its cartography table)
   { kind: 'apiary', words: 'apiary', forWhat: 'bee nests among flowers for the age of bees: honeycomb and honey', make: apiary },
   { kind: 'map_wall', words: 'map wall', forWhat: 'the maps of the land around the village, hung for all to see (the age of maps)', make: mapWall },
+  // (MC_SEA_AGE: the lighthouse, its lantern and lightning rod from storage)
+  { kind: 'lighthouse', words: 'lighthouse', forWhat: 'a light for the village\'s fleet (the age of the sea), the copper age\'s lightning rod on top', make: lighthouse },
 ];
 
 /** A small work's kind by its key: the menu's (SMALL_WORKS), a yard's (R1's YARD_WORKS, empty with the flag off) or the

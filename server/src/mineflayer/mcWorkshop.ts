@@ -29,7 +29,7 @@ export interface MakeGood { item: string; target: number; batch: number; unit: n
   carve?: true;
   /** G8's rung goods (#21): made for the ladder's current rung, targets from its stages (the world's makeTarget), never a
    *  merchant order. */
-  rung?: 'letters' | 'copper' | 'husbandry' | 'music' | 'machines' | 'bees' | 'maps';
+  rung?: 'letters' | 'copper' | 'husbandry' | 'music' | 'machines' | 'bees' | 'maps' | 'enchantment' | 'sea';
   /** Survival (c)'s arms (MC_ARMS, mob modes only): targets from the members (the world's makeTarget), 0 elsewhere. */
   arms?: true }
 
@@ -89,6 +89,22 @@ export const MAPS_GOODS: MakeGood[] = [
   { item: 'cartography_table', target: 0, batch: 1, unit: 1, words: 'a cartography table', forWhat: 'the map wall\'s cartography table (the age of maps): 2 paper and 4 planks', allow: ['sugar_cane'], rung: 'maps' },
   { item: 'map', target: 0, batch: 1, unit: 1, words: 'empty maps', forWhat: 'maps for the age of maps, made in the area they show: 8 paper and a compass (4 iron ingots and a redstone)', allow: ['sugar_cane', 'iron_ingot'], rung: 'maps' },
   { item: 'item_frame', target: 0, batch: 2, unit: 1, words: 'item frames', forWhat: 'frames for the map wall (the age of maps): 8 sticks and a leather', rung: 'maps' },
+];
+
+/**
+ * The tier-4 rungs' goods (MC_ENCHANTMENT_AGE, MC_SEA_AGE), while their rung is current; targets in ladder.ts
+ * rungGoodTarget. Enchantment: the enchanting table (a book, 2 diamonds from the deep level, 4 obsidian cast there) and the
+ * books to enchant. The sea: boats in the village's wood (villageReads.ts names the wood's boat), the lighthouse's lantern
+ * (an iron ingot's nuggets and a torch) and lightning rod (3 copper ingots).
+ */
+export const ENCHANT_GOODS: MakeGood[] = [
+  { item: 'enchanting_table', target: 0, batch: 1, unit: 1, words: 'an enchanting table', forWhat: 'the library\'s enchanting table (the age of enchantment): a book, 2 diamonds and 4 obsidian', allow: ['sugar_cane'], rung: 'enchantment' },
+  { item: 'book', target: 0, batch: 4, unit: 1, words: 'books', forWhat: 'books to enchant at the enchanting table (the age of enchantment)', allow: ['sugar_cane'], rung: 'enchantment' },
+];
+export const SEA_GOODS: MakeGood[] = [
+  { item: 'oak_boat', target: 0, batch: 1, unit: 1, words: 'boats', forWhat: 'the village\'s fleet (the age of the sea): 5 planks a boat', rung: 'sea' },
+  { item: 'lantern', target: 0, batch: 1, unit: 1, words: 'a lantern', forWhat: 'the lighthouse\'s light (the age of the sea): an iron ingot\'s nuggets and a torch', allow: ['iron_ingot'], rung: 'sea' },
+  { item: 'lightning_rod', target: 0, batch: 1, unit: 1, words: 'a lightning rod', forWhat: 'the lighthouse\'s lightning rod (the age of the sea): 3 copper ingots', rung: 'sea' },
 ];
 
 /** The goods, in this order on ties (spec 4.4; mud bricks, chests and the stone axe, shovel and sword cut, D11). */

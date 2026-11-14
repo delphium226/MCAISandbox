@@ -9,10 +9,11 @@
  */
 import type { LadderState, Village } from './village';
 import { rungNeeds, type RungId } from './wanted';
-import { BEES_AGE, COPPER_AGE, DIAMOND_AGE, DIAMOND_Y, HUSBANDRY_AGE, IRON_AGE, IRON_MINERS, LADDER, LADDER_START, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE, TRADE_AGE } from './ladderFlags';
+import { BEES_AGE, COPPER_AGE, DIAMOND_AGE, DIAMOND_Y, ENCHANTMENT_AGE, HUSBANDRY_AGE, IRON_AGE, IRON_MINERS, LADDER, LADDER_START, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE, SEA_AGE, TRADE_AGE } from './ladderFlags';
+import { boatOf } from './enchantSea';
 import { BUYS, ORDERS_ON } from './merchant';
 
-export { BEES_AGE, COPPER_AGE, DIAMOND_AGE, HUSBANDRY_AGE, IRON_AGE, IRON_MINERS, LADDER, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE, OWN_TOOLS, TRADE_AGE } from './ladderFlags';
+export { BEES_AGE, COPPER_AGE, DIAMOND_AGE, ENCHANTMENT_AGE, HUSBANDRY_AGE, IRON_AGE, IRON_MINERS, LADDER, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE, OWN_TOOLS, SEA_AGE, TRADE_AGE } from './ladderFlags';
 
 /** What a stage counts: cells dug at the iron levels, raw iron brought up, ingots smelted, tools given to members; for
  *  letters (MC_LETTERS) sugar cane harvested, leather bought or caught, books bound and library pieces shelved; for diamond
@@ -24,11 +25,14 @@ export { BEES_AGE, COPPER_AGE, DIAMOND_AGE, HUSBANDRY_AGE, IRON_AGE, IRON_MINERS
  *  note blocks made, the bandstand built and the bell post built; for machines (MC_MACHINES_AGE) the egg collector fitted, the
  *  rails and minecart stored, the rail line laid and its powered rails confirmed powered; for bees (MC_BEES_AGE) nests with
  *  bees in the apiary, honeycomb sheared, honey bottled and copper blocks waxed; for maps (MC_MAPS_AGE) the cartography
- *  table, the village's own area charted, maps hung on the map wall and areas of the atlas charted. */
+ *  table, the village's own area charted, maps hung on the map wall and areas of the atlas charted; for enchantment
+ *  (MC_ENCHANTMENT_AGE) obsidian cast, the enchanting table placed, the highest level a member holds and books enchanted; for
+ *  the sea (MC_SEA_AGE) boats made, the dock built, fish caught and the lighthouse built. */
 export type Counter = 'cells' | 'raw_iron' | 'ingots' | 'tools' | 'cane' | 'leather' | 'books' | 'shelved' | 'depth' | 'diamonds' | 'dtools'
   | 'sales' | 'stalls' | 'emeralds' | 'orders' | 'crafted' | 'copper' | 'cblocks' | 'croof' | 'instruments'
   | 'pens' | 'bred' | 'wool' | 'hay' | 'redstone' | 'notes' | 'bandstand' | 'bell'
-  | 'collector' | 'carts' | 'railline' | 'powered' | 'hives' | 'honeycomb' | 'honey' | 'waxed' | 'ctable' | 'vmap' | 'mapwall' | 'mapped';
+  | 'collector' | 'carts' | 'railline' | 'powered' | 'hives' | 'honeycomb' | 'honey' | 'waxed' | 'ctable' | 'vmap' | 'mapwall' | 'mapped'
+  | 'obsidian' | 'etable' | 'xplevel' | 'enchanted' | 'boats' | 'dock' | 'fish' | 'lighthouse';
 
 export interface StageDef {
   /** The stage in words, with {n} and {t} for the count and the target where it is counted. */
@@ -111,6 +115,18 @@ export const BEES_APIARY = 'apiary';
 export const MAPS_WALL = 4, MAPS_ATLAS = 9;
 /** The maps rung's work: the map wall (smallWorks.ts RUNG_WORKS), posted once storage holds a cartography table. */
 export const MAPS_WALL_WORK = 'map_wall';
+/** The enchantment rung's targets (#23; docs/specs/ladder-rungs.md): 4 obsidian, the enchanting table's (a book, 2 diamonds
+ *  and 4 obsidian); the table placed in the library (one); 8 levels held by a member (112 experience points: some 16
+ *  bottles o' enchanting, or the deep level's lapis, redstone and diamond ores and the furnaces' takes); 5 books enchanted at
+ *  the table (its cheapest slot: a level and a lapis each). */
+export const ENCHANT_OBSIDIAN = 4, ENCHANT_LEVELS = 8, ENCHANT_BOOKS = 5;
+/** The bottles o' enchanting storage keeps while the levels stage wants them (lib:buy buys them, 2 emeralds each). */
+export const ENCHANT_BOTTLES = 4;
+/** The sea rung's targets: 3 boats made in the village's wood; the dock built (one); 24 fish caught (a fishing trip lands
+ *  some 5-8 in its 4 minutes); the lighthouse built (one). */
+export const SEA_BOATS = 3, SEA_FISH = 24;
+/** The sea rung's work: the lighthouse (smallWorks.ts RUNG_WORKS), posted once storage holds its lantern and lightning rod. */
+export const SEA_LIGHTHOUSE = 'lighthouse';
 
 /** The rungs (spec section 3, sized by draft 2's B1 for iron). Iron's stages are counted by code, and letters' with
  *  MC_LETTERS. */
@@ -150,8 +166,18 @@ export const RUNG_DEFS: Record<RungId, RungDef> = {
       : [{ words: 'the deep stair from the iron level down to y -32' }, { words: '4 iron pickaxes held by deep miners' }, { words: '10 diamonds' }, { words: 'a diamond pickaxe' }],
   },
   enchantment: {
-    id: 'enchantment', name: 'the age of enchantment', what: 'obsidian, an enchanting table and enchanted tools', after: ['letters', 'diamond'], tier: 4, time: 'about 3-4 hours',
-    stages: [{ words: '4 obsidian' }, { words: 'the enchanting table in the library' }, { words: '8 levels held by an enchanter' }, { words: '5 enchanted tools or books' }],
+    id: 'enchantment', name: 'the age of enchantment', what: 'obsidian, an enchanting table and enchanted books', after: ['letters', 'diamond'], tier: 4, time: 'about 2-3 hours',
+    // (MC_ENCHANTMENT_AGE, #23: obsidian cast where the deep level meets still lava, a water bucket poured and taken back,
+    // mined with the diamond rung's pickaxe; the levels are the highest a member holds, the server's `xp query`; the last
+    // stage counts enchanted books, an item of their own the server counts, where an enchanted tool is the same item)
+    stages: ENCHANTMENT_AGE && IRON_AGE
+      ? [
+        { words: '{n} of {t} obsidian cast from still lava in the deep mine', counter: 'obsidian', target: ENCHANT_OBSIDIAN, feeds: /^(rung:(fill_bucket|obsidian)|iron:forge:bucket)$/ },
+        { words: 'the enchanting table made and placed in the library', counter: 'etable', target: 1, feeds: /^(make:(enchanting_table|book)|rung:place_table)$|^iron:dig\b/ },
+        { words: '{n} of {t} experience levels held by the village\'s enchanter', counter: 'xplevel', target: ENCHANT_LEVELS, feeds: /^(rung:xp_bottles|activity:lib:buy:experience_bottle|activity:lib:sell)$|^iron:(dig|smelt)\b/ },
+        { words: '{n} of {t} books enchanted at the enchanting table', counter: 'enchanted', target: ENCHANT_BOOKS, feeds: /^(rung:enchant|make:book|activity:lib:buy:lapis_lazuli)$/ },
+      ]
+      : [{ words: '4 obsidian' }, { words: 'the enchanting table in the library' }, { words: '8 levels held by an enchanter' }, { words: '5 enchanted tools or books' }],
   },
   nether: {
     id: 'nether', name: 'the Nether', what: 'a portal, an expedition, piglin barter and netherite', after: ['enchantment'], tier: 5, time: 'many hours',
@@ -251,9 +277,22 @@ export const RUNG_DEFS: Record<RungId, RungDef> = {
       ]
       : [{ words: 'a cartography table' }, { words: 'a map of the village' }, { words: 'a map wall' }, { words: 'an explorer map' }],
   },
+  sea: {
+    id: 'sea', name: 'the age of the sea', what: 'boats, a dock over the water, a fishing fleet and a lighthouse', after: ['copper'], tier: 4, time: 'about 2 hours',
+    // (MC_SEA_AGE: prismarine and a conduit need an ocean monument's guardians (hostile, under water), so the draft's last
+    // two stages became the fleet's fish and a lighthouse with the copper age's lightning rod on it)
+    stages: SEA_AGE
+      ? [
+        { words: '{n} of {t} boats made for the village\'s fleet', counter: 'boats', target: SEA_BOATS, feeds: /^make:[a-z_]+_(boat|raft)$/ },
+        { words: 'a dock built out over the nearest water', counter: 'dock', target: 1, feeds: /^rung:dock$/ },
+        { words: '{n} of {t} fish caught by the fleet', counter: 'fish', target: SEA_FISH, feeds: /^(activity:lib:fish|make:fishing_rod)$/ },
+        { words: 'a lighthouse built for the fleet', counter: 'lighthouse', target: 1, feeds: /^(help:lighthouse|make:(lantern|lightning_rod))$/ },
+      ]
+      : [{ words: 'a boat' }, { words: 'a dock' }, { words: 'prismarine from an ocean monument' }, { words: 'a conduit' }],
+  },
 };
 /** The ballot's fixed order: the trunk first, then the branches. */
-const ORDER: RungId[] = ['letters', 'diamond', 'enchantment', 'nether', 'copper', 'machines', 'trade', 'husbandry', 'music', 'bees', 'maps'];
+const ORDER: RungId[] = ['letters', 'diamond', 'enchantment', 'nether', 'copper', 'machines', 'trade', 'husbandry', 'music', 'bees', 'maps', 'sea'];
 /** The ballot's order, for the checks (a ballot offers at most 4: the lowest tier's first four in this order). */
 export const RUNG_ORDER: readonly RungId[] = ORDER;
 
@@ -379,6 +418,10 @@ export const machinesCurrent = (v: Village): boolean => MACHINES_AGE && IRON_AGE
 export const beesCurrent = (v: Village): boolean => BEES_AGE && LADDER && v.ladder?.current === 'bees';
 /** Whether maps is the current rung (MC_MAPS_AGE and MC_LADDER on). */
 export const mapsCurrent = (v: Village): boolean => MAPS_AGE && LADDER && v.ladder?.current === 'maps';
+/** Whether enchantment is the current rung (MC_ENCHANTMENT_AGE, MC_IRON_AGE and MC_LADDER on). */
+export const enchantmentCurrent = (v: Village): boolean => ENCHANTMENT_AGE && IRON_AGE && LADDER && v.ladder?.current === 'enchantment';
+/** Whether the sea is the current rung (MC_SEA_AGE and MC_LADDER on). */
+export const seaCurrent = (v: Village): boolean => SEA_AGE && LADDER && v.ladder?.current === 'sea';
 /** The counter of the current rung's current stage ('' with none). */
 export const stageCounter = (v: Village): string => (v.ladder?.current ? RUNG_DEFS[v.ladder.current as RungId]?.stages[v.ladder.stage]?.counter ?? '' : '');
 
@@ -533,6 +576,60 @@ export function beesCounts(type: string, message: string): Array<[Counter, numbe
   return out.filter(([, q]) => q > 0);
 }
 
+/**
+ * The enchantment rung's counts from a chore step's message: obsidian cast at the deep level ("made 2 obsidian from still
+ * lava at the deep level", counted on the server before and after) and books enchanted ("enchanted 3 books at the enchanting
+ * table", the server's count of enchanted books before and after). [] with MC_ENCHANTMENT_AGE off. The table and the levels
+ * are levels (levelCounts).
+ */
+export function enchantCounts(type: string, message: string): Array<[Counter, number]> {
+  if (!ENCHANTMENT_AGE || !IRON_AGE) return [];
+  const out: Array<[Counter, number]> = [];
+  if (type === 'make_obsidian') {
+    const m = /^made (\d+) obsidian\b/.exec(message);
+    if (m) out.push(['obsidian', Number(m[1])]);
+  } else if (type === 'enchant_books') {
+    const m = /^enchanted (\d+) books?\b/.exec(message);
+    if (m) out.push(['enchanted', Number(m[1])]);
+  }
+  return out.filter(([, q]) => q > 0);
+}
+
+/**
+ * The sea rung's counts from a chore step's message: boats a make put into storage ("put into storage: 2 birch_boat") and
+ * the fish a fishing trip caught ("caught 5 fish (...)", once the activity's deposit landed: the world gates it as letters'
+ * leather). [] with MC_SEA_AGE off. The dock and the lighthouse are levels (levelCounts).
+ */
+export function seaCounts(type: string, message: string): Array<[Counter, number]> {
+  if (!SEA_AGE) return [];
+  const out: Array<[Counter, number]> = [];
+  if (type === 'make') {
+    const m = /put into storage: (\d+) [a-z_]+_(boat|raft)\b/.exec(message);
+    if (m) out.push(['boats', Number(m[1])]);
+  } else if (type === 'fish') {
+    const m = /^caught (\d+) fish\b/.exec(message);
+    if (m) out.push(['fish', Number(m[1])]);
+  }
+  return out.filter(([, q]) => q > 0);
+}
+
+/** The highest experience level a member holds, as `xp query` last read it (the levels stage). */
+export function levelsHeld(v: Village): number {
+  return Math.max(0, ...Object.values(v.enchant?.levels ?? {}));
+}
+
+/**
+ * The village's enchanter: the member the levels collect in (the bottles and the enchanting are offered to it alone). The
+ * one recorded while it is among `members`, else the member holding the most levels (by name on ties), else none (the
+ * first who takes the work becomes it).
+ */
+export function enchanterOf(v: Village, members: string[]): string | undefined {
+  const e = v.enchant?.enchanter;
+  if (e && members.includes(e)) return e;
+  const lv = v.enchant?.levels ?? {};
+  return members.filter((m) => (lv[m] ?? 0) > 0).sort((p, q) => (lv[q] ?? 0) - (lv[p] ?? 0) || p.localeCompare(q))[0];
+}
+
 /** A map's area (vanilla's grid at scale 0: 128 blocks a side, the first centred on 0,0): its column and row. */
 export const mapCell = (x: number, z: number): [number, number] => [Math.floor((x + 64) / 128), Math.floor((z + 64) / 128)];
 /** A map area's blocks. */
@@ -619,6 +716,20 @@ export function rungGoodTarget(v: Village, item: string, store: Record<string, n
     if (item === 'item_frame') return stage === 2 ? Math.max(have, MAPS_WALL - Object.keys(v.maps?.hung ?? {}).length) : have;
     return 0;
   }
+  // (MC_ENCHANTMENT_AGE: the enchanting table until it is placed; a book for it and one for each book still to enchant)
+  if (enchantmentCurrent(v)) {
+    const table = !!v.enchant?.table;
+    if (item === 'enchanting_table') return !table && stage <= 1 ? Math.max(1, have) : have;
+    if (item === 'book') return Math.max(have, (table || (store.enchanting_table ?? 0) > 0 ? 0 : 1) + Math.max(0, ENCHANT_BOOKS - (totals.enchanted ?? 0)));
+    return 0;
+  }
+  // (MC_SEA_AGE: the boats still to make, in the village's wood; the lighthouse's lantern and lightning rod until it is
+  // posted)
+  if (seaCurrent(v)) {
+    if (/_(boat|raft)$/.test(item)) return item === boatOf(v.catalogWood ?? v.wood) && stage === 0 ? have + Math.max(0, SEA_BOATS - (totals.boats ?? 0)) : have;
+    if (item === 'lantern' || item === 'lightning_rod') return !rungWorkPosted(v, SEA_LIGHTHOUSE) ? Math.max(1, have) : have;
+    return 0;
+  }
   return 0;
 }
 
@@ -645,6 +756,14 @@ export function rungKeep(v: Village, item: string, store: Record<string, number>
     return n > 0 ? n : undefined;
   }
   if (beesCurrent(v) && item === 'bee_nest' && stage === 0 && !rungWorkPosted(v, BEES_APIARY)) return BEES_NESTS;
+  // (MC_ENCHANTMENT_AGE: bottles o' enchanting while the levels stage is current; a lapis for each book still to enchant)
+  if (enchantmentCurrent(v)) {
+    if (item === 'experience_bottle' && stage === 2) return ENCHANT_BOTTLES;
+    if (item === 'lapis_lazuli' && stage >= 2) {
+      const n = ENCHANT_BOOKS - (v.ladder?.totals?.enchanted ?? 0);
+      return n > 0 ? n : undefined;
+    }
+  }
   return undefined;
 }
 
@@ -701,6 +820,10 @@ export function levelCounts(v: Village, store: Record<string, number>): Array<[C
     lv.push(['ctable', (store.cartography_table ?? 0) > 0 || built(MAPS_WALL_WORK) > 0 ? 1 : 0], ['vmap', own && cells[cellKey(own[0], own[1])] ? 1 : 0],
       ['mapwall', Math.min(MAPS_WALL, Object.keys(v.maps?.hung ?? {}).length)], ['mapped', c ? atlasCells(c).filter((q) => cells[cellKey(q[0], q[1])]).length : 0]);
   }
+  // (enchantment: the table placed, as the server showed it; the highest level a member holds, as `xp query` read it.
+  // The sea: the dock whole, the lighthouse built)
+  if (enchantmentCurrent(v)) lv.push(['etable', v.enchant?.table ? 1 : 0], ['xplevel', Math.min(ENCHANT_LEVELS, levelsHeld(v))]);
+  if (seaCurrent(v)) lv.push(['dock', v.sea?.dock?.done ? 1 : 0], ['lighthouse', built(SEA_LIGHTHOUSE)]);
   return lv.map(([c, n]): [Counter, number] => [c, n - (st.totals?.[c] ?? 0)]).filter(([, n]) => n > 0);
 }
 
@@ -742,7 +865,10 @@ export function rungImplemented(id: RungId): boolean {
 export function rungOptions(v: Village): RungId[] {
   const st = v.ladder;
   const reached = new Set((st?.reached ?? []).map((r) => r.rung));
-  const open = ORDER.filter((r) => rungImplemented(r) && !reached.has(r) && r !== st?.current);
+  // (a rung that can never be offered, one of its earlier rungs neither reached nor reachable (maps or enchantment with
+  // MC_LETTERS off), does not hold its tier open: the next tier is offered once the rest of this one is reached)
+  const reachable = (r: RungId): boolean => rungImplemented(r) && RUNG_DEFS[r].after.every((a) => reached.has(a) || reachable(a));
+  const open = ORDER.filter((r) => reachable(r) && !reached.has(r) && r !== st?.current);
   if (!open.length) return [];
   const tier = Math.min(...open.map((r) => RUNG_DEFS[r].tier));
   return open.filter((r) => RUNG_DEFS[r].tier === tier && RUNG_DEFS[r].after.every((a) => reached.has(a))).slice(0, 4);

@@ -54,6 +54,13 @@ export const BEES_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_BEES_AGE') ??
 /** MC_MAPS_AGE (with MC_LADDER, on by default; off turns it off): the age of maps' four counted stages (a cartography table,
  *  a map of the village's area, a map wall of the four nearest areas in item frames, a 3x3 atlas of the land). */
 export const MAPS_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_MAPS_AGE') ?? 'on');
+/** MC_ENCHANTMENT_AGE (with MC_LADDER and MC_IRON_AGE, #23; on by default; off turns it off): the age of enchantment's four
+ *  counted stages (obsidian cast from still lava at the deep level, the enchanting table in the library, 8 levels held by a
+ *  member, 5 books enchanted at the table). */
+export const ENCHANTMENT_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_ENCHANTMENT_AGE') ?? 'on');
+/** MC_SEA_AGE (with MC_LADDER; on by default; off turns it off): the age of the sea's four counted stages (boats made, a
+ *  dock built out over the nearest water, fish caught, a lighthouse built). */
+export const SEA_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_SEA_AGE') ?? 'on');
 /** The diamond level's y (runs/2026-10-30/diamond/spec.md: diamond ore peaks at -57 to -53 on minevale3, 2 laid open per
  *  100 cells dug at -56, lava below -55 cutting 8% of tunnels there). */
 export const DIAMOND_Y = -56;

@@ -12,7 +12,7 @@
  */
 import { FOOD_POINTS } from './appetite';
 import { boardOf } from './barter';
-import { BEES_AGE, COPPER_AGE, DIAMOND_AGE, HUSBANDRY_AGE, IRON_AGE, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE } from './ladderFlags';
+import { BEES_AGE, COPPER_AGE, DIAMOND_AGE, ENCHANTMENT_AGE, HUSBANDRY_AGE, IRON_AGE, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE, SEA_AGE } from './ladderFlags';
 import { goalsOf } from './goals';
 import { BUYS, SELLS } from './merchant';
 import { LIBRARY, LOCKED_SKILLS, techOf } from './tech';
@@ -135,11 +135,11 @@ export const CAPABILITIES: Capability[] = [
 /** On with MC_LADDER=on: a chosen or offered rung's needs join the list (G8). */
 export const LADDER_ON = /^(on|1|true)$/i.test(rawSetting('MC_LADDER') ?? 'off');
 /** The ladder's rungs (G8, runs/2026-10-22/ladder/spec.md 3). */
-export type RungId = 'iron' | 'letters' | 'diamond' | 'enchantment' | 'nether' | 'copper' | 'machines' | 'trade' | 'husbandry' | 'music' | 'bees' | 'maps';
-export const RUNGS: RungId[] = ['iron', 'letters', 'diamond', 'enchantment', 'nether', 'copper', 'machines', 'trade', 'husbandry', 'music', 'bees', 'maps'];
+export type RungId = 'iron' | 'letters' | 'diamond' | 'enchantment' | 'nether' | 'copper' | 'machines' | 'trade' | 'husbandry' | 'music' | 'bees' | 'maps' | 'sea';
+export const RUNGS: RungId[] = ['iron', 'letters', 'diamond', 'enchantment', 'nether', 'copper', 'machines', 'trade', 'husbandry', 'music', 'bees', 'maps', 'sea'];
 /** How far up the ladder a rung is (iron first; the branches after it; enchantment after letters and diamond; the Nether at
  *  the top): the queue works the lower rungs' needs first (the user's, 10-22). */
-export const RUNG_DEPTH: Record<RungId, number> = { iron: 0, letters: 1, diamond: 1, copper: 1, machines: 1, trade: 1, husbandry: 1, music: 1, bees: 2, maps: 2, enchantment: 2, nether: 3 };
+export const RUNG_DEPTH: Record<RungId, number> = { iron: 0, letters: 1, diamond: 1, copper: 1, machines: 1, trade: 1, husbandry: 1, music: 1, bees: 2, maps: 2, enchantment: 2, sea: 2, nether: 3 };
 /** Each rung's needs (have: nothing to build; hand: code built by hand; ticket: the foundry's), for ladder.ts' ballot
  *  preview and the rung's waiting line. Iron and trade need nothing; leather for the letters rung is the merchant's. */
 export const RUNG_NEEDS: Record<RungId, Array<{ capability: string; how: 'have' | 'hand' | 'ticket'; note: string }>> = {
@@ -148,7 +148,9 @@ export const RUNG_NEEDS: Record<RungId, Array<{ capability: string; how: 'have' 
   letters: LETTERS ? [] : [{ capability: 'library_furniture', how: 'hand', note: 'shelves and a lectern in the furnish catalogue' }],
   // (MC_DIAMOND_AGE with the iron age: the deep chain, its diamonds and the diamond pickaxe forge are built, #22)
   diamond: DIAMOND_AGE && IRON_AGE ? [] : [{ capability: 'deep_mine', how: 'hand', note: 'the deep stair past lava, its holders, teleport home' }],
-  enchantment: [{ capability: 'cast_obsidian', how: 'ticket', note: 'water poured on lava for obsidian' }, { capability: 'enchant', how: 'hand', note: 'enchanting by a charged command, the XP ledger' }],
+  // (MC_ENCHANTMENT_AGE with the iron age: obsidian cast at the deep level, the table placed, the XP bottles and the enchanting
+  // at the table are built)
+  enchantment: ENCHANTMENT_AGE && IRON_AGE ? [] : [{ capability: 'cast_obsidian', how: 'ticket', note: 'water poured on lava for obsidian' }, { capability: 'enchant', how: 'hand', note: 'enchanting by a charged command, the XP ledger' }],
   nether: [{ capability: 'nether_travel', how: 'hand', note: 'portals, walking in the Nether, debris mining' }, { capability: 'barter_piglin', how: 'ticket', note: 'gold bartered with piglins' }],
   // (MC_COPPER_AGE: copper kept from the iron mine, the blocks, the canopy and the instruments are built, the shard bought, #247)
   copper: COPPER_AGE ? [] : [{ capability: 'copper_side', how: 'hand', note: 'copper kept from the iron mine' }, { capability: 'amethyst', how: 'ticket', note: 'amethyst shards for the spyglass (its climb-out from a deeper geode, #96)' }],
@@ -163,6 +165,8 @@ export const RUNG_NEEDS: Record<RungId, Array<{ capability: string; how: 'have' 
   // map wall and its hanging are built)
   bees: BEES_AGE ? [] : [{ capability: 'honeycomb', how: 'ticket', note: 'shears on a full bee nest' }, { capability: 'bees', how: 'hand', note: 'an apiary of bee nests over campfires' }],
   maps: MAPS_AGE ? [] : [{ capability: 'maps', how: 'hand', note: 'maps made in each area, hung in item frames' }],
+  // (MC_SEA_AGE: the boats, the dock and the lighthouse are built; fishing exists)
+  sea: SEA_AGE ? [] : [{ capability: 'sea', how: 'hand', note: 'boats, a dock over the water and a lighthouse' }],
 };
 
 /**
