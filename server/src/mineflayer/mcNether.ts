@@ -78,7 +78,7 @@ function groundAt(a: BotAgent, x: number, z: number, hint: number): { y: number;
 const isPlant = (n: string) => /^(short_grass|tall_grass|fern|large_fern|dead_bush|.*_flower|dandelion|poppy|.*_tulip|allium|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|.*_petals|leaf_litter|bush|firefly_bush|snow)$/.test(n);
 
 /** Step from where the bot stands into a portal cell; wait for the dimension to change (Paper's 80 ticks in survival). */
-async function stepIn(a: BotAgent, cell: Cell, signal: AbortSignal, ms = 15000): Promise<boolean> {
+async function stepIn(a: BotAgent, cell: Cell, signal: AbortSignal, exit?: Cell, ms = 15000): Promise<boolean> {
   const bot = a.bot, d0 = dimOf(a);
   bot.pathfinder.setGoal(null);
   // (forward until the feet are in a portal cell, read each physics tick: a portal is one block thick, and the far side's
@@ -98,7 +98,7 @@ async function stepIn(a: BotAgent, cell: Cell, signal: AbortSignal, ms = 15000):
   if (dimOf(a) === d0) return false;
   // (off the arrival portal at once: a member left standing in it is carried back once Paper's cooldown ends; the first
   // live trip went home and straight back to the Nether while its chunks loaded, nether1 11-14)
-  await stepOut(a, signal);
+  await stepOut(a, signal, exit);
   await bot.waitForChunksToLoad().catch(() => undefined);
   bot.pathfinder.setGoal(null);
   return true;
@@ -106,9 +106,25 @@ async function stepIn(a: BotAgent, cell: Cell, signal: AbortSignal, ms = 15000):
 
 /** Out of the portal the bot arrived in: the first cell beside it (four ways) with room and firm ground, walked to with the
  *  controls (no path: the portal's cells are in the avoid list); its chunk read first, up to 3 s. */
-async function stepOut(a: BotAgent, signal: AbortSignal): Promise<void> {
+async function stepOut(a: BotAgent, signal: AbortSignal, exit?: Cell): Promise<void> {
   const bot = a.bot;
   const feet = () => bot.entity.position.floored();
+  // (a known stand cell (the village's portal's, the far portal's) is walked to without reading the world: the arrival's
+  // chunk can take seconds to come, and at 3x the arrival cooldown is 5 s; nether2 went back while it waited, 11-14)
+  if (exit) {
+    try {
+      await bot.lookAt(new Vec3(exit.x + 0.5, exit.y + 1.6, exit.z + 0.5), true);
+      bot.setControlState('forward', true);
+      for (let t = 0; t < 40; t++) {
+        const p = bot.entity.position;
+        if (Math.hypot(p.x - (exit.x + 0.5), p.z - (exit.z + 0.5)) < 0.45) break;
+        await sleep(50, signal);
+      }
+    } finally {
+      bot.clearControlStates();
+    }
+    return;
+  }
   for (let i = 0; i < 30 && !nameAt(a, feet().x, feet().y - 1, feet().z); i++) await sleep(100, signal);
   const inPortal = () => nameAt(a, feet().x, feet().y, feet().z) === 'nether_portal';
   if (!inPortal()) return;
@@ -225,7 +241,7 @@ export async function enterPortal(a: BotAgent, v: Village, signal: AbortSignal):
   if (!overworld(a)) return `already in ${dimOf(a)}`;
   await walk(a, new goals.GoalBlock(p.stand.x, p.stand.y, p.stand.z), 'the Nether portal', signal, 120000);
   let note = 'walked through the portal';
-  if (!(await stepIn(a, innerCells(p)[0], signal))) {
+  if (!(await stepIn(a, innerCells(p)[0], signal, v.nether?.far?.stand))) {
     const f = v.nether?.far;
     if (!f) throw new Error('the portal did not take me through (15 s in it)');
     await a.world.rcon.command(inDim(f.dim, `tp ${a.name} ${(f.stand ?? f).x + 0.5} ${(f.stand ?? f).y} ${(f.stand ?? f).z + 0.5}`));
@@ -276,7 +292,7 @@ export async function leavePortal(a: BotAgent, v: Village, signal: AbortSignal):
         });
       }
       const c = cell();
-      if (c && (await stepIn(a, { x: c.x, y: c.y, z: c.z }, signal))) how = tries === 0 ? 'walked back through the far portal' : 'teleported to the far portal and stepped through';
+      if (c && (await stepIn(a, { x: c.x, y: c.y, z: c.z }, signal, v.nether?.portal?.stand))) how = tries === 0 ? 'walked back through the far portal' : 'teleported to the far portal and stepped through';
     }
   }
   if (!overworld(a)) how = (await recall(a, 'the way back through the far portal failed', signal)) ?? 'could not be brought back';

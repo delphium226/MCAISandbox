@@ -187,7 +187,17 @@ export class BotAgent implements WorldAgent {
     this.bot.on('chunkColumnLoad', (p) => { if (overworld(this)) world.atlas.loaded(p.x >> 4, p.z >> 4); });
     this.bot.on('blockUpdate', (_old, b) => { if (b && overworld(this)) world.atlas.touched(b.position.x, b.position.z); });
     // (the Nether rung: a dimension change ends any walk and dig the old world held, lesson 183's path; logged, told)
+    // (read after the packet's other listeners: mineflayer's health plugin emits 'respawn' before the game plugin has set
+    // the new dimension, and a change back went unseen, nether2 11-14)
     this.bot.on('respawn', () => {
+      setImmediate(() => this.dimChanged());
+    });
+    this.listen();
+  }
+
+  /** A respawn seen: a dimension change ends any walk and dig the old world held; logged and told. */
+  private dimChanged() {
+    {
       const d = dimOf(this.bot);
       if (d === this.dimSeen) return;
       const from = this.dimSeen;
@@ -199,8 +209,7 @@ export class BotAgent implements WorldAgent {
       this.protectedCache.at = 0;
       this.farmCache.at = 0;
       netherArrived(this, from, d);
-    });
-    this.listen();
+    }
   }
 
   get gamemode() {
