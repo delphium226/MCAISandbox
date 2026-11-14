@@ -389,7 +389,7 @@ walk to the water may fail on cliffs; the lighthouse needs a 5x5 spot on a plot.
 ### The ballot and tier 4
 
 Once every implemented tier-3 rung is reached the ballot offers tier 4: enchantment (after letters and diamond) and the
-sea (after copper), then the other, then nothing (the Nether is words). Fixed on the way: a rung that can never be offered
+sea (after copper), then the other, then the Nether (tier 5, since 11-14). Fixed on the way: a rung that can never be offered
 (one of its earlier rungs neither reached nor implemented: maps or enchantment with MC_LETTERS off) no longer holds its
 tier open (`rungOptions`' `reachable`): with letters off, the sea is offered once the rest of tier 3 is reached.
 Checks: `tier4_unit` (83 cases: the two rungs' stages, feeds, goods, keeps, counts, the enchanter, the lava targets, the
@@ -397,12 +397,78 @@ table's cell, the dock's plan on fixtures, the table's offer, XP points, the lig
 skills registered, the ballot; a run with both flags off; a run with MC_LETTERS off); `ladder_unit` expects the sea after
 tier 3; the merchant checks allow the new goods.
 
-### 5. The Nether (tier 5, 4-6 sessions, #25, research)
+### 5. The Nether (tier 5, #25): built 11-14, `MC_NETHER_AGE` (on, with MC_IRON_AGE; peaceful worlds only), after enchantment
 
-The portal is easy once there is obsidian (flint and steel). The work is a second dimension: positions with a dimension,
-the bodies and the atlas, pathfinding, rescue, protection, spawn checks and chunk loading all assume the overworld; then
-an expedition, piglin barter (gold), and netherite (ancient debris and a smithing template from a bastion). Spec it
-before building.
+Spec: `docs/specs/nether.md`. The live probe first (`runs/2026-11-14/nether/probe.md`, `scripts/checks/nether_probe.mts`):
+bots pass through a portal both ways on Paper 26.1 (2 s at 2x), the shared world's switch holds, digs and walks work in the
+Nether, a console `tp` recalls to the overworld. It found game rules are **per dimension**: the Nether had fire_damage on
+and keep_inventory off, and Gus died in lava; `applyWorldRules` now sets the mode's rules in the Nether and the End too.
+
+| Stage | Counter, target | Counted where | Feeds |
+|---|---|---|---|
+| 1. a Nether portal of 10 obsidian built and lit with a flint and steel | `portal`, 1 | a level: `v.nether.portal.lit`, set by build_portal once `execute if block` shows all six portal cells (ladder.ts levelCounts) | `rung:portal`, `rung:obsidian`, `rung:fill_bucket`, `rung:flint`, `make:flint_and_steel` |
+| 2. Nether blocks brought back by expeditions | `nblocks`, 64 | nether_expedition's "brought back N Nether blocks": the member's server counts of NETHER_BLOCKS before it went and once home, counted once the chore's deposit stored them (`netherCounts`, mcWorld's chore end) | `rung:expedition` |
+| 3. ancient debris dug in the Nether (was: 20 piglin barters) | `debris`, 4 | nether_dig's "dug N ancient debris", the server's count before and after | `rung:debris`, `diamond:forge` |
+| 4. a netherite ingot made (was: a netherite upgrade) | `netherite`, 1 | a level: a netherite ingot (or netherite good) in storage | `make:netherite_ingot`, `activity:lib:buy:gold_ingot`, `activity:lib:sell` |
+
+Changed stages: piglins are monsters (none on peaceful), so the barter became the debris; the upgrade's smithing template
+lies only in bastion chests, so the last stage is the ingot. Peaceful only: with another `MC_WORLD_MODE` the rung stays in
+words, off the ballot.
+
+- **The portal** (`mcNether.ts build_portal`): sited once by `netherPlan.ts planPortal` (a 4x3 footprint on level firm
+  ground with nothing over it, off every protected box, within 40 of the storage hut, facing it, 160 from another
+  village's portal), the frame sunk into the ground so its inner cells are level with the stand cell; built by `runJob`
+  charged from storage (10 obsidian; `make_obsidian` casts them 4 a trip while the stage wants them), each block
+  confirmed; lit by a real flint and steel use on the inner floor (a command fills the cells if the use does not, said
+  so); the frame is a structure (`nether_portal`), and portal cells are in every walk's avoid list. The flint comes from
+  the flint trip (`rung:flint`), the flint and steel from the workshop (`NETHER_GOODS`).
+- **The expedition** (`nether_expedition`, a party lease of `MC_NETHER_PARTY`, 3): through the portal (a step with the
+  controls, stopped on the first tick the feet are in a portal cell), the far portal and its stand cell recorded at the
+  first arrival, exposed Nether blocks dug round it (32 out, 12 up and down; none with lava or fire beside, never the one
+  underfoot) for up to 24 blocks or 8 minutes, back through the far portal in a `finally` (else a teleport to it, else the
+  recall), and off the arrival portal at once, walked to the known stand cell once the new position has come (a member
+  left in it, or walked along its plane, was carried back). The floor round the far portal (2 out, 2 under) is kept:
+  off every target and in the walks' protected boxes off the overworld (expeditions dug it away).
+- **The debris** (`nether_dig`, a diamond pickaxe): debris read from the bot's chunks at y 8-119 within 64 (anti-xray is
+  off). The spec's B1 stair: `netherPlan.ts planStair` reads the whole stair (one along, one down a step) before any dig,
+  every cell and its neighbours free of lava, fire and loose ground, caves under a step bridged with carried netherrack
+  (up to 32, set by a command charged to the member); the target is the debris with the shortest such stair, from where
+  the member stands or a standing cell round the far portal; then `stairTo` digs it with `bot.dig`, re-reading each cell.
+- **The ingot**: the workshop (`NETHER_GOODS`; `ancient_debris` joined the planner's gathered items, so scrap is smelted
+  in the same make), the merchant's gold (`gold_ingot` sold with MC_NETHER_AGE too; `rungKeep` keeps 4 from stage 3).
+- **The gates** (spec section 2): world reads, peer reads and the atlas take overworld bots only; village ground and farms
+  are none off the overworld; the underground watch skips a Nether member and `netherWatch` recalls one no trip holds (30
+  s) or past its deadline; rescue off the overworld walks out, teleports to the far portal, then recalls; a log-in off the
+  overworld is recalled before unbury; the dimension in the view, the roster (no position: away), the observation and
+  the prompt's position; `reset_site.py` deletes the site's Nether regions. Not done: hearing and counts near the
+  village in one process still read a Nether member's x, z as overworld (the roster gate covers bodies mode only).
+
+Targets: 10 obsidian (3 make_obsidian trips), a flint trip, some 3 member-trips of 8 minutes for 64 blocks, a debris trip
+or two, 4 gold (8 emeralds). About 3 hours at 1x with 50 members, most of it the obsidian and the debris.
+
+A live run should watch: `[nether] P1: the portal planned at ...`, `built the Nether portal ... lit it with a flint and
+steel`, `[nether] NAME entered the_nether`, `the far portal at X,Y,Z in the_nether`, `brought back N Nether blocks`,
+`dug N ancient debris`, `[nether] recall` (each one a fault to read), `[rescue] ... in the_nether`, `[crash-guard]`, `[lag]`,
+and the atlas (no `y [127,127,127]` summaries).
+
+Staged runs 11-14 (`runs/2026-11-14/nether/`, nether1-12: rt_base on test world 2, MC_LADDER_START=nether, 6 workers,
+the model chooser at 3x, 10 obsidian, a flint and steel, pickaxes and 4 gold stocked). Every run: the portal planned,
+built and lit by a real flint and steel use, stage 1 counted. Fixes found live: the arrival's step off the portal, the
+pickaxe in Mineflayer's view, the far portal's floor, and **the fast-block table kept the bot's first world** (every
+Nether walk read the overworld: no path). From nether7 on stage 2 ends in 3-4 member-trips (20-31 netherrack each, no
+recall, 0 `[lag]`, 0 `[crash-guard]`). Stage 3 has not ended: round minevale3's far portal (-213,50,5) every debris at y
+8-22 within 64 lies under the lava sea, and only 3 lie above it (y 45, 109), so 4 cannot be dug there yet (nether12
+also weighed only the 24 nearest, all under the sea: the search now takes every one in reach, not run live since).
+
+Risks: **stage 3 at minevale3** (above; the answer is the spec's B4, longer Nether walks to rock with debris, or a
+bridge over the lava sea); the far side may be a lava sea or a cave; Nether chunks cost 330-350 decodes a trip, capped
+only by the party's 3 slots; bodies mode carries the dimension but was not tested; stale Nether state between runs is
+cleared only by reset_site; a stone pickaxe can wear out mid-trip (the rest of the trip digs nothing).
+
+### Brewing and the End (tiers 6 and 7)
+
+Spec'd in `docs/specs/nether.md` (brewing with the merchant's blaze rods; the End with an end stone expedition in place
+of the dragon); later sessions.
 
 ## A village wage for rung work (#250, `MC_RUNG_WAGE`, 1; built 11-14)
 

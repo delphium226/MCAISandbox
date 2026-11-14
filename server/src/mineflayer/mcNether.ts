@@ -441,7 +441,8 @@ export async function netherDig(a: BotAgent, args: Record<string, unknown>, sign
     while ((await count(a, 'ancient_debris')) - before < want && Date.now() < deadline) {
       checkAbort(signal);
       const feet = a.bot.entity.position.floored();
-      const all = nearestBlocks(a, [id], DEBRIS_REACH, 24, (q) => !tried.has(`${q.x},${q.y},${q.z}`), DEBRIS_Y);
+      // (every one in reach: nether12's 24 nearest all lay under the lava sea, and the 3 above it were never weighed)
+      const all = nearestBlocks(a, [id], DEBRIS_REACH, 96, (q) => !tried.has(`${q.x},${q.y},${q.z}`), DEBRIS_Y);
       seen = Math.max(seen, all.length);
       // (the first whose whole stair, read before any dig, keeps off lava and loose ground: netherPlan.ts planStair)
       const rack = await count(a, 'netherrack');
