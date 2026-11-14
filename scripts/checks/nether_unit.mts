@@ -163,8 +163,9 @@ if (MODE === 'off' || MODE === 'hostile') {
   ok(!P.safeToDig({ x: 2, y: 60, z: 0 }, feet, (x, y, z) => (x === 2 && y === 60 && z === 1 ? '' : world()(x, y, z))), 'never one with an unloaded neighbour');
   ok(P.exposed({ x: 2, y: 60, z: 0 }, world()) && !P.exposed({ x: 2, y: 50, z: 0 }, world()), 'exposed: a face on air');
   const far = { x: -213, y: 50, z: 5 };
-  ok(P.nearPortal(far, { x: -212, y: 49, z: 4 }) && P.nearPortal(far, { x: -209, y: 47, z: 9 }) && !P.nearPortal(far, { x: -208, y: 50, z: 5 }) && !P.nearPortal(far, { x: -213, y: 46, z: 5 }) && P.nearPortal(far, { x: -213, y: 40, z: 5 }, true) && P.nearPortal(far, { x: -208, y: 50, z: 5 }, true) && !P.nearPortal(far, { x: -207, y: 50, z: 5 }, true),'the far portal\'s ground is kept: 4 out, 3 under');
-  ok(JSON.stringify(P.farBox(far)) === JSON.stringify({ x1: -217, z1: 1, x2: -209, z2: 9, y: 47, y2: 55 }), 'and is a protected box off the overworld');
+  ok(P.nearPortal(far, { x: -212, y: 49, z: 4 }) && P.nearPortal(far, { x: -211, y: 48, z: 7 }) && !P.nearPortal(far, { x: -212, y: 50, z: 4 }) && !P.nearPortal(far, { x: -210, y: 49, z: 5 }) && !P.nearPortal(far, { x: -213, y: 47, z: 5 })
+    && P.nearPortal(far, { x: -213, y: 40, z: 5 }, true) && P.nearPortal(far, { x: -210, y: 50, z: 5 }, true) && !P.nearPortal(far, { x: -209, y: 50, z: 5 }, true), 'the far portal\'s floor is kept (2 out, 2 under), its walls not; targets keep a column off');
+  ok(JSON.stringify(P.farBox(far)) === JSON.stringify({ x1: -215, z1: 3, x2: -211, z2: 7, y: 48, y2: 49 }), 'and is a protected box off the overworld');
   ok(['netherrack', 'blackstone', 'basalt', 'soul_sand', 'nether_quartz_ore'].every((n) => P.DIG_NETHER.includes(n)) && ['netherrack', 'quartz', 'gold_nugget', 'blackstone'].every((n) => L.NETHER_BLOCKS.includes(n)), 'the blocks dug and the items counted');
 }
 

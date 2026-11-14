@@ -102,18 +102,19 @@ function fits(x: number, z: number, axis: Axis, side: 1 | -1, ground: GroundRead
   return { ...p, stand };
 }
 
-/** The ground kept round the far portal (no expedition or walk digs it): 4 out, 3 under its bottom, 5 over it. The first
- *  trips dug its floor away and the members' way back stood on air (nether3, 11-14). */
-export const FAR_KEEP = { out: 4, under: 3, over: 5 };
-/** `column`: at any height, a block more round it (an expedition's targets: a block under the kept ground is reached only
+/** The floor kept round the far portal (no expedition or walk digs it): 2 out from its lower corner, the two layers under
+ *  its bottom. The first trips dug its floor away and the way back stood on air (nether3, 11-14); a wider box with the
+ *  walls in it left the members no way out of an arrival cave (nether4-5): walls may be dug, the floor not. */
+export const FAR_KEEP = { out: 2, under: 2 };
+/** `column`: at any height, a block more round it (an expedition's targets: a block under the floor is reached only
  *  through it, and every dig of nether4's first trips was "no path"). */
 export function nearPortal(far: Cell, c: Cell, column = false): boolean {
   const out = FAR_KEEP.out + (column ? 1 : 0);
-  return Math.abs(c.x - far.x) <= out && Math.abs(c.z - far.z) <= out && (column || (c.y >= far.y - FAR_KEEP.under && c.y <= far.y + FAR_KEEP.over));
+  return Math.abs(c.x - far.x) <= out && Math.abs(c.z - far.z) <= out && (column || (c.y >= far.y - FAR_KEEP.under && c.y <= far.y - 1));
 }
-/** The far portal's kept ground as a protected box (botAgent.protectedGround off the overworld). */
+/** The far portal's kept floor as a protected box (botAgent.protectedGround off the overworld). */
 export function farBox(far: Cell): { x1: number; z1: number; x2: number; z2: number; y: number; y2: number } {
-  return { x1: far.x - FAR_KEEP.out, z1: far.z - FAR_KEEP.out, x2: far.x + FAR_KEEP.out, z2: far.z + FAR_KEEP.out, y: far.y - FAR_KEEP.under, y2: far.y + FAR_KEEP.over };
+  return { x1: far.x - FAR_KEEP.out, z1: far.z - FAR_KEEP.out, x2: far.x + FAR_KEEP.out, z2: far.z + FAR_KEEP.out, y: far.y - FAR_KEEP.under, y2: far.y - 1 };
 }
 
 /** Whether a Nether cell lies in an expedition's box round the far portal. */
