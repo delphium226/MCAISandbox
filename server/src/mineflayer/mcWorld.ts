@@ -5531,13 +5531,17 @@ export class MineflayerWorld implements WorldAdapter {
       if (short.length) return console.log(`[ladder] ${v.name}: the ${k.words} waits for ${short.map(([n, q]) => `${q} ${n}`).join(', ')} in storage (${short.map(([n]) => store[n] ?? 0).join(', ')})`);
       gathered = need;
     }
-    const spot = this.smallWorkSpot(v, k, wood, STALL_BY);
+    // (rungs test 11-14: no room left on the plots and greens, a green of its own prepared first, as a member's initiative
+    // is (s36); the iron run's copper canopy waited 18 minutes on "no spot" with every green full)
+    const found = this.smallWorkSpot(v, k, wood, STALL_BY), home = villageHome(v);
+    const pending = !found && !!home && !(v.initiatives ?? []).some((i) => i.state === 'open' && i.pending);
+    const spot = found ?? (pending && home ? { x: home.x, y: v.plots[0]?.y ?? 64, z: home.z } : null);
     if (!spot) return console.log(`[ladder] ${v.name}: no spot for the village's ${k.words} yet`);
     const design = k.make((WOOD_VARIANTS && hoodWoodAt(v, spot.x, spot.z)) || wood);
-    const probe = { id: '_new', design: design.name, ...(gathered ? { gathered } : {}) } as Pick<Initiative, 'id' | 'design'>;
+    const probe = { id: '_new', design: design.name, ...(gathered ? { gathered } : {}), ...(pending ? { pending: true } : {}) } as Pick<Initiative, 'id' | 'design'>;
     if (!this.initiativeStep(v, probe, this.makeSpare(v, STALL_BY), new Set(), design)) return console.log(`[ladder] ${v.name}: the village's ${k.words} waits (nothing to gather for it now)`);
     if (!v.designs[design.name]) v.designs[design.name] = design;
-    const it: Initiative = { id: `i${(v.initiativeN = (v.initiativeN ?? 0) + 1)}`, by: STALL_BY, kind: k.kind, design: design.name, x: spot.x, y: spot.y, z: spot.z, at: now, state: 'open', crew: [], steps: [], ...(gathered ? { gathered: { ...gathered }, fromStore: { ...gathered } } : {}) };
+    const it: Initiative = { id: `i${(v.initiativeN = (v.initiativeN ?? 0) + 1)}`, by: STALL_BY, kind: k.kind, design: design.name, x: spot.x, y: spot.y, z: spot.z, at: now, state: 'open', crew: [], steps: [], ...(pending ? { pending: true as const } : {}), ...(gathered ? { gathered: { ...gathered }, fromStore: { ...gathered } } : {}) };
     v.initiatives = [...(v.initiatives ?? []), it];
     const rung = RUNG_DEFS[st.current as RungId]?.name ?? st.current;
     this.villages.note(v, `The village posts a ${k.words} at ${spot.x},${spot.z} (${it.id}) for ${rung}`);
