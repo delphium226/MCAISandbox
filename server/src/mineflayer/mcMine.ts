@@ -1562,7 +1562,7 @@ function atlasToward(a: BotAgent | undefined, x: number, z: number, y: number): 
  * and an aim at a free height from SHAFT_GAP below it down to IRON_FLOOR_Y (at most IRON_MAX_STEPS steps; IRON_GOOD_Y or
  * lower), the one nearest IRON_Y first, then the shortest stairs.
  */
-export function shaftChoices(m: Mine): Array<{ from: number; L: number; foot: { x: number; z: number }; target: number }> {
+export function shaftChoices(m: Mine, deep = false): Array<{ from: number; L: number; foot: { x: number; z: number }; target: number }> {
   const all = ironLevels(m);
   const feet = all.flatMap((p) => { const f = ironColumns(p).at(-1) ?? { x: p.x, z: p.z }; const y = p.level ?? p.targetY; return y !== undefined ? [{ y, ...f }] : []; });
   const parents: Array<{ from: number; L: number; foot: { x: number; z: number } }> = [];
@@ -1573,11 +1573,13 @@ export function shaftChoices(m: Mine): Array<{ from: number; L: number; foot: { 
   // (rungs test 11-14: heights above IRON_GOOD_Y up to COPPER_GOOD_Y come last, so a mine worked out at its iron heights
   // still opens a shallower shaft (iron thins above y 28 but is there; the village had no iron left for shears, rails or
   // compasses); while copper is kept they come first, nearest COPPER_GOOD_Y)
-  const aim = keepCopper ? COPPER_GOOD_Y : IRON_Y;
+  // (`deep`, MC_DIAMOND_AGE while the village wants diamonds: down to the diamond level, the deepest first; rungs test
+  // 11-14's diamond2 had its level at y -44 worked out and a new shaft opened from the cobblestone mine down to y 3)
+  const aim = deep ? DIAMOND_Y : keepCopper ? COPPER_GOOD_Y : IRON_Y;
   for (const p of parents)
-    for (let t = Math.min(p.L - SHAFT_GAP, COPPER_GOOD_Y); t >= Math.max(IRON_FLOOR_Y, p.L - IRON_MAX_STEPS + 1); t--) {
+    for (let t = Math.min(p.L - SHAFT_GAP, COPPER_GOOD_Y); t >= Math.max(deep ? DIAMOND_Y : IRON_FLOOR_Y, p.L - IRON_MAX_STEPS + 1); t--) {
       if (feet.some((q) => Math.abs(q.y - t) < SHAFT_GAP && Math.hypot(q.x - p.foot.x, q.z - p.foot.z) < SHAFT_NEAR)) continue;
-      out.push({ ...p, target: t, score: Math.abs(t - aim) + (p.L - t) / 8 + (!keepCopper && t > IRON_GOOD_Y ? 1000 : 0) });
+      out.push({ ...p, target: t, score: Math.abs(t - aim) + (deep ? 0 : (p.L - t) / 8) + (!keepCopper && !deep && t > IRON_GOOD_Y ? 1000 : 0) });
     }
   return out.sort((p, q) => p.score - q.score).map(({ score: _s, ...c }) => c);
 }
@@ -1593,7 +1595,7 @@ export function openShaft(reg: { note: (v: Village, s: string) => void; save: ()
   if (!IRON_AGE || !i?.finished || i.level === undefined) return '';
   const all = ironLevels(m);
   let tried = 0;
-  for (const c of shaftChoices(m)) {
+  for (const c of shaftChoices(m, DIAMONDS_ON && diamondWanted(v) && !deepPicksShort(v))) {
     if (tried >= SHAFT_TRIES) break;
     const parent = c.from >= 0 ? all[c.from] : null;
     const toward = atlasToward(a, c.foot.x, c.foot.z, c.target);

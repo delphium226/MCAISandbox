@@ -76,6 +76,9 @@ const cols = (i: IronLevel) => Array.from({ length: i.steps }, (_, k) => `${i.x 
   MM.setKeepCopper(true);
   ok(MM.shaftChoices(m)[0]?.target > 28, `copper kept: a height above the iron ones first (${MM.shaftChoices(m)[0]?.target})`);
   MM.setKeepCopper(false);
+  // (rungs test 11-14's diamond2: while the village wants diamonds, the deepest height first, below the iron floor)
+  const deepCh = MM.shaftChoices(m, true);
+  ok(deepCh[0]?.target < -8 && deepCh[0].target === Math.min(...deepCh.map((c) => c.target)), `diamonds wanted: the deepest height first (${deepCh[0]?.target})`);
   // (a level at every height up to 48, at each candidate's foot)
   const fill: IronLevel[] = [];
   for (const c of shafts) if (!fill.some((f) => f.level === c.target && f.x === c.foot.x && f.z === c.foot.z)) fill.push({ x: c.foot.x, z: c.foot.z, y: c.target, dir: [1, 0], steps: 0, level: c.target, legs: [], dug: 0, got: {} });
