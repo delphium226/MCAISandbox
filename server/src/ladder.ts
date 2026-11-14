@@ -184,7 +184,7 @@ export const RUNG_DEFS: Record<RungId, RungDef> = {
     // stage counts enchanted books, an item of their own the server counts, where an enchanted tool is the same item)
     stages: ENCHANTMENT_AGE && IRON_AGE
       ? [
-        { words: '{n} of {t} obsidian cast from still lava in the deep mine', counter: 'obsidian', target: ENCHANT_OBSIDIAN, feeds: /^(rung:(fill_bucket|obsidian)|iron:forge:bucket)$/ },
+        { words: '{n} of {t} obsidian cast from still lava in the deep mine', counter: 'obsidian', target: ENCHANT_OBSIDIAN, feeds: /^(rung:(fill_bucket|obsidian)|iron:forge:bucket|iron:dig)$/ },
         { words: 'the enchanting table made and placed in the library', counter: 'etable', target: 1, feeds: /^(make:(enchanting_table|book)|rung:place_table)$|^iron:dig\b/ },
         { words: '{n} of {t} experience levels held by the village\'s enchanter', counter: 'xplevel', target: ENCHANT_LEVELS, feeds: /^(rung:xp_bottles|activity:lib:buy:experience_bottle|activity:lib:sell)$|^iron:(dig|smelt)\b/ },
         { words: '{n} of {t} books enchanted at the enchanting table', counter: 'enchanted', target: ENCHANT_BOOKS, feeds: /^(rung:enchant|make:book|activity:lib:buy:lapis_lazuli)$/ },

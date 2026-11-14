@@ -15,7 +15,7 @@ import { checkAbort, num, reach, stateAt, wetAt } from './mcUtil';
 // What the mine may dig (the ground under a village, never logs or anything built), the stone the stairs end on and the
 // tunnels are dug in (plus ores), and blocks that fall into a hole dug under them; water as collect sees it (wetAt)
 import { FALLING, MINE_DIGGABLE as DIGGABLE, MINE_STONE as STONE } from './mcBlocks';
-import { DIAMOND_AGE, DIAMOND_Y, IRON_AGE, IRON_MINERS, IRON_STAIRS2, LADDER, ORE_MINE } from '../ladderFlags';
+import { DIAMOND_AGE, DIAMOND_Y, ENCHANTMENT_AGE, IRON_AGE, IRON_MINERS, IRON_STAIRS2, LADDER, ORE_MINE } from '../ladderFlags';
 import { rawSetting } from '../settings';
 
 /** A chunk not loaded: try again later (not a reason to end the mine). */
@@ -2248,8 +2248,11 @@ function reopenLanding(reg: { note: (v: Village, s: string) => void; save: () =>
 /** At or below this the chain is deep: a trip there needs an iron pickaxe and runs longer (the walk down is long). */
 export const DEEP_TRIP_Y = -40;
 
-/** Whether the village wants its chain deep: diamond its current rung (MC_DIAMOND_AGE, MC_LADDER, MC_IRON_AGE). */
-export const diamondWanted = (v: Village): boolean => DIAMOND_AGE && IRON_AGE && LADDER && v.ladder?.current === 'diamond';
+/** Whether the village wants its chain deep: diamond its current rung (MC_DIAMOND_AGE, MC_LADDER, MC_IRON_AGE), or the
+ *  enchantment rung's obsidian stage with no level at y 0 or below (rungs test 11-14: the enchantment run's mine stood at
+ *  y 31, so make_obsidian, which needs a deep level's still lava, was never offered). */
+export const diamondWanted = (v: Village): boolean => DIAMOND_AGE && IRON_AGE && LADDER
+  && (v.ladder?.current === 'diamond' || (ENCHANTMENT_AGE && v.ladder?.current === 'enchantment' && (v.ladder?.stage ?? 0) === 0 && (chainDeepest(v.mine) ?? 99) > 0));
 
 /** The members given an iron pickaxe or better (the forge's record; one each, however many were forged). */
 export function picksGiven(m: Mine | undefined): number {
