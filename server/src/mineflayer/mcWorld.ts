@@ -7429,7 +7429,10 @@ export class MineflayerWorld implements WorldAdapter {
     { piece: string; what: string; units: number; eta: number; facts: string; place?: NonNullable<PlayerRequest['place']>; join?: boolean } | { why: string } {
     const g = v.growth;
     const asked = (p.work ?? '').trim();
-    if ((g?.projectFails ?? 0) >= 3) return { why: 'our last public works failed, and building rests for now' };
+    // (rungs test 11-14: a person's request is not held by the village's own failed projects: projectFails stays at 3 until
+    // a project is built, and no project is offered from 3, so a village with three failures refused every request for
+    // good; only the projects' timed rest holds one)
+    if ((g?.projectBackoff ?? 0) > Date.now()) return { why: `our last public works failed, and building rests for ${Math.ceil(((g?.projectBackoff ?? 0) - Date.now()) / 60000)} more minutes` };
     if (g?.stop && !/house design/.test(g.stop)) return { why: `building has stopped here (${g.stop.slice(0, 80)})` };
     if (v.complete && !this.growClaimers(v).length) return { why: 'nobody here takes building work just now' };
     const busy = !v.complete ? 'after the village is finished' : g?.active ? `after the ${g.active.project ? workWords(g.active.project) : 'houses'} under way` : g?.work?.piece ? `after the ${workWords(g.work.piece)} the village voted for` : requestsOf(v.name).some((x) => x.status === 'queued' || x.status === 'under_way') ? 'after the requests before it' : '';
@@ -7534,7 +7537,7 @@ export class MineflayerWorld implements WorldAdapter {
     const what = /^(a|an|the)\s/i.test(w) ? w : `${/^[aeiou]/i.test(w) ? 'an' : 'a'} ${w}`;
     const near = matchDesign(designs, p.nearest ?? '');
     const nearest = near ? `; the nearest we could build is ${near.title} (${aKind(near.kind)})` : '';
-    if ((g?.projectFails ?? 0) >= 3) return refuse(`our last public works failed, and building rests for now${nearest}`);
+    if ((g?.projectBackoff ?? 0) > Date.now()) return refuse(`our last public works failed, and building rests for ${Math.ceil(((g?.projectBackoff ?? 0) - Date.now()) / 60000)} more minutes${nearest}`);
     if (g?.stop && !/house design/.test(g.stop)) return refuse(`building has stopped here (${g.stop.slice(0, 80)})`);
     if (v.complete && !this.growClaimers(v).length) return refuse('nobody here takes building work just now');
     let spec = TALK_DESIGNS.model;
