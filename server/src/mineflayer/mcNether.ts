@@ -375,7 +375,7 @@ export async function netherExpedition(a: BotAgent, args: Record<string, unknown
     while (dug < want && Date.now() < deadline) {
       checkAbort(signal);
       const feet = a.bot.entity.position.floored();
-      const keep = (q: Vec3) => !tried.has(`${q.x},${q.y},${q.z}`) && inTripBox(far, q) && !nearPortal(far, q) && exposed(q, name) && safeToDig(q, feet, name);
+      const keep = (q: Vec3) => !tried.has(`${q.x},${q.y},${q.z}`) && inTripBox(far, q) && !nearPortal(far, q, true) && exposed(q, name) && safeToDig(q, feet, name);
       const c = nearestBlocks(a, ids, 10, 24, keep)[0] ?? nearestBlocks(a, ids, 20, 24, keep)[0];
       if (!c) break;
       tried.add(`${c.x},${c.y},${c.z}`);

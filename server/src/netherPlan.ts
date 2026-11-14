@@ -105,8 +105,11 @@ function fits(x: number, z: number, axis: Axis, side: 1 | -1, ground: GroundRead
 /** The ground kept round the far portal (no expedition or walk digs it): 4 out, 3 under its bottom, 5 over it. The first
  *  trips dug its floor away and the members' way back stood on air (nether3, 11-14). */
 export const FAR_KEEP = { out: 4, under: 3, over: 5 };
-export function nearPortal(far: Cell, c: Cell): boolean {
-  return Math.abs(c.x - far.x) <= FAR_KEEP.out && Math.abs(c.z - far.z) <= FAR_KEEP.out && c.y >= far.y - FAR_KEEP.under && c.y <= far.y + FAR_KEEP.over;
+/** `column`: at any height, a block more round it (an expedition's targets: a block under the kept ground is reached only
+ *  through it, and every dig of nether4's first trips was "no path"). */
+export function nearPortal(far: Cell, c: Cell, column = false): boolean {
+  const out = FAR_KEEP.out + (column ? 1 : 0);
+  return Math.abs(c.x - far.x) <= out && Math.abs(c.z - far.z) <= out && (column || (c.y >= far.y - FAR_KEEP.under && c.y <= far.y + FAR_KEEP.over));
 }
 /** The far portal's kept ground as a protected box (botAgent.protectedGround off the overworld). */
 export function farBox(far: Cell): { x1: number; z1: number; x2: number; z2: number; y: number; y2: number } {
