@@ -778,10 +778,14 @@ const builtWork = (v: Village, kind: string) => (v.initiatives ?? []).some((i) =
  * one for each note block still to make; the bell, one while the bell post is neither built nor posted (an open post holds
  * its bell as gathered). undefined otherwise.
  */
-export function musicKeep(v: Village, item: string): number | undefined {
+export function musicKeep(v: Village, item: string, store?: Record<string, number>): number | undefined {
   if (!musicCurrent(v)) return undefined;
   if (item === 'redstone') {
-    const left = Math.max(0, MUSIC_NOTES - (v.ladder?.totals?.notes ?? 0));
+    // (rungs test 11-14: stage 1 counts redstone bought, so while it is short the keep stays over what storage holds:
+    // redstone already in storage made the 8 note blocks with 4 bought, the keep fell to none and stage 1 never ended)
+    const notes = Math.max(0, MUSIC_NOTES - (v.ladder?.totals?.notes ?? 0));
+    const buy = Math.max(0, MUSIC_REDSTONE - (v.ladder?.totals?.redstone ?? 0));
+    const left = Math.max(notes, buy ? (store?.redstone ?? 0) + buy : 0);
     return left > 0 ? left : undefined;
   }
   if (item === 'bell') {

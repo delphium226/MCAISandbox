@@ -123,6 +123,12 @@ if (MODE === 'off') {
   // the keeps: redstone for the note blocks still to make, the bell until its post is posted or built
   ok(L.musicKeep(v, 'redstone') === L.MUSIC_NOTES && L.musicKeep(v, 'bell') === 1, 'redstone and the bell kept for buying');
   ok(L.rungGoodTarget(v, 'note_block', { note_block: 1 }) === 1 + L.MUSIC_NOTES, 'the note block target: the stock and those still to make');
+  // (rungs test 11-14: the note blocks made from redstone already stored, 4 bought: the keep stays over storage's 3)
+  {
+    const w = make('music', {});
+    w.ladder!.totals = { notes: L.MUSIC_NOTES, redstone: 4 };
+    ok(L.musicKeep(w, 'redstone', { redstone: 3 }) === 3 + L.MUSIC_REDSTONE - 4, `redstone still bought for stage 1 once the note blocks are made (${L.musicKeep(w, 'redstone', { redstone: 3 })})`);
+  }
   // stage 1: redstone
   ok(L.feedsStage(v, 'activity:lib:buy', 'activity:lib:buy:redstone') && L.feedsStage(v, 'activity:lib:sell') && !L.feedsStage(v, 'activity:lib:buy', 'activity:lib:buy:leather'), 'stage 1 feeds buying redstone and selling for its emeralds');
   let news = note(v, L.musicCounts('trade', 'traded with the merchant: bought 4 redstone for 2 emerald (stock left 2)'), 'Ada');

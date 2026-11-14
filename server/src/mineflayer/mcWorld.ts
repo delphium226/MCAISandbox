@@ -5284,7 +5284,7 @@ export class MineflayerWorld implements WorldAdapter {
     if (item === 'amethyst_shard') return shardKeep(v, storageContents(v));
     // (MC_MUSIC_AGE: redstone for the note blocks still to make, the bell for the bell post)
     // (the tier-3 rungs: gold and redstone for the powered rails, redstone for the maps' compasses, the apiary's bee nests)
-    if (item === 'redstone') return musicKeep(v, item) ?? rungKeep(v, item, storageContents(v));
+    if (item === 'redstone') return musicKeep(v, item, storageContents(v)) ?? rungKeep(v, item, storageContents(v));
     if (item === 'bell' && musicCurrent(v)) return musicKeep(v, item);
     // (the enchantment rung: bottles o' enchanting for the levels, lapis for the books to enchant)
     if (item === 'gold_ingot' || item === 'bee_nest' || item === 'experience_bottle' || item === 'lapis_lazuli') return rungKeep(v, item, storageContents(v));
