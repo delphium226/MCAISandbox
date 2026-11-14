@@ -166,6 +166,10 @@ if (MODE === 'off' || MODE === 'hostile') {
   ok(P.nearPortal(far, { x: -212, y: 49, z: 4 }) && P.nearPortal(far, { x: -211, y: 48, z: 7 }) && !P.nearPortal(far, { x: -212, y: 50, z: 4 }) && !P.nearPortal(far, { x: -210, y: 49, z: 5 }) && !P.nearPortal(far, { x: -213, y: 47, z: 5 })
     && P.nearPortal(far, { x: -213, y: 40, z: 5 }, true) && P.nearPortal(far, { x: -210, y: 50, z: 5 }, true) && !P.nearPortal(far, { x: -209, y: 50, z: 5 }, true), 'the far portal\'s floor is kept (2 out, 2 under), its walls not; targets keep a column off');
   ok(JSON.stringify(P.farBox(far)) === JSON.stringify({ x1: -215, z1: 3, x2: -211, z2: 7, y: 48, y2: 49 }), 'and is a protected box off the overworld');
+  // the debris stair: one along the longer axis and one down; the cells cleared; never down through the floor underfoot
+  const st1 = P.stairStep({ x: 0, y: 50, z: 0 }, { x: 10, y: 15, z: 3 });
+  ok(JSON.stringify(st1.to) === '{"x":1,"y":49,"z":0}' && st1.dig.map((c) => `${c.x},${c.y},${c.z}`).join(' ') === '1,51,0 1,50,0 1,49,0', `a stair step down (${JSON.stringify(st1)})`);
+  ok(P.stairStep({ x: 0, y: 50, z: 0 }, { x: 0, y: 15, z: 0 }).to.x === 1 && P.stairStep({ x: 0, y: 16, z: 0 }, { x: 5, y: 15, z: 0 }).to.y === 16, 'aside when straight over it; level once beside its height');
   ok(['netherrack', 'blackstone', 'basalt', 'soul_sand', 'nether_quartz_ore'].every((n) => P.DIG_NETHER.includes(n)) && ['netherrack', 'quartz', 'gold_nugget', 'blackstone'].every((n) => L.NETHER_BLOCKS.includes(n)), 'the blocks dug and the items counted');
 }
 

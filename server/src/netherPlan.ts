@@ -165,5 +165,22 @@ export function farStand(portal: Cell[], name: (x: number, y: number, z: number)
   return tries.find((c) => free(c) && firm(c)) ?? null;
 }
 
+/**
+ * One step of the debris dig's stair from `p` (the member's feet) toward `t`: one block along the axis with the longer way
+ * to go, and one down while the feet are more than one above the target (one up while below it). `dig`: the cells to clear
+ * (the head room over the next cell, its head and its feet); `to`: the next cell's feet.
+ */
+export function stairStep(p: Cell, t: Cell): { to: Cell; dig: Cell[] } {
+  const ax = Math.abs(t.x - p.x) >= Math.abs(t.z - p.z);
+  // (straight over the target: a step aside, never down through the floor underfoot)
+  const dx = ax ? Math.sign(t.x - p.x) || 1 : 0, dz = ax ? 0 : Math.sign(t.z - p.z);
+  const dy = p.y > t.y + 1 ? -1 : p.y < t.y ? 1 : 0;
+  const to = { x: p.x + dx, y: p.y + dy, z: p.z + dz };
+  const dig = dy < 0 ? [{ x: to.x, y: p.y + 1, z: to.z }, { x: to.x, y: p.y, z: to.z }, { x: to.x, y: to.y, z: to.z }]
+    : dy > 0 ? [{ x: p.x, y: p.y + 2, z: p.z }, { x: to.x, y: to.y + 1, z: to.z }, { x: to.x, y: to.y, z: to.z }]
+    : [{ x: to.x, y: to.y + 1, z: to.z }, { x: to.x, y: to.y, z: to.z }];
+  return { to, dig };
+}
+
 /** The overworld point a Nether position stands for (vanilla's 1:8). */
 export const overworldOf = (c: { x: number; z: number }) => ({ x: c.x * 8, z: c.z * 8 });

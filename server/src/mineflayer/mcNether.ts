@@ -11,7 +11,7 @@ import type { BotAgent } from './botAgent';
 import type { Village } from '../village';
 import { villageHome } from '../village';
 import { NETHER_BLOCKS, NETHER_DEBRIS, NETHER_PARTY } from '../ladder';
-import { DEBRIS_REACH, DEBRIS_Y, DIG_NETHER, FRAME_BLOCKS, TRIP_BLOCKS, TRIP_MIN, exposed, farStand, frameCells, inTripBox, innerCells, nearPortal, planPortal, safeToDig, type Cell, type PortalSite } from '../netherPlan';
+import { DEBRIS_REACH, DEBRIS_Y, DIG_NETHER, FRAME_BLOCKS, HOT, TRIP_BLOCKS, TRIP_MIN, exposed, farStand, frameCells, inTripBox, innerCells, nearPortal, planPortal, safeToDig, stairStep, type Cell, type PortalSite } from '../netherPlan';
 import { dimOf, inDim, overworld } from './mcDim';
 import { recall } from './mcRescue';
 import { timeScale } from './mcRules';
@@ -445,7 +445,11 @@ export async function netherDig(a: BotAgent, args: Record<string, unknown>, sign
       tried.add(`${c.x},${c.y},${c.z}`);
       try {
         await a.bot.equip(a.bot.inventory.items().find((it) => it.name === pick)!, 'hand').catch(() => undefined);
-        await mineBlock(a, c, signal, false, 120000);
+        // (the spec's B1: a stair dug down toward it, each cell and its neighbours read for lava first; the pathfinder
+        // found no path 35 blocks down through the Nether's rock, nether7 11-14)
+        const why = await stairTo(a, c, deadline, signal);
+        if (why) throw new Error(why);
+        await mineBlock(a, c, signal, false, 30000);
       } catch (e) {
         if ((e as Error).message === 'cancelled') throw e;
         notes.push(`${at(c)}: ${(e as Error).message.slice(0, 80)}`);
@@ -461,6 +465,44 @@ export async function netherDig(a: BotAgent, args: Record<string, unknown>, sign
   console.log(`[nether] ${v.name}: ${a.name} ${out}`);
   if (!overworld(a)) throw new Error(`nether_dig: still in ${dimOf(a)} (${out})`);
   return out;
+}
+
+/**
+ * A stair dug from where the member stands toward `target` (netherPlan.ts stairStep: one block along the longer of x and
+ * z, one down while above it), until it is within reach. Each step's three cells (the head over the next cell, the next
+ * cell's feet and head) are dug with bot.dig (Paper times it) only when safeToDig: no lava, fire or an unloaded cell beside
+ * any, nothing that falls over them; the floor of the next cell must be firm. Returns why it stopped short, or null.
+ */
+async function stairTo(a: BotAgent, target: Cell, deadline: number, signal: AbortSignal): Promise<string | null> {
+  const bot = a.bot;
+  const name = (x: number, y: number, z: number) => nameAt(a, x, y, z);
+  for (let n = 0; n < 120; n++) {
+    checkAbort(signal);
+    if (Date.now() > deadline) return `the stair toward ${target.x},${target.y},${target.z} ran out of time`;
+    const p = bot.entity.position.floored();
+    if (bot.entity.position.offset(0, 1.62, 0).distanceTo(new Vec3(target.x + 0.5, target.y + 0.5, target.z + 0.5)) <= 4.2) return null;
+    const step = stairStep(p, target);
+    for (const c of step.dig) {
+      const b = name(c.x, c.y, c.z);
+      if (!b) return `the stair's cell ${c.x},${c.y},${c.z} is not loaded`;
+      if (AIR.test(b)) continue;
+      if (!safeToDig(c, p, name) || /^(gravel|sand|soul_sand|red_sand)$/.test(name(c.x, c.y + 1, c.z))) return `the stair stopped at ${at(p)}: lava, fire or loose ground by ${c.x},${c.y},${c.z}`;
+      const blk = bot.blockAt(new Vec3(c.x, c.y, c.z));
+      if (!blk || !bot.canDigBlock(blk) || /^(bedrock|obsidian|crying_obsidian|nether_portal|ancient_debris)$/.test(blk.name)) return `the stair stopped at ${at(p)}: ${b} at ${c.x},${c.y},${c.z}`;
+      const tool = bot.pathfinder.bestHarvestTool(blk);
+      if (tool) await bot.equip(tool, 'hand').catch(() => undefined);
+      await bot.dig(blk, true);
+      await sleep(100, signal);
+    }
+    const f = name(step.to.x, step.to.y - 1, step.to.z);
+    if (!f || AIR.test(f) || HOT.test(f)) return `the stair stopped at ${at(p)}: no floor at ${step.to.x},${step.to.y - 1},${step.to.z} (${f || 'unloaded'})`;
+    await walk(a, new goals.GoalBlock(step.to.x, step.to.y, step.to.z), `the stair at ${step.to.x},${step.to.y},${step.to.z}`, signal, 8000).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+    const q = bot.entity.position.floored();
+    if (q.x === p.x && q.y === p.y && q.z === p.z) return `the stair stopped at ${at(p)}: could not step to ${step.to.x},${step.to.y},${step.to.z}`;
+  }
+  return `the stair toward ${target.x},${target.y},${target.z} is too long`;
 }
 
 export const NETHER_SKILLS = {
