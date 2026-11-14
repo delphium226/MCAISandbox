@@ -242,7 +242,7 @@ ok(L.LETTERS, 'MC_LETTERS is on (its default since 11-14)');
 {
   ok(!ballot(['iron', 'letters', 'copper', 'trade', 'husbandry', 'music', 'diamond', 'machines', 'bees']).some((r) => L.RUNG_DEFS[r].tier === 4), 'tier 4 waits while maps is open');
   ok(ballot(BEFORE).join() === 'enchantment,sea', `after tier 3: ${ballot(BEFORE).join(', ')}`);
-  ok(ballot([...BEFORE, 'sea']).join() === 'enchantment' && ballot([...BEFORE, 'enchantment', 'sea']).length === 0, 'then the other, then none (the Nether is words)');
+  ok(ballot([...BEFORE, 'sea']).join() === 'enchantment' && ballot([...BEFORE, 'enchantment', 'sea']).join() === (L.rungImplemented('nether') ? 'nether' : ''), 'then the other, then the Nether (tier 5) where it is implemented');
 }
 
 // 6. The off and no-letters modes, in processes of their own

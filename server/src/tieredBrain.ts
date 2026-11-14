@@ -424,7 +424,7 @@ function compactObservation(a: WorldAgent) {
     .slice(0, 10)
     .map((e) => `${e.name ?? e.kind}${e.kind === 'item' ? ' (dropped item)' : ''} id=${e.id}${e.health !== undefined ? ` hp=${e.health}` : ''} at ${Math.round(e.x)},${Math.round(e.y)},${Math.round(e.z)} (${e.distance}m)`);
   return {
-    position: `${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.z)}`,
+    position: `${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.z)}${o.dimension ? ` in ${o.dimension === 'the_nether' ? 'the Nether' : 'the End'}` : ''}`,
     biome: o.biome,
     time: o.isDay ? 'day' : 'night',
     health: o.health,

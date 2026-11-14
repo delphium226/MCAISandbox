@@ -61,6 +61,13 @@ export const ENCHANTMENT_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_ENCHAN
 /** MC_SEA_AGE (with MC_LADDER; on by default; off turns it off): the age of the sea's four counted stages (boats made, a
  *  dock built out over the nearest water, fish caught, a lighthouse built). */
 export const SEA_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_SEA_AGE') ?? 'on');
+/** MC_NETHER_AGE (with MC_LADDER and MC_IRON_AGE; on by default; off turns it off): the Nether's four counted stages (a
+ *  portal of obsidian lit with a flint and steel, 64 Nether blocks brought back by an expedition party, 4 ancient debris dug
+ *  in the Nether, a netherite ingot made); docs/specs/nether.md. Peaceful worlds only (MC_WORLD_MODE=peaceful, the
+ *  default): in the other modes lava, fire and falls hurt, and the rung stays in words, off the ballot. */
+export const NETHER_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_NETHER_AGE') ?? 'on') && /^\s*(peaceful)?\s*$/i.test(rawSetting('MC_WORLD_MODE') ?? '');
+/** MC_NETHER_PARTY: the most members in the Nether at once on the village's expeditions and digs (3). */
+export const NETHER_PARTY = Math.max(1, Math.min(8, Math.floor(Number(rawSetting('MC_NETHER_PARTY') ?? 3)) || 3));
 /** The diamond level's y (runs/2026-10-30/diamond/spec.md: diamond ore peaks at -57 to -53 on minevale3, 2 laid open per
  *  100 cells dug at -56, lava below -55 cutting 8% of tunnels there). */
 export const DIAMOND_Y = -56;

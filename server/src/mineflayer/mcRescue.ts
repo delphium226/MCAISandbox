@@ -12,6 +12,7 @@ import { timeScale } from './mcRules';
 import { RESCUE_DIGGABLE as DIGGABLE } from './mcBlocks';
 import { inIronLevel } from './mcMine';
 import { safeCellNear } from './mcHazard';
+import { dimOf, inDim, overworld, type Dim } from './mcDim';
 
 /** Carried blocks it may pillar with (dirt and plain stone first; never planks, logs or glass). */
 const PILLAR = ['dirt', 'coarse_dirt', 'sand', 'red_sand', 'netherrack', 'andesite', 'diorite', 'granite', 'tuff', 'stone', 'cobblestone', 'cobbled_deepslate'];
@@ -245,6 +246,9 @@ export async function rescue(a: BotAgent, signal: AbortSignal): Promise<{ how: '
   const now = Date.now();
   const past = (rescuedAt.get(a.name) ?? []).filter((r) => now - r.t < RESCUE_AGAIN_MS);
   rescuedAt.set(a.name, [...past, { t: now, x: from.x, y: from.y, z: from.z }]);
+  // (the Nether rung, spec rows 8-9: off the overworld no swim, climb or village ground: the roof reads as "under ground"
+  // everywhere and the village's boxes are the overworld's. A walk out, the far portal, then the recall)
+  if (!overworld(a)) return rescueOff(a, from, past.length >= 2, signal);
   if (past.filter((r) => Math.hypot(r.x - from.x, r.y - from.y, r.z - from.z) <= RESCUE_AGAIN_BLOCKS).length >= 2) {
     const t = await teleportHome(a, signal);
     if (t) return { how: 'teleported', text: `stuck here a third time in 10 minutes (the walks out led back): ${t}` };
@@ -280,8 +284,93 @@ export async function rescue(a: BotAgent, signal: AbortSignal): Promise<{ how: '
   return { how: 'teleported', text: `could not walk or climb out (${[...done, c.why].filter(Boolean).join('; ') || 'no way found'}): ${t} (last resort)` };
 }
 
-/** A teleport beside home (the storage hut's aisle, the chest, the plot); null with no home. */
+/**
+ * The Nether rung's rescue off the overworld (spec section 3): a walk 8 blocks out in four directions, then a teleport to
+ * the far portal's stand cell in the member's own dimension, then the recall home. A third rescue in 10 minutes goes
+ * straight to the recall.
+ */
+async function rescueOff(a: BotAgent, from: Vec3, again: boolean, signal: AbortSignal): Promise<{ how: 'walked' | 'teleported' | 'failed'; text: string }> {
+  const dim = dimOf(a);
+  if (!again) {
+    for (const [dx, dz] of [[8, 0], [0, 8], [-8, 0], [0, -8]]) {
+      try {
+        await walk(a, new goals.GoalNearXZ(Math.round(from.x + dx), Math.round(from.z + dz), 2), `${Math.round(from.x + dx)},${Math.round(from.z + dz)} in ${dim}`, signal, 12000);
+      } catch (e) {
+        if ((e as Error).message === 'cancelled') throw e;
+      }
+      if (a.bot.entity.position.distanceTo(from) > 4) return { how: 'walked', text: `walked out to ${at(a.bot.entity.position)} in ${dim}` };
+    }
+    const f = farPortal(a);
+    if (f && Math.hypot(f.x - from.x, f.z - from.z) > 3) {
+      await a.world.rcon.command(inDim(dim, `tp ${a.name} ${f.x + 0.5} ${f.y} ${f.z + 0.5}`));
+      await sleep(1000, signal);
+      a.bot.pathfinder.setGoal(null);
+      console.log(`[rescue] ${a.name} in ${dim}: teleported to the far portal at ${f.x},${f.y},${f.z}`);
+      return { how: 'teleported', text: `could not walk out in ${dim}: teleported to the far portal at ${f.x},${f.y},${f.z}` };
+    }
+  }
+  const r = await recall(a, again ? 'stuck a third time in 10 minutes' : 'could not walk out', signal);
+  return r ? { how: 'teleported', text: r } : { how: 'failed', text: `stuck in ${dim} with no home to go to` };
+}
+
+/** The far portal's stand cell when the member is in its dimension (the Nether rung's record), else null. */
+export function farPortal(a: BotAgent): { x: number; y: number; z: number; dim: Dim } | null {
+  const f = a.village()?.nether?.far;
+  return f && f.dim === dimOf(a) ? { ...(f.stand ?? f), dim: f.dim } : null;
+}
+
+/**
+ * The recall (the Nether rung, spec section 3): a console `tp` to the village home, which lands in the overworld (the
+ * console's level; the probe confirmed it), the member's things with it. Logged `[nether] recall` and told to the member
+ * like a rescue. Returns what it did, or null with no home.
+ */
+export async function recall(a: BotAgent, why: string, signal: AbortSignal = new AbortController().signal): Promise<string | null> {
+  const h = home(a);
+  if (!h) return null;
+  const from = a.bot.entity?.position?.clone();
+  const dim = dimOf(a);
+  await a.world.rcon.command(h.y !== undefined ? `tp ${a.name} ${h.x + 0.5} ${h.y} ${h.z + 0.5}` : `execute in minecraft:overworld run spreadplayers ${h.x} ${h.z} 0 3 false ${a.name}`);
+  for (let i = 0; i < 40 && !overworld(a); i++) await sleep(200, signal);
+  await sleep(800, signal);
+  await a.bot.waitForChunksToLoad().catch(() => undefined);
+  a.bot.pathfinder.setGoal(null);
+  const text = `recalled from ${dim}${from ? ` at ${at(from)}` : ''} to ${h.what} (${why}; a console teleport)`;
+  console.log(`[nether] recall ${a.name} from ${from ? at(from) : '?'} in ${dim} (${why}): ${overworld(a) ? `home at ${at(a.bot.entity.position)}` : `STILL in ${dimOf(a)}`}`);
+  const stats = ((a.memory.rescues ??= {}) as Record<string, number | string>);
+  stats.recall = Number(stats.recall ?? 0) + 1;
+  stats.last = `${new Date().toISOString().slice(11, 19)} recall: ${text}`;
+  a.pushEvent('system', `Rescue: you were ${text}. Carry on from here.`);
+  return text;
+}
+
+/** At log-in off the overworld (spec row 11): recalled before anything else runs (the chunks first, as unbury waits). */
+export async function recallFromDim(a: BotAgent, why: string): Promise<void> {
+  await a.bot.waitForChunksToLoad().catch(() => undefined);
+  // (the village's record comes with the spawn's memory: wait a moment for a member's village)
+  for (let i = 0; i < 20 && !a.village(); i++) await sleep(250, new AbortController().signal);
+  await recall(a, why).catch((e: Error) => console.log(`[nether] recall ${a.name}: failed (${e.message})`));
+}
+
+/** A dimension change seen (botAgent's respawn listener): logged and told; the chore that took it there owns it. */
+export function netherArrived(a: BotAgent, from: Dim, to: Dim): void {
+  const p = a.bot.entity?.position;
+  console.log(`[nether] ${a.name} ${to === 'overworld' ? `back in the overworld from ${from}` : `entered ${to}`} at ${p ? at(p) : '?'}`);
+  a.pushEvent('system', to === 'overworld' ? `You are back in the overworld from ${from}.` : `You went through the portal: you are in ${to} now.`, { dimension: to });
+}
+
+/** A teleport beside home (the storage hut's aisle, the chest, the plot); null with no home. Off the overworld (the
+ *  Nether rung): the far portal's stand cell in the member's dimension, else the recall. */
 export async function teleportHome(a: BotAgent, signal: AbortSignal): Promise<string | null> {
+  if (!overworld(a)) {
+    const f = farPortal(a), from = a.bot.entity.position;
+    if (f && Math.hypot(f.x + 0.5 - from.x, f.z + 0.5 - from.z) > 2.5) {
+      await a.world.rcon.command(inDim(f.dim, `tp ${a.name} ${f.x + 0.5} ${f.y} ${f.z + 0.5}`));
+      await sleep(1000, signal);
+      a.bot.pathfinder.setGoal(null);
+      return `teleported to the far portal at ${f.x},${f.y},${f.z} in ${f.dim}`;
+    }
+    return recall(a, 'a teleport home', signal);
+  }
   let h = home(a);
   if (!h) return null;
   // #209: never back to where it stalled (Xavier was teleported 49 times onto his own cell in the hut): a cell just

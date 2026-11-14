@@ -7,6 +7,7 @@
 import { Vec3 } from 'vec3';
 import type { BotAgent } from './botAgent';
 import { BUILD_SKILLS } from './mcBuild';
+import { NETHER_SKILLS } from './mcNether';
 import { COMBAT_SKILLS } from './mcCombat';
 import { FLINT_SKILLS } from './mcFlint';
 import { WALL_SKILLS } from './mcWalls';
@@ -71,6 +72,8 @@ export const MC_SKILLS: Record<string, McSkill> = {
   },
   ...SURVIVAL_SKILLS,
   ...BUILD_SKILLS,
+  // (G8's tier-5 rung, the Nether: the portal, the expedition party, the debris dig; chores, never a model's tools)
+  ...NETHER_SKILLS,
   ...COMBAT_SKILLS,
   ...FLINT_SKILLS,
   ...WALL_SKILLS,

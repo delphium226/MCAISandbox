@@ -40,7 +40,7 @@ const opts = L.rungOptions(village);
 // (MC_COPPER_AGE), trade (MC_TRADE_AGE), husbandry and music... in the ballot's order, at most 4, else diamond)
 const tier2 = L.RUNG_ORDER.filter((r) => L.RUNG_DEFS[r].tier === 2 && L.rungImplemented(r));
 ok(opts.join(',') === (tier2.length ? tier2.slice(0, 4).join(',') : L.DIAMOND_AGE ? 'diamond' : ''), `the ballot's options after iron: implemented, simplest tier first: ${opts.join(', ')}`);
-ok(!L.rungImplemented('nether') && L.rungImplemented('enchantment') === (L.ENCHANTMENT_AGE && L.IRON_AGE) && L.rungImplemented('machines') === (L.MACHINES_AGE && L.IRON_AGE), 'the Nether in words is not implemented; enchantment with its flags');
+ok(L.rungImplemented('nether') === (L.NETHER_AGE && L.IRON_AGE) && L.rungImplemented('enchantment') === (L.ENCHANTMENT_AGE && L.IRON_AGE) && L.rungImplemented('machines') === (L.MACHINES_AGE && L.IRON_AGE), 'the Nether implemented with MC_NETHER_AGE and MC_IRON_AGE (words without); enchantment with its flags');
 ok(L.rungImplemented('iron') && L.rungImplemented('diamond') === L.DIAMOND_AGE && L.rungImplemented('letters') === L.LETTERS
   && L.rungImplemented('trade') === L.TRADE_AGE && L.rungImplemented('copper') === L.COPPER_AGE, 'iron, letters, trade, copper and diamond implemented with their flags');
 {

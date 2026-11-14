@@ -6,7 +6,7 @@
  * arbitrage check; the world summons it, restocks it and charges trades (mcWorld.ts, the trade skill).
  */
 import type { Counts } from './mineflayer/mcMaterials';
-import { BEES_AGE, COPPER_AGE, ENCHANTMENT_AGE, IRON_AGE, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE } from './ladderFlags';
+import { BEES_AGE, COPPER_AGE, ENCHANTMENT_AGE, IRON_AGE, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE, NETHER_AGE } from './ladderFlags';
 import { rawSetting } from './settings';
 import { CUTTER } from './cutter';
 import { DYE_BED } from './dyeBed';
@@ -82,7 +82,8 @@ export const SELLS: MerchantOffer[] = [
   // vanilla's toolsmiths and clerics deal in gold, so 1 ingot for 2 emeralds; and redstone for them and the compasses of
   // MC_MAPS_AGE, as the music rung's when that is off. MC_BEES_AGE: a bee nest with its bees (2), 6 emeralds: wild nests
   // are few and moving one takes Silk Touch. Last, for the same reason; each bought only while its rung wants it)
-  ...(MACHINES_AGE && IRON_AGE ? [{ item: 'gold_ingot', n: 1, emeralds: 2, stock: 6, dir: 'sells' as const }] : []),
+  // (MC_NETHER_AGE: the netherite ingot's 4 gold too, docs/specs/nether.md)
+  ...((MACHINES_AGE || NETHER_AGE) && IRON_AGE ? [{ item: 'gold_ingot', n: 1, emeralds: 2, stock: 6, dir: 'sells' as const }] : []),
   ...(!MUSIC_AGE && ((MACHINES_AGE && IRON_AGE) || MAPS_AGE) ? [{ item: 'redstone', n: 2, emeralds: 1, stock: 4, dir: 'sells' as const }] : []),
   ...(BEES_AGE ? [{ item: 'bee_nest', n: 1, emeralds: 6, stock: 2, dir: 'sells' as const }] : []),
   // (the tier-4 rungs. MC_ENCHANTMENT_AGE: bottles o' enchanting, as vanilla's clerics sell them (the levels stage: some 16

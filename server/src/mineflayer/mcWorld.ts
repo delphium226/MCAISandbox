@@ -27,7 +27,7 @@ import { ironDone, ironLevelFeet, ironLevelFull, ironStairsHeld, mineAreas, mine
 import { EGGS, PENS_BIG, PEN_KINDS, PEN_ORDER, PEN_VARIETY, SLOT_KINDS, SLOT_ORDER, enlargedSlot, penCap, penLure, penPlan, penSlotFit, penWords, pigCarrotKeep, restockLine, worksFurnaces } from '../farmSlots';
 import { bowsOn, archeryCounts } from './mcArchery';
 import { BOW_NW, BOW_RANK, FLINT_TRIP_MAX, arrowsLying, bowsFirst, flintCounts, flintShort, gravelOut, gravelSkip, gravelSource, recentShots, type GravelSpot } from './mcFlint';
-import { ARMS_GOODS, BEES_GOODS, ENCHANT_GOODS, SEA_GOODS, MACHINES_GOODS, MAPS_GOODS, BOW_GOODS, COPPER_GOODS, FOOD_GOODS, HUNT_GOODS, HUSBANDRY_GOODS, MUSIC_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, ROD_GOOD, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
+import { ARMS_GOODS, BEES_GOODS, ENCHANT_GOODS, NETHER_GOODS, SEA_GOODS, MACHINES_GOODS, MAPS_GOODS, BOW_GOODS, COPPER_GOODS, FOOD_GOODS, HUNT_GOODS, HUSBANDRY_GOODS, MUSIC_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, ROD_GOOD, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
 import { PROMPT_SELF, UNUSED_GOOD, UNUSED_TAG, ambitionGap, feedKinds, needsLine as basicNeedsLine, scarcityLine, selfLine, type HouseFacts, type SelfFacts } from '../promptSelf';
@@ -38,6 +38,9 @@ import { KIND_PHRASE, TEMPERAMENT_MODE, activeKinds, kindWeights, optionWeight, 
 import { GOALS_ON, GOAL_PIN, ensureGoals, goalLine, goalName, goalScore, goalWeight, goalsOf, noteEnd as goalNoteEnd, goalPlanOf, goalWordsDue, serves, specOf, topCraft, type Goals, type OptionFacts } from '../goals';
 import { BEES_AGE, BEES_APIARY, BEES_NESTS, rungKeep, MACHINES_AGE, MACHINES_POWERED, MAPS_AGE, MAPS_WALL, MAPS_WALL_WORK, beesCounts, beesCurrent, cellKey as mapKey, chartPoint, chartWanted, machinesCurrent, mapsCurrent, stageCounter, villageCentre, wallCells } from '../ladder';
 import { ENCHANTMENT_AGE, ENCHANT_BOOKS, ENCHANT_LEVELS, SEA_AGE, SEA_LIGHTHOUSE, enchantCounts, enchanterOf, enchantmentCurrent, seaCounts, seaCurrent } from '../ladder';
+import { NETHER_AGE, NETHER_BLOCKS, NETHER_BROUGHT, NETHER_DEBRIS, NETHER_OBSIDIAN, NETHER_PARTY, netherCounts, netherCurrent } from '../ladder';
+import { netherParty } from './mcNether';
+import { recall as recallHome } from './mcRescue';
 import { boatOf, levelOf as xpLevelOf } from '../enchantSea';
 import { COPPER_AGE, COPPER_CANOPY, COPPER_MADE, COPPER_RAW, HUSBANDRY_AGE, IRON_AGE, IRON_MINERS, LADDER, breedRoom, LETTERS, MUSIC_AGE, MUSIC_BANDSTAND, MUSIC_BELL_POST, MUSIC_NOTES, RUNG_DEFS, TRADE_AGE, TRADE_EMERALDS, TRADE_GOODS, TRADE_STALLS, VW, chooseRung, copperCounts, copperCurrent, copperTarget, shardKeep, feedsStage, husbandryCounts, husbandryCurrent, musicCounts, musicCurrent, musicKeep, pairedPenKinds, rungGoodTarget, ladderOf, levelCounts, lettersCounts, lettersCurrent, lettersReached, LETTERS_BOOKS, noteLadder, tradeCounts, tradeCurrent, openRungBallot, progressLine, rungOptions, rungPreview, stageTag, type Counter as LadderCounter, type LadderNews } from '../ladder';
 import type { RungId } from '../wanted';
@@ -416,6 +419,8 @@ export class MineflayerWorld implements WorldAdapter {
     if (this.library.specs.length || this.library.dropped.length) console.log(`[activity] library: ${this.library.specs.map((s) => s.id).join(', ') || 'no specs'}${this.library.dropped.length ? `; dropped ${this.library.dropped.map((d) => `${d.file} (${d.why})`).join('; ')}` : ''}`);
     this.atlas = new Atlas(this.registry, path.join(dataDir, 'atlas.json'), (cx, cz) => {
       for (const a of this.agents.values()) {
+        // (the atlas' summaries are the overworld's: a Nether bot holds a column at the same cx, cz, the Nether spec's row 1)
+        if (a.dim !== 'overworld') continue;
         const column = (a.bot.world as unknown as { getColumn(x: number, z: number): unknown }).getColumn(cx, cz);
         if (column) return { by: a.name, column: column as Parameters<Atlas['summarise']>[0] };
       }
@@ -866,6 +871,8 @@ export class MineflayerWorld implements WorldAdapter {
       if (cur) goods = [...goods.filter((g) => !list.some((q) => q.item === g.item)), ...list];
     // (the tier-4 rungs' goods: enchantment's table and books; the sea's boats in the catalogue's wood, a lantern and a rod)
     if (enchantmentCurrent(v)) goods = [...goods.filter((g) => !ENCHANT_GOODS.some((q) => q.item === g.item)), ...ENCHANT_GOODS];
+    // (the tier-5 rung: the Nether's flint and steel and netherite ingot)
+    if (netherCurrent(v)) goods = [...goods.filter((g) => !NETHER_GOODS.some((q) => q.item === g.item)), ...NETHER_GOODS];
     if (seaCurrent(v)) {
       const wood = this.catalogWoodOf(v), boat = boatOf(wood);
       const list = SEA_GOODS.map((g) => (g.item === 'oak_boat' ? { ...g, item: boat, ...(boat !== 'oak_boat' && boat !== 'bamboo_raft' ? { wood } : {}) } : g));
@@ -1638,7 +1645,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (#247, MC_COPPER_AGE: the copper blocks still to make, then a lightning rod and a spyglass)
     if (g.rung === 'copper') return copperTarget(v, g.item, storageContents(v));
     // (MC_HUSBANDRY_AGE, MC_MUSIC_AGE: the hay store's bales, the bandstand's note blocks still to make)
-    if (g.rung === 'husbandry' || g.rung === 'music' || g.rung === 'machines' || g.rung === 'bees' || g.rung === 'maps' || g.rung === 'enchantment' || g.rung === 'sea') return rungGoodTarget(v, g.item, storageContents(v));
+    if (g.rung === 'husbandry' || g.rung === 'music' || g.rung === 'machines' || g.rung === 'bees' || g.rung === 'maps' || g.rung === 'enchantment' || g.rung === 'sea' || g.rung === 'nether') return rungGoodTarget(v, g.item, storageContents(v));
     // (survival (c): stone swords for half the members; the rest as the table)
     if (g.arms) return !armsOn() ? 0 : g.item === 'stone_sword' ? Math.max(2, Math.ceil(this.growMembers(v).length / 2)) : g.target;
     // (food, s30's D13: bread two a member, pies one for two, where the village keeps an appetite; none otherwise)
@@ -2193,7 +2200,8 @@ export class MineflayerWorld implements WorldAdapter {
     this.underAt = now;
     for (const a of this.agents.values()) {
       const v = a.village();
-      if (!v || !a.bot.entity || a.gamemode === 'creative' || !underHome(a, 6)) {
+      // (the Nether rung, spec row 7: under the Nether's roof is not under ground; netherWatch owns a member there)
+      if (!v || !a.bot.entity || a.gamemode === 'creative' || a.dim !== 'overworld' || !underHome(a, 6)) {
         this.underSince.delete(a.name);
         continue;
       }
@@ -2207,6 +2215,36 @@ export class MineflayerWorld implements WorldAdapter {
       if (done && moved) continue;
       this.underSince.delete(a.name);
       void this.bringUp(a, v, now - u.t, done ? 'never more than 5 blocks from here' : 'with nothing done');
+    }
+  }
+
+  private netherAt = 0;
+  private netherSince = new Map<string, number>();
+
+  /**
+   * The Nether rung's watchdog (spec section 3), every 30 s: a member off the overworld that holds no Nether party lease
+   * (its skill lost it: a crash, a cut chore, a restart) for 30 s, or whose trip is 2 minutes past its deadline, is stopped
+   * and recalled home by a console teleport, logged `[nether] recall`.
+   */
+  private netherWatch() {
+    const now = Date.now();
+    if (now - this.netherAt < 30000) return;
+    this.netherAt = now;
+    for (const a of this.agents.values()) {
+      if (!a.bot.entity || a.dim === 'overworld') {
+        this.netherSince.delete(a.name);
+        continue;
+      }
+      const v = a.village();
+      const lease = v ? netherParty.holders(v.name).find((l: { holder: { agent: string } }) => l.holder.agent === a.name) : undefined;
+      const until = (lease?.payload as { until?: number } | undefined)?.until;
+      const since = this.netherSince.get(a.name) ?? now;
+      this.netherSince.set(a.name, since);
+      const why = !lease ? (now - since >= 30000 ? 'no Nether trip holds it' : '') : until !== undefined && now > until ? 'its trip ran past its deadline' : '';
+      if (!why) continue;
+      this.netherSince.delete(a.name);
+      a.stop();
+      void recallHome(a, why).catch((e: Error) => console.log(`[nether] recall ${a.name}: failed (${e.message})`));
     }
   }
 
@@ -2509,6 +2547,11 @@ export class MineflayerWorld implements WorldAdapter {
       console.error('[underground] check failed:', e);
     }
     try {
+      this.netherWatch();
+    } catch (e) {
+      console.error('[nether] watch failed:', e);
+    }
+    try {
       this.endChoices();
     } catch (e) {
       console.error('[choice] end check failed:', e);
@@ -2572,7 +2615,7 @@ export class MineflayerWorld implements WorldAdapter {
         for (const [x, z] of farm.sow) {
           let s = -1;
           // (not a bot without an entity: dead, respawning or disconnected, its view may be stale)
-          for (const a of this.agents.values()) if (a.bot.entity && (s = stateAt(a, x, plot.y + 1, z)) >= 0) break;
+          for (const a of this.agents.values()) if (a.bot.entity && a.dim === 'overworld' && (s = stateAt(a, x, plot.y + 1, z)) >= 0) break;
           if (s < 0) {
             unloaded = true;
             break;
@@ -4012,7 +4055,7 @@ export class MineflayerWorld implements WorldAdapter {
 
   /** #246, #247: the trade and copper rungs' level counts (ladder.ts levelCounts) into the ladder, credited to `member`. */
   private ladderLevels(v: Village, member: string) {
-    if (!tradeCurrent(v) && !copperCurrent(v) && !husbandryCurrent(v) && !musicCurrent(v) && !machinesCurrent(v) && !beesCurrent(v) && !mapsCurrent(v) && !enchantmentCurrent(v) && !seaCurrent(v)) return;
+    if (!tradeCurrent(v) && !copperCurrent(v) && !husbandryCurrent(v) && !musicCurrent(v) && !machinesCurrent(v) && !beesCurrent(v) && !mapsCurrent(v) && !enchantmentCurrent(v) && !seaCurrent(v) && !netherCurrent(v)) return;
     const got = levelCounts(v, storageContents(v));
     for (const [counter, n] of got) for (const news of noteLadder(v, counter, member, n, Date.now(), clockOf(v.name, Date.now())?.day)) this.ladderNews(v, news);
     if (got.length) this.villages.save();
@@ -5457,6 +5500,41 @@ export class MineflayerWorld implements WorldAdapter {
         tag('rung:hang_maps', 'Hang the maps on the map wall', `${hung} of ${MAPS_WALL} hung; ${ready} charted maps ready to hang; ${store.item_frame} item frames in storage`,
           'the village\'s maps on its map wall: the age of maps', job('hang_maps', 'hang_maps', {}, ['filled_map', 'item_frame']));
     }
+    // (MC_NETHER_AGE, docs/specs/nether.md: the frame's obsidian cast at the deep level, a flint for the flint and steel,
+    // the portal built and lit; then the expedition party and the debris dig, a lease each, MC_NETHER_PARTY at once)
+    if (netherCurrent(v)) {
+      const held = (item: string) => (a ? heldItems(a, item) : 0);
+      const portal = v.nether?.portal;
+      const framed = v.structures.some((s) => s.kind === 'nether_portal');
+      const party = netherParty.holders(v.name).length;
+      const dpick = held('diamond_pickaxe') + held('netherite_pickaxe') + (store.diamond_pickaxe ?? 0);
+      if (counter === 'portal' && !portal?.lit) {
+        const obs = (store.obsidian ?? 0) + held('obsidian');
+        const deep = (ironLevelFeet(v.mine).sort((p, q) => p.y - q.y)[0]?.y ?? 99) <= 0;
+        const water = (store.water_bucket ?? 0) + held('water_bucket'), buckets = (store.bucket ?? 0) + held('bucket');
+        if (!framed && obs < NETHER_OBSIDIAN) {
+          if (!water && buckets > 0 && !back('fill_bucket'))
+            tag('rung:fill_bucket', 'Fill a bucket with water for the obsidian', `${buckets} empty buckets and no water bucket in storage or in hand; the nearest still water at the surface`,
+              'a water bucket for casting the portal\'s obsidian: the Nether', job('fill_bucket', 'fill_bucket', {}, ['water_bucket', 'bucket']));
+          if (deep && dpick > 0 && water + buckets > 0 && !back('obsidian'))
+            tag('rung:obsidian', 'Cast obsidian from lava in the deep mine', `${obs} of the portal frame's ${NETHER_OBSIDIAN} obsidian in storage; water poured on still lava by the deep level's tunnels turns it to obsidian, mined with a diamond pickaxe (${held('diamond_pickaxe') ? 'yours' : `${store.diamond_pickaxe ?? 0} in storage`}); ${water ? 'a water bucket ready' : 'the bucket is filled on the way'}`,
+              'obsidian for the village\'s Nether portal: the Nether', job('obsidian', 'make_obsidian', {}, ['obsidian', 'water_bucket', 'bucket']));
+        }
+        const fs = (store.flint_and_steel ?? 0) + held('flint_and_steel');
+        if (!fs && !(store.flint ?? 0) && !back('flint'))
+          tag('rung:flint', 'Dig gravel for a flint', `a flint and steel (an iron ingot and a flint) lights the portal; storage holds no flint and ${store.gravel ?? 0} gravel; gravel is broken again until flint drops (one break in ten)`,
+            'a flint for the flint and steel that lights the Nether portal', job('flint', 'flint_trip', { count: 1 }, ['flint', 'gravel']));
+        if ((framed || obs >= NETHER_OBSIDIAN) && !back('portal'))
+          tag('rung:portal', 'Build and light the Nether portal', `${framed ? 'the frame stands' : `${obs} obsidian in storage, the frame takes ${NETHER_OBSIDIAN}`} beside the storage hut; ${fs ? 'a flint and steel ready to light it' : 'no flint and steel yet: the frame is built, lit later'}`,
+            'the village\'s Nether portal: the Nether', job('portal', 'build_portal', {}, ['flint_and_steel', 'obsidian']));
+      }
+      if (counter === 'nblocks' && portal?.lit && a && party < NETHER_PARTY && !back(`expedition:${a.name}`))
+        tag('rung:expedition', 'Go on an expedition to the Nether', `${v.ladder?.totals?.nblocks ?? 0} of ${NETHER_BROUGHT} Nether blocks brought back; through the village's portal, gather netherrack, blackstone, basalt, soul sand and quartz round the far portal (up to 24 blocks, 8 minutes) and back through it; a pickaxe needed; ${party} of ${NETHER_PARTY} members in the Nether now`,
+          'Nether blocks for the village: the Nether', job(`expedition:${a.name}`, 'nether_expedition', {}, [...NETHER_BLOCKS]));
+      if (counter === 'debris' && portal?.lit && a && dpick > 0 && party < NETHER_PARTY && !back(`debris:${a.name}`))
+        tag('rung:debris', 'Dig ancient debris in the Nether', `${v.ladder?.totals?.debris ?? 0} of ${NETHER_DEBRIS} ancient debris dug; it lies at y 8-22 near the far portal, mined with a diamond pickaxe (${held('diamond_pickaxe') ? 'yours' : `${store.diamond_pickaxe ?? 0} in storage`}); ${party} of ${NETHER_PARTY} members in the Nether now`,
+          'ancient debris for netherite: the Nether', job(`debris:${a.name}`, 'nether_dig', {}, ['ancient_debris', ...NETHER_BLOCKS]));
+    }
     // (MC_ENCHANTMENT_AGE: the bucket filled, obsidian cast at the deep level by a member with a diamond pickaxe, the table
     // placed, the enchanter's bottles and books; each while its stage is current)
     if (enchantmentCurrent(v)) {
@@ -6427,6 +6505,8 @@ export class MineflayerWorld implements WorldAdapter {
         // landed)
         if (ENCHANTMENT_AGE) got.push(...enchantCounts(q.type, q.message));
         if (SEA_AGE && (q.type !== 'fish' || !act || c.status[act.depAt]?.state === 'done')) got.push(...seaCounts(q.type, q.message));
+        // (MC_NETHER_AGE: Nether blocks brought back once the chore's deposit stored them; ancient debris dug)
+        if (NETHER_AGE && (q.type !== 'nether_expedition' || c.status[c.status.indexOf(q) + 1]?.state === 'done')) got.push(...netherCounts(q.type, q.message));
         for (const [counter, n] of got) {
           for (const news of noteLadder(v, counter, c.agent, n, Date.now(), clockOf(v.name, Date.now())?.day)) this.ladderNews(v, news);
         }
@@ -6739,7 +6819,7 @@ export class MineflayerWorld implements WorldAdapter {
         let grown = 0, ripe = 0;
         for (const [x, z] of farm.sow) {
           let s = -1;
-          for (const b of this.agents.values()) if (b.bot.entity && (s = stateAt(b, x, plot.y + 1, z)) >= 0) break;
+          for (const b of this.agents.values()) if (b.bot.entity && b.dim === 'overworld' && (s = stateAt(b, x, plot.y + 1, z)) >= 0) break;
           if (s < 0) return null;
           if (s < wheat.minStateId || s > wheat.maxStateId) continue;
           grown++;
@@ -9314,7 +9394,7 @@ export class MineflayerWorld implements WorldAdapter {
 
     // G8's tier-3 rungs (MC_MACHINES_AGE, MC_BEES_AGE, MC_MAPS_AGE): the current stage's own chores, ranked beside the
     // library's shelving (the stage's tag raises them), one member at a time each
-    if (machinesCurrent(v) || beesCurrent(v) || mapsCurrent(v) || enchantmentCurrent(v) || seaCurrent(v))
+    if (machinesCurrent(v) || beesCurrent(v) || mapsCurrent(v) || enchantmentCurrent(v) || seaCurrent(v) || netherCurrent(v))
       for (const [o, run] of this.rungJobOptions(v, store, now, a)) if (!excluded([`${o.key}=`], busy)) add({ ...o, facts: `${o.facts}; ${record('furnish')}${lastOf('furnish', o.id)}` }, run);
 
     // s41: the library's activities (a foundry skill run from a server/library spec): one option a spec whose needs are

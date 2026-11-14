@@ -62,6 +62,7 @@ import { boardSigns, claimRule, zoneBoxes } from '../rules';
 import { boardCells } from '../streetPlan';
 import { rawSetting } from '../settings';
 import { jobTargets, monumentNoun, monumentPlan, searchSite, siteHub, siteTaken } from '../monument';
+import { overworld } from './mcDim';
 
 type Pos = [number, number, number];
 
@@ -128,7 +129,7 @@ function peerWith(a: BotAgent, x: number, z: number): BotAgent | undefined {
   const vname = a.village()?.name;
   if (!vname) return undefined;
   for (const b of a.world.agents.values())
-    if (b !== a && b.bot?.entity && b.village()?.name === vname && b.bot.world.getColumn(x >> 4, z >> 4)) return b;
+    if (b !== a && b.bot?.entity && overworld(b) && b.village()?.name === vname && b.bot.world.getColumn(x >> 4, z >> 4)) return b;
   return undefined;
 }
 
@@ -1332,7 +1333,8 @@ async function surveyGround(a: BotAgent, cx: number, cz: number, r: number, take
   // A column the surveyor has not loaded, read through a fellow member that has (s43: a bot holds 8 chunks round itself,
   // so a wider village range came back "unloaded" past ~128 blocks of the surveyor)
   const vname = a.village()?.name;
-  const peers = vname ? [...a.world.agents.values()].filter((b) => b !== a && b.bot?.entity && b.village()?.name === vname) : [];
+  // (overworld bots only: a member in the Nether holds Nether columns at the same x, z, spec row 4)
+  const peers = vname ? [...a.world.agents.values()].filter((b) => b !== a && b.bot?.entity && overworld(b) && b.village()?.name === vname) : [];
   // (each chunk's peer looked for once: most columns past the members' chunks are loaded by no one, the review)
   const peerOf = new Map<number, BotAgent | null>();
   const viaPeer = (x: number, z: number): Surface | null => {

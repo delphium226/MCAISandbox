@@ -21,7 +21,8 @@ process.env.MC_LADDER = 'on';
 process.env.MC_IRON_AGE = 'on';
 // (maps comes after letters, a rung only with MC_LETTERS)
 process.env.MC_LETTERS = 'on';
-if (MODE === 'off') process.env.MC_MACHINES_AGE = process.env.MC_BEES_AGE = process.env.MC_MAPS_AGE = 'off';
+// (the Nether sells gold for its ingot too: off here, so the merchant's gold is the machines rung's alone)
+if (MODE === 'off') process.env.MC_MACHINES_AGE = process.env.MC_BEES_AGE = process.env.MC_MAPS_AGE = process.env.MC_NETHER_AGE = 'off';
 const L = await import('../../server/src/ladder');
 type Counter = import('../../server/src/ladder').Counter;
 type RungId = import('../../server/src/wanted').RungId;

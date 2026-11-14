@@ -65,7 +65,8 @@ export const DEFS: BlockDef[] = [
   {
     id: 'WALK_DIG', kind: 'block',
     tags: ['substrate_overworld', 'base_stone_overworld', 'sand', 'snow', 'leaves', ...ORES],
-    extras: ['gravel', 'clay', 'calcite', 'netherrack', 'nether_quartz_ore', 'short_grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush'],
+    // (the Nether rung: the Nether's soft ground, so expeditions and the debris dig walk through it, docs/specs/nether.md)
+    extras: ['gravel', 'clay', 'calcite', 'netherrack', 'nether_quartz_ore', 'nether_gold_ore', 'crimson_nylium', 'warped_nylium', 'soul_soil', 'soul_sand', 'short_grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush'],
   },
   // mcUtil: tables().wet (and not open); waterlogged states with an empty box are added by state
   { id: 'WET', kind: 'block', use: ['WATERY'] },
@@ -121,7 +122,7 @@ export const HAND: Record<string, Rule> = {
   LIQUID: /^(water|lava|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/,
   NON_GROUND: /leaves|_log$|_wood$|_stem$|grass$|fern|flower|dandelion|poppy|tulip|orchid|allium|bluet|daisy|lilac|peony|rose_bush|sunflower|bush|sapling|^snow$|vine|mushroom|sugar_cane|bamboo|cactus|azalea|dripleaf|moss_carpet|leaf_litter|petals|cobweb/,
   BUILD_ISLOG: /_log$|_wood$|_stem$/,
-  WALK_DIG: /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|mud|clay|gravel|sand|red_sand|snow|snow_block|stone|deepslate|tuff|andesite|diorite|granite|calcite|netherrack|moss_block|short_grass|tall_grass|fern|large_fern|dead_bush|.*_leaves|.*_ore)$/,
+  WALK_DIG: /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|mud|clay|gravel|sand|red_sand|snow|snow_block|stone|deepslate|tuff|andesite|diorite|granite|calcite|netherrack|crimson_nylium|warped_nylium|soul_soil|soul_sand|moss_block|short_grass|tall_grass|fern|large_fern|dead_bush|.*_leaves|.*_ore)$/,
   WET: /^(water|lava|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/,
   FALLING: /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|pointed_dripstone|\w+_concrete_powder)$/,
   JUNK: /_sapling$|(?<!^wheat)_seeds$|_leaves$|_petals$|^(leaf_litter|cocoa_beans|apple|sweet_berries|bush|dirt|coarse_dirt|rooted_dirt|gravel|flint|stick|egg|brown_egg|blue_egg|feather|bone|string|rotten_flesh|poppy|dandelion|cactus_flower|dead_bush|short_grass|wildflowers|.*_tulip|pink_petals|firefly_bush)$/,

@@ -16,7 +16,7 @@ import { MC_SKILLS } from './mcSkills';
 import { attack } from './mcSurvival';
 import { ContentionError, at, goals, walk, wetAt } from './mcUtil';
 import { mineAreas } from './mcMine';
-import { home, outOfWater, rescue, swimUp, teleportHome } from './mcRescue';
+import { home, netherArrived, outOfWater, recallFromDim, rescue, swimUp, teleportHome } from './mcRescue';
 import { timeScale } from './mcRules';
 import { modeSpec, takesDamage } from '../worldMode';
 import { HOSTILE, combatTick, fightsMobs, mayWake, noteDeath, phaseOf } from './mcCombat';
@@ -27,8 +27,11 @@ import { buriedAt, causeFromState, deathCauseOf, hazardOf, lavaStep, noteTrap, s
 import { isPaused } from '../runClock';
 import { WALK_DIG } from './mcBlocks';
 import { GEODE_GROWTH, GEODE_GUARD, GEODE_LINING, geodeBreakCost, geodeStepCost, stateIds } from './mcGeode';
+import { dimOf, overworld, type Dim } from './mcDim';
 
 const { pathfinder, Movements } = pathfinderPkg;
+/** Blocks no walk enters (the Nether rung, spec row 16): portals carry a member to another dimension; soul fire burns. */
+export const AVOID_BLOCKS = ['nether_portal', 'end_portal', 'end_gateway', 'soul_fire'];
 /** The pathfinder's move (a neighbour in its search: a cell, the blocks left, a cost); not in its typings. */
 const Move = createRequire(import.meta.url)('mineflayer-pathfinder/lib/move') as new (x: number, y: number, z: number, remainingBlocks: number, cost: number) => unknown;
 
@@ -173,17 +176,44 @@ export class BotAgent implements WorldAgent {
       this.spawned = true;
       (this.bot.physics as unknown as { playerHalfWidth: number }).playerHalfWidth = PLAYER_HALF_WIDTH;
       this.lastHealth = this.bot.health ?? 20;
-      void this.unbury();
+      this.dimSeen = dimOf(this.bot);
+      // (the Nether rung, spec row 11: a member that logs in off the overworld, an agent server restarted mid-trip, is
+      // recalled home before anything else; never spreadplayers, which would put it in the overworld at its Nether x, z)
+      if (this.dimSeen !== 'overworld') void recallFromDim(this, 'logged in there (a saved position)');
+      else void this.unbury();
     });
     // The shared atlas: every chunk this bot receives is summarised, and chunks whose blocks change are again later
-    this.bot.on('chunkColumnLoad', (p) => world.atlas.loaded(p.x >> 4, p.z >> 4));
-    this.bot.on('blockUpdate', (_old, b) => b && world.atlas.touched(b.position.x, b.position.z));
+    // (overworld bots only: a Nether chunk at the same cx, cz went into atlas.json, 317 of them in the probe, spec row 1)
+    this.bot.on('chunkColumnLoad', (p) => { if (overworld(this)) world.atlas.loaded(p.x >> 4, p.z >> 4); });
+    this.bot.on('blockUpdate', (_old, b) => { if (b && overworld(this)) world.atlas.touched(b.position.x, b.position.z); });
+    // (the Nether rung: a dimension change ends any walk and dig the old world held, lesson 183's path; logged, told)
+    this.bot.on('respawn', () => {
+      const d = dimOf(this.bot);
+      if (d === this.dimSeen) return;
+      const from = this.dimSeen;
+      this.dimSeen = d;
+      try {
+        this.bot.pathfinder?.setGoal(null);
+        this.bot.stopDigging?.();
+      } catch { /* (nothing running) */ }
+      this.protectedCache.at = 0;
+      this.farmCache.at = 0;
+      netherArrived(this, from, d);
+    });
     this.listen();
   }
 
   get gamemode() {
     return this.bot.game?.gameMode ?? 'survival';
   }
+
+  /** The dimension the bot is in (the Nether rung; mcDim.ts). */
+  get dim(): Dim {
+    return dimOf(this.bot);
+  }
+
+  /** The dimension last seen at a spawn or respawn (a change is told once). */
+  private dimSeen: Dim = 'overworld';
 
   village(): Village | undefined {
     return this.world.villages.get(this.memory.village);
@@ -221,6 +251,11 @@ export class BotAgent implements WorldAgent {
   protectedGround() {
     const now = Date.now();
     if (now - this.protectedCache.at < 5000) return this.protectedCache.boxes;
+    // (the Nether rung, spec row 6: village ground is the overworld's; none off it)
+    if (!overworld(this)) {
+      this.protectedCache = { at: now, boxes: [] };
+      return this.protectedCache.boxes;
+    }
     const p = this.bot.entity?.position;
     const boxes: Array<{ x1: number; z1: number; x2: number; z2: number; y: number; y2?: number }> = [];
     for (const v of this.world.villages.villages.values()) {
@@ -255,6 +290,10 @@ export class BotAgent implements WorldAgent {
   farmGround() {
     const now = Date.now();
     if (now - this.farmCache.at < 5000) return this.farmCache.boxes;
+    if (!overworld(this)) {
+      this.farmCache = { at: now, boxes: [] };
+      return this.farmCache.boxes;
+    }
     const p = this.bot.entity?.position;
     const boxes: Array<{ x1: number; z1: number; x2: number; z2: number; y: number }> = [];
     for (const v of this.world.villages.villages.values())
@@ -287,6 +326,12 @@ export class BotAgent implements WorldAgent {
       m.allowParkour = false;
       // (walks dig natural terrain only, never anything built: WALK_DIG in mcBlocks.ts)
       m.blocksCantBreak = new Set(this.world.registry.blocksArray.filter((b) => !WALK_DIG.has(b.name)).map((b) => b.id));
+      // (the Nether rung, spec row 16: a portal's cells have no box and were safe to the pathfinder, so any walk past the
+      // village's portal could carry a member to the Nether; soul fire was not avoided either. Before the fast-block table)
+      for (const n of AVOID_BLOCKS) {
+        const b = this.world.registry.blocksByName[n];
+        if (b) m.blocksToAvoid.add(b.id);
+      }
       // Pillar and bridge with dirt only: the default also spends cobblestone, a building material in the village economy
       m.scafoldingBlocks = [this.world.registry.itemsByName.dirt.id];
       // Doors open (off by default in the pathfinder, "probably due to non-Paper servers"; this is Paper): a builder
@@ -723,7 +768,7 @@ export class BotAgent implements WorldAgent {
     const now = Date.now();
     // (every 2 s until one is set: a member's village is known only once its spawn has finished, and a fall in between
     // respawned Gus at the world spawn, 1,600 blocks off; then every 20 s, for a home that moves)
-    if (now - this.spawnCheckedAt > (this.spawnSet ? 20000 : 2000)) {
+    if (now - this.spawnCheckedAt > (this.spawnSet ? 20000 : 2000) && overworld(this)) {
       this.spawnCheckedAt = now;
       void this.keepSpawnpoint();
     }
@@ -1091,6 +1136,7 @@ export class BotAgent implements WorldAgent {
    */
   async rescuePinned(n: number, water: boolean, signal: AbortSignal): Promise<string | null> {
     const from = this.bot.entity.position.clone();
+    // (the Nether rung, spec row 10: off the overworld the far portal, then the recall: mcRescue's teleportHome there)
     const t = await teleportHome(this, signal);
     if (!t) return null;
     const how = water ? 'pinned-water' : 'pinned';
@@ -1158,6 +1204,7 @@ export class BotAgent implements WorldAgent {
       timeOfDay: bot.time.timeOfDay,
       isDay: bot.time.isDay,
       position: { x: round1(p.x), y: round1(p.y), z: round1(p.z) },
+      ...(this.dim !== 'overworld' ? { dimension: this.dim } : {}),
       yaw: round1(bot.entity.yaw),
       health: Math.round(bot.health ?? 20),
       food: Math.round(bot.food ?? 20),

@@ -12,7 +12,7 @@
  */
 import { FOOD_POINTS } from './appetite';
 import { boardOf } from './barter';
-import { BEES_AGE, COPPER_AGE, DIAMOND_AGE, ENCHANTMENT_AGE, HUSBANDRY_AGE, IRON_AGE, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE, SEA_AGE } from './ladderFlags';
+import { BEES_AGE, COPPER_AGE, DIAMOND_AGE, ENCHANTMENT_AGE, HUSBANDRY_AGE, IRON_AGE, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE, NETHER_AGE, SEA_AGE } from './ladderFlags';
 import { goalsOf } from './goals';
 import { BUYS, SELLS } from './merchant';
 import { LIBRARY, LOCKED_SKILLS, techOf } from './tech';
@@ -151,7 +151,9 @@ export const RUNG_NEEDS: Record<RungId, Array<{ capability: string; how: 'have' 
   // (MC_ENCHANTMENT_AGE with the iron age: obsidian cast at the deep level, the table placed, the XP bottles and the enchanting
   // at the table are built)
   enchantment: ENCHANTMENT_AGE && IRON_AGE ? [] : [{ capability: 'cast_obsidian', how: 'ticket', note: 'water poured on lava for obsidian' }, { capability: 'enchant', how: 'hand', note: 'enchanting by a charged command, the XP ledger' }],
-  nether: [{ capability: 'nether_travel', how: 'hand', note: 'portals, walking in the Nether, debris mining' }, { capability: 'barter_piglin', how: 'ticket', note: 'gold bartered with piglins' }],
+  // (MC_NETHER_AGE with the iron age, peaceful: the portal, the expedition party, the debris dig and the ingot are built;
+  // the barter is dropped, docs/specs/nether.md)
+  nether: NETHER_AGE && IRON_AGE ? [] : [{ capability: 'nether_travel', how: 'hand', note: 'portals, walking in the Nether, debris mining' }, { capability: 'barter_piglin', how: 'ticket', note: 'gold bartered with piglins' }],
   // (MC_COPPER_AGE: copper kept from the iron mine, the blocks, the canopy and the instruments are built, the shard bought, #247)
   copper: COPPER_AGE ? [] : [{ capability: 'copper_side', how: 'hand', note: 'copper kept from the iron mine' }, { capability: 'amethyst', how: 'ticket', note: 'amethyst shards for the spyglass (its climb-out from a deeper geode, #96)' }],
   // (MC_MACHINES_AGE: the egg collector, the rail line and its powered rails are laid by command, the goods made)

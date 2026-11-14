@@ -61,6 +61,8 @@ const GATHER = new Set(['coal', 'raw_iron', 'raw_copper', 'raw_gold', 'white_woo
   // deep level brings them up, so a make plans them from stock (#22's `gems` planner for every plan; the diamond block's
   // recipe loops). Not lapis: blue dye would be planned from it, not from the cornflowers the monument's glass counts on)
   'obsidian', 'diamond',
+  // (the Nether rung: ancient debris dug in the Nether (nether_dig), smelted to netherite scrap for the ingot; no recipe)
+  'ancient_debris',
   // (#104, MC_VANILLA_ALL: diorite, the snowy pieces' stand-in for snow and ice, mined as it lies, not made from quartz;
   // granite too, 11-12: a requested statue's red and orange, sculpture.ts, collected where it lies as the quarry's is)
   ...(!/^(off|0|false|no)$/i.test(rawSetting('MC_VANILLA_ALL') ?? 'on') ? ['diorite', 'granite'] : [])]);

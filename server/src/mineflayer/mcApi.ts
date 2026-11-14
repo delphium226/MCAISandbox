@@ -492,6 +492,7 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
       return sendJson(res, 200, [...w.agents.values()].map((a) => ({
         name: a.name, role: a.role, brain: a.brain?.name ?? null,
         position: a.bot.entity ? { x: a.bot.entity.position.x, y: a.bot.entity.position.y, z: a.bot.entity.position.z } : null,
+        ...(a.dim !== 'overworld' ? { dim: a.dim } : {}),
         action: a.current?.status ?? null,
       })));
     }

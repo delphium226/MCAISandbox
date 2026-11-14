@@ -7,6 +7,7 @@
 import type { Rcon } from './rcon';
 import { rawSetting } from '../settings';
 import { modeSpec, worldMode, type WorldMode } from '../worldMode';
+import { DIMS, inDim } from './mcDim';
 
 /**
  * Game speed for tests (MC_TIME_SCALE, plan step T.1): the server runs at 20 x this many ticks a second and the bots'
@@ -85,6 +86,19 @@ export async function applyWorldRules(rcon: Rcon): Promise<WorldRulesStatus> {
   const tickReply = await rcon.command('gamerule random_tick_speed');
   if (/set to:\s*(\S+)/.exec(tickReply)?.[1] !== ticks) {
     problems.push(`random_tick_speed: wanted ${ticks}, server says ${tickReply.trim() || 'nothing'}`);
+  }
+  // (the Nether rung: Paper keeps game rules per dimension, and the Nether stood at fire_damage true, keep_inventory false
+  // and spawn_monsters true while the overworld had them off: Gus died in lava on the probe's first trip, 11-14. The
+  // same rules in the_nether and the_end; a server without the dimension is skipped)
+  const other: Record<string, string> = { ...spec.rules, random_tick_speed: ticks };
+  for (const dim of DIMS.filter((d) => d !== 'overworld')) {
+    const probe = await rcon.command(inDim(dim, 'gamerule keep_inventory')).catch(() => '');
+    if (!/set to:/.test(probe)) continue;
+    for (const [rule, value] of Object.entries(other)) {
+      await rcon.command(inDim(dim, `gamerule ${rule} ${value}`));
+      const reply = await rcon.command(inDim(dim, `gamerule ${rule}`));
+      if (/set to:\s*(\S+)/.exec(reply)?.[1] !== value) problems.push(`${dim} ${rule}: wanted ${value}, server says ${reply.trim() || 'nothing'}`);
+    }
   }
   const ok = problems.length === 0;
   const speed = (rate === 20 ? '' : `, tick rate ${rate} (${timeScale()}x)`)

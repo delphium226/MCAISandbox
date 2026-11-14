@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-312 settings.
+314 settings.
 
 ## Game speed
 
@@ -292,6 +292,8 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_MONUMENT_STOCK` | flag | `on` |  | `MC_MONUMENT` | MC_MONUMENT_STOCK (11-01, on; =off: gathering trips only): a monument takes what storage can spare of the cobblestone, logs and sand it wants (beyond the workshop's want and 64 of each) before it sends gathering trips, as a civic building does. |
 | `MC_MONUMENT_TYPE` | string | `cathedral` |  | `MC_MONUMENT` | The monument the village builds after the iron age (#153): cathedral (gothicGen.ts) or castle (castleGen.ts: Conwy, or the White Tower with MC_MONUMENT_PRESET=white_tower), on the same pad, yard, quarry, kiln and jobs; the architect (MC_MONUMENT_ARCHITECT) picks only for the cathedral. |
 | `MC_MUSIC_AGE` | flag | `on` |  | `MC_LADDER` | MC_MUSIC_AGE (on by default; off turns it off, its stages in words and the rung off the ballot): the age of music's four counted stages (8 redstone bought from the merchant, 8 note blocks made, a bandstand of them tuned to a C major scale, a bell post with a bell bought from the merchant); while the rung is current the merchant sells redstone and the bell, the workshop makes note blocks and the village posts the bandstand and the bell post. |
+| `MC_NETHER_AGE` | flag | `on` |  | `MC_LADDER`, `MC_IRON_AGE` | MC_NETHER_AGE (on by default; off turns it off, its stages in words and the rung off the ballot): the Nether's four counted stages (a portal of 10 obsidian lit with a flint and steel, 64 Nether blocks brought back by an expedition party, 4 ancient debris dug in the Nether, a netherite ingot made; docs/specs/nether.md). Peaceful worlds only: with another MC_WORLD_MODE the rung stays in words. |
+| `MC_NETHER_PARTY` | number | `3` |  | `MC_NETHER_AGE` | MC_NETHER_PARTY: the most members in the Nether at once on the village's expeditions and debris digs (1-8). |
 | `MC_ORE_MINE` | flag | `off` |  | `MC_IRON_AGE` | MC_ORE_MINE (with MC_IRON_AGE): the iron levels follow the iron seen (short drifts to ore seen near the tunnels, turns and next levels toward it, levels 6 apart down to y -8) instead of fixed patterns only, up to 8,000 cells in all. |
 | `MC_ORE_VEIN` | flag | `off` |  |  | Ore veins followed in the mine (with the ore mine). |
 | `MC_OWN_TOOLS` | flag | `off` |  |  | MC_OWN_TOOLS: a tool given to a member stays with it (deposits keep it) and its skills use it before storage's. |

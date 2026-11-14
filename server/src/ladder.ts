@@ -9,11 +9,11 @@
  */
 import type { LadderState, Village } from './village';
 import { rungNeeds, type RungId } from './wanted';
-import { BEES_AGE, COPPER_AGE, DIAMOND_AGE, DIAMOND_Y, ENCHANTMENT_AGE, HUSBANDRY_AGE, IRON_AGE, IRON_MINERS, LADDER, LADDER_START, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE, SEA_AGE, TRADE_AGE } from './ladderFlags';
+import { BEES_AGE, COPPER_AGE, DIAMOND_AGE, DIAMOND_Y, ENCHANTMENT_AGE, HUSBANDRY_AGE, IRON_AGE, IRON_MINERS, LADDER, LADDER_START, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE, NETHER_AGE, SEA_AGE, TRADE_AGE } from './ladderFlags';
 import { boatOf } from './enchantSea';
 import { BUYS, ORDERS_ON } from './merchant';
 
-export { BEES_AGE, COPPER_AGE, DIAMOND_AGE, ENCHANTMENT_AGE, HUSBANDRY_AGE, IRON_AGE, IRON_MINERS, LADDER, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE, OWN_TOOLS, SEA_AGE, TRADE_AGE } from './ladderFlags';
+export { BEES_AGE, COPPER_AGE, DIAMOND_AGE, ENCHANTMENT_AGE, HUSBANDRY_AGE, IRON_AGE, IRON_MINERS, LADDER, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE, NETHER_AGE, NETHER_PARTY, OWN_TOOLS, SEA_AGE, TRADE_AGE } from './ladderFlags';
 
 /** What a stage counts: cells dug at the iron levels, raw iron brought up, ingots smelted, tools given to members; for
  *  letters (MC_LETTERS) sugar cane harvested, leather bought or caught, books bound and library pieces shelved; for diamond
@@ -27,12 +27,14 @@ export { BEES_AGE, COPPER_AGE, DIAMOND_AGE, ENCHANTMENT_AGE, HUSBANDRY_AGE, IRON
  *  bees in the apiary, honeycomb sheared, honey bottled and copper blocks waxed; for maps (MC_MAPS_AGE) the cartography
  *  table, the village's own area charted, maps hung on the map wall and areas of the atlas charted; for enchantment
  *  (MC_ENCHANTMENT_AGE) obsidian cast, the enchanting table placed, the highest level a member holds and books enchanted; for
- *  the sea (MC_SEA_AGE) boats made, the dock built, fish caught and the lighthouse built. */
+ *  the sea (MC_SEA_AGE) boats made, the dock built, fish caught and the lighthouse built; for the Nether (MC_NETHER_AGE)
+ *  the portal lit, Nether blocks brought back, ancient debris dug and a netherite ingot in storage. */
 export type Counter = 'cells' | 'raw_iron' | 'ingots' | 'tools' | 'cane' | 'leather' | 'books' | 'shelved' | 'depth' | 'diamonds' | 'dtools'
   | 'sales' | 'stalls' | 'emeralds' | 'orders' | 'crafted' | 'copper' | 'cblocks' | 'croof' | 'instruments'
   | 'pens' | 'bred' | 'wool' | 'hay' | 'redstone' | 'notes' | 'bandstand' | 'bell'
   | 'collector' | 'carts' | 'railline' | 'powered' | 'hives' | 'honeycomb' | 'honey' | 'waxed' | 'ctable' | 'vmap' | 'mapwall' | 'mapped'
-  | 'obsidian' | 'etable' | 'xplevel' | 'enchanted' | 'boats' | 'dock' | 'fish' | 'lighthouse';
+  | 'obsidian' | 'etable' | 'xplevel' | 'enchanted' | 'boats' | 'dock' | 'fish' | 'lighthouse'
+  | 'portal' | 'nblocks' | 'debris' | 'netherite';
 
 export interface StageDef {
   /** The stage in words, with {n} and {t} for the count and the target where it is counted. */
@@ -128,6 +130,16 @@ export const SEA_BOATS = 3, SEA_FISH = 24;
 /** The sea rung's work: the lighthouse (smallWorks.ts RUNG_WORKS), posted once storage holds its lantern and lightning rod. */
 export const SEA_LIGHTHOUSE = 'lighthouse';
 
+/** The Nether rung's targets (docs/specs/nether.md section 1): a portal frame of 10 obsidian (4 by 5, no corners; the
+ *  enchantment rung's 4 went into its table, so the stage casts 10 more with make_obsidian, some 3 trips), lit with a
+ *  flint and steel (an ingot and a flint); 64 Nether blocks brought back (a party member brings up to 24 a trip: some 3
+ *  member-trips of about 10 minutes); 4 ancient debris dug (the 4 netherite scrap of an ingot; the probe found 6-7 at y
+ *  8-22 within 48 blocks of minevale3's far portal); a netherite ingot (4 scrap and 4 gold ingots, the merchant's gold).
+ *  About 3 hours at 1x, most of it the obsidian and the debris dig. */
+export const NETHER_OBSIDIAN = 10, NETHER_BROUGHT = 64, NETHER_DEBRIS = 4, NETHER_GOLD = 4;
+/** What a Nether expedition gathers and counts (and the drops of the ores among them). */
+export const NETHER_BLOCKS = ['netherrack', 'blackstone', 'basalt', 'soul_sand', 'soul_soil', 'magma_block', 'nether_quartz_ore', 'nether_gold_ore', 'crimson_nylium', 'warped_nylium', 'glowstone', 'quartz', 'gold_nugget', 'crimson_stem', 'warped_stem', 'nether_wart_block', 'warped_wart_block', 'shroomlight', 'glowstone_dust'];
+
 /** The rungs (spec section 3, sized by draft 2's B1 for iron). Iron's stages are counted by code, and letters' with
  *  MC_LETTERS. */
 export const RUNG_DEFS: Record<RungId, RungDef> = {
@@ -180,8 +192,18 @@ export const RUNG_DEFS: Record<RungId, RungDef> = {
       : [{ words: '4 obsidian' }, { words: 'the enchanting table in the library' }, { words: '8 levels held by an enchanter' }, { words: '5 enchanted tools or books' }],
   },
   nether: {
-    id: 'nether', name: 'the Nether', what: 'a portal, an expedition, piglin barter and netherite', after: ['enchantment'], tier: 5, time: 'many hours',
-    stages: [{ words: 'a lit portal' }, { words: 'an expedition bringing back 64 Nether blocks' }, { words: '20 barters with piglins at a bastion' }, { words: 'a netherite upgrade' }],
+    id: 'nether', name: 'the Nether', what: 'a Nether portal, an expedition through it, ancient debris and a netherite ingot', after: ['enchantment'], tier: 5, time: 'about 3 hours',
+    // (MC_NETHER_AGE, docs/specs/nether.md: peaceful only. Piglins are monsters (none on peaceful), so the barter became
+    // ancient debris dug; the netherite upgrade's smithing template lies only in bastion chests, so the last stage is the
+    // ingot)
+    stages: NETHER_AGE && IRON_AGE
+      ? [
+        { words: 'a Nether portal of 10 obsidian built and lit with a flint and steel', counter: 'portal', target: 1, feeds: /^(rung:(portal|obsidian|fill_bucket|flint)|make:flint_and_steel)$/ },
+        { words: '{n} of {t} Nether blocks brought back by expeditions through the portal', counter: 'nblocks', target: NETHER_BROUGHT, feeds: /^rung:expedition$/ },
+        { words: '{n} of {t} ancient debris dug in the Nether', counter: 'debris', target: NETHER_DEBRIS, feeds: /^rung:debris$|^diamond:forge\b/ },
+        { words: 'a netherite ingot made from the debris and gold', counter: 'netherite', target: 1, feeds: /^(make:netherite_ingot|activity:lib:buy:gold_ingot|activity:lib:sell)$/ },
+      ]
+      : [{ words: 'a lit portal' }, { words: 'an expedition bringing back 64 Nether blocks' }, { words: '4 ancient debris' }, { words: 'a netherite ingot' }],
   },
   copper: {
     id: 'copper', name: 'the copper age', what: 'copper from the mine, copper roofs, a lightning rod and a spyglass', after: ['iron'], tier: 2, time: 'about 2 hours',
@@ -423,6 +445,8 @@ export const beesCurrent = (v: Village): boolean => BEES_AGE && LADDER && v.ladd
 export const mapsCurrent = (v: Village): boolean => MAPS_AGE && LADDER && v.ladder?.current === 'maps';
 /** Whether enchantment is the current rung (MC_ENCHANTMENT_AGE, MC_IRON_AGE and MC_LADDER on). */
 export const enchantmentCurrent = (v: Village): boolean => ENCHANTMENT_AGE && IRON_AGE && LADDER && v.ladder?.current === 'enchantment';
+/** Whether the Nether is the current rung (MC_NETHER_AGE, MC_IRON_AGE and MC_LADDER on, a peaceful world). */
+export const netherCurrent = (v: Village): boolean => NETHER_AGE && IRON_AGE && LADDER && v.ladder?.current === 'nether';
 /** Whether the sea is the current rung (MC_SEA_AGE and MC_LADDER on). */
 export const seaCurrent = (v: Village): boolean => SEA_AGE && LADDER && v.ladder?.current === 'sea';
 /** The counter of the current rung's current stage ('' with none). */
@@ -616,6 +640,28 @@ export function seaCounts(type: string, message: string): Array<[Counter, number
   return out.filter(([, q]) => q > 0);
 }
 
+/**
+ * The Nether rung's counts from a chore step's message: Nether blocks an expedition brought back ("brought back 18 Nether
+ * blocks (4 kinds) ...", the member's server counts of NETHER_BLOCKS before it went and once it was back in the overworld;
+ * the world counts it once the chore's deposit landed) and ancient debris dug ("dug 2 ancient debris ...", the server's
+ * count before and after). [] with MC_NETHER_AGE off. The portal and the ingot are levels (levelCounts).
+ */
+export function netherCounts(type: string, message: string): Array<[Counter, number]> {
+  if (!NETHER_AGE || !IRON_AGE) return [];
+  const out: Array<[Counter, number]> = [];
+  if (type === 'nether_expedition') {
+    const m = /^brought back (\d+) Nether blocks?\b/.exec(message);
+    if (m) out.push(['nblocks', Number(m[1])]);
+  } else if (type === 'nether_dig') {
+    const m = /^dug (\d+) ancient debris\b/.exec(message);
+    if (m) out.push(['debris', Number(m[1])]);
+  }
+  return out.filter(([, q]) => q > 0);
+}
+
+/** The netherite items a level counts (the ingot, or anything made of one). */
+export const netheriteHeld = (store: Record<string, number>): number => Object.entries(store).filter(([k]) => k === 'netherite_ingot' || k === 'netherite_block' || /^netherite_(pickaxe|axe|shovel|hoe|sword|helmet|chestplate|leggings|boots)$/.test(k)).reduce((n, [, q]) => n + q, 0);
+
 /** The highest experience level a member holds, as `xp query` last read it (the levels stage). */
 export function levelsHeld(v: Village): number {
   return Math.max(0, ...Object.values(v.enchant?.levels ?? {}));
@@ -726,6 +772,12 @@ export function rungGoodTarget(v: Village, item: string, store: Record<string, n
     if (item === 'book') return Math.max(have, (table || (store.enchanting_table ?? 0) > 0 ? 0 : 1) + Math.max(0, ENCHANT_BOOKS - (totals.enchanted ?? 0)));
     return 0;
   }
+  // (MC_NETHER_AGE: a flint and steel until the portal is lit; the ingot once the debris is dug)
+  if (netherCurrent(v)) {
+    if (item === 'flint_and_steel') return !v.nether?.portal?.lit ? Math.max(1, have) : have;
+    if (item === 'netherite_ingot') return stage === 3 ? Math.max(1, have) : have;
+    return 0;
+  }
   // (MC_SEA_AGE: the boats still to make, in the village's wood; the lighthouse's lantern and lightning rod until it is
   // posted)
   if (seaCurrent(v)) {
@@ -759,6 +811,8 @@ export function rungKeep(v: Village, item: string, store: Record<string, number>
     return n > 0 ? n : undefined;
   }
   if (beesCurrent(v) && item === 'bee_nest' && stage === 0 && !rungWorkPosted(v, BEES_APIARY)) return BEES_NESTS;
+  // (MC_NETHER_AGE: the ingot's 4 gold ingots from the debris stage on, while no ingot is made)
+  if (netherCurrent(v) && item === 'gold_ingot' && stage >= 2 && !netheriteHeld(store)) return NETHER_GOLD;
   // (MC_ENCHANTMENT_AGE: bottles o' enchanting while the levels stage is current; a lapis for each book still to enchant)
   if (enchantmentCurrent(v)) {
     if (item === 'experience_bottle' && stage === 2) return ENCHANT_BOTTLES;
@@ -831,6 +885,8 @@ export function levelCounts(v: Village, store: Record<string, number>): Array<[C
   // The sea: the dock whole, the lighthouse built)
   if (enchantmentCurrent(v)) lv.push(['etable', v.enchant?.table ? 1 : 0], ['xplevel', Math.min(ENCHANT_LEVELS, levelsHeld(v))]);
   if (seaCurrent(v)) lv.push(['dock', v.sea?.dock?.done ? 1 : 0], ['lighthouse', built(SEA_LIGHTHOUSE)]);
+  // (the Nether: the portal lit, as the server showed its six inner cells; a netherite ingot (or a netherite good) stored)
+  if (netherCurrent(v)) lv.push(['portal', v.nether?.portal?.lit ? 1 : 0], ['netherite', Math.min(1, netheriteHeld(store))]);
   return lv.map(([c, n]): [Counter, number] => [c, n - (st.totals?.[c] ?? 0)]).filter(([, n]) => n > 0);
 }
 

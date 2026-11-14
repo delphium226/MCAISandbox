@@ -588,6 +588,18 @@ export interface Village {
   /** G8's sea rung (MC_SEA_AGE; mcBuild.ts build_dock): the dock's plan (enchantSea.ts planDock), how many of its blocks the
    *  server shows, and whether it is whole; a failed plan's reason and time (planned again after 30 minutes). */
   sea?: { dock?: { cells?: Array<{ x: number; y: number; z: number; block: string }>; laid?: number; done?: boolean; fail?: string; at?: number } };
+  /** G8's Nether rung (MC_NETHER_AGE; mcNether.ts, netherPlan.ts): the village's portal in the overworld (the frame's
+   *  lower corner, its axis, the stand cell in front, lit once the server shows all six inner cells), the far portal it
+   *  leads to (a Nether position with its stand cell, recorded at the first arrival), the trips made and Nether blocks
+   *  brought back; a failed plan's reason and time (planned again after 30 minutes). */
+  nether?: {
+    portal?: { x: number; y: number; z: number; axis: 'x' | 'z'; stand: { x: number; y: number; z: number }; lit?: boolean; by?: string; at?: number };
+    far?: { x: number; y: number; z: number; dim: 'the_nether' | 'the_end'; stand?: { x: number; y: number; z: number } };
+    trips?: number;
+    brought?: number;
+    fail?: string;
+    at?: number;
+  };
   /** M1 (#144, MC_MONUMENT): the cathedral the village builds after the iron age (monument.ts). */
   monument?: Monument;
   /** The village's own monument once finished, set aside while a person's asked record (civic, drawn or preset) holds the

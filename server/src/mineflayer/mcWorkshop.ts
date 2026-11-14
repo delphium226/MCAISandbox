@@ -29,7 +29,7 @@ export interface MakeGood { item: string; target: number; batch: number; unit: n
   carve?: true;
   /** G8's rung goods (#21): made for the ladder's current rung, targets from its stages (the world's makeTarget), never a
    *  merchant order. */
-  rung?: 'letters' | 'copper' | 'husbandry' | 'music' | 'machines' | 'bees' | 'maps' | 'enchantment' | 'sea';
+  rung?: 'letters' | 'copper' | 'husbandry' | 'music' | 'machines' | 'bees' | 'maps' | 'enchantment' | 'sea' | 'nether';
   /** Survival (c)'s arms (MC_ARMS, mob modes only): targets from the members (the world's makeTarget), 0 elsewhere. */
   arms?: true }
 
@@ -105,6 +105,13 @@ export const SEA_GOODS: MakeGood[] = [
   { item: 'oak_boat', target: 0, batch: 1, unit: 1, words: 'boats', forWhat: 'the village\'s fleet (the age of the sea): 5 planks a boat', rung: 'sea' },
   { item: 'lantern', target: 0, batch: 1, unit: 1, words: 'a lantern', forWhat: 'the lighthouse\'s light (the age of the sea): an iron ingot\'s nuggets and a torch', allow: ['iron_ingot'], rung: 'sea' },
   { item: 'lightning_rod', target: 0, batch: 1, unit: 1, words: 'a lightning rod', forWhat: 'the lighthouse\'s lightning rod (the age of the sea): 3 copper ingots', rung: 'sea' },
+];
+/** The Nether rung's goods (MC_NETHER_AGE; docs/specs/nether.md): the flint and steel that lights the portal (an iron ingot
+ *  and a flint, the flint trip's), and the netherite ingot (4 ancient debris smelted to scrap in the same make, 4 gold
+ *  ingots, the merchant's). */
+export const NETHER_GOODS: MakeGood[] = [
+  { item: 'flint_and_steel', target: 0, batch: 1, unit: 1, words: 'a flint and steel', forWhat: 'lighting the village\'s Nether portal (the Nether): an iron ingot and a flint', allow: ['iron_ingot', 'flint'], rung: 'nether' },
+  { item: 'netherite_ingot', target: 0, batch: 1, unit: 1, words: 'a netherite ingot', forWhat: 'the Nether\'s netherite: 4 ancient debris smelted to scrap and 4 gold ingots', allow: ['ancient_debris', 'gold_ingot'], rung: 'nether' },
 ];
 
 /** The goods, in this order on ties (spec 4.4; mud bricks, chests and the stone axe, shovel and sword cut, D11). */

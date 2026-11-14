@@ -47,6 +47,8 @@ export interface Observation {
   timeOfDay: number;
   isDay: boolean;
   position: { x: number; y: number; z: number };
+  /** The dimension when not the overworld (the Nether rung): 'the_nether', 'the_end'. */
+  dimension?: string;
   yaw: number;
   health: number;
   food: number;

@@ -20,7 +20,9 @@ Steps, each printed:
   2. copy back from mc/testworld the region, entities and poi files of every region the site touches (its centre plus or
      minus its radius); a file the snapshot does not have is deleted (chunks generated since)
   3. remove the villages a test made there from mc/testserver/villages.json (a copy is kept beside it as
-     villages.json.bak-<time>) and put the snapshot's atlas summaries back for those regions
+     villages.json.bak-<time>) and put the snapshot's atlas summaries back for those regions; delete the Nether's region,
+     entities and poi files under the site's square divided by 8 (mc/testworld has no Nether: they are generated again
+     from the seed, so no portal an earlier run built stands there to link to; the Nether rung, docs/specs/nether.md)
   4. start the test Paper and its agent server detached, logging to runs/<date>/testpaper-<time>.log and
      testagents-<time>.log, and wait until the agent server has applied the world settings
 The agent server gets MC_SERVER_DIR=mc/testserver, MC_PORT=25566, the API port and MC_API_HOST=0.0.0.0; MC_TIME_SCALE
@@ -160,6 +162,32 @@ def restore_files(regions, source=T.SNAP):
             for p in oversized(snap / kind, rx, rz):
                 shutil.copy2(p, live / kind / p.name)
                 print(f"  {kind}/{p.name}: restored")
+
+
+NETHER = pathlib.Path("dimensions") / "minecraft" / "the_nether"
+
+
+def nether_regions(site):
+    """The Nether regions (rx, rz) under a site's square (its centre plus or minus its radius, divided by 8: vanilla's 1:8)."""
+    x, z = T.site_centre(site)
+    r = int(site.get("radius") or 160) + (0 if site.get("site") else 240)
+    lo = lambda c: (c - r) // 8 // 512
+    hi = lambda c: (c + r) // 8 // 512
+    return [(rx, rz) for rx in range(lo(x), hi(x) + 1) for rz in range(lo(z), hi(z) + 1)]
+
+
+def clear_nether(site):
+    """Delete the live Nether files under the site (none are in the snapshot or a checkpoint)."""
+    live = T.TEST / "world" / NETHER
+    for kind in T.KINDS:
+        for rx, rz in nether_regions(site):
+            f = live / kind / T.region_name(rx, rz)
+            if f.exists():
+                f.unlink()
+                print(f"  the_nether/{kind}/{f.name}: deleted (generated again from the seed)")
+            for q in oversized(live / kind, rx, rz):
+                q.unlink()
+                print(f"  the_nether/{kind}/{q.name}: deleted")
 
 
 def oversized(folder, rx, rz):
@@ -529,6 +557,7 @@ def main():
         restore_files(regions, source)
         restore_villages(regions, source)
         restore_atlas(regions, source)
+        clear_nether(site)
         if source != T.SNAP:
             restore_records(source, [v["name"].lower() for v in read_json(source / "villages.json", {}).get("villages", [])])
         reset = [v["name"].lower() for v in read_json(T.TEST / "villages.json", {}).get("villages", []) if any(in_regions(a, regions) for a in village_areas(v))]
