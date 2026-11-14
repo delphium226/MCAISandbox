@@ -68,7 +68,7 @@ const planText = (p: Any) => ('why' in p ? p.why : `${p.count}: ${Object.entries
 // (#247, MC_COPPER_AGE: and the copper age's amethyst shard after those)
 // (MC_MUSIC_AGE: and the music age's redstone after those)
 let noShard = [...OFFERS];
-while (noShard.length && ['amethyst_shard', 'redstone', 'bell'].includes(noShard[noShard.length - 1].item)) noShard = noShard.slice(0, -1);
+while (noShard.length && ['amethyst_shard', 'redstone', 'bell', 'gold_ingot', 'bee_nest'].includes(noShard[noShard.length - 1].item)) noShard = noShard.slice(0, -1);
 const tail = noShard[noShard.length - 1]?.item === 'carrot' ? noShard.slice(0, -1) : noShard;
 ok(tail[tail.length - 2]?.item === 'leather' && tail[tail.length - 1]?.item === 'sugar_cane' && SELLS.some((o) => o.item === 'leather'), `offers end with leather and sugar_cane (${OFFERS.length})`);
 

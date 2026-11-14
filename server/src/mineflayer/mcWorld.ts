@@ -22,12 +22,12 @@ import { Vec3 } from 'vec3';
 import { collectFilter, collectTargets, exposed, villageStationCell } from './mcSurvival';
 import { at, nearestBlocks, onVillageGround, stateAt } from './mcUtil';
 import { teleportHome, underHome } from './mcRescue';
-import { annexBusy, growBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, storeBusy, surfaceAt, wheatKeep, writeBoard } from './mcBuild';
+import { NEST_BEES, annexBusy, apiaryNests, growBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, storeBusy, surfaceAt, wheatKeep, writeBoard } from './mcBuild';
 import { ironDone, ironLevelFull, ironStairsHeld, mineAreas, mineGives, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PENS_BIG, PEN_KINDS, PEN_ORDER, PEN_VARIETY, SLOT_KINDS, SLOT_ORDER, enlargedSlot, penCap, penLure, penPlan, penSlotFit, penWords, pigCarrotKeep, restockLine, worksFurnaces } from '../farmSlots';
 import { bowsOn, archeryCounts } from './mcArchery';
 import { BOW_NW, BOW_RANK, FLINT_TRIP_MAX, arrowsLying, bowsFirst, flintCounts, flintShort, gravelOut, gravelSkip, gravelSource, recentShots, type GravelSpot } from './mcFlint';
-import { ARMS_GOODS, BOW_GOODS, COPPER_GOODS, FOOD_GOODS, HUNT_GOODS, HUSBANDRY_GOODS, MUSIC_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, ROD_GOOD, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
+import { ARMS_GOODS, BEES_GOODS, MACHINES_GOODS, MAPS_GOODS, BOW_GOODS, COPPER_GOODS, FOOD_GOODS, HUNT_GOODS, HUSBANDRY_GOODS, MUSIC_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, ROD_GOOD, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
 import { PROMPT_SELF, UNUSED_GOOD, UNUSED_TAG, ambitionGap, feedKinds, needsLine as basicNeedsLine, scarcityLine, selfLine, type HouseFacts, type SelfFacts } from '../promptSelf';
@@ -36,6 +36,7 @@ import { Palette, reserved, type Dropped } from '../palette';
 import { workerNumber } from '../agentNames';
 import { KIND_PHRASE, TEMPERAMENT_MODE, activeKinds, kindWeights, optionWeight, personaOf, temperament, vectorOf } from '../temperament';
 import { GOALS_ON, GOAL_PIN, ensureGoals, goalLine, goalName, goalScore, goalWeight, goalsOf, noteEnd as goalNoteEnd, goalPlanOf, goalWordsDue, serves, specOf, topCraft, type Goals, type OptionFacts } from '../goals';
+import { BEES_AGE, BEES_APIARY, BEES_NESTS, rungKeep, MACHINES_AGE, MACHINES_POWERED, MAPS_AGE, MAPS_WALL, MAPS_WALL_WORK, beesCounts, beesCurrent, cellKey as mapKey, chartPoint, chartWanted, machinesCurrent, mapsCurrent, stageCounter, villageCentre, wallCells } from '../ladder';
 import { COPPER_AGE, COPPER_CANOPY, COPPER_MADE, COPPER_RAW, HUSBANDRY_AGE, IRON_AGE, IRON_MINERS, LADDER, LETTERS, MUSIC_AGE, MUSIC_BANDSTAND, MUSIC_BELL_POST, MUSIC_NOTES, RUNG_DEFS, TRADE_AGE, TRADE_EMERALDS, TRADE_GOODS, TRADE_STALLS, VW, chooseRung, copperCounts, copperCurrent, copperTarget, shardKeep, feedsStage, husbandryCounts, husbandryCurrent, musicCounts, musicCurrent, musicKeep, pairedPenKinds, rungGoodTarget, ladderOf, levelCounts, lettersCounts, lettersCurrent, lettersReached, LETTERS_BOOKS, noteLadder, tradeCounts, tradeCurrent, openRungBallot, progressLine, rungOptions, rungPreview, stageTag, type Counter as LadderCounter, type LadderNews } from '../ladder';
 import type { RungId } from '../wanted';
 import type { ChronicleEntry } from '../social';
@@ -857,6 +858,9 @@ export class MineflayerWorld implements WorldAdapter {
     // (MC_HUSBANDRY_AGE: hay bales while husbandry is current; MC_MUSIC_AGE: note blocks while music is)
     if (husbandryCurrent(v)) goods = [...goods.filter((g) => !HUSBANDRY_GOODS.some((q) => q.item === g.item)), ...HUSBANDRY_GOODS];
     if (musicCurrent(v)) goods = [...goods.filter((g) => !MUSIC_GOODS.some((q) => q.item === g.item)), ...MUSIC_GOODS];
+    // (the tier-3 rungs' goods while their rung is current: machines', bees', maps')
+    for (const [cur, list] of [[machinesCurrent(v), MACHINES_GOODS], [beesCurrent(v), BEES_GOODS], [mapsCurrent(v), MAPS_GOODS]] as const)
+      if (cur) goods = [...goods.filter((g) => !list.some((q) => q.item === g.item)), ...list];
     // (#178, MC_STRING: fishing rods from the string trip's string)
     if (STRING && !goods.some((g) => g.item === ROD_GOOD.item)) goods = [...goods, ROD_GOOD];
     // (#217 step 6, MC_BOWS: bows from the hunt's string, arrows from flint and the pens' feathers, for the watch and the hunt)
@@ -1368,6 +1372,8 @@ export class MineflayerWorld implements WorldAdapter {
     // (MC_HUSBANDRY_AGE: a sheep pen's shearing takes shears from storage; while husbandry is current and none are stored,
     // the village's pair, 2 ingots)
     if (husbandryCurrent(v) && !(storageContents(v).shears ?? 0) && pairedPenKinds(v).includes('sheep')) return { tool: 'shears', why: 'the sheep pen\'s wool for the age of husbandry and no shears in storage' };
+    // (MC_BEES_AGE: the apiary's honeycomb takes shears from storage, once its nests stand)
+    if (beesCurrent(v) && (v.ladder?.stage ?? 0) >= 1 && !(storageContents(v).shears ?? 0)) return { tool: 'shears', why: 'the apiary\'s honeycomb for the age of bees and no shears in storage' };
     // (#22, MC_DIAMOND_AGE: a deep miner whose iron pickaxe wore out gets another: the rung's trips need one, and a deep
     // level's 1,000-odd blocks wear out four)
     if (DIAMONDS_ON && deepChain(v.mine))
@@ -1617,7 +1623,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (#247, MC_COPPER_AGE: the copper blocks still to make, then a lightning rod and a spyglass)
     if (g.rung === 'copper') return copperTarget(v, g.item, storageContents(v));
     // (MC_HUSBANDRY_AGE, MC_MUSIC_AGE: the hay store's bales, the bandstand's note blocks still to make)
-    if (g.rung === 'husbandry' || g.rung === 'music') return rungGoodTarget(v, g.item, storageContents(v));
+    if (g.rung === 'husbandry' || g.rung === 'music' || g.rung === 'machines' || g.rung === 'bees' || g.rung === 'maps') return rungGoodTarget(v, g.item, storageContents(v));
     // (survival (c): stone swords for half the members; the rest as the table)
     if (g.arms) return !armsOn() ? 0 : g.item === 'stone_sword' ? Math.max(2, Math.ceil(this.growMembers(v).length / 2)) : g.target;
     // (food, s30's D13: bread two a member, pies one for two, where the village keeps an appetite; none otherwise)
@@ -2579,7 +2585,7 @@ export class MineflayerWorld implements WorldAdapter {
       try {
         if (LETTERS_PACE && MERCHANT_ON && v.complete) this.postStall(v);
         // (#246, #247: a market stall or the copper canopy while the current stage wants one)
-        if (LADDER && (TRADE_AGE || COPPER_AGE || MUSIC_AGE) && v.complete) this.postRungWorks(v);
+        if (LADDER && (TRADE_AGE || COPPER_AGE || MUSIC_AGE || BEES_AGE || MAPS_AGE) && v.complete) this.postRungWorks(v);
         if (v.initiatives?.length) this.initiativeTick(v);
       } catch (e) {
         console.error(`[initiative] ${v.name}: check failed:`, e);
@@ -3989,7 +3995,7 @@ export class MineflayerWorld implements WorldAdapter {
 
   /** #246, #247: the trade and copper rungs' level counts (ladder.ts levelCounts) into the ladder, credited to `member`. */
   private ladderLevels(v: Village, member: string) {
-    if (!tradeCurrent(v) && !copperCurrent(v) && !husbandryCurrent(v) && !musicCurrent(v)) return;
+    if (!tradeCurrent(v) && !copperCurrent(v) && !husbandryCurrent(v) && !musicCurrent(v) && !machinesCurrent(v) && !beesCurrent(v) && !mapsCurrent(v)) return;
     const got = levelCounts(v, storageContents(v));
     for (const [counter, n] of got) for (const news of noteLadder(v, counter, member, n, Date.now(), clockOf(v.name, Date.now())?.day)) this.ladderNews(v, news);
     if (got.length) this.villages.save();
@@ -4988,6 +4994,8 @@ export class MineflayerWorld implements WorldAdapter {
     it.why = why;
     // (#246, #247: a market stall or the copper canopy built into the ladder's levels, credited to its last crew member)
     if (state === 'built' && LADDER) this.ladderLevels(v, it.steps[it.steps.length - 1]?.agent ?? it.crew[0] ?? it.by);
+    // (MC_BEES_AGE: the apiary's nests take the bees the merchant sold with them)
+    if (state === 'built' && it.kind === BEES_APIARY) this.houseBees(v, it.steps[it.steps.length - 1]?.agent ?? it.crew[0] ?? it.by);
     this.villages.note(v, `${it.by}'s ${it.kind} (${it.id}) ${state}: ${why}; crew ${it.crew.join(', ')}`);
     this.villages.save();
     console.log(`[initiative] ${v.name}: ${it.id} ${state} in ${((it.end - it.at) / 60000).toFixed(1)} min (${why}); started by ${it.by}, crew ${it.crew.join(', ')}; ${it.steps.length} steps`);
@@ -5095,7 +5103,7 @@ export class MineflayerWorld implements WorldAdapter {
           this.ownSold.delete(v.name);
           m.restockAt = Date.now() + this.restockMs();
           // (#21, MC_LETTERS: the whole list again, so a saved merchant gains the offers appended since it was summoned)
-          if (LETTERS || COPPER_AGE || MUSIC_AGE) for (const c of offersCommands(sel.replace(']', ',limit=1]'), m.uses)) await this.rcon.command(c);
+          if (LETTERS || COPPER_AGE || MUSIC_AGE || MACHINES_AGE || BEES_AGE || MAPS_AGE) for (const c of offersCommands(sel.replace(']', ',limit=1]'), m.uses)) await this.rcon.command(c);
           else for (const [i] of OFFERS.entries()) await this.rcon.command(`data modify entity ${sel.replace(']', ',limit=1]')} Offers.Recipes[${i}].uses set value 0`);
           this.villages.save();
           console.log(`[merchant] ${v.name}: restocked (next in ${Math.round(this.restockMs() / 60000)} min)`);
@@ -5251,7 +5259,10 @@ export class MineflayerWorld implements WorldAdapter {
     // (#247, MC_COPPER_AGE: the spyglass's amethyst shard, one, once the copper blocks are made and while no spyglass is stored)
     if (item === 'amethyst_shard') return shardKeep(v, storageContents(v));
     // (MC_MUSIC_AGE: redstone for the note blocks still to make, the bell for the bell post)
-    if (item === 'redstone' || (item === 'bell' && musicCurrent(v))) return musicKeep(v, item);
+    // (the tier-3 rungs: gold and redstone for the powered rails, redstone for the maps' compasses, the apiary's bee nests)
+    if (item === 'redstone') return musicKeep(v, item) ?? rungKeep(v, item, storageContents(v));
+    if (item === 'bell' && musicCurrent(v)) return musicKeep(v, item);
+    if (item === 'gold_ingot' || item === 'bee_nest') return rungKeep(v, item, storageContents(v));
     if (!lettersCurrent(v)) return undefined;
     const store = storageContents(v);
     const farmed = (v.layouts ?? []).some((l) => (l.slots ?? []).some((q) => q.kind === 'sugar_cane'));
@@ -5298,14 +5309,110 @@ export class MineflayerWorld implements WorldAdapter {
    * as gathered from storage, s40's fromStore: an initiative gathers only logs, cobblestone and sand); the music rung's
    * bandstand once storage holds its note blocks, and its bell post once storage holds the bell, the same way.
    */
+  /** MC_BEES_AGE: when the apiary's bees were last let in, by village (once a minute at most). */
+  private housedAt = new Map<string, number>();
+
+  /**
+   * MC_BEES_AGE: the apiary's nests take their bees once it stands (the merchant sold each nest with two): set in each nest
+   * by command, confirmed by the server's answer, the nest recorded as housed; then the ladder's levels (the hives stage).
+   */
+  private houseBees(v: Village, member: string) {
+    const now = Date.now();
+    if ((this.housedAt.get(v.name) ?? 0) > now) return;
+    this.housedAt.set(v.name, now + 60000);
+    const nests = apiaryNests(v);
+    if (!nests.length) return;
+    void (async () => {
+      const housed = new Set(v.apiary?.housed ?? []);
+      for (const [x, y, z] of nests) {
+        const k = `${x},${y},${z}`;
+        if (housed.has(k)) continue;
+        if (!/passed/i.test(await this.rcon.command(`execute if block ${x} ${y} ${z} minecraft:bee_nest`).catch(() => ''))) {
+          console.log(`[bees] ${v.name}: no bee nest at ${k} to let the bees into`);
+          continue;
+        }
+        if (/^Modified/i.test(await this.rcon.command(`data merge block ${x} ${y} ${z} ${NEST_BEES}`).catch(() => ''))) housed.add(k);
+      }
+      if (housed.size === (v.apiary?.housed?.length ?? 0)) return;
+      v.apiary = { ...v.apiary, housed: [...housed] };
+      this.villages.save();
+      console.log(`[bees] ${v.name}: the apiary's bees let into ${housed.size} of ${nests.length} nests`);
+      if (LADDER) this.ladderLevels(v, member);
+    })();
+  }
+
+  /**
+   * G8's tier-3 rungs: the current stage's chores (lay_rail_line, tend_apiary, wax_copper, chart_map, hang_maps), each
+   * offered while its stage is current and storage holds what it takes; backed off 4 minutes (game time) once queued.
+   */
+  private rungJobOptions(v: Village, store: Counts, now: number): Array<[Omit<ChoiceOption, 'holds'>, OptionRun]> {
+    const out: Array<[Omit<ChoiceOption, 'holds'>, OptionRun]> = [];
+    const counter = stageCounter(v);
+    const tag = (id: string, name: string, facts: string, effect: string, run: OptionRun, rank = 990, at?: { x: number; z: number }): void => {
+      out.push([{ id, kind: 'furnish', key: id, excludes: [`${id}=`], name, rank, ...(at ? { at } : {}), facts, effect }, run]);
+    };
+    const back = (what: string) => (this.rungJobAt.get(`${v.name}:${what}`) ?? 0) > now;
+    const job = (what: string, skill: string, args: Record<string, unknown>, deposit: string[]): OptionRun => ({ kind: 'rungjob', skill, args, deposit, back: what });
+    if (machinesCurrent(v)) {
+      const line = v.machines?.line;
+      const failed = !!line?.fail && now - (line.at ?? 0) < 30 * 60000;
+      if (counter === 'railline' && !failed && (store.rail ?? 0) > 0 && !back('rail_line'))
+        tag('rung:rail_line', 'Lay the rail line from the mine to the storage hut', `${line?.cells ? `${line.laid ?? 0} of ${line.cells.length} rails laid` : 'not planned yet (the route is planned on the first trip)'}; ${store.rail} rails in storage; up to 48 rails a trip`,
+          'rails laid toward the age of machines\' line from the mine to the storage hut', job('rail_line', 'lay_rail_line', {}, ['rail', 'dirt', 'minecart']));
+      const need = MACHINES_POWERED - (line?.powered?.length ?? 0);
+      if (counter === 'powered' && line?.done && (store.powered_rail ?? 0) >= need && ((store.redstone_torch ?? 0) > 0 || line.torch) && !back('power_line'))
+        tag('rung:power_line', 'Lay the powered rails on the rail line', `${line.powered?.length ?? 0} of ${MACHINES_POWERED} powered; ${store.powered_rail ?? 0} powered rails and ${store.redstone_torch ?? 0} redstone torches in storage`,
+          'a powered stretch on the line, lit by a redstone torch: the age of machines', job('power_line', 'lay_rail_line', { mode: 'power' }, ['powered_rail', 'redstone_torch']));
+    }
+    if (beesCurrent(v) && apiaryNests(v).length && (v.apiary?.housed?.length ?? 0) > 0) {
+      const tended = v.apiary?.tended ?? {};
+      const due = (what: string) => now - (tended[what] ?? 0) > (3 * 60000) / Math.max(1, timeScale());
+      if ((counter === 'honeycomb' || counter === 'waxed') && (store.shears ?? 0) > 0 && due('shear') && !back('apiary:shear'))
+        tag('rung:apiary:shear', 'Shear the full bee nests at the apiary', `${store.shears} shears in storage; a full nest gives 3 honeycomb (the campfire under it keeps the bees calm); ${store.honeycomb ?? 0} honeycomb in storage`,
+          'honeycomb for the age of bees', job('apiary:shear', 'tend_apiary', { mode: 'shear' }, ['honeycomb', 'shears']));
+      if (counter === 'honey' && (store.glass_bottle ?? 0) > 0 && due('bottle') && !back('apiary:bottle'))
+        tag('rung:apiary:bottle', 'Fill bottles with honey at the apiary', `${store.glass_bottle} glass bottles in storage; a full nest fills one; ${store.honey_bottle ?? 0} honey bottles in storage`,
+          'honey bottles for the age of bees', job('apiary:bottle', 'tend_apiary', { mode: 'bottle' }, ['honey_bottle', 'glass_bottle']));
+    }
+    if (beesCurrent(v) && counter === 'waxed' && (store.honeycomb ?? 0) > 0 && !back('wax_copper'))
+      tag('rung:wax_copper', 'Wax the copper canopy\'s roof with honeycomb', `${store.honeycomb} honeycomb in storage, one a copper block; waxed copper keeps its colour`,
+        'the copper canopy\'s roof waxed: the age of bees', job('wax_copper', 'wax_copper', {}, ['honeycomb']));
+    if (mapsCurrent(v)) {
+      const c = villageCentre(v);
+      let maps = store.map ?? 0;
+      for (const [i, j] of chartWanted(v).slice(0, 2)) {
+        if (maps < 1 || !c) break;
+        const id = `rung:chart:${i}:${j}`;
+        if (back(id)) continue;
+        maps--;
+        const p = chartPoint([i, j], c);
+        const d = Math.round(Math.hypot(p.x - c.x, p.z - c.z));
+        tag(id, `Chart map area ${i},${j}${d > 16 ? ` (${d} blocks from the hut)` : ' (the village\'s own)'}`, `an empty map from storage, used at ${p.x},${p.z}, fills with that 128-block area; ${store.map ?? 0} empty maps in storage; ${Object.keys(v.maps?.cells ?? {}).length} areas charted`,
+          'a map of the land for the age of maps', job(id, 'chart_map', { i, j }, ['filled_map', 'map']), 990, { x: p.x, z: p.z });
+      }
+      const hung = Object.keys(v.maps?.hung ?? {}).length;
+      const ready = c ? wallCells(c).filter((q) => v.maps?.hung?.[q.pos] === undefined && v.maps?.cells?.[mapKey(q.cell[0], q.cell[1])]).length : 0;
+      if (counter === 'mapwall' && hung < MAPS_WALL && ready > 0 && (store.item_frame ?? 0) > 0 && (store.filled_map ?? 0) > 0 && (v.initiatives ?? []).some((i) => i.kind === MAPS_WALL_WORK && i.state === 'built') && !back('hang_maps'))
+        tag('rung:hang_maps', 'Hang the maps on the map wall', `${hung} of ${MAPS_WALL} hung; ${ready} charted maps ready to hang; ${store.item_frame} item frames in storage`,
+          'the village\'s maps on its map wall: the age of maps', job('hang_maps', 'hang_maps', {}, ['filled_map', 'item_frame']));
+    }
+    return out;
+  }
+
+  /** G8's tier-3 rungs: when each rung chore was last queued, by village and chore (a back-off). */
+  private rungJobAt = new Map<string, number>();
+
   private postRungWorks(v: Village) {
     const now = Date.now();
     if ((this.rungWorkAt.get(v.name) ?? 0) > now) return;
     this.rungWorkAt.set(v.name, now + 60000);
     if (!v.storageHut || !CHOOSE.families.has('initiatives')) return;
     const st = v.ladder, sd = st?.current ? RUNG_DEFS[st.current as RungId]?.stages[st.stage] : undefined;
+    // (MC_BEES_AGE: an apiary standing whose nests have not all taken their bees, tried again)
+    if (beesCurrent(v) && (v.apiary?.housed?.length ?? 0) < BEES_NESTS && (v.initiatives ?? []).some((i) => i.kind === BEES_APIARY && i.state === 'built')) this.houseBees(v, STALL_BY);
     const want = sd?.counter === 'stalls' && tradeCurrent(v) ? 'market_stall' : sd?.counter === 'croof' && copperCurrent(v) ? COPPER_CANOPY
-      : sd?.counter === 'bandstand' && musicCurrent(v) ? MUSIC_BANDSTAND : sd?.counter === 'bell' && musicCurrent(v) ? MUSIC_BELL_POST : '';
+      : sd?.counter === 'bandstand' && musicCurrent(v) ? MUSIC_BANDSTAND : sd?.counter === 'bell' && musicCurrent(v) ? MUSIC_BELL_POST
+      : sd?.counter === 'hives' && beesCurrent(v) ? BEES_APIARY : sd?.counter === 'mapwall' && mapsCurrent(v) ? MAPS_WALL_WORK : '';
     if (!want || !st?.current) return;
     const same = (v.initiatives ?? []).filter((i) => i.kind === want);
     if (same.some((i) => i.state === 'open')) return;
@@ -5314,12 +5421,16 @@ export class MineflayerWorld implements WorldAdapter {
     if (!k) return;
     const wood = this.catalogWoodOf(v);
     let gathered: Counts | undefined;
-    // (the rung's own goods, taken as gathered from storage: copper blocks, note blocks, the bell)
-    const own = want === COPPER_CANOPY ? { item: 'copper_block', n: COPPER_MADE } : want === MUSIC_BANDSTAND ? { item: 'note_block', n: MUSIC_NOTES } : want === MUSIC_BELL_POST ? { item: 'bell', n: 1 } : undefined;
+    // (the rung's own goods, taken as gathered from storage: copper blocks, note blocks, the bell; the apiary's bee nests and
+    // campfires, the map wall's cartography table)
+    const own: Counts | undefined = want === COPPER_CANOPY ? { copper_block: COPPER_MADE } : want === MUSIC_BANDSTAND ? { note_block: MUSIC_NOTES } : want === MUSIC_BELL_POST ? { bell: 1 }
+      : want === BEES_APIARY ? { bee_nest: BEES_NESTS, campfire: BEES_NESTS } : want === MAPS_WALL_WORK ? { cartography_table: 1 } : undefined;
     if (own) {
-      const need = designBill(k.make(wood))[own.item] ?? own.n, have = storageContents(v)[own.item] ?? 0;
-      if (have < need) return console.log(`[ladder] ${v.name}: the ${k.words} waits for ${need} ${own.item} in storage (${have})`);
-      gathered = { [own.item]: need };
+      const bill = designBill(k.make(wood)), store = storageContents(v);
+      const need: Counts = Object.fromEntries(Object.entries(own).map(([n, q]) => [n, bill[n] ?? q]));
+      const short = Object.entries(need).filter(([n, q]) => (store[n] ?? 0) < q);
+      if (short.length) return console.log(`[ladder] ${v.name}: the ${k.words} waits for ${short.map(([n, q]) => `${q} ${n}`).join(', ')} in storage (${short.map(([n]) => store[n] ?? 0).join(', ')})`);
+      gathered = need;
     }
     const spot = this.smallWorkSpot(v, k, wood, STALL_BY);
     if (!spot) return console.log(`[ladder] ${v.name}: no spot for the village's ${k.words} yet`);
@@ -5429,6 +5540,8 @@ export class MineflayerWorld implements WorldAdapter {
     if ((this.tradeKeep(v, 'amethyst_shard') ?? 0) > 0) out.add('amethyst_shard');
     // (MC_MUSIC_AGE: redstone for the note blocks, the bell for its post, while the rung wants them)
     if (musicCurrent(v)) for (const n of ['redstone', 'bell']) if ((this.tradeKeep(v, n) ?? 0) > 0) out.add(n);
+    // (the tier-3 rungs: gold and redstone for the powered rails, redstone for the maps' compasses, the apiary's bee nests)
+    if (machinesCurrent(v) || beesCurrent(v) || mapsCurrent(v)) for (const n of ['gold_ingot', 'redstone', 'bee_nest']) if ((this.tradeKeep(v, n) ?? 0) > 0) out.add(n);
     try {
       if (CHOOSE.families.has('furnish')) for (const n of Object.keys(this.decorDemand(v))) out.add(n);
     } catch {
@@ -6202,6 +6315,9 @@ export class MineflayerWorld implements WorldAdapter {
         // note blocks made)
         if (HUSBANDRY_AGE) got.push(...husbandryCounts(q.type, q.message));
         if (MUSIC_AGE && (q.type !== 'trade' || !act || c.status[act.depAt]?.state === 'done')) got.push(...musicCounts(q.type, q.message));
+        // (MC_BEES_AGE: honeycomb sheared at the apiary, or from the wild nests once the activity's deposit landed; honey
+        // bottled; copper waxed)
+        if (BEES_AGE && (q.type !== 'harvest_honeycomb' || !act || c.status[act.depAt]?.state === 'done')) got.push(...beesCounts(q.type, q.message));
         for (const [counter, n] of got) {
           for (const news of noteLadder(v, counter, c.agent, n, Date.now(), clockOf(v.name, Date.now())?.day)) this.ladderNews(v, news);
         }
@@ -8325,6 +8441,10 @@ export class MineflayerWorld implements WorldAdapter {
         if ((slot.kind === 'cow' || slot.kind === 'goat') && (store.bucket ?? 0) > 0 && (store.milk_bucket ?? 0) < 3 && due(pen, 'milk', 2)) works.push([1, 'milk', 'milk_cows', `Milk the ${slot.kind}s`, `${store.bucket ?? 0} buckets and ${store.milk_bucket ?? 0} milk in storage`]);
         // (#139: a sheep pen's wool, with shears from storage; wool grows back on grass)
         if (slot.kind === 'sheep' && (store.shears ?? 0) > 0 && due(pen, 'shear', 5 / scale)) works.push([3, 'shear', 'shear_pen', 'Shear the sheep in the pen', `${store.shears} shears in storage; ${pen.wool ?? 0} wool sheared here so far`]);
+        // (MC_MACHINES_AGE, #24: the age of machines' egg collector, a hopper in the floor feeding a chest; its hopper from
+        // storage or made from 5 iron ingots and a chest)
+        if (slot.kind === 'chicken' && machinesCurrent(v) && stageCounter(v) === 'collector' && !v.machines?.collector && ((store.hopper ?? 0) > 0 || (store.iron_ingot ?? 0) >= 5) && due(pen, 'collector', 5))
+          works.push([6, 'collector', 'fit_egg_collector', 'Fit an egg collector under the chicken pen', `a hopper in the pen's floor feeding a chest behind its fence (the age of machines); ${store.hopper ?? 0} hoppers and ${store.iron_ingot ?? 0} iron ingots in storage`]);
         // (never the seeds a field's open planting still needs: G3f's neighbourhood field was sown half, s30)
         const lure = penLure(slot.kind!, store);
         const feed = (store[lure] ?? 0) - (lure === 'wheat_seeds' ? seedsForFields(v) : 0);
@@ -8346,14 +8466,14 @@ export class MineflayerWorld implements WorldAdapter {
           if (empty && what !== 'hatch') continue;
           const last = pen.workAt?.[what];
           // (#229: breeding below the cap, hatching and enlarging rank above the wall and the workshop, so pens fill)
-          const big = PENS_BIG && (what === 'breed' || what === 'hatch' || what === 'enlarge');
+          const big = PENS_BIG && (what === 'breed' || what === 'hatch' || what === 'enlarge' || what === 'collector');
           // (#225: feathers are the arrows' too, so above the wall with them; plucking keeps half the pen, above)
           const bowSupply = what === 'feathers' && bowsFirst();
           add({
             id: `penwork:${j}:${what}`, kind: 'penwork', key: `penwork:${j}`, excludes, name: `${name}${twin ? ` on slot ${numberWord(j)}` : ''}`, rank: bowSupply ? BOW_RANK + 4 : big ? 300 + 2 * j + (what === 'enlarge' ? 1 : 0) : 500 + 10 * j + w, ...(bowSupply ? { nw: BOW_NW } : big && what !== 'enlarge' && (pen.animals ?? 0) < cap / 2 ? { nw: 1.5 } : {}),
             at: { x: Math.floor((slot.x1 + slot.x2) / 2), z: Math.floor((slot.z1 + slot.z2) / 2) },
             facts: `${pen.animals} ${slot.kind === 'sheep' ? 'sheep' : `${slot.kind}s`} in the pen; ${fact}; ${last ? `last done ${ago(now - last)}` : 'never done'}; ${record('penwork')}`,
-            effect: what === 'hatch' ? 'chicks in the emptied chicken pen (it breeds again once they grow)' : what === 'enlarge' ? `a pen twice the size, room for about ${2 * cap}` : what === 'feathers' ? 'feathers and a chicken into storage (the pen keeps 3)' : what === 'eggs' ? 'eggs into storage' : what === 'milk' ? 'milk buckets toward a cake' : what === 'shear' ? 'wool into storage, for beds, banners and carpets' : `a young ${slot.kind}`,
+            effect: what === 'hatch' ? 'chicks in the emptied chicken pen (it breeds again once they grow)' : what === 'collector' ? 'eggs laid over the hopper gathered into a chest: the age of machines\' first machine' : what === 'enlarge' ? `a pen twice the size, room for about ${2 * cap}` : what === 'feathers' ? 'feathers and a chicken into storage (the pen keeps 3)' : what === 'eggs' ? 'eggs into storage' : what === 'milk' ? 'milk buckets toward a cake' : what === 'shear' ? 'wool into storage, for beds, banners and carpets' : `a young ${slot.kind}`,
           }, { kind: 'penwork', j, what, skill, slotKind: slot.kind ?? '', animals: pen.animals ?? 0 });
         }
       }
@@ -9027,6 +9147,11 @@ export class MineflayerWorld implements WorldAdapter {
         }, { kind: 'shelve', n });
       }
     }
+
+    // G8's tier-3 rungs (MC_MACHINES_AGE, MC_BEES_AGE, MC_MAPS_AGE): the current stage's own chores, ranked beside the
+    // library's shelving (the stage's tag raises them), one member at a time each
+    if (machinesCurrent(v) || beesCurrent(v) || mapsCurrent(v))
+      for (const [o, run] of this.rungJobOptions(v, store, now)) if (!excluded([`${o.key}=`], busy)) add({ ...o, facts: `${o.facts}; ${record('furnish')}${lastOf('furnish', o.id)}` }, run);
 
     // s41: the library's activities (a foundry skill run from a server/library spec): one option a spec whose needs are
     // spare in storage, whose place the skill's adapter finds and whose gives are below their keep; one holder a spec and
@@ -11639,6 +11764,16 @@ export class MineflayerWorld implements WorldAdapter {
         console.log(`[decor] ${v.name}: ${worker.name} makes ${d.amount} ${d.item} for the village's houses`);
         return;
       }
+      case 'rungjob': {
+        // (G8's tier-3 rungs: the skill, then what it brought back or did not use put into storage by name; the chore backed
+        // off 4 minutes, game time, whatever its end)
+        this.rungJobAt.set(`${v.name}:${d.back}`, Date.now() + (4 * 60000) / Math.max(1, timeScale()));
+        const st = [worker.enqueue(d.skill, { ...d.args, chore: true })];
+        if (d.deposit.length) st.push(worker.enqueue('deposit', { item: d.deposit[0], ...(d.deposit.length > 1 ? { also: d.deposit.slice(1).join(',') } : {}), ifAny: true, chore: true }));
+        this.setChore(v, worker, opt.key, st, `${d.skill.replace(/_/g, ' ')}`, undefined, meta, opt.holds, opt);
+        console.log(`[ladder] ${v.name}: ${worker.name} goes to ${d.skill}${Object.keys(d.args).length ? ` ${JSON.stringify(d.args)}` : ''} for ${RUNG_DEFS[v.ladder?.current as RungId]?.name ?? 'the ladder'}`);
+        return;
+      }
       case 'shelve': {
         // (#21: the shelving withdraws its own pieces at the hut and puts back what it did not set)
         const status = worker.enqueue('shelve_library', { chore: true });
@@ -12541,6 +12676,7 @@ type OptionRun =
   | { kind: 'light'; part: string; n: number; unlit: number; label: string }
   | { kind: 'furnish'; part: string; n: number; items: Counts; open: number; label: string }
   | { kind: 'shelve'; n: number }
+  | { kind: 'rungjob'; skill: string; args: Record<string, unknown>; deposit: string[]; back: string }
   | { kind: 'initiate'; work: string; green?: boolean; mix?: string[] }
   | { kind: 'help'; id: string; step: InitiativeStep }
   | { kind: 'monument'; step: 'site' } | { kind: 'monument'; step: 'job'; job: number }

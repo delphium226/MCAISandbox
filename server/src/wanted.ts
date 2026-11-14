@@ -12,7 +12,7 @@
  */
 import { FOOD_POINTS } from './appetite';
 import { boardOf } from './barter';
-import { COPPER_AGE, DIAMOND_AGE, HUSBANDRY_AGE, IRON_AGE, LETTERS, MUSIC_AGE } from './ladderFlags';
+import { BEES_AGE, COPPER_AGE, DIAMOND_AGE, HUSBANDRY_AGE, IRON_AGE, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE } from './ladderFlags';
 import { goalsOf } from './goals';
 import { BUYS, SELLS } from './merchant';
 import { LIBRARY, LOCKED_SKILLS, techOf } from './tech';
@@ -135,11 +135,11 @@ export const CAPABILITIES: Capability[] = [
 /** On with MC_LADDER=on: a chosen or offered rung's needs join the list (G8). */
 export const LADDER_ON = /^(on|1|true)$/i.test(rawSetting('MC_LADDER') ?? 'off');
 /** The ladder's rungs (G8, runs/2026-10-22/ladder/spec.md 3). */
-export type RungId = 'iron' | 'letters' | 'diamond' | 'enchantment' | 'nether' | 'copper' | 'machines' | 'trade' | 'husbandry' | 'music';
-export const RUNGS: RungId[] = ['iron', 'letters', 'diamond', 'enchantment', 'nether', 'copper', 'machines', 'trade', 'husbandry', 'music'];
+export type RungId = 'iron' | 'letters' | 'diamond' | 'enchantment' | 'nether' | 'copper' | 'machines' | 'trade' | 'husbandry' | 'music' | 'bees' | 'maps';
+export const RUNGS: RungId[] = ['iron', 'letters', 'diamond', 'enchantment', 'nether', 'copper', 'machines', 'trade', 'husbandry', 'music', 'bees', 'maps'];
 /** How far up the ladder a rung is (iron first; the branches after it; enchantment after letters and diamond; the Nether at
  *  the top): the queue works the lower rungs' needs first (the user's, 10-22). */
-export const RUNG_DEPTH: Record<RungId, number> = { iron: 0, letters: 1, diamond: 1, copper: 1, machines: 1, trade: 1, husbandry: 1, music: 1, enchantment: 2, nether: 3 };
+export const RUNG_DEPTH: Record<RungId, number> = { iron: 0, letters: 1, diamond: 1, copper: 1, machines: 1, trade: 1, husbandry: 1, music: 1, bees: 2, maps: 2, enchantment: 2, nether: 3 };
 /** Each rung's needs (have: nothing to build; hand: code built by hand; ticket: the foundry's), for ladder.ts' ballot
  *  preview and the rung's waiting line. Iron and trade need nothing; leather for the letters rung is the merchant's. */
 export const RUNG_NEEDS: Record<RungId, Array<{ capability: string; how: 'have' | 'hand' | 'ticket'; note: string }>> = {
@@ -152,12 +152,17 @@ export const RUNG_NEEDS: Record<RungId, Array<{ capability: string; how: 'have' 
   nether: [{ capability: 'nether_travel', how: 'hand', note: 'portals, walking in the Nether, debris mining' }, { capability: 'barter_piglin', how: 'ticket', note: 'gold bartered with piglins' }],
   // (MC_COPPER_AGE: copper kept from the iron mine, the blocks, the canopy and the instruments are built, the shard bought, #247)
   copper: COPPER_AGE ? [] : [{ capability: 'copper_side', how: 'hand', note: 'copper kept from the iron mine' }, { capability: 'amethyst', how: 'ticket', note: 'amethyst shards for the spyglass (its climb-out from a deeper geode, #96)' }],
-  machines: [{ capability: 'machines', how: 'hand', note: 'rails and hoppers laid by command' }],
+  // (MC_MACHINES_AGE: the egg collector, the rail line and its powered rails are laid by command, the goods made)
+  machines: MACHINES_AGE && IRON_AGE ? [] : [{ capability: 'machines', how: 'hand', note: 'rails and hoppers laid by command' }],
   trade: [],
   // (MC_HUSBANDRY_AGE: pens, breeding, shearing and the hay make exist; MC_MUSIC_AGE: the note blocks, the bandstand and the
   // bell post are built, the redstone and the bell bought)
   husbandry: HUSBANDRY_AGE ? [] : [{ capability: 'husbandry', how: 'hand', note: 'counting pens, births, wool and hay' }],
   music: MUSIC_AGE ? [] : [{ capability: 'music', how: 'hand', note: 'note blocks, a bandstand and a bell post' }],
+  // (MC_BEES_AGE: the apiary, its tending and the waxing are built, the nests bought; MC_MAPS_AGE: the charting trips, the
+  // map wall and its hanging are built)
+  bees: BEES_AGE ? [] : [{ capability: 'honeycomb', how: 'ticket', note: 'shears on a full bee nest' }, { capability: 'bees', how: 'hand', note: 'an apiary of bee nests over campfires' }],
+  maps: MAPS_AGE ? [] : [{ capability: 'maps', how: 'hand', note: 'maps made in each area, hung in item frames' }],
 };
 
 /**

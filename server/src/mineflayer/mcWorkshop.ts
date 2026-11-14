@@ -29,7 +29,7 @@ export interface MakeGood { item: string; target: number; batch: number; unit: n
   carve?: true;
   /** G8's rung goods (#21): made for the ladder's current rung, targets from its stages (the world's makeTarget), never a
    *  merchant order. */
-  rung?: 'letters' | 'copper' | 'husbandry' | 'music';
+  rung?: 'letters' | 'copper' | 'husbandry' | 'music' | 'machines' | 'bees' | 'maps';
   /** Survival (c)'s arms (MC_ARMS, mob modes only): targets from the members (the world's makeTarget), 0 elsewhere. */
   arms?: true }
 
@@ -66,6 +66,29 @@ export const HUSBANDRY_GOODS: MakeGood[] = [
 ];
 export const MUSIC_GOODS: MakeGood[] = [
   { item: 'note_block', target: 0, batch: 2, unit: 1, words: 'note blocks', forWhat: 'the bandstand of the age of music: 8 planks and a redstone (the merchant sells it) make one', rung: 'music' },
+];
+
+/**
+ * The tier-3 rungs' goods (MC_MACHINES_AGE, MC_BEES_AGE, MC_MAPS_AGE), while their rung is current; targets in ladder.ts
+ * rungGoodTarget. Machines: the collector's hopper, rails and a minecart, then the line's rails, the powered rails (gold from
+ * the merchant) and their redstone torch. Bees: the apiary's campfires, glass bottles for its honey. Maps: the cartography
+ * table, empty maps (8 paper and a compass, of 4 iron and a redstone), the wall's item frames (8 sticks and a leather).
+ */
+export const MACHINES_GOODS: MakeGood[] = [
+  { item: 'hopper', target: 0, batch: 1, unit: 1, words: 'a hopper', forWhat: 'the egg collector of the age of machines: 5 iron ingots and a chest', allow: ['iron_ingot'], rung: 'machines' },
+  { item: 'rail', target: 0, batch: 16, unit: 16, words: 'rails', forWhat: 'the rail line of the age of machines: 6 iron ingots and a stick make 16', allow: ['iron_ingot'], rung: 'machines' },
+  { item: 'minecart', target: 0, batch: 1, unit: 1, words: 'a minecart', forWhat: 'the minecart of the age of machines\' rail line: 5 iron ingots', allow: ['iron_ingot'], rung: 'machines' },
+  { item: 'powered_rail', target: 0, batch: 6, unit: 6, words: 'powered rails', forWhat: 'the powered rails of the age of machines: 6 gold ingots (the merchant sells them), a stick and a redstone make 6', rung: 'machines' },
+  { item: 'redstone_torch', target: 0, batch: 1, unit: 1, words: 'a redstone torch', forWhat: 'the torch that powers the line\'s powered rails: a redstone and a stick', rung: 'machines' },
+];
+export const BEES_GOODS: MakeGood[] = [
+  { item: 'campfire', target: 0, batch: 2, unit: 1, words: 'campfires', forWhat: 'the apiary of the age of bees: a campfire under each nest keeps its bees calm (3 logs, 3 sticks and a coal or charcoal)', rung: 'bees' },
+  { item: 'glass_bottle', target: 0, batch: 3, unit: 3, words: 'glass bottles', forWhat: 'bottles for the apiary\'s honey (the age of bees): 3 glass make 3', rung: 'bees' },
+];
+export const MAPS_GOODS: MakeGood[] = [
+  { item: 'cartography_table', target: 0, batch: 1, unit: 1, words: 'a cartography table', forWhat: 'the map wall\'s cartography table (the age of maps): 2 paper and 4 planks', allow: ['sugar_cane'], rung: 'maps' },
+  { item: 'map', target: 0, batch: 1, unit: 1, words: 'empty maps', forWhat: 'maps for the age of maps, made in the area they show: 8 paper and a compass (4 iron ingots and a redstone)', allow: ['sugar_cane', 'iron_ingot'], rung: 'maps' },
+  { item: 'item_frame', target: 0, batch: 2, unit: 1, words: 'item frames', forWhat: 'frames for the map wall (the age of maps): 8 sticks and a leather', rung: 'maps' },
 ];
 
 /** The goods, in this order on ties (spec 4.4; mud bricks, chests and the stone axe, shovel and sword cut, D11). */

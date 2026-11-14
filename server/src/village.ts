@@ -530,6 +530,22 @@ export interface LadderState {
   news?: { t: number; text: string };
 }
 
+/** The machines rung's rail line (padPaths.ts planRailLine): its cells (the rail's own block, x y z) and shapes from the mine
+ *  end to the hut end, how many are confirmed laid, done once every cell holds a rail, the powered rails confirmed powered
+ *  and their torch; or why it could not be planned. */
+export interface RailLineRecord {
+  cells?: Array<[number, number, number]>;
+  shapes?: string[];
+  /** How many of its cells the server confirmed holding a rail at the last lay. */
+  laid?: number;
+  done?: boolean;
+  cart?: boolean;
+  powered?: Array<[number, number, number]>;
+  torch?: [number, number, number];
+  fail?: string;
+  at?: number;
+}
+
 export interface Village {
   name: string;
   objective: string;
@@ -554,6 +570,17 @@ export interface Village {
   /** G8 (MC_LADDER): the ladder of ages (ladder.ts); never written with the flag off. wanted.ts reads `current` and
    *  `offered` only. */
   ladder?: LadderState;
+  /** G8's machines rung (MC_MACHINES_AGE, #24; mcBuild.ts fit_egg_collector, lay_rail_line): the egg collector fitted under
+   *  a chicken pen, and the rail line from the mine to the storage hut, each written after the server confirmed it. */
+  machines?: {
+    collector?: { slot: number; hopper: [number, number, number]; chest: [number, number, number]; by: string; t: number };
+    line?: RailLineRecord;
+  };
+  /** G8's bees rung (MC_BEES_AGE): the apiary's nests that took their bees ("x,y,z"), and when each was last tended. */
+  apiary?: { housed?: string[]; tended?: Record<string, number> };
+  /** G8's maps rung (MC_MAPS_AGE; mcBuild.ts chart_map, hang_maps): the map areas charted ("i,j": the map's id, its maker,
+   *  when) and the map wall's frames hung ("nw"...: the map id in it, confirmed by the server). */
+  maps?: { cells?: Record<string, { id: number; by: string; t: number }>; hung?: Record<string, number> };
   /** M1 (#144, MC_MONUMENT): the cathedral the village builds after the iron age (monument.ts). */
   monument?: Monument;
   /** Survival (d) spec 5 (MC_WALLS): the village wall, once voted or refused (walls.ts, mineflayer/mcWalls.ts). */

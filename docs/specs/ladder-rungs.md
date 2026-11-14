@@ -16,7 +16,7 @@ to be on the ballot at any time. don't offer advanced rungs before simpler rungs
 |---|---|---|
 | 1 | iron | always first |
 | 2 | letters, trade, copper, husbandry, music | built from what the village already does (cane, the merchant, the iron mine's side ore, the pens) |
-| 3 | diamond, machines | the deep mine; machines' powered rails need gold and redstone from deep levels |
+| 3 | diamond, machines, bees, maps | the deep mine; machines' powered rails (gold and redstone, bought); bees after husbandry and copper; maps after letters |
 | 4 | enchantment | needs letters (a book, a library) and diamond (2 diamonds, a pickaxe for obsidian) |
 | 5 | the Nether | needs obsidian from enchantment; a second dimension |
 
@@ -149,12 +149,131 @@ the village posts iN, a bandstand / bell post`, "the bandstand waits for 8 note_
 bandstand's note blocks keep their `note` (placed with states by command; check one with `execute if block`). Risks: the
 bell's 12 emeralds wait on sales; a small-work spot must be found for each work.
 
-### 3. Machines (tier 3, ~2 sessions, #24)
+### 3. Machines (tier 3, #24): built 11-14, `MC_MACHINES_AGE` (on, with MC_IRON_AGE)
 
-Hoppers, rails and minecarts are crafts from iron. The egg collector is a hopper under the chicken pen (pens exist). The
-rail line from the mine to the storage hut is new route-and-place code (like a street: a path, then placing by command,
-charged to the inventory) and a check. Powered rails need gold and redstone dust: the deep mine passes the redstone
-levels, so this rung sits in tier 3 beside diamond.
+| Stage | Counter, target | Counted where | Feeds |
+|---|---|---|---|
+| 1. a hopper egg collector under the chicken pen, feeding a chest | `collector`, 1 | a level: `v.machines.collector`, written by `fit_egg_collector` (mcBuild.ts) once `execute if block` shows the hopper and the chest | `penwork:N:collector`, `make:hopper` |
+| 2. 16 rails and a minecart made | `carts`, 17 | a level: min(16, rails stored) + min(1, minecarts stored) | `make:rail`, `make:minecart` |
+| 3. a rail line from the mine to the storage hut | `railline`, 1 | a level: `v.machines.line.done`, set by `lay_rail_line` when the server shows a rail (`#minecraft:rails`) in every cell | `rung:rail_line`, `make:rail` |
+| 4. powered rails on the line, lit by a redstone torch | `powered`, 6 | a level: the line's cells the server shows as `powered_rail[powered=true]` | `rung:power_line`, `make:powered_rail`, `make:redstone_torch`, `activity:lib:buy:gold_ingot`, `activity:lib:buy:redstone`, `activity:lib:sell` |
+
+- **The egg collector** (`fit_egg_collector`, a pen chore `penwork:N:collector` on a chicken pen while stage 1 is current and
+  storage holds a hopper or 5 ingots): a hopper set in the pen's floor at its back cell (where the chickens stand: an egg
+  laid over it drops in), facing a chest set under the fence behind it; both placed by `runJob` (charged, withdrawn from
+  storage, the hopper made from 5 ingots and a chest when short), then confirmed. It gathers the eggs laid over its one
+  cell; the pen's egg collection goes on as before.
+- **The rail line** (`lay_rail_line`, option `rung:rail_line` while stage 3 is current and storage holds rails): planned once
+  by `padPaths.ts planRailLine`, the paths' A* turned to rails: 4-neighbour steps only, a climb of at most 1 a cell, no turn
+  on a slope (a turn only where neither neighbour along the line is higher, and no rail in a dip), a turn costing 2 more so
+  the line keeps straights; from the cell outside the mining hut facing the storage hut to the cell outside the storage hut
+  facing the mine, off buildings, fields, pens and slots, lamps and signs (by 1), open works and other villages, at most
+  160 rails (`RAIL_LINE_MAX`). Each rail's shape (`railShapes`) is set with it. A trip lays up to 48 rails by `runJob`
+  (charged), a path cell under a rail made dirt first (a rail does not stay on a path block), then reads every cell from
+  the server; `laid` is the confirmed count. A failed plan is kept 30 minutes (the option is not offered), then planned
+  again. The minecart is set on the hut end once the line is whole (taken from the member, summoned).
+- **The powered rails** (`lay_rail_line mode=power`, option `rung:power_line` once storage holds the 6 powered rails and a
+  redstone torch): `poweredRun` finds the first 6 flat straights in a row away from the line's ends and a cell beside the
+  middle one, on solid ground, for the torch (a torch powers the rail beside it; power runs 8 along powered rails); the 6
+  replace the rails there, the torch is set, and each is confirmed `powered=true`.
+- **Gold and redstone**: the iron levels rarely meet gold (it lies deeper) and redstone is below them, so the merchant sells
+  gold ingots (1 for 2 emeralds, 6 a restock) with the rung on, and redstone (the music rung's offer, or its own when music
+  is off); storage keeps 6 gold and the redstone the powered rails and torch take while stage 4 wants them (`ladder.ts
+  rungKeep`, the world's `tradeKeep` and `merchantUses`), so lib:buy buys them. Raw gold a deep trip brings smelts too.
+- **The goods** (`mcWorkshop.ts MACHINES_GOODS`, targets `rungGoodTarget`): a hopper until the collector stands; 16 rails and
+  a minecart through stage 2; then the rails the planned line still takes; 6 powered rails and a redstone torch in stage 4.
+
+Targets: the collector one hopper (5 ingots); 16 rails (6 ingots) and a minecart (5); a line of some 30-80 rails between
+two huts a village apart (12-30 ingots, two or three trips of 48); 6 powered rails (6 gold, 12 emeralds) and a torch. With
+50 members the ingots and the gold's emeralds set the pace: about 2-3 hours.
+
+A live run should watch: `[machines] ... fitted an egg collector`, `[machines] ... the rail line planned, N rails` (or
+`could not be planned: ...`), `laid rails on the line ...: N of M confirmed`, `the rail line ... is complete`, `powered N
+of 6 rails`, the merchant's `bought N gold_ingot`. Check a powered rail with `execute if block X Y Z
+minecraft:powered_rail[powered=true]` and walk the line once in a minecart. Risks: a village whose annex has no chicken
+pen never fits the collector (husbandry's 3 kinds usually include chickens; nothing else offers the stage); the plan fails
+on water or cliffs between the huts (the fail is logged and retried after 30 minutes, not routed round by bridges); a line
+with no flat straight of 6 cannot take the powered rails; rails set by command may be reshaped by their neighbours'
+updates (the server check reads `#minecraft:rails`, any shape); `runJob` fails a trip short of dirt for a path crossing.
+
+### Bees (tier 3, #251): built 11-14, `MC_BEES_AGE` (on), after husbandry and copper
+
+Before: the foundry's `harvest_honeycomb` activity (`activity:lib:honeycomb`, research-locked) shears wild nests off village
+ground. Wild nests are few (4 within 150 blocks of minevale3's site in the test world's region files, against 10k logs and
+4k wildflowers) and moving one takes Silk Touch, so the village keeps its own: **the merchant sells a bee nest with its bees
+(6 emeralds, 2 a restock)** and the village sets two in an apiary. The bees are put in each nest by command (`data merge
+block ... {bees:[two bees]}`) once the apiary stands: the honest stand-in for the nest's bees, paid for, with no spawn egg.
+
+| Stage | Counter, target | Counted where | Feeds |
+|---|---|---|---|
+| 1. bee nests with their bees in the apiary, over campfires among flowers | `hives`, 2 | a level: `v.apiary.housed`, each nest the world's `houseBees` let its bees into (the server's "Modified" answer) | `help:apiary`, `make:campfire`, `activity:lib:buy:bee_nest`, `activity:lib:sell` |
+| 2. honeycomb sheared from full nests | `honeycomb`, 16 | `tend_apiary mode=shear`'s "sheared N full bee nests at the apiary: M honeycomb" (counted on the server before and after), or the wild-nest activity's "got N honeycomb from" once its deposit landed (`beesCounts`) | `rung:apiary:shear`, `activity:lib:honeycomb`, `iron:forge:shears` |
+| 3. honey bottles filled | `honey`, 8 | `tend_apiary mode=bottle`'s "filled N honey bottles at the apiary" | `rung:apiary:bottle`, `make:glass_bottle` |
+| 4. the copper canopy's copper blocks waxed | `waxed`, 5 | `wax_copper`'s "waxed N copper blocks of the copper canopy", each confirmed by the server | `rung:wax_copper`, `rung:apiary:shear` |
+
+- **The apiary** (`smallWorks.ts` RUNG_WORKS `apiary`, 5x3, posted by the village while stage 1 is current once storage holds 2
+  nests and 2 campfires, taken as gathered): two `bee_nest[facing=south]` on a log frame, each 2 above a lit campfire with a
+  cell of air between (the smoke keeps the bees calm when the nest is used), 9 wildflowers round them (gathered by the crew,
+  as a garden's), a slab roof; the ground under the flowers left as it is. The village's gardens add more flowers.
+- **Tending** (`tend_apiary`, options `rung:apiary:shear` / `rung:apiary:bottle`, every 3 minutes of game time at most): the
+  server reads each nest; at a full one (`honey_level=5`) the member stands in front and uses the shears or a glass bottle
+  on it (a real use: `activateBlock`), the nest back at 0 is read from the server, the honeycomb's drops are brought to it by
+  command (as a pen's eggs), the gain is counted on the server; the chore deposits it. The forge makes the village shears
+  while bees is current and storage has none; the workshop makes glass bottles (3 glass make 3) for the honey still to fill.
+- **Waxing** (`wax_copper`, option `rung:wax_copper` while stage 4 is current and storage holds honeycomb): the copper
+  canopy's roof cells (from its design at its structure) read from the server (copper, exposed, weathered or oxidised), a
+  honeycomb taken and the waxed block of the same stage set, confirmed, the honeycomb given back otherwise. This is
+  copper's stage 3 "waxed copper roofs", done on the copper rung's own roof.
+
+Targets: a nest is full after five pollen trips by its 2 bees (some 5-10 minutes in daylight, the time frozen at day); 16
+honeycomb is about 6 shearings (3 each), 8 bottles 8 fillings, so some 14 full nests from 2 nests, about an hour; the nests
+are 12 emeralds (about 12 lots sold); the roof 5 honeycomb. About 2-3 hours.
+
+A live run should watch: `[ladder] ... the village posts iN, a apiary`, "the apiary waits for 2 bee_nest, 2 campfire in
+storage", `[bees] ... the apiary's bees let into 2 of 2 nests` (else "no bee nest at X to let the bees into"), `[bees] ...
+sheared N full bee nests` / `filled N honey bottles`, "no full bee nest at the apiary" (how often), `waxed N copper blocks`.
+Check a nest with `data get block X Y Z bees`. Risks: the bees' NBT format (`bees`, `entity_data`, `ticks_in_hive`,
+`min_ticks_in_hive`, 1.20.5+) is untested on 26.1; bees need flowers within reach and daylight; the shears' use is a
+Mineflayer `activateBlock` (a use that does not land leaves the nest full: retried next time); the campfire burns a member
+who walks into it in a world with damage; the campfire's make needs coal (the planner takes coal for the recipe's coals).
+
+### Maps (tier 3, #252): built 11-14, `MC_MAPS_AGE` (on), after letters
+
+The draft's last stage, an explorer or locator map, is impractical: an explorer map comes only from a cartographer
+villager's trade (a structure found for it), and since 1.20 every map is a locator map. It became a 3x3 atlas of the land.
+Maps follow vanilla's grid: a map of scale 0 shows the 128x128 area its maker stands in (areas centred on 0,0).
+
+| Stage | Counter, target | Counted where | Feeds |
+|---|---|---|---|
+| 1. a cartography table made | `ctable`, 1 | a level: a table in storage, or the map wall built | `make:cartography_table` |
+| 2. a map of the village's own area, made at its centre | `vmap`, 1 | a level: the area holding the storage hut's middle charted (`v.maps.cells`) | `rung:chart:I:J`, `make:map`, `activity:lib:buy:redstone` |
+| 3. maps of the nearest areas hung on the map wall | `mapwall`, 4 | a level: `v.maps.hung`, each frame confirmed by the server holding a filled map | `rung:chart:I:J`, `rung:hang_maps`, `help:map_wall`, `make:map`, `make:item_frame` |
+| 4. a 3x3 atlas of the land round the village | `mapped`, 9 | a level: the charted areas among the 3x3 round the own one | `rung:chart:I:J`, `make:map`, `activity:lib:buy:redstone` |
+
+- **Charting** (`chart_map i= j=`, options `rung:chart:I:J`, two at a time, the nearest first, while storage holds empty maps;
+  `ladder.ts chartWanted`): the member takes an empty map, walks to the point of the area nearest the village 8 blocks
+  inside it (`chartPoint`), checks it stands in that area, uses the map (`activateItem`), sees a new filled map counted on
+  the server, reads its id (`data get entity ... SelectedItem.components."minecraft:map_id"`, else the highest map id in its
+  inventory), holds it 4 seconds while it draws, records the area; the chore deposits it.
+- **The map wall** (`smallWorks.ts` RUNG_WORKS `map_wall`, 4x2, posted while stage 3 is current once storage holds the
+  cartography table, taken as gathered): a plank board between log posts under a slab roof, the table beside it. The four
+  maps are the village's own area and its three neighbours toward the hut's nearest corner of it (`wallCells`), hung north
+  up. **Hanging** (`hang_maps`, option `rung:hang_maps`): per frame, an item frame and that area's own map (by id, `clear
+  ... filled_map[minecraft:map_id=N] 1`) taken from the member and the frame summoned on the board's south face holding it
+  (`Fixed`), confirmed with `execute if entity @e[type=item_frame,...,nbt={Item:{id:"minecraft:filled_map"}}]`; what did not
+  hang is given back.
+- **The goods** (`MAPS_GOODS`): the table (2 paper, 4 planks); empty maps (8 paper and a compass of 4 ingots and a redstone)
+  for the areas still wanted, 4 at a time; 4 item frames (8 sticks and a leather) in stage 3. Storage keeps a redstone for
+  each map still to make (`rungKeep`), which lib:buy buys.
+
+Targets: 9 maps are 72 paper (72 cane, the letters rung's farm), 36 ingots and 9 redstone (5 emeralds); the charting walks
+are up to some 200 blocks out and back for the atlas' far corners. About 2-3 hours.
+
+A live run should watch: `[maps] ... mapped area I,J (map #N) from X,Z`, "could not reach map area" (water, cliffs), "the map
+did not fill", `[ladder] ... posts iN, a map wall`, `[maps] ... hung N maps on the map wall`, "did not hang". Look at the wall
+in game. Risks: the map id's read (`SelectedItem` may be gone from 26.1's player data; the inventory fallback takes the
+highest id); the frame's summon NBT (`Facing`, `Item.components`) is untested on 26.1; the far areas may lie over water;
+maps needs MC_LETTERS on to reach the ballot (after letters).
 
 ### 4. Enchantment (tier 4, 2-3 sessions, #23 and #19)
 
@@ -201,18 +320,19 @@ Minecraft's progression has more than the seven rungs above. Candidates, with th
 
 | Rung | Stages (draft) | Tier | Notes |
 |---|---|---|---|
-| **Bees** | 2 hives (campfire under), 16 honeycomb, 8 honey bottles, waxed copper | 3 | needs a bee nest found and moved with Silk Touch, or a hive near flowers; brings back copper's waxing |
-| **Maps** (cartography) | paper (letters), a cartography table, a map of the village, a map wall | 3 | after letters; the atlas already knows the land |
 | **The sea** | a boat, a dock, prismarine from an ocean monument, a conduit | 4 | needs water travel and guardians (hostile mode) |
 | **Brewing** | a brewing stand (blaze rod), Nether wart farm, 10 potions | 6 | after the Nether |
 | **The End** | eyes of ender (ender pearls, blaze powder), the stronghold found, the portal lit, the dragon | 7 | the last rung; far off |
 
 Brewing and the End need the Nether, so they only matter once tier 5 is built. Husbandry and music, the cheapest
-additions to tier 2, are built (above). With five tier-2 rungs the ballot after iron offers the first four in the ballot's
-order (letters, copper, trade, husbandry); music joins once one is reached.
+additions to tier 2, are built (above), and bees and maps in tier 3 (above). With five tier-2 rungs the ballot after iron
+offers the first four in the ballot's order (letters, copper, trade, husbandry); music joins once one is reached. Once
+every tier-2 rung is reached the ballot offers tier 3: diamond, machines, bees and maps (maps only with MC_LETTERS, after
+letters; bees after husbandry and copper). Checks: `tier3_unit` (the three rungs' stages, feeds, goods, keeps, the rail
+line's plan and powered run, the designs, the map areas, the ballot, the flags off).
 
 ## Order of work
 
 1. Trade, 2. copper (both built 11-14: tier 2 has three rungs, the first real ballot after iron), 3. husbandry (optional, tier 2),
-4. machines, 5. bees and maps (optional, tier 3), 6. enchantment, 7. the Nether (spec first). Each rung goes into a test
+4. machines, 5. bees and maps (tier 3; all three built 11-14), 6. enchantment, 7. the Nether (spec first). Each rung goes into a test
 train with its flag on and off.

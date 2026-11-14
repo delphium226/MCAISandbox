@@ -42,6 +42,17 @@ export const HUSBANDRY_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_HUSBANDR
  *  for note blocks, note blocks made, a bandstand of them tuned to a scale, a bell hung in the square); while it is current
  *  the merchant sells redstone and the bell, the workshop makes note blocks and the village posts the two works. */
 export const MUSIC_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_MUSIC_AGE') ?? 'on');
+/** MC_MACHINES_AGE (with MC_LADDER and MC_IRON_AGE, #24; on by default; off turns it off): the age of machines' four counted
+ *  stages (a hopper egg collector under the chicken pen, 16 rails and a minecart made, a rail line from the mine to the
+ *  storage hut, 6 powered rails on it lit by a redstone torch); the merchant sells gold ingots and redstone for them. */
+export const MACHINES_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_MACHINES_AGE') ?? 'on');
+/** MC_BEES_AGE (with MC_LADDER, on by default; off turns it off): the age of bees' four counted stages (an apiary of 2 bee
+ *  nests over campfires among flowers, 16 honeycomb and 8 honey bottles taken from them, the copper canopy's roof waxed);
+ *  the merchant sells a bee nest with its bees. */
+export const BEES_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_BEES_AGE') ?? 'on');
+/** MC_MAPS_AGE (with MC_LADDER, on by default; off turns it off): the age of maps' four counted stages (a cartography table,
+ *  a map of the village's area, a map wall of the four nearest areas in item frames, a 3x3 atlas of the land). */
+export const MAPS_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_MAPS_AGE') ?? 'on');
 /** The diamond level's y (runs/2026-10-30/diamond/spec.md: diamond ore peaks at -57 to -53 on minevale3, 2 laid open per
  *  100 cells dug at -56, lava below -55 cutting 8% of tunnels there). */
 export const DIAMOND_Y = -56;

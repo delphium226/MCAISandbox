@@ -15,7 +15,7 @@ import { INNOVATE, RUNG_SKILLS, registerResearch, type Research } from './tech';
 import { rawSetting } from './settings';
 
 /** G8's rungs (wanted.ts RungId, kept here so the library imports no wanted list), and MC_LADDER. */
-const RUNG_IDS = ['iron', 'letters', 'diamond', 'enchantment', 'nether', 'copper', 'machines', 'trade', 'husbandry', 'music'];
+const RUNG_IDS = ['iron', 'letters', 'diamond', 'enchantment', 'nether', 'copper', 'machines', 'trade', 'husbandry', 'music', 'bees', 'maps'];
 const LADDER = /^(on|1|true)$/i.test(rawSetting('MC_LADDER') ?? 'off');
 
 type Registry = ReturnType<typeof minecraftData>;

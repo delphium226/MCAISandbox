@@ -185,6 +185,37 @@ function bellPost(w: string): Design {
   ]);
 }
 
+/** The bees rung (MC_BEES_AGE): a 5x3 apiary, two bee nests facing south on a log frame, each over a lit campfire with
+ *  a block of air between (the smoke keeps the bees calm when the nest is sheared or bottled), wildflowers round them for
+ *  the bees, a slab roof over the frame; the ground left as it is ("_") so the flowers stand on it. The nests' bees are
+ *  let in once it stands (the world's housing, by command: the merchant sold each nest with its bees). */
+export const APIARY_NESTS: Array<[number, number, number]> = [[1, 2, 1], [3, 2, 1]];
+function apiary(w: string): Design {
+  return design('apiary', w, 'an apiary: two bee nests over campfires on a log frame among wildflowers', {
+    L: `${logOf(w)}[axis=y]`, C: 'campfire[lit=true,signal_fire=false,facing=south]', N: 'bee_nest[facing=south,honey_level=0]', W: 'wildflowers[flower_amount=4,facing=north]', S: `${w}_slab[type=bottom]`,
+  }, [
+    ['_____', 'LC_CL', '_____'],
+    ['WWWWW', 'L.W.L', 'W.W.W'],
+    ['.....', 'LN.NL', '.....'],
+    ['.....', 'SSSSS', '.....'],
+  ]);
+}
+
+/** The maps rung (MC_MAPS_AGE): a 4x2 map wall, a plank board between two log posts under a slab roof, the cartography
+ *  table beside it; its four frames (summoned by hang_maps on the board's south face, mcBuild.ts) hold the maps of the
+ *  four nearest areas, north up: MAP_WALL_FRAMES gives each frame's cell (design x, layer, z). */
+export const MAP_WALL_FRAMES: Record<'nw' | 'ne' | 'sw' | 'se', [number, number, number]> = { nw: [1, 2, 1], ne: [2, 2, 1], sw: [1, 1, 1], se: [2, 1, 1] };
+function mapWall(w: string): Design {
+  return design('map_wall', w, 'a map wall: four maps of the land in item frames on a plank board between log posts, a cartography table beside it', {
+    P: `${w}_planks`, L: `${logOf(w)}[axis=y]`, T: 'cartography_table', S: `${w}_slab[type=bottom]`,
+  }, [
+    ['PPPP', 'PPPP'],
+    ['LPPL', 'T...'],
+    ['LPPL', '....'],
+    ['SSSS', 'SSSS'],
+  ]);
+}
+
 /** A 3x3 signpost: a sign facing south on a two-high fence post. */
 function signpost(w: string): Design {
   return design('signpost', w, 'a signpost: a sign on a fence post', {
@@ -484,6 +515,9 @@ export const RUNG_WORKS: SmallWorkKind[] = [
   // (MC_MUSIC_AGE: the bandstand of the rung's note blocks, the bell post of the bell bought from the merchant)
   { kind: 'bandstand', words: 'bandstand', forWhat: 'music for the age of music: note blocks tuned to a scale, for anyone to play', make: bandstand },
   { kind: 'bell_post', words: 'bell post', forWhat: 'a bell in the village square for the age of music, rung to call the village together', make: bellPost },
+  // (MC_BEES_AGE: the apiary of the nests bought from the merchant; MC_MAPS_AGE: the map wall and its cartography table)
+  { kind: 'apiary', words: 'apiary', forWhat: 'bee nests among flowers for the age of bees: honeycomb and honey', make: apiary },
+  { kind: 'map_wall', words: 'map wall', forWhat: 'the maps of the land around the village, hung for all to see (the age of maps)', make: mapWall },
 ];
 
 /** A small work's kind by its key: the menu's (SMALL_WORKS), a yard's (R1's YARD_WORKS, empty with the flag off) or the

@@ -9,10 +9,10 @@
  */
 import type { LadderState, Village } from './village';
 import { rungNeeds, type RungId } from './wanted';
-import { COPPER_AGE, DIAMOND_AGE, DIAMOND_Y, HUSBANDRY_AGE, IRON_MINERS, LADDER, LADDER_START, LETTERS, MUSIC_AGE, TRADE_AGE } from './ladderFlags';
+import { BEES_AGE, COPPER_AGE, DIAMOND_AGE, DIAMOND_Y, HUSBANDRY_AGE, IRON_AGE, IRON_MINERS, LADDER, LADDER_START, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE, TRADE_AGE } from './ladderFlags';
 import { BUYS, ORDERS_ON } from './merchant';
 
-export { COPPER_AGE, DIAMOND_AGE, HUSBANDRY_AGE, IRON_AGE, IRON_MINERS, LADDER, LETTERS, MUSIC_AGE, OWN_TOOLS, TRADE_AGE } from './ladderFlags';
+export { BEES_AGE, COPPER_AGE, DIAMOND_AGE, HUSBANDRY_AGE, IRON_AGE, IRON_MINERS, LADDER, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE, OWN_TOOLS, TRADE_AGE } from './ladderFlags';
 
 /** What a stage counts: cells dug at the iron levels, raw iron brought up, ingots smelted, tools given to members; for
  *  letters (MC_LETTERS) sugar cane harvested, leather bought or caught, books bound and library pieces shelved; for diamond
@@ -21,10 +21,14 @@ export { COPPER_AGE, DIAMOND_AGE, HUSBANDRY_AGE, IRON_AGE, IRON_MINERS, LADDER, 
  *  of crafted goods sold; for copper (MC_COPPER_AGE) raw copper brought up, copper blocks made, the copper canopy built and
  *  the instruments in storage (a lightning rod, a spyglass); for husbandry (MC_HUSBANDRY_AGE) pen kinds holding a breeding
  *  pair, young born in the pens, wool sheared from a pen and hay bales in storage; for music (MC_MUSIC_AGE) redstone bought,
- *  note blocks made, the bandstand built and the bell post built. */
+ *  note blocks made, the bandstand built and the bell post built; for machines (MC_MACHINES_AGE) the egg collector fitted, the
+ *  rails and minecart stored, the rail line laid and its powered rails confirmed powered; for bees (MC_BEES_AGE) nests with
+ *  bees in the apiary, honeycomb sheared, honey bottled and copper blocks waxed; for maps (MC_MAPS_AGE) the cartography
+ *  table, the village's own area charted, maps hung on the map wall and areas of the atlas charted. */
 export type Counter = 'cells' | 'raw_iron' | 'ingots' | 'tools' | 'cane' | 'leather' | 'books' | 'shelved' | 'depth' | 'diamonds' | 'dtools'
   | 'sales' | 'stalls' | 'emeralds' | 'orders' | 'crafted' | 'copper' | 'cblocks' | 'croof' | 'instruments'
-  | 'pens' | 'bred' | 'wool' | 'hay' | 'redstone' | 'notes' | 'bandstand' | 'bell';
+  | 'pens' | 'bred' | 'wool' | 'hay' | 'redstone' | 'notes' | 'bandstand' | 'bell'
+  | 'collector' | 'carts' | 'railline' | 'powered' | 'hives' | 'honeycomb' | 'honey' | 'waxed' | 'ctable' | 'vmap' | 'mapwall' | 'mapped';
 
 export interface StageDef {
   /** The stage in words, with {n} and {t} for the count and the target where it is counted. */
@@ -89,6 +93,25 @@ export const MUSIC_REDSTONE = 8, MUSIC_NOTES = 8;
 /** The music rung's works (smallWorks.ts RUNG_WORKS), posted by the village while their stage is current. */
 export const MUSIC_BANDSTAND = 'bandstand', MUSIC_BELL_POST = 'bell_post';
 
+/** The machines rung's targets (#24; docs/specs/ladder-rungs.md): one egg collector; 16 rails (one craft of 6 ingots and a
+ *  stick) and a minecart (5 ingots) in storage, so stage 2 is 17 pieces; the rail line from the mine to the storage hut
+ *  laid (one; the workshop makes the rails its length takes); 6 powered rails (one craft: 6 gold ingots, a stick and a
+ *  redstone) laid on a straight of it and confirmed powered by a redstone torch beside them. */
+export const MACHINES_RAILS = 16, MACHINES_POWERED = 6;
+/** The rail line's longest planned run (cells): a longer one fails its plan, as a path does. */
+export const RAIL_LINE_MAX = 160;
+/** The bees rung's targets: 2 bee nests housing their bees in the apiary (one work); 16 honeycomb (a full nest gives 3 to
+ *  shears, so some 6 shearings); 8 honey bottles (a full nest fills one); the copper canopy's 5 copper blocks waxed with a
+ *  honeycomb each (copper's stage 3 left its waxing for this rung). */
+export const BEES_NESTS = 2, BEES_COMB = 16, BEES_HONEY = 8, BEES_WAX = COPPER_MADE;
+/** The bees rung's work: the apiary (smallWorks.ts RUNG_WORKS), posted once storage holds its nests and campfires. */
+export const BEES_APIARY = 'apiary';
+/** The maps rung's targets: a cartography table; the village's own area charted (one); the map wall's 4 maps hung; 9 areas
+ *  charted, the 3x3 of 128-block map areas around the village's own. */
+export const MAPS_WALL = 4, MAPS_ATLAS = 9;
+/** The maps rung's work: the map wall (smallWorks.ts RUNG_WORKS), posted once storage holds a cartography table. */
+export const MAPS_WALL_WORK = 'map_wall';
+
 /** The rungs (spec section 3, sized by draft 2's B1 for iron). Iron's stages are counted by code, and letters' with
  *  MC_LETTERS. */
 export const RUNG_DEFS: Record<RungId, RungDef> = {
@@ -148,7 +171,16 @@ export const RUNG_DEFS: Record<RungId, RungDef> = {
   },
   machines: {
     id: 'machines', name: 'the age of machines', what: 'a hopper egg collector, rails and redstone', after: ['iron'], tier: 3, time: 'about 3 hours',
-    stages: [{ words: 'a hopper egg collector' }, { words: '16 rails and a minecart' }, { words: 'a rail line from the mine to the hut' }, { words: 'a powered rail line' }],
+    // (MC_MACHINES_AGE, #24: the collector a hopper under the chicken pen's floor feeding a chest; the line routed and laid
+    // by command; its powered rails' gold and redstone the merchant's)
+    stages: MACHINES_AGE && IRON_AGE
+      ? [
+        { words: 'a hopper egg collector under the chicken pen, feeding a chest', counter: 'collector', target: 1, feeds: /^(penwork:\d+:collector|make:hopper)$/ },
+        { words: '{n} of {t} pieces of track made (16 rails and a minecart)', counter: 'carts', target: MACHINES_RAILS + 1, feeds: /^make:(rail|minecart)$/ },
+        { words: 'a rail line laid from the mine to the storage hut', counter: 'railline', target: 1, feeds: /^(rung:rail_line|make:rail)$/ },
+        { words: '{n} of {t} powered rails on the line, lit by a redstone torch', counter: 'powered', target: MACHINES_POWERED, feeds: /^(rung:power_line|make:(powered_rail|redstone_torch)|activity:lib:sell|activity:lib:buy:(gold_ingot|redstone))$/ },
+      ]
+      : [{ words: 'a hopper egg collector' }, { words: '16 rails and a minecart' }, { words: 'a rail line from the mine to the hut' }, { words: 'a powered rail line' }],
   },
   trade: {
     id: 'trade', name: 'the age of trade', what: 'merchant sales, market stalls and emeralds', after: ['iron'], tier: 2, time: 'about 2 hours',
@@ -192,9 +224,36 @@ export const RUNG_DEFS: Record<RungId, RungDef> = {
       ]
       : [{ words: 'note blocks' }, { words: 'a jukebox' }, { words: 'a music disc' }, { words: 'a bell in the square' }],
   },
+  bees: {
+    id: 'bees', name: 'the age of bees', what: 'an apiary of bee nests among flowers, honeycomb, honey and waxed copper', after: ['husbandry', 'copper'], tier: 3, time: 'about 2-3 hours',
+    // (MC_BEES_AGE: wild nests are few (4 within 150 blocks of minevale3) and moving one takes Silk Touch, so the merchant
+    // sells a nest with its bees and the village sets two over campfires in its own apiary; the waxing is the copper
+    // canopy's roof, the copper rung's stage 3)
+    stages: BEES_AGE
+      ? [
+        { words: '{n} of {t} bee nests with their bees in the village apiary, over campfires among flowers', counter: 'hives', target: BEES_NESTS, feeds: /^(help:apiary|make:campfire|activity:lib:buy:bee_nest|activity:lib:sell)$/ },
+        { words: '{n} of {t} honeycomb sheared from full bee nests', counter: 'honeycomb', target: BEES_COMB, feeds: /^(rung:apiary:shear|activity:lib:honeycomb|iron:forge:shears)$/ },
+        { words: '{n} of {t} honey bottles filled at the apiary', counter: 'honey', target: BEES_HONEY, feeds: /^(rung:apiary:bottle|make:glass_bottle)$/ },
+        { words: '{n} of {t} copper blocks of the copper canopy waxed with honeycomb', counter: 'waxed', target: BEES_WAX, feeds: /^(rung:wax_copper|rung:apiary:shear)$/ },
+      ]
+      : [{ words: '2 bee hives with a campfire under each' }, { words: '16 honeycomb' }, { words: '8 honey bottles' }, { words: 'waxed copper' }],
+  },
+  maps: {
+    id: 'maps', name: 'the age of maps', what: 'a cartography table, a map of the village, a map wall and an atlas of the land', after: ['letters'], tier: 3, time: 'about 2-3 hours',
+    // (MC_MAPS_AGE: an explorer map comes only from a cartographer villager's trade and a locator map is any map since
+    // 1.20, so the last stage is a 3x3 atlas of the land around the village, each area charted by a member walking into it)
+    stages: MAPS_AGE
+      ? [
+        { words: 'a cartography table made', counter: 'ctable', target: 1, feeds: /^make:cartography_table$/ },
+        { words: 'a map of the village\'s own area, made at its centre', counter: 'vmap', target: 1, feeds: /^(rung:chart:-?\d+:-?\d+|make:map|activity:lib:buy:redstone)$/ },
+        { words: '{n} of {t} maps of the nearest areas hung in item frames on the village\'s map wall', counter: 'mapwall', target: MAPS_WALL, feeds: /^(rung:chart:-?\d+:-?\d+|rung:hang_maps|help:map_wall|make:(map|item_frame))$/ },
+        { words: '{n} of {t} areas of the land around the village charted (a 3x3 atlas)', counter: 'mapped', target: MAPS_ATLAS, feeds: /^(rung:chart:-?\d+:-?\d+|make:map|activity:lib:buy:redstone)$/ },
+      ]
+      : [{ words: 'a cartography table' }, { words: 'a map of the village' }, { words: 'a map wall' }, { words: 'an explorer map' }],
+  },
 };
 /** The ballot's fixed order: the trunk first, then the branches. */
-const ORDER: RungId[] = ['letters', 'diamond', 'enchantment', 'nether', 'copper', 'machines', 'trade', 'husbandry', 'music'];
+const ORDER: RungId[] = ['letters', 'diamond', 'enchantment', 'nether', 'copper', 'machines', 'trade', 'husbandry', 'music', 'bees', 'maps'];
 /** The ballot's order, for the checks (a ballot offers at most 4: the lowest tier's first four in this order). */
 export const RUNG_ORDER: readonly RungId[] = ORDER;
 
@@ -313,6 +372,15 @@ export const copperCurrent = (v: Village): boolean => COPPER_AGE && LADDER && v.
 export const husbandryCurrent = (v: Village): boolean => HUSBANDRY_AGE && LADDER && v.ladder?.current === 'husbandry';
 /** Whether music is the current rung (MC_MUSIC_AGE and MC_LADDER on). */
 export const musicCurrent = (v: Village): boolean => MUSIC_AGE && LADDER && v.ladder?.current === 'music';
+
+/** Whether machines is the current rung (MC_MACHINES_AGE, MC_IRON_AGE and MC_LADDER on). */
+export const machinesCurrent = (v: Village): boolean => MACHINES_AGE && IRON_AGE && LADDER && v.ladder?.current === 'machines';
+/** Whether bees is the current rung (MC_BEES_AGE and MC_LADDER on). */
+export const beesCurrent = (v: Village): boolean => BEES_AGE && LADDER && v.ladder?.current === 'bees';
+/** Whether maps is the current rung (MC_MAPS_AGE and MC_LADDER on). */
+export const mapsCurrent = (v: Village): boolean => MAPS_AGE && LADDER && v.ladder?.current === 'maps';
+/** The counter of the current rung's current stage ('' with none). */
+export const stageCounter = (v: Village): string => (v.ladder?.current ? RUNG_DEFS[v.ladder.current as RungId]?.stages[v.ladder.stage]?.counter ?? '' : '');
 
 /** Whether letters is the current rung (MC_LETTERS and MC_LADDER on). */
 export const lettersCurrent = (v: Village): boolean => LETTERS && LADDER && v.ladder?.current === 'letters';
@@ -441,6 +509,71 @@ export function musicCounts(type: string, message: string): Array<[Counter, numb
   return out.filter(([, q]) => q > 0);
 }
 
+/**
+ * The bees rung's counts from a chore step's message: honeycomb from the apiary's shearing ("sheared 2 full bee nests at the
+ * apiary: 6 honeycomb", counted on the server before and after) or from the wild nests' activity ("got 3 honeycomb from 1
+ * bee nests ...", once its deposit landed: the world gates it as a trade); honey bottles filled ("filled 2 honey bottles at
+ * the apiary"); copper blocks waxed ("waxed 3 copper blocks of the copper canopy", each confirmed by the server). [] with
+ * MC_BEES_AGE off.
+ */
+export function beesCounts(type: string, message: string): Array<[Counter, number]> {
+  if (!BEES_AGE) return [];
+  const out: Array<[Counter, number]> = [];
+  if (type === 'tend_apiary') {
+    const c = /^sheared \d+ full bee nests? at the apiary: (\d+) honeycomb\b/.exec(message), h = /^filled (\d+) honey bottles? at the apiary\b/.exec(message);
+    if (c) out.push(['honeycomb', Number(c[1])]);
+    if (h) out.push(['honey', Number(h[1])]);
+  } else if (type === 'harvest_honeycomb') {
+    const m = /^got (\d+) honeycomb from\b/.exec(message);
+    if (m) out.push(['honeycomb', Number(m[1])]);
+  } else if (type === 'wax_copper') {
+    const m = /^waxed (\d+) copper blocks? of the copper canopy\b/.exec(message);
+    if (m) out.push(['waxed', Number(m[1])]);
+  }
+  return out.filter(([, q]) => q > 0);
+}
+
+/** A map's area (vanilla's grid at scale 0: 128 blocks a side, the first centred on 0,0): its column and row. */
+export const mapCell = (x: number, z: number): [number, number] => [Math.floor((x + 64) / 128), Math.floor((z + 64) / 128)];
+/** A map area's blocks. */
+export const cellArea = (i: number, j: number) => ({ x1: 128 * i - 64, z1: 128 * j - 64, x2: 128 * i + 63, z2: 128 * j + 63 });
+export const cellKey = (i: number, j: number) => `${i},${j}`;
+/** The village's centre, where its own map is made: the storage hut's middle, else its first plot's. */
+export function villageCentre(v: Village): { x: number; z: number } | null {
+  const a = v.storageHut ?? v.plots?.[0];
+  return a ? { x: Math.floor((a.x1 + a.x2) / 2), z: Math.floor((a.z1 + a.z2) / 2) } : null;
+}
+/** The map wall's four areas: the village's own and its neighbours toward the nearest corner of it, as they hang (north
+ *  up, west left: nw, ne, sw, se). */
+export function wallCells(c: { x: number; z: number }): Array<{ pos: 'nw' | 'ne' | 'sw' | 'se'; cell: [number, number] }> {
+  const [i, j] = mapCell(c.x, c.z);
+  const i0 = c.x >= 128 * i ? i : i - 1, j0 = c.z >= 128 * j ? j : j - 1;
+  return [{ pos: 'nw', cell: [i0, j0] }, { pos: 'ne', cell: [i0 + 1, j0] }, { pos: 'sw', cell: [i0, j0 + 1] }, { pos: 'se', cell: [i0 + 1, j0 + 1] }];
+}
+/** The atlas: the 3x3 of areas around the village's own. */
+export function atlasCells(c: { x: number; z: number }): Array<[number, number]> {
+  const [i, j] = mapCell(c.x, c.z);
+  const out: Array<[number, number]> = [];
+  for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) out.push([i + di, j + dj]);
+  return out;
+}
+/** Where a member charts an area: the point of it nearest `from`, 8 blocks inside its edges (a map is made for the area
+ *  its maker stands in). */
+export function chartPoint(cell: [number, number], from: { x: number; z: number }): { x: number; z: number } {
+  const a = cellArea(cell[0], cell[1]);
+  return { x: Math.max(a.x1 + 8, Math.min(a.x2 - 8, from.x)), z: Math.max(a.z1 + 8, Math.min(a.z2 - 8, from.z)) };
+}
+/** The areas the maps rung still wants charted for its current stage (the village's own; the wall's four; the atlas' nine),
+ *  nearest first. [] when maps is not current. */
+export function chartWanted(v: Village): Array<[number, number]> {
+  const c = villageCentre(v);
+  if (!mapsCurrent(v) || !c) return [];
+  const done = v.maps?.cells ?? {}, st = v.ladder!;
+  const want = st.stage === 1 ? [mapCell(c.x, c.z)] : st.stage === 2 ? wallCells(c).map((w) => w.cell) : st.stage === 3 ? atlasCells(c) : [];
+  const d = (q: [number, number]) => { const p = chartPoint(q, c); return Math.hypot(p.x - c.x, p.z - c.z); };
+  return want.filter((q) => !done[cellKey(q[0], q[1])]).sort((p, q) => d(p) - d(q));
+}
+
 /** The kinds of animal in a built pen holding a breeding pair (2 or more), husbandry's first stage. */
 export function pairedPenKinds(v: Village): string[] {
   const kinds = new Set<string>();
@@ -457,7 +590,62 @@ export function rungGoodTarget(v: Village, item: string, store: Record<string, n
   const have = store[item] ?? 0;
   if (item === 'hay_block') return husbandryCurrent(v) ? Math.max(have, HUSBANDRY_HAY) : 0;
   if (item === 'note_block') return musicCurrent(v) ? have + Math.max(0, MUSIC_NOTES - (v.ladder?.totals?.notes ?? 0)) : 0;
+  const stage = v.ladder?.stage ?? 0, totals = v.ladder?.totals ?? {};
+  // (MC_MACHINES_AGE: the collector's hopper; 16 rails and a minecart, then the rails the line still takes; the powered
+  // rails and their torch)
+  if (machinesCurrent(v)) {
+    const line = v.machines?.line;
+    if (item === 'hopper') return v.machines?.collector ? have : Math.max(1, have);
+    if (item === 'minecart') return stage <= 2 ? Math.max(1, have) : have;
+    if (item === 'rail') {
+      if (line?.done) return have;
+      const left = line?.cells ? line.cells.length - (line.laid ?? 0) : 0;
+      return Math.max(stage <= 1 ? MACHINES_RAILS : 0, left);
+    }
+    if (item === 'powered_rail') return stage === 3 ? Math.max(have, MACHINES_POWERED - (line?.powered?.length ?? 0)) : have;
+    if (item === 'redstone_torch') return stage === 3 && !line?.torch ? Math.max(1, have) : have;
+    return 0;
+  }
+  // (MC_BEES_AGE: the apiary's 2 campfires until it is posted; a glass bottle for each honey bottle still to fill)
+  if (beesCurrent(v)) {
+    if (item === 'campfire') return !rungWorkPosted(v, BEES_APIARY) ? Math.max(BEES_NESTS, have) : have;
+    if (item === 'glass_bottle') return stage === 2 ? Math.max(have, BEES_HONEY - (totals.honey ?? 0)) : have;
+    return 0;
+  }
+  // (MC_MAPS_AGE: the cartography table; an empty map for each area still to chart, 4 at a time; the wall's item frames)
+  if (mapsCurrent(v)) {
+    if (item === 'cartography_table') return stage === 0 || !rungWorkPosted(v, MAPS_WALL_WORK) ? Math.max(1, have) : have;
+    if (item === 'map') return Math.max(have, Math.min(4, chartWanted(v).length));
+    if (item === 'item_frame') return stage === 2 ? Math.max(have, MAPS_WALL - Object.keys(v.maps?.hung ?? {}).length) : have;
+    return 0;
+  }
   return 0;
+}
+
+/** Whether a rung work of this kind is open or built (an open work holds its own goods as gathered). */
+export const rungWorkPosted = (v: Village, kind: string) => (v.initiatives ?? []).some((i) => i.kind === kind && (i.state === 'open' || i.state === 'built'));
+
+/**
+ * What storage keeps of a good the merchant sells for a tier-3 rung (the world's tradeKeep, so lib:buy buys it): gold
+ * ingots for the machines rung's powered rails while none are made, and redstone for them and their torch; redstone for the
+ * compasses of the maps still to make; the apiary's 2 bee nests until it is posted. undefined otherwise.
+ */
+export function rungKeep(v: Village, item: string, store: Record<string, number>): number | undefined {
+  const stage = v.ladder?.stage ?? 0;
+  if (machinesCurrent(v) && stage === 3) {
+    const line = v.machines?.line, rails = MACHINES_POWERED - (line?.powered?.length ?? 0) - (store.powered_rail ?? 0);
+    if (item === 'gold_ingot' && rails > 0) return MACHINES_POWERED;
+    if (item === 'redstone') {
+      const n = (rails > 0 ? 1 : 0) + (!line?.torch && !(store.redstone_torch ?? 0) ? 1 : 0);
+      return n > 0 ? n : undefined;
+    }
+  }
+  if (mapsCurrent(v) && item === 'redstone') {
+    const n = Math.min(4, chartWanted(v).length) - (store.map ?? 0) - (store.compass ?? 0);
+    return n > 0 ? n : undefined;
+  }
+  if (beesCurrent(v) && item === 'bee_nest' && stage === 0 && !rungWorkPosted(v, BEES_APIARY)) return BEES_NESTS;
+  return undefined;
 }
 
 /** Whether a rung work of this kind stands built in the village. */
@@ -498,6 +686,21 @@ export function levelCounts(v: Village, store: Record<string, number>): Array<[C
   // (husbandry: pen kinds holding a pair, hay bales stored; music: the bandstand and the bell post built)
   if (husbandryCurrent(v)) lv.push(['pens', pairedPenKinds(v).length], ['hay', store.hay_block ?? 0]);
   if (musicCurrent(v)) lv.push(['bandstand', built(MUSIC_BANDSTAND)], ['bell', built(MUSIC_BELL_POST)]);
+  // (machines: the collector fitted, rails and a minecart stored, the line laid, its powered rails confirmed powered; each
+  // record written by its skill after the server confirmed the blocks)
+  if (machinesCurrent(v)) {
+    const m = v.machines;
+    lv.push(['collector', m?.collector ? 1 : 0], ['carts', Math.min(MACHINES_RAILS, store.rail ?? 0) + Math.min(1, store.minecart ?? 0)],
+      ['railline', m?.line?.done ? 1 : 0], ['powered', Math.min(MACHINES_POWERED, m?.line?.powered?.length ?? 0)]);
+  }
+  // (bees: the apiary's nests that took their bees; maps: the table made, the village's area charted, maps hung, the atlas)
+  if (beesCurrent(v)) lv.push(['hives', Math.min(BEES_NESTS, v.apiary?.housed?.length ?? 0)]);
+  if (mapsCurrent(v)) {
+    const c = villageCentre(v), cells = v.maps?.cells ?? {};
+    const own = c ? mapCell(c.x, c.z) : null;
+    lv.push(['ctable', (store.cartography_table ?? 0) > 0 || built(MAPS_WALL_WORK) > 0 ? 1 : 0], ['vmap', own && cells[cellKey(own[0], own[1])] ? 1 : 0],
+      ['mapwall', Math.min(MAPS_WALL, Object.keys(v.maps?.hung ?? {}).length)], ['mapped', c ? atlasCells(c).filter((q) => cells[cellKey(q[0], q[1])]).length : 0]);
+  }
   return lv.map(([c, n]): [Counter, number] => [c, n - (st.totals?.[c] ?? 0)]).filter(([, n]) => n > 0);
 }
 

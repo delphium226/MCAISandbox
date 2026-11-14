@@ -53,7 +53,9 @@ if (MODE === 'off') {
   ok(!L.husbandryCounts('breed_pen', 'fed 2 cows wheat in the pen on annex slot 1: 1 young born, 3 in the pen').length, 'off: no birth counted');
   ok(!L.musicCounts('make', 'made 2 note_block; put into storage: 2 note_block').length, 'off: no note block counted');
   const { SELLS } = await import('../../server/src/merchant');
-  ok(!SELLS.some((o) => o.item === 'redstone'), 'off: the merchant sells no redstone');
+  // (the machines and maps rungs still buy redstone from it: their compasses and powered rails)
+  const F = await import('../../server/src/ladderFlags');
+  ok(SELLS.some((o) => o.item === 'redstone') === ((F.MACHINES_AGE && F.IRON_AGE) || F.MAPS_AGE), 'off: the merchant sells no redstone for music (only for machines or maps)');
   process.exit(fails ? 1 : 0);
 }
 

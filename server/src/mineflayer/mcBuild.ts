@@ -14,7 +14,7 @@
  * in survival (tests).
  */
 import { Vec3 } from 'vec3';
-import type { Area, Design, Reservation, Structure, Village } from '../village';
+import type { Area, Design, RailLineRecord, Reservation, Structure, Village } from '../village';
 import { MINE_SUPPORT, deepChain, deepPicksShort, diamondWanted, hasIronPick, inIronLevel, ironTrip, mineAreas, mineFacesGoing, nearMineFace } from './mcMine';
 import { teleportHome } from './mcRescue';
 import { cellKey, libraryOf, setLibrary, type LibraryCell, type LibraryRecord } from './mcLibrary';
@@ -50,10 +50,12 @@ import { eatItems } from './mcSurvivalB';
 import { realHunger } from '../worldMode';
 import { APPETITE, FOOD_POINTS, appetiteOn, barLevel, chooseMeal, holdMeal, hurtKeep, noteFood, releaseMeal, stateOf, storeForMeals } from '../appetite';
 import { postLayout } from '../layout';
-import { pathLamps, planPadPaths } from '../padPaths';
+import { pathLamps, planPadPaths, planRailLine, poweredRun } from '../padPaths';
 import { parseRefit } from '../refit';
 import { CHOOSE } from '../choose';
 import { COPPER_AGE, DIAMOND_AGE, IRON_AGE, LETTERS, LETTERS_PACE, OWN_TOOLS } from '../ladderFlags';
+import { BEES_APIARY, COPPER_CANOPY, MACHINES_POWERED, MAPS_WALL_WORK, RAIL_LINE_MAX, cellKey as mapKey, chartPoint, mapCell, villageCentre, wallCells } from '../ladder';
+import { APIARY_NESTS, MAP_WALL_FRAMES } from '../smallWorks';
 import { boardSigns, claimRule, zoneBoxes } from '../rules';
 import { boardCells } from '../streetPlan';
 import { rawSetting } from '../settings';
@@ -7948,6 +7950,14 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   hatch_eggs: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), undefined), run: hatchEggs },
   // (#139, MC_PEN_VARIETY: a sheep pen's wool)
   shear_pen: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), undefined), run: shearPen },
+  // (G8's tier-3 rungs: the machines rung's egg collector and rail line, the bees rung's apiary and waxing, the maps rung's
+  // charting and map wall; chores, never a model's tools)
+  fit_egg_collector: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), undefined), run: fitEggCollector },
+  lay_rail_line: { run: layRailLine },
+  tend_apiary: { run: tendApiary },
+  wax_copper: { run: waxCopper },
+  chart_map: { check: (x) => (num(x.i, 'i'), num(x.j, 'j'), undefined), run: chartMap },
+  hang_maps: { run: hangMaps },
   bake_cake: { run: bakeCake },
   // (s30's appetite: a meal from the village storage, a chore code queues for a peckish member, never a model's tool)
   eat_meal: { run: eatMeal },
@@ -7987,3 +7997,467 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   shelve_library: { check: () => undefined, run: shelveLibrarySkill },
 };
 
+
+// ---------------------------------------------------------------------------------------------
+// G8's tier-3 rungs (docs/specs/ladder-rungs.md): machines (MC_MACHINES_AGE, #24), bees (MC_BEES_AGE), maps (MC_MAPS_AGE).
+// Every block placed by command charged to the inventory (runJob, or a take before each command), every count read from the
+// server (execute if block / if entity, clear N 0), and the village's record written only after the server confirmed it:
+// the ladder counts the records (ladder.ts levelCounts) and the messages (beesCounts).
+// ---------------------------------------------------------------------------------------------
+
+const passed = (r: string) => /passed/i.test(r);
+const DIR_OF: Record<string, [number, number]> = { east: [1, 0], west: [-1, 0], south: [0, 1], north: [0, -1] };
+const OPPOSITE: Record<string, string> = { east: 'west', west: 'east', south: 'north', north: 'south' };
+const nameOfDir = (dx: number, dz: number) => (dx > 0 ? 'east' : dx < 0 ? 'west' : dz > 0 ? 'south' : 'north');
+
+/** A rung work standing in the village (the newest built initiative of `kind`), with its structure (floor y, corner) and
+ *  design: the cells its skills work on are found from the design (initiatives are built unrotated). */
+function rungWorkAt(v: Village, kind: string): { s: Structure; d: Design } | null {
+  const its = (v.initiatives ?? []).filter((i) => i.kind === kind && i.state === 'built').sort((p, q) => (q.end ?? q.at) - (p.end ?? p.at));
+  for (const it of its) {
+    const d = v.designs[it.design];
+    const s = d ? v.structures.find((st) => st.kind === d.name && it.x >= st.x1 && it.x <= st.x2 && it.z >= st.z1 && it.z <= st.z2) : undefined;
+    if (s && d) return { s, d };
+  }
+  return null;
+}
+
+/**
+ * The machines rung's first stage: an egg collector at a chicken pen, a hopper in the pen's floor at its back cell (where
+ * the chickens stand, so an egg laid over it drops in) feeding a chest under the fence behind it; both placed by command,
+ * charged (taken from storage, or the hopper made from its iron and a chest), and confirmed by the server before the
+ * village's record is written.
+ */
+async function fitEggCollector(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const { v, j, key, P, plot, rcon, toGate } = penOf(a, args, 'fit_egg_collector', 'chicken');
+  if (v.machines?.collector) return `the village's egg collector is fitted already, at the chicken pen on annex slot ${v.machines.collector.slot}`;
+  if (slotBusy.has(key)) throw new ContentionError(`fit_egg_collector: annex slot ${j} is busy`, 'busy', `slot:${key}`);
+  slotBusy.add(key);
+  try {
+    const [bx, bz] = P.back;
+    const ring = new Set(P.ring.map(([x, z]) => `${x},${z}`));
+    const side = Object.entries(DIR_OF).find(([, [dx, dz]]) => ring.has(`${bx + dx},${bz + dz}`));
+    if (!side) throw new Error(`fit_egg_collector: the chicken pen on annex slot ${j} has no fence behind its back cell ${bx},${bz}`);
+    const [facing, [dx, dz]] = side;
+    const fy = plot.y;
+    const hopper: [number, number, number] = [bx, fy, bz], chest: [number, number, number] = [bx + dx, fy, bz + dz];
+    const notes = [await toGate(signal)].filter(Boolean);
+    const summary = await runJob(a, {
+      targets: [{ x: chest[0], y: fy, z: chest[2], block: `chest[facing=${OPPOSITE[facing]}]` }, { x: bx, y: fy, z: bz, block: `hopper[facing=${facing}]` }],
+      area: { x1: Math.min(bx, chest[0]), z1: Math.min(bz, chest[2]), x2: Math.max(bx, chest[0]), z2: Math.max(bz, chest[2]) }, y: fy, what: 'the egg collector',
+    }, signal);
+    await sleep(500, signal);
+    const okH = passed(await rcon(`execute if block ${hopper.join(' ')} minecraft:hopper[facing=${facing}]`));
+    const okC = passed(await rcon(`execute if block ${chest.join(' ')} minecraft:chest`));
+    if (!okH || !okC) throw new Error(`fit_egg_collector: the server shows no ${okH ? 'chest' : 'hopper'} at ${(okH ? chest : hopper).join(',')} after the build (${summary.slice(0, 120)})`);
+    v.machines = { ...v.machines, collector: { slot: j, hopper, chest, by: a.name, t: Date.now() } };
+    a.world.villages.save();
+    const out = `fitted an egg collector at the chicken pen on annex slot ${j}: a hopper in the pen's floor at ${hopper.join(',')} feeding a chest at ${chest.join(',')}`;
+    a.world.villages.note(v, `${a.name} ${out}`);
+    console.log(`[machines] ${v.name}: ${a.name} ${out}`);
+    return `${out} (${summary}${notes.length ? `; ${notes.join('; ')}` : ''})`;
+  } finally {
+    slotBusy.delete(key);
+  }
+}
+
+/** A cell a rail may take: air or a plant the rail replaces. */
+const RAIL_ROOM = /^(air|cave_air|short_grass|grass|tall_grass|fern|large_fern|snow|dead_bush|wildflowers|pink_petals|leaf_litter|bush|firefly_bush|short_dry_grass|tall_dry_grass|dandelion|poppy|blue_orchid|allium|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|torchflower|sweet_berry_bush)$|_tulip$/;
+
+/**
+ * The machines rung's rail line from the mine to the storage hut (planned once, padPaths.ts planRailLine, from the cell
+ * outside the mining hut nearest the storage hut to the cell outside the storage hut nearest the mine, off buildings,
+ * fields, pens, lamps, signs and other villages; a path cell under a rail made dirt, which holds one), then laid by
+ * command in runs of up to 48 rails a trip, charged; each cell confirmed by the server, `laid` the confirmed count, `done`
+ * once every cell holds a rail (then the minecart is set on the hut end). With mode=power: the powered rails on the first
+ * flat straight of 6 (poweredRun) and a redstone torch beside them, confirmed powered (`powered=true`) by the server.
+ */
+async function layRailLine(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('lay_rail_line: not in a village');
+  const m = v.mine, hut = v.storageHut;
+  if (!m?.hut || !hut) throw new Error(`lay_rail_line: the village has no ${m?.hut ? 'storage hut' : 'mining hut'} to run rails ${m?.hut ? 'to' : 'from'}`);
+  const power = args.mode === 'power';
+  const reg = a.world.villages;
+  const rec: RailLineRecord = v.machines?.line ?? {};
+  const rcon = (c: string) => a.world.rcon.command(c).catch(() => '');
+  if (rec.fail && Date.now() - (rec.at ?? 0) < 30 * 60000) throw new Error(`lay_rail_line: ${rec.fail}`);
+  // The plan, once (again after a failed one half an hour old: the ground may have changed)
+  if (!rec.cells?.length) {
+    const ins = (q: Area, x: number, z: number, n = 0) => x >= q.x1 - n && x <= q.x2 + n && z >= q.z1 - n && z <= q.z2 + n;
+    const mid = (q: Area) => ({ x: (q.x1 + q.x2) / 2, z: (q.z1 + q.z2) / 2 });
+    // (each end: the cell one out from its hut's side facing the other hut, on its middle)
+    const endOf = (q: Area, to: { x: number; z: number }): [number, number] => {
+      const c = mid(q), dx = to.x - c.x, dz = to.z - c.z;
+      return Math.abs(dx) >= Math.abs(dz) ? [dx > 0 ? q.x2 + 1 : q.x1 - 1, Math.round(c.z)] : [Math.round(c.x), dz > 0 ? q.z2 + 1 : q.z1 - 1];
+    };
+    const start = endOf(m.hut, mid(hut)), goal = endOf(hut, mid(m.hut));
+    const area = { x1: Math.min(start[0], goal[0]) - 24, z1: Math.min(start[1], goal[1]) - 24, x2: Math.max(start[0], goal[0]) + 24, z2: Math.max(start[1], goal[1]) + 24 };
+    const others = [...reg.villages.values()].filter((o) => o !== v);
+    const lays = v.layouts ?? [];
+    const busyArea = [...v.structures, ...lays.flatMap((l) => [...(l.farm ? [l.farm] : []), ...(l.slots ?? [])])];
+    const spots = [...lays.flatMap((l) => [...(l.lamps ?? []), ...(l.signs ?? [])]), ...(v.initiatives ?? []).filter((i) => i.state === 'open')];
+    const hard = (x: number, z: number) => !ins(area, x, z) || busyArea.some((q) => ins(q, x, z)) || spots.some((p) => Math.abs(p.x - x) <= 1 && Math.abs(p.z - z) <= 1)
+      || others.some((o) => o.plots.some((q) => ins(q, x, z, 2)) || o.structures.some((q) => ins(q, x, z, 1)));
+    const cx = Math.floor((start[0] + goal[0]) / 2), cz = Math.floor((start[1] + goal[1]) / 2);
+    if (Math.hypot(a.bot.entity.position.x - cx, a.bot.entity.position.z - cz) > 48)
+      await walk(a, new goals.GoalNearXZ(cx, cz, 4), `the middle of the rail line at ${cx},${cz}`, signal, 90000).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+      });
+    await a.bot.waitForChunksToLoad().catch(() => {});
+    const py = Math.floor(a.bot.entity.position.y);
+    const memo = new Map<string, number | null>();
+    const ground = (x: number, z: number) => {
+      const k = `${x},${z}`;
+      if (!memo.has(k)) {
+        const c = surfaceAt(a, x, z, py);
+        // (water, a tree over the cell, or no room for the rail: no ground for rails)
+        memo.set(k, !c || c.liquid || c.block === 'air' || !RAIL_ROOM.test(blockName(a, x, c.y + 1, z) ?? 'stone') ? null : c.y);
+      }
+      return memo.get(k)!;
+    };
+    const plan = planRailLine(start, goal, ground, hard, RAIL_LINE_MAX);
+    v.machines = { ...v.machines, line: plan.fail ? { fail: plan.fail, at: Date.now() } : { cells: plan.cells, shapes: plan.shapes, laid: 0, at: Date.now() } };
+    reg.save();
+    console.log(`[machines] ${v.name}: the rail line ${plan.fail ? `could not be planned: ${plan.fail}` : `planned, ${plan.cells.length} rails from ${start.join(',')} to ${goal.join(',')}`}`);
+    if (plan.fail) throw new Error(`lay_rail_line: ${plan.fail}`);
+  }
+  const line = v.machines!.line!, cells = line.cells!, shapes = line.shapes!;
+  const isRail = async ([x, y, z]: [number, number, number]) => passed(await rcon(`execute if block ${x} ${y} ${z} #minecraft:rails`));
+  const box = { x1: Math.min(...cells.map((c) => c[0])), z1: Math.min(...cells.map((c) => c[2])), x2: Math.max(...cells.map((c) => c[0])), z2: Math.max(...cells.map((c) => c[2])) };
+  if (!power) {
+    if (line.done) return `the rail line is laid already (${cells.length} rails)`;
+    // (the cells still without a rail, by the server; the next 48 laid this trip, from the mine end)
+    const left: number[] = [];
+    for (let i = 0; i < cells.length; i++) if (!(await isRail(cells[i]))) left.push(i);
+    const now = left.slice(0, 48);
+    let summary = 'nothing to lay';
+    if (now.length) {
+      const targets: Target[] = [];
+      for (const i of now) {
+        const [x, y, z] = cells[i];
+        // (a rail does not stay on a path block: the path under it made dirt)
+        if (blockName(a, x, y - 1, z) === 'dirt_path') targets.push({ x, y: y - 1, z, block: 'dirt' });
+        targets.push({ x, y, z, block: `rail[shape=${shapes[i]}]` });
+      }
+      const sub = now.map((i) => cells[i]);
+      const area = { x1: Math.min(...sub.map((c) => c[0])), z1: Math.min(...sub.map((c) => c[2])), x2: Math.max(...sub.map((c) => c[0])), z2: Math.max(...sub.map((c) => c[2])) };
+      summary = await runJob(a, { targets, area, y: sub[0][1], what: 'the rail line' }, signal);
+      await sleep(500, signal);
+    }
+    let laid = 0;
+    for (const c of cells) if (await isRail(c)) laid++;
+    const done = laid === cells.length;
+    // (the minecart on the hut end once the line is whole, charged: the rung's cart)
+    let cart = !!line.cart;
+    if (done && !cart && (await a.world.rcon.count(a.name, 'minecraft:minecart').catch(() => 0)) < 1 && (storageContents(v).minecart ?? 0) > 0) await withdrawItems(a, v, { minecart: 1 }, signal).catch(() => undefined);
+    if (done && !cart && (await a.world.rcon.take(a.name, 'minecraft:minecart', 1).catch(() => 0)) === 1) {
+      const [x, y, z] = cells[cells.length - 1];
+      cart = /Summoned/i.test(await rcon(`summon minecraft:minecart ${x + 0.5} ${y} ${z + 0.5}`));
+      if (!cart) await a.world.rcon.give(a.name, 'minecraft:minecart', 1).catch(() => '');
+    }
+    v.machines = { ...v.machines, line: { ...line, laid, done, cart } };
+    reg.save();
+    const out = done ? `the rail line from the mine to the storage hut is complete: ${cells.length} rails confirmed${cart ? ', a minecart on its hut end' : ''}` : `laid rails on the line from the mine to the storage hut: ${laid} of ${cells.length} confirmed`;
+    reg.note(v, `${a.name}: ${out}`);
+    console.log(`[machines] ${v.name}: ${a.name} ${out}`);
+    return `${out} (${summary})`;
+  }
+  // The powered rails
+  if (!line.done) throw new Error('lay_rail_line: the rail line is not complete yet; powered rails go on a finished line');
+  const has = (x: number, y: number, z: number) => blockName(a, x, y, z);
+  if (Math.hypot(a.bot.entity.position.x - (box.x1 + box.x2) / 2, a.bot.entity.position.z - (box.z1 + box.z2) / 2) > 48)
+    await walk(a, new goals.GoalNearXZ(Math.floor((box.x1 + box.x2) / 2), Math.floor((box.z1 + box.z2) / 2), 4), 'the rail line', signal, 90000).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+  // (the torch's cell: room for it, on solid ground)
+  const run = poweredRun(cells, shapes, (x, y, z) => {
+    const under = has(x, y - 1, z);
+    return RAIL_ROOM.test(has(x, y, z) ?? 'stone') && !!under && !RAIL_ROOM.test(under) && !NON_GROUND.has(under) && !/water|lava/.test(under);
+  }, MACHINES_POWERED);
+  if (!run) throw new Error('lay_rail_line: the rail line has no flat straight of 6 rails with room beside it for a redstone torch');
+  const idx = Array.from({ length: MACHINES_POWERED }, (_, k) => run.from + k);
+  const targets: Target[] = idx.map((i) => ({ x: cells[i][0], y: cells[i][1], z: cells[i][2], block: `powered_rail[shape=${shapes[i]}]` }));
+  const [tx, ty, tz] = run.torch;
+  targets.push({ x: tx, y: ty, z: tz, block: 'redstone_torch' });
+  // (what is already there and powered is not set again: runJob skips a cell holding its block)
+  const summary = await runJob(a, { targets, area: { x1: Math.min(tx, ...idx.map((i) => cells[i][0])), z1: Math.min(tz, ...idx.map((i) => cells[i][2])), x2: Math.max(tx, ...idx.map((i) => cells[i][0])), z2: Math.max(tz, ...idx.map((i) => cells[i][2])) }, y: ty, what: 'the powered rails' }, signal);
+  await sleep(800, signal);
+  const powered: Array<[number, number, number]> = [];
+  for (const i of idx) if (passed(await rcon(`execute if block ${cells[i].join(' ')} minecraft:powered_rail[powered=true]`))) powered.push(cells[i]);
+  const torch = passed(await rcon(`execute if block ${tx} ${ty} ${tz} minecraft:redstone_torch`));
+  v.machines = { ...v.machines, line: { ...line, powered, ...(torch ? { torch: run.torch } : {}) } };
+  reg.save();
+  const out = `powered ${powered.length} of ${MACHINES_POWERED} rails on the line (confirmed powered by the server${torch ? `, a redstone torch at ${tx},${ty},${tz}` : ', no torch stands'})`;
+  reg.note(v, `${a.name}: ${out}`);
+  console.log(`[machines] ${v.name}: ${a.name} ${out}`);
+  return `${out} (${summary})`;
+}
+
+/** The bees a nest bought from the merchant comes with (set in it by command once the apiary stands). */
+export const NEST_BEES = '{bees:[{entity_data:{id:"minecraft:bee"},min_ticks_in_hive:0,ticks_in_hive:0},{entity_data:{id:"minecraft:bee"},min_ticks_in_hive:0,ticks_in_hive:0}]}';
+
+/** The apiary's nests in the world (the design's nest cells at its structure). */
+export function apiaryNests(v: Village): Array<[number, number, number]> {
+  const w = rungWorkAt(v, BEES_APIARY);
+  return w ? APIARY_NESTS.map(([x, l, z]): [number, number, number] => [w.s.x1 + x, w.s.y + l, w.s.z1 + z]) : [];
+}
+
+/**
+ * The bees rung's tending of the apiary, mode shear or bottle: at each nest the server reads full (honey_level=5), the
+ * member stands in front of it and uses shears (3 honeycomb drop; the campfire under it keeps the bees calm) or a glass
+ * bottle (it becomes a honey bottle), a real use of the item on the block; the nest's level back at 0 is read from the
+ * server, the honeycomb's drops are brought to the member by command as a pen's eggs are, and what it gained is counted on
+ * the server before and after. Both go into storage by the chore's deposits.
+ */
+async function tendApiary(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('tend_apiary: not in a village');
+  const bottle = args.mode === 'bottle';
+  const tool = bottle ? 'glass_bottle' : 'shears', gain = bottle ? 'honey_bottle' : 'honeycomb';
+  const nests = apiaryNests(v);
+  if (!nests.length) throw new Error('tend_apiary: the village has no apiary standing');
+  const rcon = (c: string) => a.world.rcon.command(c).catch(() => '');
+  const full = async ([x, y, z]: [number, number, number]) => passed(await rcon(`execute if block ${x} ${y} ${z} minecraft:bee_nest[honey_level=5]`));
+  const ready: Array<[number, number, number]> = [];
+  for (const n of nests) if (await full(n)) ready.push(n);
+  if (!ready.length) return `no full bee nest at the apiary (the bees fill a nest from the flowers over some minutes; honey level 5 is full)`;
+  const want = bottle ? ready.length : 1;
+  if ((await serverCount(a, tool)) < want) {
+    const have = storageContents(v)[tool] ?? 0;
+    if (!have) throw new Error(`tend_apiary: no ${tool.replace(/_/g, ' ')} (the storage holds none${bottle ? '; 3 glass make 3 bottles' : '; shears take 2 iron ingots'})`);
+    await withdrawItems(a, v, { [tool]: Math.min(have, want) }, signal);
+  }
+  const before = await serverCount(a, gain);
+  let done = 0;
+  for (const n of ready) {
+    checkAbort(signal);
+    if ((await serverCount(a, tool)) < 1) break;
+    const [x, y, z] = n;
+    // (in front of the nest, south: its face; feet a layer below it)
+    await walk(a, new goals.GoalNear(x, y - 1, z + 1, 1), `the bee nest at ${x},${y},${z}`, signal, 60000).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+    if (!(await full(n))) continue;
+    const item = a.bot.inventory.items().find((it) => it.name === tool) ?? (await syncInventory(a).then(() => a.bot.inventory.items().find((it) => it.name === tool)));
+    const block = a.bot.blockAt(new Vec3(x, y, z));
+    if (!item || !block) continue;
+    await a.bot.equip(item, 'hand');
+    await a.bot.lookAt(new Vec3(x + 0.5, y + 0.5, z + 0.95), true);
+    await a.bot.activateBlock(block, new Vec3(0, 0, 1)).catch(() => undefined);
+    let emptied = false;
+    for (let i = 0; i < 8 && !emptied; i++) {
+      await sleep(250, signal);
+      emptied = passed(await rcon(`execute if block ${x} ${y} ${z} minecraft:bee_nest[honey_level=0]`));
+    }
+    if (!emptied) continue;
+    done++;
+    // (the honeycomb drops round the nest: brought to the member, as a pen's eggs)
+    if (!bottle) {
+      await rcon(`tp @e[type=minecraft:item,x=${x},y=${y},z=${z},distance=..4,nbt={Item:{id:"minecraft:honeycomb"}}] ${a.name}`);
+      await sleep(800, signal);
+    }
+  }
+  const got = Math.max(0, (await serverCount(a, gain)) - before);
+  v.apiary = { ...v.apiary, tended: { ...v.apiary?.tended, [bottle ? 'bottle' : 'shear']: Date.now() } };
+  a.world.villages.save();
+  await syncInventory(a).catch(() => {});
+  if (!done) return `the full bee nest${ready.length === 1 ? '' : 's'} at the apiary did not take the ${tool.replace(/_/g, ' ')} (still full); try again`;
+  const out = bottle ? `filled ${got} honey bottle${got === 1 ? '' : 's'} at the apiary` : `sheared ${done} full bee nest${done === 1 ? '' : 's'} at the apiary: ${got} honeycomb`;
+  a.world.villages.note(v, `${a.name} ${out}`);
+  console.log(`[bees] ${v.name}: ${a.name} ${out}`);
+  return out;
+}
+
+/** The copper blocks the canopy's roof can hold and their waxed forms (a placed block oxidises by random ticks). */
+const WAXABLE: Record<string, string> = { copper_block: 'waxed_copper_block', exposed_copper: 'waxed_exposed_copper', weathered_copper: 'waxed_weathered_copper', oxidized_copper: 'waxed_oxidized_copper' };
+
+/**
+ * The bees rung's last stage: the copper canopy's roof (the copper rung's work) waxed, a honeycomb a block: each roof
+ * cell's copper read from the server, one honeycomb taken, the waxed form of the same stage set, confirmed, the honeycomb
+ * given back if it was not.
+ */
+async function waxCopper(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('wax_copper: not in a village');
+  const w = rungWorkAt(v, COPPER_CANOPY);
+  if (!w) throw new Error('wax_copper: the village has no copper canopy standing');
+  const rcon = (c: string) => a.world.rcon.command(c).catch(() => '');
+  const cells: Array<[number, number, number]> = [];
+  w.d.layers.forEach((layer, li) => layer.forEach((row, z) => [...row].forEach((ch, x) => {
+    if (/copper/.test(w.d.palette[ch] ?? '')) cells.push([w.s.x1 + x, w.s.y + li, w.s.z1 + z]);
+  })));
+  const [mx, , mz] = cells[0] ?? [w.s.x1, w.s.y, w.s.z1];
+  await walk(a, new goals.GoalNearXZ(mx, mz, 3), 'the copper canopy', signal, 60000).catch((e: Error) => {
+    if (e.message === 'cancelled') throw e;
+  });
+  let waxed = 0, already = 0;
+  const notes: string[] = [];
+  for (const [x, y, z] of cells) {
+    checkAbort(signal);
+    const now = await (async () => {
+      for (const n of Object.keys(WAXABLE)) if (passed(await rcon(`execute if block ${x} ${y} ${z} minecraft:${n}`))) return n;
+      return null;
+    })();
+    if (!now) {
+      for (const n of Object.values(WAXABLE)) if (passed(await rcon(`execute if block ${x} ${y} ${z} minecraft:${n}`))) {
+        already++;
+        break;
+      }
+      continue;
+    }
+    if ((await serverCount(a, 'honeycomb')) < 1) {
+      const have = storageContents(v).honeycomb ?? 0;
+      if (!have) {
+        notes.push('out of honeycomb');
+        break;
+      }
+      await withdrawItems(a, v, { honeycomb: Math.min(have, cells.length) }, signal);
+    }
+    if ((await a.world.rcon.take(a.name, 'minecraft:honeycomb', 1).catch(() => 0)) !== 1) {
+      notes.push('the honeycomb could not be taken');
+      break;
+    }
+    await rcon(`setblock ${x} ${y} ${z} minecraft:${WAXABLE[now]}`);
+    if (passed(await rcon(`execute if block ${x} ${y} ${z} minecraft:${WAXABLE[now]}`))) waxed++;
+    else await a.world.rcon.give(a.name, 'minecraft:honeycomb', 1).catch(() => '');
+  }
+  await syncInventory(a).catch(() => {});
+  if (!waxed) return `waxed nothing on the copper canopy (${already} of ${cells.length} blocks waxed already${notes.length ? `; ${notes.join('; ')}` : ''})`;
+  const out = `waxed ${waxed} copper block${waxed === 1 ? '' : 's'} of the copper canopy (${waxed + already} of ${cells.length} waxed)`;
+  a.world.villages.note(v, `${a.name} ${out}`);
+  console.log(`[bees] ${v.name}: ${a.name} ${out}`);
+  return `${out}${notes.length ? ` (${notes.join('; ')})` : ''}`;
+}
+
+/**
+ * The maps rung's charting: a member takes an empty map from storage, walks into map area `i`,`j` (to the point of it
+ * nearest the village, 8 blocks in) and uses the map there, which fills it for that area (vanilla's grid of 128); the new
+ * filled map counted on the server and its id read from the member's hand; held a few seconds while it draws; the area
+ * and the map's id recorded for the village. The filled map goes into storage by the chore's deposit.
+ */
+async function chartMap(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('chart_map: not in a village');
+  const i = Math.floor(num(args.i, 'i')), j = Math.floor(num(args.j, 'j'));
+  const key = mapKey(i, j);
+  if (v.maps?.cells?.[key]) return `area ${key} is charted already (map #${v.maps.cells[key].id})`;
+  const c = villageCentre(v);
+  if (!c) throw new Error('chart_map: the village has no centre yet');
+  if ((await serverCount(a, 'map')) < 1) {
+    if (!(storageContents(v).map ?? 0)) throw new Error('chart_map: no empty map (the storage holds none; 8 paper and a compass make one)');
+    await withdrawItems(a, v, { map: 1 }, signal);
+    if ((await serverCount(a, 'map')) < 1) throw new Error('chart_map: the empty map could not be taken from storage');
+  }
+  const p = chartPoint([i, j], c);
+  const far = Math.hypot(a.bot.entity.position.x - p.x, a.bot.entity.position.z - p.z);
+  await walk(a, new goals.GoalNearXZ(p.x, p.z, 4), `map area ${key} at ${p.x},${p.z}`, signal, Math.min(240000, 30000 + 1500 * far)).catch((e: Error) => {
+    if (e.message === 'cancelled') throw e;
+  });
+  const pos = a.bot.entity.position;
+  const [ci, cj] = mapCell(pos.x, pos.z);
+  if (ci !== i || cj !== j) throw new Error(`chart_map: could not reach map area ${key} (stopped at ${Math.floor(pos.x)},${Math.floor(pos.z)}, in area ${mapKey(ci, cj)}); the way may be blocked by water or cliffs`);
+  await syncInventory(a).catch(() => {});
+  const empty = a.bot.inventory.items().find((it) => it.name === 'map');
+  if (!empty) throw new Error('chart_map: no empty map in hand to use');
+  const before = await serverCount(a, 'filled_map');
+  await a.bot.equip(empty, 'hand');
+  a.bot.activateItem();
+  let made = false;
+  for (let k = 0; k < 10 && !made; k++) {
+    await sleep(300, signal);
+    made = (await serverCount(a, 'filled_map')) > before;
+  }
+  if (!made) throw new Error(`chart_map: the map did not fill at ${Math.floor(pos.x)},${Math.floor(pos.z)} (the server counts no new filled map)`);
+  // (the new map's id: in hand when it was the last empty map, else the newest filled map the member carries)
+  await sleep(300, signal);
+  const r = await a.world.rcon.command(`data get entity ${a.name} SelectedItem.components."minecraft:map_id"`).catch(() => '');
+  let id = Number(/data:\s*(-?\d+)/i.exec(r)?.[1] ?? NaN);
+  if (!Number.isFinite(id)) {
+    const inv = await a.world.rcon.command(`data get entity ${a.name} Inventory`).catch(() => '');
+    const ids = [...inv.matchAll(/"minecraft:map_id":\s*(\d+)/g)].map((q) => Number(q[1]));
+    id = ids.length ? Math.max(...ids) : NaN;
+  }
+  if (!Number.isFinite(id)) throw new Error('chart_map: the new map\'s id could not be read from the server');
+  // (held while it draws the land around)
+  await sleep(4000, signal);
+  v.maps = { ...v.maps, cells: { ...v.maps?.cells, [key]: { id, by: a.name, t: Date.now() } } };
+  a.world.villages.save();
+  const out = `mapped area ${key} (map #${id}) from ${Math.floor(pos.x)},${Math.floor(pos.z)}`;
+  a.world.villages.note(v, `${a.name} ${out}`);
+  console.log(`[maps] ${v.name}: ${a.name} ${out}`);
+  return out;
+}
+
+/**
+ * The maps rung's map wall hung: for each of the wall's four frames not yet holding its map (the four nearest areas, north
+ * up), the member takes an item frame and that area's own map (by its id) and the frame is summoned on the board's south
+ * face holding it, fixed; each confirmed by the server (an item frame holding a filled map in that cell), its record
+ * written then; what was not hung is given back.
+ */
+async function hangMaps(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('hang_maps: not in a village');
+  const w = rungWorkAt(v, MAPS_WALL_WORK);
+  if (!w) throw new Error('hang_maps: the village has no map wall standing');
+  const c = villageCentre(v);
+  if (!c) throw new Error('hang_maps: the village has no centre');
+  const rcon = (cmd: string) => a.world.rcon.command(cmd).catch(() => '');
+  const hung = { ...v.maps?.hung };
+  const todo = wallCells(c).filter((q) => hung[q.pos] === undefined && v.maps?.cells?.[mapKey(q.cell[0], q.cell[1])]);
+  if (!todo.length) return `no map to hang (${Object.keys(hung).length} of 4 hung; the others' areas are not charted yet)`;
+  const store = storageContents(v);
+  const frames = todo.length - (await serverCount(a, 'item_frame'));
+  if (frames > 0) {
+    if ((store.item_frame ?? 0) < 1) throw new Error('hang_maps: no item frames (the storage holds none; 8 sticks and a leather make one)');
+    await withdrawItems(a, v, { item_frame: Math.min(frames, store.item_frame ?? 0) }, signal);
+  }
+  const maps = todo.length - (await serverCount(a, 'filled_map'));
+  if (maps > 0 && (store.filled_map ?? 0) > 0) await withdrawItems(a, v, { filled_map: store.filled_map ?? 0 }, signal);
+  const [fx, fl, fz] = MAP_WALL_FRAMES.sw;
+  await walk(a, new goals.GoalNear(w.s.x1 + fx, w.s.y + fl, w.s.z1 + fz + 2, 1), 'the map wall', signal, 60000).catch((e: Error) => {
+    if (e.message === 'cancelled') throw e;
+  });
+  const notes: string[] = [];
+  let n = 0;
+  for (const q of todo) {
+    checkAbort(signal);
+    const id = v.maps!.cells![mapKey(q.cell[0], q.cell[1])].id;
+    const [dx, l, dz] = MAP_WALL_FRAMES[q.pos];
+    const [x, y, z] = [w.s.x1 + dx, w.s.y + l, w.s.z1 + dz];
+    const pred = `minecraft:filled_map[minecraft:map_id=${id}]`;
+    if (!/Found [1-9]/i.test(await rcon(`clear ${a.name} ${pred} 0`))) {
+      notes.push(`map #${id} (area ${q.cell.join(',')}) not carried`);
+      continue;
+    }
+    if ((await a.world.rcon.take(a.name, 'minecraft:item_frame', 1).catch(() => 0)) !== 1) {
+      notes.push('out of item frames');
+      break;
+    }
+    if (!/Removed 1/i.test(await rcon(`clear ${a.name} ${pred} 1`))) {
+      await a.world.rcon.give(a.name, 'minecraft:item_frame', 1).catch(() => '');
+      notes.push(`map #${id} could not be taken`);
+      continue;
+    }
+    await rcon(`summon minecraft:item_frame ${x} ${y} ${z} {Facing:3b,Fixed:1b,Item:{id:"minecraft:filled_map",count:1,components:{"minecraft:map_id":${id}}}}`);
+    await sleep(300, signal);
+    if (passed(await rcon(`execute if entity @e[type=minecraft:item_frame,x=${x},y=${y},z=${z},dx=0,dy=0,dz=0,nbt={Item:{id:"minecraft:filled_map"}}]`))) {
+      hung[q.pos] = id;
+      n++;
+    } else {
+      await rcon(`kill @e[type=minecraft:item_frame,x=${x},y=${y},z=${z},dx=0,dy=0,dz=0]`);
+      await a.world.rcon.give(a.name, 'minecraft:item_frame', 1).catch(() => '');
+      await rcon(`give ${a.name} ${pred} 1`);
+      notes.push(`the frame for map #${id} did not hang at ${x},${y},${z}`);
+    }
+  }
+  v.maps = { ...v.maps, hung };
+  a.world.villages.save();
+  await syncInventory(a).catch(() => {});
+  const out = `hung ${n} map${n === 1 ? '' : 's'} on the map wall (${Object.keys(hung).length} of 4 hung)`;
+  if (n) {
+    a.world.villages.note(v, `${a.name} ${out}`);
+    console.log(`[maps] ${v.name}: ${a.name} ${out}`);
+  }
+  return `${out}${notes.length ? ` (${notes.join('; ')})` : ''}`;
+}

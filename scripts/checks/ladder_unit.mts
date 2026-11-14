@@ -40,7 +40,7 @@ const opts = L.rungOptions(village);
 // (MC_COPPER_AGE), trade (MC_TRADE_AGE), husbandry and music... in the ballot's order, at most 4, else diamond)
 const tier2 = L.RUNG_ORDER.filter((r) => L.RUNG_DEFS[r].tier === 2 && L.rungImplemented(r));
 ok(opts.join(',') === (tier2.length ? tier2.slice(0, 4).join(',') : L.DIAMOND_AGE ? 'diamond' : ''), `the ballot's options after iron: implemented, simplest tier first: ${opts.join(', ')}`);
-ok((['enchantment', 'nether', 'machines'] as const).every((r) => !L.rungImplemented(r)), 'the rungs in words are not implemented');
+ok((['enchantment', 'nether'] as const).every((r) => !L.rungImplemented(r)) && L.rungImplemented('machines') === (L.MACHINES_AGE && L.IRON_AGE), 'the rungs in words are not implemented');
 ok(L.rungImplemented('iron') && L.rungImplemented('diamond') === L.DIAMOND_AGE && L.rungImplemented('letters') === L.LETTERS
   && L.rungImplemented('trade') === L.TRADE_AGE && L.rungImplemented('copper') === L.COPPER_AGE, 'iron, letters, trade, copper and diamond implemented with their flags');
 {
@@ -50,12 +50,15 @@ ok(L.rungImplemented('iron') && L.rungImplemented('diamond') === L.DIAMOND_AGE &
   const s2 = L.ladderOf(v2, t0)!;
   s2.current = undefined;
   s2.reached = [{ rung: 'iron', t: t0, workers: [] }] as never;
+  // (tier 3: diamond, machines, bees and maps, those implemented whose earlier rungs are reached, in the ballot's order)
+  const tier3 = () => L.RUNG_ORDER.filter((r) => L.RUNG_DEFS[r].tier === 3 && L.rungImplemented(r) && L.RUNG_DEFS[r].after.every((a) => s2.reached.some((q) => q.rung === a))).slice(0, 4);
   for (const [i, r] of tier2.entries()) {
     s2.reached.push({ rung: r, t: t0, workers: [] } as never);
     const left = tier2.slice(i + 1);
-    ok(L.rungOptions(v2).join(',') === (left.length ? left.slice(0, 4).join(',') : L.DIAMOND_AGE ? 'diamond' : ''), `${r} reached: ${left.length ? `${left.join(', ')} still before diamond` : 'diamond next'} (${L.rungOptions(v2).join(', ')})`);
+    ok(L.rungOptions(v2).join(',') === (left.length ? left.slice(0, 4).join(',') : tier3().join(',')), `${r} reached: ${left.length ? `${left.join(', ')} still before tier 3` : `tier 3 next: ${tier3().join(', ')}`} (${L.rungOptions(v2).join(', ')})`);
   }
-  s2.reached.push({ rung: 'diamond', t: t0, workers: [] } as never);
+  ok(!L.DIAMOND_AGE || L.rungOptions(v2).includes('diamond'), 'diamond among tier 3');
+  for (const r of L.RUNG_ORDER.filter((x) => L.RUNG_DEFS[x].tier === 3)) s2.reached.push({ rung: r, t: t0, workers: [] } as never);
   ok(L.rungOptions(v2).length === 0, 'every implemented rung reached: no ballot');
 }
 for (const id of opts) {

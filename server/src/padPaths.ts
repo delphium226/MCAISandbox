@@ -292,3 +292,143 @@ export function pathLamps(paths: PlannedPath[], ground: (x: number, z: number) =
   }
   return lamps;
 }
+
+// ---- G8's machines rung (MC_MACHINES_AGE, #24): a rail line, routed as a path is ----
+
+/** A rail line's plan: its rails' cells (x, the rail's own y, z) from start to goal and each rail's shape. */
+export interface RailPlan {
+  cells: Array<[number, number, number]>;
+  shapes: string[];
+  fail?: string;
+}
+
+const DIRS: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+const DIR_NAME = (dx: number, dz: number) => (dx > 0 ? 'east' : dx < 0 ? 'west' : dz > 0 ? 'south' : 'north');
+
+/**
+ * A rail line from `start` to `goal` (columns), over the ground as the paths' A* reads it (`ground` the ground's top, null
+ * for water or nothing; `hard` columns kept off: footprints, fields, pens, lamps, other villages). Rails take 4-neighbour
+ * steps only (they never join corner to corner) and climb at most 1 a cell; a curve is never a slope, so a turn is only
+ * taken where neither neighbour along the line is higher than its cell (the rule that keeps every rail connected). A turn
+ * costs 2 more than a straight step, so the line keeps long straights (the powered rails need 6 in a row). The rail sits
+ * one above the ground. At most `max` cells.
+ */
+export function planRailLine(start: [number, number], goal: [number, number], ground: (x: number, z: number) => number | null,
+  hard: (x: number, z: number) => boolean, max = 160, limit = 60000): RailPlan {
+  const g = (x: number, z: number) => (hard(x, z) && !(x === goal[0] && z === goal[1]) && !(x === start[0] && z === start[1]) ? null : ground(x, z));
+  if (g(...start) === null) return { cells: [], shapes: [], fail: `the line's start at ${start[0]},${start[1]} has no ground` };
+  if (g(...goal) === null) return { cells: [], shapes: [], fail: `the line's end at ${goal[0]},${goal[1]} has no ground` };
+  // (a state is a cell and the direction it was entered by, 4 for the start)
+  const sk = (x: number, z: number, d: number) => `${x},${z},${d}`;
+  const best = new Map<string, number>([[sk(start[0], start[1], 4), 0]]);
+  const prev = new Map<string, string>();
+  const heap: Array<[number, number, number, number, number]> = [];
+  const push = (e: [number, number, number, number, number]) => {
+    heap.push(e);
+    for (let i = heap.length - 1; i > 0;) {
+      const p = (i - 1) >> 1;
+      if (heap[p][0] <= heap[i][0]) break;
+      [heap[p], heap[i]] = [heap[i], heap[p]];
+      i = p;
+    }
+  };
+  const pop = () => {
+    const top = heap[0], last = heap.pop()!;
+    if (heap.length) {
+      heap[0] = last;
+      for (let i = 0; ;) {
+        const l = 2 * i + 1, r = l + 1;
+        let m = i;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+        if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === i) break;
+        [heap[m], heap[i]] = [heap[i], heap[m]];
+        i = m;
+      }
+    }
+    return top;
+  };
+  const h = (x: number, z: number) => Math.abs(goal[0] - x) + Math.abs(goal[1] - z);
+  push([h(...start), 0, start[0], start[1], 4]);
+  let n = 0, end: string | null = null;
+  while (heap.length && n++ < limit) {
+    const [, cost, x, z, d] = pop();
+    const k = sk(x, z, d);
+    if (cost > (best.get(k) ?? Infinity)) continue;
+    if (x === goal[0] && z === goal[1]) {
+      end = k;
+      break;
+    }
+    const here = g(x, z)!;
+    const back = d < 4 ? g(x - DIRS[d][0], z - DIRS[d][1]) : null;
+    for (let e = 0; e < 4; e++) {
+      const X = x + DIRS[e][0], Z = z + DIRS[e][1];
+      const there = g(X, Z);
+      if (there === null || Math.abs(there - here) > 1) continue;
+      // (no doubling back; a turn only on a cell no neighbour along the line rises above)
+      if (d < 4 && e === (d ^ 1)) continue;
+      const turn = d < 4 && e !== d;
+      if (turn && (there > here || (back !== null && back > here))) continue;
+      // (and no rail in a dip: a slope climbs one way only)
+      if (back !== null && back > here && there > here) continue;
+      const nk = sk(X, Z, e);
+      const ng = cost + 1 + (turn ? 2 : 0) + 0.3 * Math.abs(there - here);
+      if (ng < (best.get(nk) ?? Infinity)) {
+        best.set(nk, ng);
+        prev.set(nk, k);
+        push([ng + h(X, Z), ng, X, Z, e]);
+      }
+    }
+  }
+  if (!end) return { cells: [], shapes: [], fail: `no way for rails from ${start[0]},${start[1]} to ${goal[0]},${goal[1]} (water, buildings or steps over 1)` };
+  const cols: Array<[number, number]> = [];
+  for (let k: string | undefined = end; k; k = prev.get(k)) {
+    const [x, z] = k.split(',').map(Number);
+    cols.push([x, z]);
+  }
+  cols.reverse();
+  if (cols.length > max) return { cells: [], shapes: [], fail: `the line would be ${cols.length} rails long (at most ${max})` };
+  const cells = cols.map(([x, z]): [number, number, number] => [x, g(x, z)! + 1, z]);
+  return { cells, shapes: railShapes(cells) };
+}
+
+/**
+ * Each rail's shape along a line of cells (x, y, z: 4-neighbours, steps of at most 1): straight along its neighbours, a
+ * slope toward a neighbour one higher, a curve where the line turns (vanilla's rail shapes: north_south, east_west,
+ * ascending_east..., north_east, north_west, south_east, south_west).
+ */
+export function railShapes(cells: Array<[number, number, number]>): string[] {
+  return cells.map(([x, y, z], i) => {
+    const p = cells[i - 1], q = cells[i + 1];
+    const a = p ? [p[0] - x, p[2] - z] : q ? [x - q[0], z - q[2]] : [0, 1];
+    const b = q ? [q[0] - x, q[2] - z] : p ? [x - p[0], z - p[2]] : [0, -1];
+    if (a[0] === -b[0] && a[1] === -b[1]) {
+      if (q && q[1] > y) return `ascending_${DIR_NAME(b[0], b[1])}`;
+      if (p && p[1] > y) return `ascending_${DIR_NAME(a[0], a[1])}`;
+      return b[0] ? 'east_west' : 'north_south';
+    }
+    const ns = a[1] ? DIR_NAME(0, a[1]) : DIR_NAME(0, b[1]);
+    const ew = a[0] ? DIR_NAME(a[0], 0) : DIR_NAME(b[0], 0);
+    return `${ns}_${ew}`;
+  });
+}
+
+/**
+ * Where the powered rails go: the first `n` cells in a row that are flat straights (a powered rail has no curve; the slopes
+ * left to plain rails), away from the line's ends, and a cell beside the middle one for the redstone torch that powers them
+ * (power runs 8 rails along powered rails), on ground at the rails' level and not on the line (`free`). Null when the line
+ * has no such straight.
+ */
+export function poweredRun(cells: Array<[number, number, number]>, shapes: string[], free: (x: number, y: number, z: number) => boolean, n = 6): { from: number; torch: [number, number, number] } | null {
+  const flat = (i: number) => (shapes[i] === 'east_west' || shapes[i] === 'north_south') && cells[i][1] === cells[Math.max(0, i - 1)][1] && cells[i][1] === cells[Math.min(cells.length - 1, i + 1)][1];
+  const on = new Set(cells.map(([x, , z]) => `${x},${z}`));
+  for (let i = 1; i + n <= cells.length - 1; i++) {
+    let ok = true;
+    for (let k = i; k < i + n && ok; k++) if (!flat(k) || shapes[k] !== shapes[i]) ok = false;
+    if (!ok) continue;
+    const [x, y, z] = cells[i + Math.floor(n / 2)];
+    const side: Array<[number, number]> = shapes[i] === 'east_west' ? [[0, 1], [0, -1]] : [[1, 0], [-1, 0]];
+    for (const [dx, dz] of side) if (!on.has(`${x + dx},${z + dz}`) && free(x + dx, y, z + dz)) return { from: i, torch: [x + dx, y, z + dz] };
+  }
+  return null;
+}

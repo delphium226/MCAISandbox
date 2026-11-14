@@ -157,7 +157,8 @@ ok(!Object.keys(gp.gather).length && gp.steps.length === 1 && gp.steps[0].item =
     sb.reached.push({ rung: r, t: 1, workers: [] });
     return o;
   });
-  ok(before.every((o) => !o) && L.rungOptions(vb).join() === 'diamond', `diamond only after ${tier2.join(', ')} are reached (then: ${L.rungOptions(vb).join(', ')})`);
+  // (then tier 3: diamond with the machines, bees and maps rungs)
+  ok(before.every((o) => !o) && L.rungOptions(vb)[0] === 'diamond' && L.rungOptions(vb).every((r) => L.RUNG_DEFS[r].tier === 3), `diamond only after ${tier2.join(', ')} are reached (then: ${L.rungOptions(vb).join(', ')})`);
 }
 
 // 6. The flag off, in a process of its own
