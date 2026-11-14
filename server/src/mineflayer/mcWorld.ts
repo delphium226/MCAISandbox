@@ -8256,7 +8256,9 @@ export class MineflayerWorld implements WorldAdapter {
         for (const [i, t] of (wants?.tools ?? []).entries()) {
           const re = TOOL_WANTS[t];
           if (!re) continue;
-          const kept = Object.entries(store).filter(([n, q]) => q > 0 && re.test(n));
+          // (diamond and netherite tools stay the village's: the deep miners' and the obsidian's; rungs test 11-14:
+          // enchantment4's one diamond pickaxe went into a member's own chest at minute 2 and the obsidian was never offered)
+          const kept = Object.entries(store).filter(([n, q]) => q > 0 && re.test(n) && !/^(diamond|netherite)_/.test(n));
           const all = kept.reduce((s, [, q]) => s + q, 0);
           const best = kept.sort(([p], [q]) => toolRank(q) - toolRank(p))[0]?.[0];
           if (!best || all < 2) {
