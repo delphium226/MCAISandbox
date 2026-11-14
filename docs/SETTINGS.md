@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-305 settings.
+306 settings.
 
 ## Game speed
 
@@ -140,6 +140,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_PAY_LEVY` | string | `contracts` |  |  | The levy on contracts (the user's choice 3: gifts go free): 'contracts' or 'off'. |
 | `MC_PAY_MAX` | string | (unset) |  |  | The most a request may offer, in whole emeralds (per step for wages). |
 | `MC_PURSE` | number | `4` |  |  | Emeralds each member gets once, when its own chest is placed (the user's choice 1). |
+| `MC_RUNG_WAGE` | number | `1` |  | `MC_PAY` | MC_RUNG_WAGE (#250; 1 by default, 0 off; nothing while MC_PAY is off): emeralds the village pays into a member's own chest for each chore whose option fed the ladder's current stage when picked and that ended well, at most 5 emeralds a member a village day (one wage when a wage is more); taken from storage's emeralds above the merchant's keep (the trade rung's 40 while trade is current), else minted. The ladder's tag on such options and the progress line say it. |
 | `MC_SPECIAL` | string | (unset) |  |  | Specialisation modes (claim, ...: comma list). |
 | `MC_STORAGE_BARRELS` | flag | `on` |  |  | MC_STORAGE_BARRELS=off: the hut's nine chest spots only (s40: barrels in the six cells between them, on by default). |
 | `MC_STORAGE_CAP` | string | (unset) |  | `MC_STORAGE_GROW` | MC_STORAGE_CAP (#121, with MC_STORAGE_GROW): the most of each bulk stone kind storage keeps, "cobblestone:1024,stone:256" by default ("stone": each other bulk kind; a kind named on its own takes its own number); "off": no cap. |

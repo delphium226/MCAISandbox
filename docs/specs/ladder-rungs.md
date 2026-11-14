@@ -172,6 +172,29 @@ the bodies and the atlas, pathfinding, rescue, protection, spawn checks and chun
 an expedition, piglin barter (gold), and netherite (ancient debris and a smithing template from a bastion). Spec it
 before building.
 
+## A village wage for rung work (#250, `MC_RUNG_WAGE`, 1; built 11-14)
+
+(the user's, 11-14) With MC_PAY on (off by default; it needs MC_OWN and MC_ACTS), a member whose chore fed the current
+stage is paid by the village: `MC_RUNG_WAGE` emeralds (default 1, 0 off) into its own chest record. Nothing happens while
+MC_PAY is off.
+
+- **When**: a chore whose option carried the ladder's tag when it was picked (`feedsStage`, the menu's test; the tag is
+  kept on the chore, `ChoiceState.ladderFed`) and ended well (ok, not cut). A failed, cut or unfed chore earns nothing.
+- **From where** (`mcPay.ts` payWageFor, `pay.ts` reserveRungWage and payRungWage): storage's emeralds above the
+  merchant's keep (`commonsSpare`; the keep holds the trade rung's 40 while trade is current, so wages never eat its
+  third stage), taken by command and counted as a bounty's are; when storage has none to spare, minted. The ledger logs
+  `escrow` from the village or `minted` with "a rung wage" in its why, so the conservation sum (`pay_ledger`) holds and
+  `[pay]` lines show each wage; `[ladder] ... earns the village's wage` names the member.
+- **Cap**: at most 5 emeralds a member a village day (RUNG_WAGE_DAY; with a wage over 5, one wage a day), reserved at
+  the chore's end so two ends do not both fit. With 1 emerald a wage and 50 members that is at most 250 emeralds a village
+  day, minted only when storage is short.
+- **Told**: the tag on feeding options reads `[for the iron age, pays 1 emerald]` while the member's day has room for a
+  wage, and the progress line adds "The village pays 1 emerald into your chest for each chore that feeds its ambition (up
+  to 5 a day)."
+- **Check**: `rung_wage_unit` (paid only for fed chores that ended well, from the commons above the keep, minted at the
+  trade keep, the cap, conservation, the tag and the line; nothing with MC_PAY off or MC_RUNG_WAGE=0). A live run with
+  MC_PAY on should count the `[pay] ... rung wage` lines against the fed chores and watch how many are minted.
+
 ## Rungs we do not have yet
 
 Minecraft's progression has more than the seven rungs above. Candidates, with the tier they would take:

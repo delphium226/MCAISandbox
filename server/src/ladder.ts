@@ -501,13 +501,18 @@ export function levelCounts(v: Village, store: Record<string, number>): Array<[C
   return lv.map(([c, n]): [Counter, number] => [c, n - (st.totals?.[c] ?? 0)]).filter(([, n]) => n > 0);
 }
 
-/** The tag on an option that feeds the current stage. */
-export function stageTag(v: Village): string {
-  return v.ladder?.current ? `[for ${RUNG_DEFS[v.ladder.current as RungId]?.name ?? v.ladder.current}]` : '';
+/** The tag on an option that feeds the current stage; with a wage (#250, MC_RUNG_WAGE with MC_PAY), what it pays. */
+export function stageTag(v: Village, wage = 0): string {
+  const pays = wage > 0 ? `, pays ${wage} emerald${wage === 1 ? '' : 's'}` : '';
+  return v.ladder?.current ? `[for ${RUNG_DEFS[v.ladder.current as RungId]?.name ?? v.ladder.current}${pays}]` : '';
 }
 
-/** The progress line in every member's prompt ('' with the flag off), with the latest news for a village day. */
-export function progressLine(v: Village, now: number, dayMs: number): string {
+/** The progress line's wage sentence (#250): '' without one. */
+export const wageWords = (wage: number) => (wage > 0 ? ` The village pays ${wage} emerald${wage === 1 ? '' : 's'} into your chest for each chore that feeds its ambition (up to ${Math.max(wage, 5)} a day).` : '');
+
+/** The progress line in every member's prompt ('' with the flag off), with the latest news for a village day; `wage`
+ *  (#250, MC_RUNG_WAGE with MC_PAY) the village's wage for work on the ambition, said after the stage. */
+export function progressLine(v: Village, now: number, dayMs: number, wage = 0): string {
   const st = LADDER ? v.ladder : undefined;
   if (!st) return '';
   const news = st.news && now - st.news.t < dayMs ? ` ${st.news.text}` : '';
@@ -516,7 +521,7 @@ export function progressLine(v: Village, now: number, dayMs: number): string {
     const sd = def?.stages[st.stage];
     if (!def || !sd) return '';
     const what = sd.counter && sd.target ? fill(sd.words, st.count, sd.target) : `${sd.words} (this stage's work is not built yet)`;
-    return `The village's ambition: ${def.name}, stage ${st.stage + 1} of 4: ${what}.${news}`.slice(0, 300);
+    return `The village's ambition: ${def.name}, stage ${st.stage + 1} of 4: ${what}.${wageWords(wage)}${news}`.slice(0, wage > 0 ? 440 : 300);
   }
   const last = st.reached[st.reached.length - 1];
   const lastName = last ? RUNG_DEFS[last.rung as RungId]?.name ?? last.rung : '';

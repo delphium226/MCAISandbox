@@ -31,7 +31,11 @@ export const PAY = {
   afterWorkMs: 10 * 60000,
   /** The `pay` act's budget a village day. */
   perDay: 3,
+  /** G8, MC_RUNG_WAGE (1; 0 off): emeralds the village pays a member for a chore that fed the ladder's current stage. */
+  rungWage: Math.max(0, Math.floor(Number(rawSetting('MC_RUNG_WAGE') ?? 1)) || 0),
 };
+/** The most rung wages pay a member in a village day: 5 emeralds (one wage a day when a wage is more). */
+export const RUNG_WAGE_DAY = 5;
 
 export type ContractKind = 'goods' | 'wage' | 'bounty';
 export type ContractState = 'open' | 'taken' | 'delivering' | 'paid' | 'refunded';
@@ -68,7 +72,9 @@ export interface Contract {
 export type LedgerOp = 'control' | 'minted' | 'escrow' | 'release' | 'levy' | 'sales levy' | 'refund' | 'gift' | 'gift after work' | 'goods' | 'levy deposited' | 'reconciled';
 export interface LedgerRow { t: number; op: LedgerOp; from?: string; to?: string; n: number; item?: string; contract?: string; why?: string }
 
-interface PayState { contracts: Contract[]; next: number; levyOwed: number; ledger: LedgerRow[]; payDays?: Record<string, number> }
+interface PayState { contracts: Contract[]; next: number; levyOwed: number; ledger: LedgerRow[]; payDays?: Record<string, number>;
+  /** G8's rung wages paid (or under way) by member and village day ("name|day"), for RUNG_WAGE_DAY. */
+  wageDays?: Record<string, number> }
 
 /** The village's payments record (in villages.json beside the chests, so escrow and chests are saved together). */
 export function payOf(v: Village): PayState {
@@ -289,6 +295,48 @@ export function payNow(v: Village, from: string, to: string, item: string, n: nu
   const after = p.contracts.some((c) => c.payer === from && c.payee === to && c.state === 'paid' && now - c.t <= PAY.afterWorkMs);
   log(p, { t: now, op: item === 'emerald' ? (after ? 'gift after work' : 'gift') : 'goods', from, to, n: amount, item });
   return `paid ${to} ${amount} ${item === 'emerald' ? `emerald${amount === 1 ? '' : 's'}` : item.replace(/_/g, ' ')}`;
+}
+
+/**
+ * G8 (MC_RUNG_WAGE): the wage a member would be paid now for a chore that feeds the ladder's current stage: PAY.rungWage
+ * while payments are on, the member has a chest of its own and its wages this village day stay within RUNG_WAGE_DAY
+ * (a first wage always fits); 0 otherwise. Reads only.
+ */
+export function rungWageDue(v: Village, name: string, dayKey: string, wage = PAY.rungWage): number {
+  if (!PAY.on || wage <= 0 || !chestOf(v, name)) return 0;
+  const paid = payOf(v).wageDays?.[`${name}|${dayKey}`] ?? 0;
+  return !paid || paid + wage <= RUNG_WAGE_DAY ? wage : 0;
+}
+
+/** The wage reserved for a member's feeding chore (counted toward the day's cap at once, so two ends do not both fit):
+ *  its emeralds, 0 when none is due. The world then funds it (payRungWage). */
+export function reserveRungWage(v: Village, name: string, dayKey: string, wage = PAY.rungWage): number {
+  const n = rungWageDue(v, name, dayKey, wage);
+  if (!n) return 0;
+  const days = (payOf(v).wageDays ??= {});
+  days[`${name}|${dayKey}`] = (days[`${name}|${dayKey}`] ?? 0) + n;
+  // (only today's are kept: an old day's count is never read again)
+  for (const k of Object.keys(days)) if (!k.endsWith(`|${dayKey}`)) delete days[k];
+  return n;
+}
+
+/**
+ * A reserved rung wage paid into the member's chest record: `fromCommons` of it taken out of the storage chests (logged as
+ * the bounty's are, escrow from the village), the rest minted. Returns what was paid (0 without a chest: the commons' part
+ * is then owed back to storage as the levy is).
+ */
+export function payRungWage(v: Village, name: string, n: number, fromCommons: number, now: number, why: string): number {
+  const p = payOf(v);
+  const common = Math.max(0, Math.min(n, fromCommons));
+  if (!addTo(v, name, 'emerald', n)) {
+    p.levyOwed += common;
+    // (taken from the commons into the levy owed, which the world deposits back: logged as taken, so the sum holds)
+    if (common) log(p, { t: now, op: 'escrow', from: 'the village', n: common, why: `a rung wage to ${name}, who has no chest: owed back to storage` });
+    return 0;
+  }
+  if (common) log(p, { t: now, op: 'escrow', from: 'the village', to: name, n: common, why: `a rung wage from the commons: ${why}` });
+  if (n - common) log(p, { t: now, op: 'minted', to: name, n: n - common, why: `a rung wage minted (the commons could not spare it): ${why}` });
+  return n;
 }
 
 /** Contracts past their time: an untaken request's escrow back after 30 minutes. */

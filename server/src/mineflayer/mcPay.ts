@@ -8,7 +8,7 @@ import { ACTS, actOpen, closeCommitment, closeRequest, setPayHooks, tellMember }
 import { baseValue, boardOf, held } from '../barter';
 import { clockOf } from '../memory';
 import { OWN_SALES } from '../own';
-import { PAY, bountyFunded, contractOf, givePurse, guideFor, levyDeposited, makePayHooks, payOf, reconcile, setPayWorld, type Contract, type PayEnv } from '../pay';
+import { PAY, bountyFunded, contractOf, givePurse, guideFor, levyDeposited, makePayHooks, payOf, payRungWage, reconcile, reserveRungWage, rungWageDue, setPayWorld, type Contract, type PayEnv } from '../pay';
 import { RULES, levyRate } from '../rules';
 import type { Village } from '../village';
 import { takeRefused } from './mcStorage';
@@ -38,9 +38,47 @@ export interface PayWorld {
   commonsSpare(v: Village): number;
 }
 
+/** The world startPay was given (the rung wage's draws use it). */
+let payWorld: PayWorld | undefined;
+/** The village day a wage counts in (the pay act's day). */
+const wageDay = (village: string, now: number) => String(clockOf(village, now)?.day ?? Math.floor(now / ACTS.dayMs));
+
+/** G8 (MC_RUNG_WAGE): the wage a member would be paid now for a chore that feeds the ladder's stage (0: none). */
+export function rungWageNow(v: Village, member: string, now = Date.now()): number {
+  return PAY.on && payWorld ? rungWageDue(v, member, wageDay(v.name, now)) : 0;
+}
+
+/**
+ * G8 (#250, MC_RUNG_WAGE): a member's chore that fed the ladder's current stage when it was picked (`fed`: its tag) ended
+ * well (`ok`, not cut): the village pays it the wage,
+ * reserved at once against the day's cap, its emeralds taken from storage's spare (above the merchant's keep, which holds
+ * the trade rung's 40 while trade is current) by command and counted, the rest minted, as a bounty's. Returns the wage.
+ */
+export function payWageFor(v: Village, member: string, end: { ok: boolean; cut?: boolean; fed?: string; option: string }, now = Date.now()): number {
+  const w = payWorld;
+  // (only a chore that ended well and whose option carried the ladder's tag when it was picked)
+  if (!PAY.on || !w || !end.ok || end.cut || !end.fed) return 0;
+  const why = `${end.option} ${end.fed}`;
+  const n = reserveRungWage(v, member, wageDay(v.name, now));
+  if (!n) return 0;
+  const paid = (took: number) => {
+    payRungWage(v, member, n, took, Date.now(), why);
+    w.save();
+  };
+  // (as the bounty's: a draw goes while the spare covers every draw under way)
+  if (w.commonsSpare(v) - (bountyTaking.get(v.name) ?? 0) < n) {
+    paid(0);
+    return n;
+  }
+  bountyTaking.set(v.name, (bountyTaking.get(v.name) ?? 0) + n);
+  void storeByCommand(w.rcon, v, 'emerald', -n).then((moved) => paid(Math.max(0, -moved)), () => paid(0)).finally(() => bountyTaking.set(v.name, Math.max(0, (bountyTaking.get(v.name) ?? n) - n)));
+  return n;
+}
+
 /** The env for pay.ts, and the hooks set into acts.ts (once, at the world's start). */
 export function startPay(w: PayWorld): void {
   if (!PAY.on) return;
+  payWorld = w;
   const env: PayEnv = {
     village: (n) => w.village(n),
     held: (v, agent) => held(boardOf(v), agent),

@@ -51,7 +51,7 @@ import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardT
 import { PART_RE, STORAGE_KEEP, freeSpots, ownTools, storageContents, storageFlow, storageGross, storageSlots, storageStrays } from './mcStorage';
 import { HOME_BASICS, basicsCost, basicsFacts, basicsLeft, basicsOf, bedsOwed, freeDecorSlots, houseDecorOf, sheepPlace, woolInHand, type BasicsCells } from './mcHome';
 import { HOUSE_DECOR, decorPicks, decorWants } from '../houseDecor';
-import { contractOf, deliveriesOf, deliveryWords, earmarked, levyOwed, levySweep, markAtEnd, reconcilePay, startPay, storeByCommand, type PayWorld } from './mcPay';
+import { contractOf, deliveriesOf, deliveryWords, earmarked, levyOwed, levySweep, markAtEnd, payWageFor, reconcilePay, rungWageNow, startPay, storeByCommand, type PayWorld } from './mcPay';
 import { PAY, payOf } from '../pay';
 import { INNOVATE, LIBRARY, attemptPoints, candidates, chanceFor, needOf, payRoyalties, pointsIn, ROYALTY, ptsText, techGoods, techOf, techOwnRecipes } from '../tech';
 import { BARTER, available, boardOf, draftOffer, lapse, offerText, surplus, wouldTake } from '../barter';
@@ -191,6 +191,8 @@ type ChoiceState = {
   flow?: Counts;
   /** #108 (MC_PAY): its gross puts at the start, a priced request's evidence and earmark. */
   gross?: Counts;
+  /** G8 (MC_RUNG_WAGE): the ladder tag its option carried when picked (it fed the current stage), for the wage at its end. */
+  ladderFed?: string;
   /** A.2: when it ended (heldKeys' async hold), its decision, the further keys it holds, what it was (kind, option id and
    *  name), and for an explore its ring point with how much of its land the atlas knew at the start. */
   endedAt?: number; decisionId?: string; holds: string[]; kind?: ChoiceKind; option?: string; name?: string;
@@ -5910,7 +5912,7 @@ export class MineflayerWorld implements WorldAdapter {
     const old = this.chores.get(id);
     if (old) this.endChoice(old);
     const kind = (opt?.kind ?? key.split(':')[0]) as ChoiceKind;
-    const choice: ChoiceState = { id: meta?.decisionId ?? choiceId(v.name), t: Date.now(), store: storageContents(v), carried: heldCounts(worker) ?? {}, ...(OWN.on || RULES.on ? { flow: storageFlow(worker.name) } : {}), ...(PAY.on ? { gross: storageGross(worker.name) } : {}), with: new Set(), holds, kind, option: opt?.id ?? key, name: opt?.name ?? choreName(key, what), decisionId: meta?.decisionId, walked0: worker.walked };
+    const choice: ChoiceState = { id: meta?.decisionId ?? choiceId(v.name), t: Date.now(), store: storageContents(v), carried: heldCounts(worker) ?? {}, ...(OWN.on || RULES.on ? { flow: storageFlow(worker.name) } : {}), ...(PAY.on ? { gross: storageGross(worker.name) } : {}), with: new Set(), holds, kind, option: opt?.id ?? key, name: opt?.name ?? choreName(key, what), decisionId: meta?.decisionId, walked0: worker.walked, ...(opt?.ladderTag ? { ladderFed: opt.ladderTag } : {}) };
     if (opt?.kind === 'explore' && opt.at) {
       try {
         choice.point = { x: opt.at.x, z: opt.at.z, known0: this.atlas.known(opt.at.x, opt.at.z, 48) };
@@ -6207,6 +6209,11 @@ export class MineflayerWorld implements WorldAdapter {
       }
       // (#246, #247: the levels, stalls standing, emeralds stored, the canopy, the instruments)
       this.ladderLevels(v, c.agent);
+      // (#250, MC_RUNG_WAGE with MC_PAY: a chore whose option fed the stage when picked, ended well, earns the village's wage)
+      if (PAY.on && c.choice.ladderFed) {
+        const n = payWageFor(v, c.agent, { ok, cut, fed: c.choice.ladderFed, option: c.choice.option ?? c.choice.id });
+        if (n) console.log(`[ladder] ${v.name}: ${c.agent} earns the village's wage of ${n} emerald${n === 1 ? '' : 's'} for ${c.choice.option ?? c.choice.id} ${c.choice.ladderFed}`);
+      }
     }
     // (G1: every chore's end into its member's journal and kind table, grow, eat and tidy too; a contention end is no lesson
     // about the chore; the intent marked ended)
@@ -9968,9 +9975,13 @@ export class MineflayerWorld implements WorldAdapter {
     // G2 (MC_SKILL=on, #17): the member's skill at each option's kind
     if (SKILL.on) for (const o of out) if (o.kind !== 'eat') o.sw = skillWeight(skillOf(v.name, a.name, o.kind));
     // G8 (MC_LADDER): the options that feed the ladder's current stage
-    if (LADDER && v.ladder?.current) for (const o of out) if (feedsStage(v, o.id, this.feedAlias(o, v))) {
-      o.vw = VW;
-      o.ladderTag = stageTag(v);
+    if (LADDER && v.ladder?.current) {
+      // (#250, MC_RUNG_WAGE with MC_PAY: the tag says the wage while the member's day has room for one)
+      const wage = PAY.on ? rungWageNow(v, a.name, now) : 0;
+      for (const o of out) if (feedsStage(v, o.id, this.feedAlias(o, v))) {
+        o.vw = VW;
+        o.ladderTag = stageTag(v, wage);
+      }
     }
     // G5 (MC_PROPOSALS): an option an accepted proposal of the member's (or one it backed) brought, once built (verdict.ref)
     if (PROPOSALS_ON) for (const p of allProposals(v.name)) {
@@ -10940,7 +10951,7 @@ export class MineflayerWorld implements WorldAdapter {
         return { self: [selfLine(d), basicNeedsLine(d)].filter(Boolean).join(' '), ...(sc ? { scarcity: sc } : {}) };
       })() : {}),
       // (G8: the ladder's progress line, with a stage's news for a village day)
-      ...(LADDER && v.complete ? (() => { ladderOf(v, Date.now()); const line = progressLine(v, Date.now(), MEMORY.dayMs); return line ? { ladder: line } : {}; })() : {}),
+      ...(LADDER && v.complete ? (() => { ladderOf(v, Date.now()); const line = progressLine(v, Date.now(), MEMORY.dayMs, PAY.on ? PAY.rungWage : 0); return line ? { ladder: line } : {}; })() : {}),
       // (M3, MC_MONUMENT_NEWS: the cathedral's progress line, its news for a village day and the member's trade)
       ...(MONUMENT.on && M3.news && v.monument ? { monument: monumentProgress(v.monument, Date.now(), MEMORY.dayMs, a.name) } : {}),
       // (N.1: the needs at LOW or above, most acute first)

@@ -459,6 +459,8 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'MC_PARTS (s37 S2-S6; on by default since s38): leftover building parts get a chest group of their own, misc and parts overflow into the chest with most room once the hut is down to its last free spot, and spare wooden parts burn first as smelting fuel. MC_PARTS=off: storage as before.' },
   { name: 'MC_PAY', type: 'flag', default: 'off', group: 'economy', live: false, requires: ['MC_OWN'], read: 'pay.ts',
     describe: 'Pay: emeralds for requests and wages (with MC_OWN).' },
+  { name: 'MC_RUNG_WAGE', type: 'number', default: '1', group: 'economy', live: false, requires: ['MC_PAY'], read: 'pay.ts',
+    describe: 'MC_RUNG_WAGE (#250; 1 by default, 0 off; nothing while MC_PAY is off): emeralds the village pays into a member\'s own chest for each chore whose option fed the ladder\'s current stage when picked and that ended well, at most 5 emeralds a member a village day (one wage when a wage is more); taken from storage\'s emeralds above the merchant\'s keep (the trade rung\'s 40 while trade is current), else minted. The ladder\'s tag on such options and the progress line say it.' },
   { name: 'MC_PAY_BOUNTY', type: 'string', default: '', group: 'economy', live: false, read: 'pay.ts',
     describe: 'Test only: the share of unpriced requests given a 1-emerald bounty (the user\'s choice 4).' },
   { name: 'MC_PAY_LEVY', type: 'string', default: 'contracts', group: 'economy', live: false, values: ['contracts', 'off'], read: 'pay.ts',
