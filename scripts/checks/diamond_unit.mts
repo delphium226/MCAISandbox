@@ -121,8 +121,10 @@ f.mine!.ironGiven = [{ item: 'diamond_pickaxe', to: 'Ben', by: 'Dan', at: 1 }];
 ok((D.diamondForgeNeed(f, [{ name: 'Ada', digs: 2 }, { name: 'Ben', digs: 5 }], 3) as { for: string }).for === 'Ada', 'then the next without one');
 ok(/short.*2 of 3/.test(String(D.diamondForgeNeed(f, [{ name: 'Ada', digs: 2 }], 2))), 'diamonds short');
 ok(D.diamondForgeNeed(make(-8, 'letters'), [{ name: 'Ada', digs: 2 }], 9) === '', 'not before the rung');
-ok(D.deepDigBlocked(f, false, {}) === 'the deep level needs an iron pickaxe' && D.deepDigBlocked(f, true, {}) === null && D.deepDigBlocked(f, false, { iron_pickaxe: 1 }) === null, 'the iron pickaxe gate');
-ok(D.deepDigBlocked(make(-8), false, {}) !== null, 'gated for the whole rung, the landings too');
+ok(D.deepDigBlocked(f, false, { iron_ingot: 3 }) === 'the deep level needs an iron pickaxe' && D.deepDigBlocked(f, true, { iron_ingot: 3 }) === null && D.deepDigBlocked(f, false, { iron_pickaxe: 1, iron_ingot: 3 }) === null, 'the iron pickaxe gate');
+// (rungs test 11-14: no iron stored to forge one: not held, a stone pickaxe's trip brings the iron up)
+ok(D.deepDigBlocked(f, false, {}) === null && D.deepDigBlocked(f, false, { raw_iron: 2 }) === null && D.deepDigBlocked(f, false, { raw_iron: 2, iron_ingot: 1 }) !== null, 'not held while no pickaxe can be forged');
+ok(D.deepDigBlocked(make(-8), false, { iron_ingot: 3 }) !== null, 'gated for the whole rung, the landings too');
 ok(D.deepDigBlocked(make(-8, 'letters'), false, {}) === null, 'not on an iron level before the rung');
 ok(D.deepDigWords(f, { diamond: 4 })?.name === 'Dig for diamonds in the deep mine' && D.deepDigWords(make(-8, 'letters'), {}) === null, `the dig's words: ${D.deepDigWords(f, { diamond: 4 })?.facts}`);
 
@@ -135,8 +137,8 @@ const s2 = make(-8, 'diamond', 2);
 s2.mine!.ironGiven!.push({ item: 'iron_pickaxe', to: 'Ben', by: 'Dan', at: 2 });
 ok(D.deepenForDiamonds(reg, s2) === '' && /2 of 3/.test(D.ironFirstFact(s2)), 'two members given pickaxes (one twice): still iron first');
 s2.mine!.ironGiven!.push({ item: 'iron_pickaxe', to: 'Cara', by: 'Dan', at: 3 });
-ok(!!D.deepenForDiamonds(reg, s2) && D.ironFirstFact(s2) === '' && D.deepDigBlocked(s2, false, {}) !== null, 'the third given: the chain goes deep and the gate holds');
-ok(D.ironFirstFact(make(-8, 'letters', 0)) === '' && D.deepDigBlocked(make(-56, 'diamond', 0), false, {}) !== null, 'not before the rung; a deep chain stays gated');
+ok(!!D.deepenForDiamonds(reg, s2) && D.ironFirstFact(s2) === '' && D.deepDigBlocked(s2, false, { iron_ingot: 3 }) !== null, 'the third given: the chain goes deep and the gate holds');
+ok(D.ironFirstFact(make(-8, 'letters', 0)) === '' && D.deepDigBlocked(make(-56, 'diamond', 0), false, { iron_ingot: 3 }) !== null, 'not before the rung; a deep chain stays gated');
 ok(D.diamondForgeNeed(s0, [{ name: 'Ada', digs: 0 }], 9) === 'no member has dug in the mine yet', `no false "every deep miner has a diamond pickaxe": ${D.diamondForgeNeed(s0, [{ name: 'Ada', digs: 0 }], 9)}`);
 
 // 5. The diamond forge's planner takes diamonds from stock (the world's has no source for them: the block's recipe loops)

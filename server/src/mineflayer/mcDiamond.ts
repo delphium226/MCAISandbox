@@ -46,9 +46,15 @@ export function deepDigWords(v: Village, store: Counts): { name: string; facts: 
 /** Why a member may not take the dig now: the village wants diamonds (or the chain is deep) and it carries no iron
  *  pickaxe, nor does storage hold one (a stone one would dig diamond ore for nothing, in the stairs as in the tunnels). */
 export function deepDigBlocked(v: Village, carriesIronPick: boolean, store: Counts): string | null {
-  if (!DIAMONDS_ON || !(diamondWanted(v) || deepChain(v.mine)) || carriesIronPick || ironFirst(v)) return null;
+  if (!DIAMONDS_ON || !(diamondWanted(v) || deepChain(v.mine)) || carriesIronPick || ironFirst(v) || !pickForgeable(store)) return null;
   return (store.iron_pickaxe ?? 0) + (store.diamond_pickaxe ?? 0) + (store.netherite_pickaxe ?? 0) > 0 ? null : 'the deep level needs an iron pickaxe';
 }
+
+/** Whether storage holds the iron for an iron pickaxe (3 ingots, raw iron counted). Without it the deep dig is not held
+ *  for one: the rungs test's diamond run (11-14) had no pickaxe held, no iron stored and the dig blocked for want of an
+ *  iron pickaxe, so no iron ever came up to forge one; a stone pickaxe's trip brings the iron up (diamond ore it meets
+ *  gives nothing) until one can be forged. */
+export const pickForgeable = (store: Counts): boolean => (store.iron_ingot ?? 0) + (store.raw_iron ?? 0) >= 3;
 
 /**
  * Who the next diamond pickaxe is for (spec section 7), once the rung is current or reached: the deep miner (a member who

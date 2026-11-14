@@ -34,6 +34,7 @@ import type { McSkill } from './mcSkills';
 import { yardMaterials } from './mcKiln';
 import { Materials, WOODS, chargedItem, describeWork, gatherTasks, label, woodName, woodPart, type Counts } from './mcMaterials';
 import { STORAGE_SKILLS, forgiveDebt, holdingStorageTask, ownTools, partsForFuel, refreshStorage, storageContents, withdrawItems } from './mcStorage';
+import { pickForgeable } from './mcDiamond';
 import { SURVIVAL_SKILLS, STATION_REACH, holdVillageFurnace, placeStation, recordStation, stationNear, stationSpot, stationsReady, villageStation, villageStationCell } from './mcSurvival';
 import { leading, wallTaken } from './mcWalls';
 import { ContentionError, at, checkAbort, goals, nearestBlocks, num, onVillageGround, reach, sleep, standableY, stateAt, str, syncInventory, unmoved, walk, withColumnCache } from './mcUtil';
@@ -6398,7 +6399,7 @@ async function digIron(a: BotAgent, args: Record<string, unknown>, signal: Abort
   const picks = await ironPickaxes(a, v, job, signal);
   // (the diamond rung's trips only with an iron pickaxe: diamond ore drops nothing to a stone one, and a stone one's mine
   // digs it through; ironPickaxes took storage's best)
-  if (gems && !hasIronPick(a)) throw new Error('dig_iron: the deep level needs an iron pickaxe (diamond ore gives nothing to a stone one); none is carried and the village storage has none: the smiths can forge one');
+  if (gems && !hasIronPick(a) && pickForgeable(storageContents(v))) throw new Error('dig_iron: the deep level needs an iron pickaxe (diamond ore gives nothing to a stone one); none is carried and the village storage has none: the smiths can forge one');
   const raw = () => a.bot.inventory.items().filter((it) => it.name === 'raw_iron').reduce((n, it) => n + it.count, 0);
   const coal = () => a.bot.inventory.items().filter((it) => it.name === 'coal').reduce((n, it) => n + it.count, 0);
   const gem = () => a.bot.inventory.items().filter((it) => it.name === 'diamond').reduce((n, it) => n + it.count, 0);
