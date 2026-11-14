@@ -407,7 +407,7 @@ export async function netherExpedition(a: BotAgent, args: Record<string, unknown
 
 /**
  * nether_dig (option rung:debris, the Nether's stage 3; the party's lease): a member with a diamond pickaxe goes through,
- * finds ancient debris in the chunks it holds at y 8-22 within 48 blocks (Paper's anti-xray is off: the probe read 6-7
+ * finds ancient debris in the chunks it holds at y 8-119 within 64 blocks (Paper's anti-xray is off: the probe read 6-7
  * there), and digs to each by the walks' own rules (natural Nether ground only; no block dug beside lava or water, the
  * pathfinder's flow rule; lava avoided), the debris itself only with no lava or fire beside it; back in a `finally`.
  * Counted on the server before and after ("dug N ancient debris").
@@ -449,7 +449,7 @@ export async function netherDig(a: BotAgent, args: Record<string, unknown>, sign
       // over the lava sea, and every stair from it met lava, nether10 11-14)
       const starts = [feet, ...standCells(a, v.nether!.far!, 24)];
       let c: Vec3 | undefined, from: Cell | undefined, best = Infinity;
-      for (const q of all.slice(0, 8)) {
+      for (const q of all) {
         if (!safeToDig(q, feet, name)) continue;
         const near = starts.slice(1).sort((u, w) => Math.hypot(u.x - q.x, u.z - q.z) - Math.hypot(w.x - q.x, w.z - q.z)).slice(0, 4);
         for (const st of [feet, ...near]) {

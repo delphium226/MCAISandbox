@@ -5534,7 +5534,7 @@ export class MineflayerWorld implements WorldAdapter {
         tag('rung:expedition', 'Go on an expedition to the Nether', `${v.ladder?.totals?.nblocks ?? 0} of ${NETHER_BROUGHT} Nether blocks brought back; through the village's portal, gather netherrack, blackstone, basalt, soul sand and quartz round the far portal (up to 24 blocks, 8 minutes) and back through it; a pickaxe needed; ${party} of ${NETHER_PARTY} members in the Nether now`,
           'Nether blocks for the village: the Nether', job(`expedition:${a.name}`, 'nether_expedition', {}, [...NETHER_BLOCKS]));
       if (counter === 'debris' && portal?.lit && a && dpick > 0 && party < NETHER_PARTY && !back(`debris:${a.name}`))
-        tag('rung:debris', 'Dig ancient debris in the Nether', `${v.ladder?.totals?.debris ?? 0} of ${NETHER_DEBRIS} ancient debris dug; it lies at y 8-22 near the far portal, mined with a diamond pickaxe (${held('diamond_pickaxe') ? 'yours' : `${store.diamond_pickaxe ?? 0} in storage`}); ${party} of ${NETHER_PARTY} members in the Nether now`,
+        tag('rung:debris', 'Dig ancient debris in the Nether', `${v.ladder?.totals?.debris ?? 0} of ${NETHER_DEBRIS} ancient debris dug; it lies deep in the Nether's rock (mostly at y 8-22, under its lava sea) near the far portal, mined with a diamond pickaxe (${held('diamond_pickaxe') ? 'yours' : `${store.diamond_pickaxe ?? 0} in storage`}); ${party} of ${NETHER_PARTY} members in the Nether now`,
           'ancient debris for netherite: the Nether', job(`debris:${a.name}`, 'nether_dig', {}, ['ancient_debris', ...NETHER_BLOCKS]));
     }
     // (MC_ENCHANTMENT_AGE: the bucket filled, obsidian cast at the deep level by a member with a diamond pickaxe, the table

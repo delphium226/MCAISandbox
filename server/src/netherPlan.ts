@@ -20,8 +20,10 @@ export const PORTAL_REACH = 40, PORTAL_APART = 160;
 export const TRIP_OUT = 32, TRIP_UPDOWN = 12;
 /** The most blocks one member brings a trip, and the trip's minutes (game time). */
 export const TRIP_BLOCKS = 24, TRIP_MIN = 8;
-/** Ancient debris lies at y 8-22 (two vanilla features; the probe found 6-7 within 48 of minevale3's far portal). */
-export const DEBRIS_Y = { min: 8, max: 22 }, DEBRIS_REACH = 48;
+/** Ancient debris lies mostly at y 8-22, a smaller feature up to y 119. Round minevale3's far portal all 25 at y 8-22
+ *  within 64 lie under the lava sea (y 31), which no safe stair passes (nether9-11, 11-14); 3 lie above it (y 45, 109).
+ *  So the dig looks from y 8 to 119 within 64, the stair's lava rule choosing. */
+export const DEBRIS_Y = { min: 8, max: 119 }, DEBRIS_REACH = 64;
 
 const along = (axis: Axis, i: number): [number, number] => (axis === 'x' ? [i, 0] : [0, i]);
 const across = (axis: Axis, j: number): [number, number] => (axis === 'x' ? [0, j] : [j, 0]);
