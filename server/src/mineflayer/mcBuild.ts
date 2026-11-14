@@ -8107,8 +8107,10 @@ async function layRailLine(a: BotAgent, args: Record<string, unknown>, signal: A
     const others = [...reg.villages.values()].filter((o) => o !== v);
     const lays = v.layouts ?? [];
     const busyArea = [...v.structures, ...lays.flatMap((l) => [...(l.farm ? [l.farm] : []), ...(l.slots ?? [])])];
-    const spots = [...lays.flatMap((l) => [...(l.lamps ?? []), ...(l.signs ?? [])]), ...(v.initiatives ?? []).filter((i) => i.state === 'open')];
-    const hard = (x: number, z: number) => !ins(area, x, z) || busyArea.some((q) => ins(q, x, z)) || spots.some((p) => Math.abs(p.x - x) <= 1 && Math.abs(p.z - z) <= 1)
+    // (lamps and signs only on their own cell: with a block round each, the storage hut's door lamp and sign closed every
+    // cell beside the line's end and machines2's line could not be planned, rungs test 11-14; open works keep a block round)
+    const posts = lays.flatMap((l) => [...(l.lamps ?? []), ...(l.signs ?? [])]), spots = (v.initiatives ?? []).filter((i) => i.state === 'open');
+    const hard = (x: number, z: number) => !ins(area, x, z) || busyArea.some((q) => ins(q, x, z)) || posts.some((p) => p.x === x && p.z === z) || spots.some((p) => Math.abs(p.x - x) <= 1 && Math.abs(p.z - z) <= 1)
       || others.some((o) => o.plots.some((q) => ins(q, x, z, 2)) || o.structures.some((q) => ins(q, x, z, 1)));
     const cx = Math.floor((start[0] + goal[0]) / 2), cz = Math.floor((start[1] + goal[1]) / 2);
     if (Math.hypot(a.bot.entity.position.x - cx, a.bot.entity.position.z - cz) > 48)
