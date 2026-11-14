@@ -29,7 +29,7 @@ export interface MakeGood { item: string; target: number; batch: number; unit: n
   carve?: true;
   /** G8's rung goods (#21): made for the ladder's current rung, targets from its stages (the world's makeTarget), never a
    *  merchant order. */
-  rung?: 'letters' | 'copper';
+  rung?: 'letters' | 'copper' | 'husbandry' | 'music';
   /** Survival (c)'s arms (MC_ARMS, mob modes only): targets from the members (the world's makeTarget), 0 elsewhere. */
   arms?: true }
 
@@ -54,6 +54,18 @@ export const COPPER_GOODS: MakeGood[] = [
   { item: 'copper_block', target: 0, batch: 2, unit: 1, words: 'copper blocks', forWhat: 'the copper canopy\'s roof (the copper age): 9 copper ingots, smelted from the iron mine\'s raw copper, make one', rung: 'copper' },
   { item: 'lightning_rod', target: 0, batch: 1, unit: 1, words: 'a lightning rod', forWhat: 'the copper age\'s lightning rod: 3 copper ingots', rung: 'copper' },
   { item: 'spyglass', target: 0, batch: 1, unit: 1, words: 'a spyglass', forWhat: 'the copper age\'s spyglass: 2 copper ingots and an amethyst shard (the merchant sells one)', rung: 'copper' },
+];
+
+/**
+ * The husbandry and music rungs' goods (MC_HUSBANDRY_AGE, MC_MUSIC_AGE), while their rung is current: hay bales of the
+ * village's spare wheat (the world's wheat keeps for breeding and the cake still apply), and note blocks of planks and the
+ * redstone the merchant sells. Their targets are ladder.ts rungGoodTarget.
+ */
+export const HUSBANDRY_GOODS: MakeGood[] = [
+  { item: 'hay_block', target: 0, batch: 2, unit: 1, words: 'hay bales', forWhat: 'the hay store of the age of husbandry: 9 wheat bale into one', allow: ['wheat'], rung: 'husbandry' },
+];
+export const MUSIC_GOODS: MakeGood[] = [
+  { item: 'note_block', target: 0, batch: 2, unit: 1, words: 'note blocks', forWhat: 'the bandstand of the age of music: 8 planks and a redstone (the merchant sells it) make one', rung: 'music' },
 ];
 
 /** The goods, in this order on ties (spec 4.4; mud bricks, chests and the stone axe, shovel and sword cut, D11). */

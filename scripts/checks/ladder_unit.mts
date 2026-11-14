@@ -37,9 +37,9 @@ ok(st.reached[0].workers.length === 4 && st.reached[0].workers[3][0] === 'Eve', 
 ok(/reached the iron age/.test(L.progressLine(village, t0 + 50, 600000)), 'the line after the rung');
 const opts = L.rungOptions(village);
 // (11-14: only implemented rungs, and only the lowest tier not yet reached: tier 2's letters (MC_LETTERS), copper
-// (MC_COPPER_AGE) and trade (MC_TRADE_AGE) in the ballot's order, else diamond)
-const tier2 = (['letters', 'copper', 'trade'] as const).filter((r) => L.rungImplemented(r));
-ok(opts.join(',') === (tier2.length ? tier2.join(',') : L.DIAMOND_AGE ? 'diamond' : ''), `the ballot's options after iron: implemented, simplest tier first: ${opts.join(', ')}`);
+// (MC_COPPER_AGE), trade (MC_TRADE_AGE), husbandry and music... in the ballot's order, at most 4, else diamond)
+const tier2 = L.RUNG_ORDER.filter((r) => L.RUNG_DEFS[r].tier === 2 && L.rungImplemented(r));
+ok(opts.join(',') === (tier2.length ? tier2.slice(0, 4).join(',') : L.DIAMOND_AGE ? 'diamond' : ''), `the ballot's options after iron: implemented, simplest tier first: ${opts.join(', ')}`);
 ok((['enchantment', 'nether', 'machines'] as const).every((r) => !L.rungImplemented(r)), 'the rungs in words are not implemented');
 ok(L.rungImplemented('iron') && L.rungImplemented('diamond') === L.DIAMOND_AGE && L.rungImplemented('letters') === L.LETTERS
   && L.rungImplemented('trade') === L.TRADE_AGE && L.rungImplemented('copper') === L.COPPER_AGE, 'iron, letters, trade, copper and diamond implemented with their flags');
@@ -53,7 +53,7 @@ ok(L.rungImplemented('iron') && L.rungImplemented('diamond') === L.DIAMOND_AGE &
   for (const [i, r] of tier2.entries()) {
     s2.reached.push({ rung: r, t: t0, workers: [] } as never);
     const left = tier2.slice(i + 1);
-    ok(L.rungOptions(v2).join(',') === (left.length ? left.join(',') : L.DIAMOND_AGE ? 'diamond' : ''), `${r} reached: ${left.length ? `${left.join(', ')} still before diamond` : 'diamond next'} (${L.rungOptions(v2).join(', ')})`);
+    ok(L.rungOptions(v2).join(',') === (left.length ? left.slice(0, 4).join(',') : L.DIAMOND_AGE ? 'diamond' : ''), `${r} reached: ${left.length ? `${left.join(', ')} still before diamond` : 'diamond next'} (${L.rungOptions(v2).join(', ')})`);
   }
   s2.reached.push({ rung: 'diamond', t: t0, workers: [] } as never);
   ok(L.rungOptions(v2).length === 0, 'every implemented rung reached: no ballot');

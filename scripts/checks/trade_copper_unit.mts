@@ -180,7 +180,8 @@ if (MODE === 'orders') {
   ok(pn.gather.amethyst_shard === 1, 'no shard: the spyglass is short of it');
   const { SELLS } = await import('../../server/src/merchant');
   const shard = SELLS.find((o) => o.item === 'amethyst_shard');
-  ok(!!shard && SELLS[SELLS.length - 1] === shard, `the merchant sells an amethyst shard, last (${shard?.emeralds} emeralds)`);
+  // (later rungs' goods may follow it: MC_MUSIC_AGE's redstone)
+  ok(!!shard && SELLS.slice(SELLS.indexOf(shard) + 1).every((o) => ['redstone', 'bell'].includes(o.item)), `the merchant sells an amethyst shard, last but for later rungs' goods (${shard?.emeralds} emeralds)`);
   const SW = await import('../../server/src/smallWorks');
   const { designBill } = await import('../../server/src/mineflayer/mcMaterials');
   const k = SW.smallWorkKind(L.COPPER_CANOPY);
@@ -195,7 +196,8 @@ if (MODE === 'orders') {
   const st = L.ladderOf(v, 1)!;
   st.current = undefined;
   st.reached = [{ rung: 'iron', t: 1, workers: [] }];
-  ok(L.rungOptions(v).join() === (L.LETTERS ? 'letters,copper,trade' : 'copper,trade'), `after iron: ${L.rungOptions(v).join(', ')}`);
+  const tier2 = L.RUNG_ORDER.filter((r) => L.RUNG_DEFS[r].tier === 2 && L.rungImplemented(r)).slice(0, 4);
+  ok(L.rungOptions(v).join() === tier2.join() && tier2.includes('copper') && tier2.includes('trade') && tier2.includes('letters') === L.LETTERS, `after iron: ${L.rungOptions(v).join(', ')}`);
   for (const id of ['copper', 'trade'] as const) {
     const pv = L.rungPreview(id);
     ok(/every skill exists/.test(pv) && pv.length <= 200, `${id}'s preview: ${pv}`);

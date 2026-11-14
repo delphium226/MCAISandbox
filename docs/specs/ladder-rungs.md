@@ -15,7 +15,7 @@ to be on the ballot at any time. don't offer advanced rungs before simpler rungs
 | Tier | Rungs | Why there |
 |---|---|---|
 | 1 | iron | always first |
-| 2 | letters, trade, copper | built from what the village already does (cane, the merchant, the iron mine's side ore) |
+| 2 | letters, trade, copper, husbandry, music | built from what the village already does (cane, the merchant, the iron mine's side ore, the pens) |
 | 3 | diamond, machines | the deep mine; machines' powered rails need gold and redstone from deep levels |
 | 4 | enchantment | needs letters (a book, a library) and diamond (2 diamonds, a pickaxe for obsidian) |
 | 5 | the Nether | needs obsidian from enchantment; a second dimension |
@@ -91,6 +91,64 @@ What a live run should watch for: `[ladder] ... the iron mine keeps the copper o
 level is finished when copper is chosen, nothing digs (the dig is not offered on a finished chain); count the copper
 rung's first half-hour of trips.
 
+### Husbandry (tier 2, #248): built 11-14, `MC_HUSBANDRY_AGE` (on)
+
+The pens, their breeding (`breed_pen`), shearing (`shear_pen`), seeds for chickens and the enlarged pens existed (#139,
+#229). Built: the counts, the hay make, the village's shears.
+
+| Stage | Counter, target | Counted where | Feeds |
+|---|---|---|---|
+| 1. kinds of animal penned with a breeding pair | `pens`, 3 | a level: kinds of built annex pen holding 2 or more (`ladder.ts` pairedPenKinds, levelCounts) | `annex`, `pen:<kind>` |
+| 2. young animals bred in the pens | `bred`, 20 | breed_pen's "N young born" (the pen's entities counted by the server before and after the feed, `mcBuild.ts` breedPen), `husbandryCounts` | `penwork:N:breed`, `penwork:N:enlarge`, `penfeed` |
+| 3. wool sheared from a pen's flock | `wool`, 32 | shear_pen's "sheared S sheep ...: N wool" | `penwork:N:shear`, `pen:sheep`, `iron:forge:shears` |
+| 4. hay bales in the village storage | `hay`, 8 | a level: storage's hay_block, the highest seen | `make:hay_block`, `farm:N`, `slot:wheat` |
+
+While husbandry is current: the workshop makes hay bales from spare wheat (`HUSBANDRY_GOODS`, `allow: wheat`; the world's
+wheat keeps for breeding and the cake still apply) up to 8 in storage; and when a sheep pen holds a pair and storage has
+no shears, the forge makes the village a pair (`forgeNeed`; shear_pen is offered only with shears in storage). "A breeding
+pen per animal" became 3 kinds: PEN_ORDER has six kinds, but a kind needs animals seen near the annex (rabbits and goats
+rarely are) and the annex holds three or four pens. Births are counted from the server's entity count, not the feed: a
+feed with no young counts nothing. Targets: a breeding visit breeds up to 4 pairs once the pen's adults are grown (20
+game minutes), so 20 young is some 6-10 visits over three pens; a sheep gives 1-3 wool and regrows it on the pen's grass
+(5 minutes between shearings), so 32 wool is some 16 shearings; 8 bales are 72 wheat, about four harvests of a
+neighbourhood field. With 50 members the pens, not the members, set the pace: about 2-3 hours.
+
+A live run should watch: `[pens] ... young <kind> born` lines, the `[ladder] ... finished stage` lines, a `Make the village
+shears` forge once stage 3 is near, `make:hay_block` makes. Risks: a village whose annex never holds a third kind stays on
+stage 1 (no animals seen near it); the hay competes with bread and the cows' and sheep's breeding for wheat.
+
+### Music (tier 2, #249): built 11-14, `MC_MUSIC_AGE` (on)
+
+The draft's jukebox needs a diamond (tier 3) and a music disc drops only from a creeper killed by a skeleton or from a
+dungeon chest, neither practical in a peaceful world or by Mineflayer; they became a bandstand of note blocks tuned to a
+scale, which is music the village builds and anyone can play. The bell has no recipe; the merchant sells one (as for the
+monument's furnishing, 12 emeralds), and redstone, which the iron levels rarely meet (vanilla's clerics sell it, 2 for an
+emerald).
+
+| Stage | Counter, target | Counted where | Feeds |
+|---|---|---|---|
+| 1. redstone bought from the merchant | `redstone`, 8 | the trade step's "bought N redstone", once the activity's deposit landed (`musicCounts`) | `activity:lib:buy:redstone`, `activity:lib:sell` |
+| 2. note blocks made | `notes`, 8 | a make's "put into storage: N note_block" | `make:note_block`, the redstone buy |
+| 3. a bandstand of note blocks tuned to a scale | `bandstand`, 1 | a level: the built `bandstand` rung work | `help:bandstand` |
+| 4. a bell hung on a post in the village | `bell`, 1 | a level: the built `bell_post` rung work | `help:bell_post`, `activity:lib:buy:bell`, `activity:lib:sell` |
+
+While music is current: storage keeps (and lib:buy buys) a redstone for each note block still to make and one bell until
+the bell post is posted (`ladder.ts` musicKeep, the world's tradeKeep and merchantUses); the workshop makes note blocks
+(`MUSIC_GOODS`) up to the 8; the village posts the bandstand once storage holds the 8 note blocks and the bell post once it
+holds the bell (`postRungWorks`, the blocks and the bell taken from storage as gathered, as the copper canopy's blocks).
+The bandstand (`smallWorks.ts` RUNG_WORKS): 6x4, a plank floor, fence posts at the corners, a slab roof, two rows of four
+note blocks set by command with `note` 6 8 10 11 13 15 17 18 (a C major octave from middle C), air above each. The bell
+post: 3x3, a cobblestone base, two fence posts and a log beam, the bell hanging from it. Redstone joined the planner's
+gathered items (`mcMaterials.ts` GATHER, as wheat: its only recipe is the redstone block's, a cycle that left the note
+block with no plan). The merchant's redstone (and the bell, when the monument's bell offer is off) is appended last.
+Targets: 8 redstone is 4 emeralds and the bell 12, some 16 lots sold; 8 note blocks are 64 planks; two small works.
+About 2 hours, mostly the emeralds and the two works' crews.
+
+A live run should watch: the merchant's "bought N redstone" and "bought 1 bell" trades, `make:note_block`, `[ladder] ...
+the village posts iN, a bandstand / bell post`, "the bandstand waits for 8 note_block in storage", and whether the
+bandstand's note blocks keep their `note` (placed with states by command; check one with `execute if block`). Risks: the
+bell's 12 emeralds wait on sales; a small-work spot must be found for each work.
+
 ### 3. Machines (tier 3, ~2 sessions, #24)
 
 Hoppers, rails and minecarts are crafts from iron. The egg collector is a hopper under the chicken pen (pens exist). The
@@ -120,16 +178,15 @@ Minecraft's progression has more than the seven rungs above. Candidates, with th
 
 | Rung | Stages (draft) | Tier | Notes |
 |---|---|---|---|
-| **Husbandry** | a breeding pen per animal, 20 animals bred, wool from a flock, a hay bale store | 2 | pens and shearing exist (`shear_for_yard`); breeding is a right-click with food |
 | **Bees** | 2 hives (campfire under), 16 honeycomb, 8 honey bottles, waxed copper | 3 | needs a bee nest found and moved with Silk Touch, or a hive near flowers; brings back copper's waxing |
 | **Maps** (cartography) | paper (letters), a cartography table, a map of the village, a map wall | 3 | after letters; the atlas already knows the land |
-| **Music** | note blocks, a jukebox, a disc, a bell in the square | 2 | small; makes the village feel lived in |
 | **The sea** | a boat, a dock, prismarine from an ocean monument, a conduit | 4 | needs water travel and guardians (hostile mode) |
 | **Brewing** | a brewing stand (blaze rod), Nether wart farm, 10 potions | 6 | after the Nether |
 | **The End** | eyes of ender (ender pearls, blaze powder), the stronghold found, the portal lit, the dragon | 7 | the last rung; far off |
 
-Brewing and the End need the Nether, so they only matter once tier 5 is built. Husbandry and music are the cheapest
-additions to tier 2.
+Brewing and the End need the Nether, so they only matter once tier 5 is built. Husbandry and music, the cheapest
+additions to tier 2, are built (above). With five tier-2 rungs the ballot after iron offers the first four in the ballot's
+order (letters, copper, trade, husbandry); music joins once one is reached.
 
 ## Order of work
 

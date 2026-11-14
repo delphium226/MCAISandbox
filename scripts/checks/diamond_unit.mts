@@ -45,7 +45,7 @@ if (START) {
   const v = { name: 'T', complete: true } as unknown as Village;
   const s = L.ladderOf(v, 1)!;
   // (11-14: the tier-2 rungs implemented, letters, copper and trade, are still open: none of them is reached)
-  const tier2 = (['letters', 'copper', 'trade'] as const).filter((r) => L.rungImplemented(r)).join();
+  const tier2 = L.RUNG_ORDER.filter((r) => L.RUNG_DEFS[r].tier === 2 && L.rungImplemented(r)).slice(0, 4).join();
   ok(s.current === 'diamond' && s.reached.map((r) => r.rung).join() === 'iron' && L.rungOptions(v).join() === tier2, `MC_LADDER_START=diamond: starts on diamond, iron reached, tier 2 open (${L.rungOptions(v).join(', ')}; ${L.progressLine(v, 2, 1)})`);
   process.exit(fails ? 1 : 0);
 }
@@ -151,7 +151,7 @@ ok(!Object.keys(gp.gather).length && gp.steps.length === 1 && gp.steps[0].item =
   const sb = L.ladderOf(vb, 1)!;
   sb.current = undefined;
   sb.reached = [{ rung: 'iron', t: 1, workers: [] }];
-  const tier2 = (['letters', 'copper', 'trade'] as const).filter((r) => L.rungImplemented(r));
+  const tier2 = L.RUNG_ORDER.filter((r) => L.RUNG_DEFS[r].tier === 2 && L.rungImplemented(r));
   const before = tier2.map((r) => {
     const o = L.rungOptions(vb).includes('diamond');
     sb.reached.push({ rung: r, t: 1, workers: [] });

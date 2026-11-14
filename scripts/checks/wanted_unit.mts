@@ -133,7 +133,7 @@ ok(h.samples === 2 && h.top.honeycomb.samples === 2 && h.top.honeycomb.first ===
   ok(!!nt && nt.status === 'hand', "the offered rung's hand need too");
   const dm = l.find((w) => w.id === 'deep_mine');
   ok(!!dm && dm.ladder?.planned === true && dm.status === 'hand', 'a rung neither chosen nor offered: its needs planned');
-  ok(RUNGS.length === 8 && RUNG_NEEDS.iron.length === 0 && RUNG_NEEDS.trade.length === 0, 'eight rungs; iron and trade need nothing');
+  ok(RUNGS.length >= 10 && RUNGS.includes('husbandry') && RUNGS.includes('music') && RUNG_NEEDS.iron.length === 0 && RUNG_NEEDS.trade.length === 0, `${RUNGS.length} rungs, husbandry and music among them; iron and trade need nothing`);
   const rn = rungNeeds('enchantment', ctx);
   ok(rn.length === 2 && rn.find((n) => n.capability === 'cast_obsidian')?.status === 'missing' && rn.find((n) => n.capability === 'enchant')?.status === 'hand', `rungNeeds with live status (${JSON.stringify(rn.map((n) => [n.capability, n.status]))})`);
   ok(RUNGS.every((r) => RUNG_NEEDS[r].every((n) => !!n.note)), 'every need has a note');

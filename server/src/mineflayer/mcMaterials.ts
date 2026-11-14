@@ -54,6 +54,9 @@ export const SMELT_FALLBACK: Record<string, string> = {
 const GATHER = new Set(['coal', 'raw_iron', 'raw_copper', 'raw_gold', 'white_wool', 'clay_ball', 'sand', 'red_sand', 'sandstone', 'red_sandstone', 'terracotta', 'dirt', 'gravel', 'sugar_cane', 'leather', 'vine', 'wheat', 'cod', 'salmon',
   // (10-22, the flowers knowledge gap: what collect and the farms give that dyes are made of; the cactus smelts to green dye)
   ...FLOWER_ITEMS, 'cactus', 'beetroot',
+  // (the music rung's note blocks: redstone as the deep mine keeps it or the merchant sells it; its only recipe is from the
+  // redstone block, whose recipe is from redstone, and that cycle left a note block with no plan)
+  'redstone',
   // (#104, MC_VANILLA_ALL: diorite, the snowy pieces' stand-in for snow and ice, mined as it lies, not made from quartz;
   // granite too, 11-12: a requested statue's red and orange, sculpture.ts, collected where it lies as the quarry's is)
   ...(!/^(off|0|false|no)$/i.test(rawSetting('MC_VANILLA_ALL') ?? 'on') ? ['diorite', 'granite'] : [])]);
@@ -63,7 +66,7 @@ const GATHER = new Set(['coal', 'raw_iron', 'raw_copper', 'raw_gold', 'white_woo
 export const YARD_MADE = ['sandstone', 'red_sandstone'];
 
 /** Gathered items that take finding (ores underground, animals): charcoal from logs beats coal ore, for example. */
-const GATHER_COST: Record<string, number> = { clay: 2, coal: 2, raw_iron: 3, raw_copper: 3, raw_gold: 4, leather: 3, white_wool: 2, clay_ball: 2, sugar_cane: 2, vine: 2, cod: 3, salmon: 3,
+const GATHER_COST: Record<string, number> = { clay: 2, coal: 2, redstone: 3, raw_iron: 3, raw_copper: 3, raw_gold: 4, leather: 3, white_wool: 2, clay_ball: 2, sugar_cane: 2, vine: 2, cod: 3, salmon: 3,
   ...Object.fromEntries(FLOWER_ITEMS.map((f) => [f, 2])), cactus: 2 };
 // (a stripped log has no recipe, but no village finds one: it takes an axe on a log, a step no chore does; at 1 it tied
 // with "any logs" and a smoker planned from 4 stripped warped stems, F237)

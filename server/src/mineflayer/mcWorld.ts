@@ -27,7 +27,7 @@ import { ironDone, ironLevelFull, ironStairsHeld, mineAreas, mineGives, mineCanG
 import { EGGS, PENS_BIG, PEN_KINDS, PEN_ORDER, PEN_VARIETY, SLOT_KINDS, SLOT_ORDER, enlargedSlot, penCap, penLure, penPlan, penSlotFit, penWords, pigCarrotKeep, restockLine, worksFurnaces } from '../farmSlots';
 import { bowsOn, archeryCounts } from './mcArchery';
 import { BOW_NW, BOW_RANK, FLINT_TRIP_MAX, arrowsLying, bowsFirst, flintCounts, flintShort, gravelOut, gravelSkip, gravelSource, recentShots, type GravelSpot } from './mcFlint';
-import { ARMS_GOODS, BOW_GOODS, COPPER_GOODS, FOOD_GOODS, HUNT_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, ROD_GOOD, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
+import { ARMS_GOODS, BOW_GOODS, COPPER_GOODS, FOOD_GOODS, HUNT_GOODS, HUSBANDRY_GOODS, MUSIC_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, ROD_GOOD, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
 import { PROMPT_SELF, UNUSED_GOOD, UNUSED_TAG, ambitionGap, feedKinds, needsLine as basicNeedsLine, scarcityLine, selfLine, type HouseFacts, type SelfFacts } from '../promptSelf';
@@ -36,7 +36,7 @@ import { Palette, reserved, type Dropped } from '../palette';
 import { workerNumber } from '../agentNames';
 import { KIND_PHRASE, TEMPERAMENT_MODE, activeKinds, kindWeights, optionWeight, personaOf, temperament, vectorOf } from '../temperament';
 import { GOALS_ON, GOAL_PIN, ensureGoals, goalLine, goalName, goalScore, goalWeight, goalsOf, noteEnd as goalNoteEnd, goalPlanOf, goalWordsDue, serves, specOf, topCraft, type Goals, type OptionFacts } from '../goals';
-import { COPPER_AGE, COPPER_CANOPY, COPPER_MADE, COPPER_RAW, IRON_AGE, IRON_MINERS, LADDER, LETTERS, RUNG_DEFS, TRADE_AGE, TRADE_EMERALDS, TRADE_GOODS, TRADE_STALLS, VW, chooseRung, copperCounts, copperCurrent, copperTarget, shardKeep, feedsStage, ladderOf, levelCounts, lettersCounts, lettersCurrent, lettersReached, LETTERS_BOOKS, noteLadder, tradeCounts, tradeCurrent, openRungBallot, progressLine, rungOptions, rungPreview, stageTag, type Counter as LadderCounter, type LadderNews } from '../ladder';
+import { COPPER_AGE, COPPER_CANOPY, COPPER_MADE, COPPER_RAW, HUSBANDRY_AGE, IRON_AGE, IRON_MINERS, LADDER, LETTERS, MUSIC_AGE, MUSIC_BANDSTAND, MUSIC_BELL_POST, MUSIC_NOTES, RUNG_DEFS, TRADE_AGE, TRADE_EMERALDS, TRADE_GOODS, TRADE_STALLS, VW, chooseRung, copperCounts, copperCurrent, copperTarget, shardKeep, feedsStage, husbandryCounts, husbandryCurrent, musicCounts, musicCurrent, musicKeep, pairedPenKinds, rungGoodTarget, ladderOf, levelCounts, lettersCounts, lettersCurrent, lettersReached, LETTERS_BOOKS, noteLadder, tradeCounts, tradeCurrent, openRungBallot, progressLine, rungOptions, rungPreview, stageTag, type Counter as LadderCounter, type LadderNews } from '../ladder';
 import type { RungId } from '../wanted';
 import type { ChronicleEntry } from '../social';
 import { BALLOTS_PARALLEL, STYLE_LOOK, VOTE_MAX_MS, VOTE_SETTING, castAll, predictedBallot, predictedChoice, parseStyle, styleOption, tally, woodStyleOptions, type Ballot, type BallotRequest, type StyleHouse, type VoteMode, type VoteOption, type VoteRecord, type VoteTopic } from '../vote';
@@ -852,6 +852,9 @@ export class MineflayerWorld implements WorldAdapter {
     }
     // (#247, MC_COPPER_AGE: the rung's copper blocks, lightning rod and spyglass while copper is current)
     if (copperCurrent(v)) goods = [...goods.filter((g) => !COPPER_GOODS.some((q) => q.item === g.item)), ...COPPER_GOODS];
+    // (MC_HUSBANDRY_AGE: hay bales while husbandry is current; MC_MUSIC_AGE: note blocks while music is)
+    if (husbandryCurrent(v)) goods = [...goods.filter((g) => !HUSBANDRY_GOODS.some((q) => q.item === g.item)), ...HUSBANDRY_GOODS];
+    if (musicCurrent(v)) goods = [...goods.filter((g) => !MUSIC_GOODS.some((q) => q.item === g.item)), ...MUSIC_GOODS];
     // (#178, MC_STRING: fishing rods from the string trip's string)
     if (STRING && !goods.some((g) => g.item === ROD_GOOD.item)) goods = [...goods, ROD_GOOD];
     // (#217 step 6, MC_BOWS: bows from the hunt's string, arrows from flint and the pens' feathers, for the watch and the hunt)
@@ -1360,6 +1363,9 @@ export class MineflayerWorld implements WorldAdapter {
       const owed = bedsOwed(v, (id) => this.decorParts(v).find((q) => q.structure.id === id)?.basics);
       if (shearsFirst(owed, held)) return { tool: 'shears', why: `${owed} house${owed === 1 ? '' : 's'} without a bed and no shears for the wool` };
     }
+    // (MC_HUSBANDRY_AGE: a sheep pen's shearing takes shears from storage; while husbandry is current and none are stored,
+    // the village's pair, 2 ingots)
+    if (husbandryCurrent(v) && !(storageContents(v).shears ?? 0) && pairedPenKinds(v).includes('sheep')) return { tool: 'shears', why: 'the sheep pen\'s wool for the age of husbandry and no shears in storage' };
     // (#22, MC_DIAMOND_AGE: a deep miner whose iron pickaxe wore out gets another: the rung's trips need one, and a deep
     // level's 1,000-odd blocks wear out four)
     if (DIAMONDS_ON && deepChain(v.mine))
@@ -1608,6 +1614,8 @@ export class MineflayerWorld implements WorldAdapter {
     if (g.rung === 'letters') return this.lettersTarget(v, g.item);
     // (#247, MC_COPPER_AGE: the copper blocks still to make, then a lightning rod and a spyglass)
     if (g.rung === 'copper') return copperTarget(v, g.item, storageContents(v));
+    // (MC_HUSBANDRY_AGE, MC_MUSIC_AGE: the hay store's bales, the bandstand's note blocks still to make)
+    if (g.rung === 'husbandry' || g.rung === 'music') return rungGoodTarget(v, g.item, storageContents(v));
     // (survival (c): stone swords for half the members; the rest as the table)
     if (g.arms) return !armsOn() ? 0 : g.item === 'stone_sword' ? Math.max(2, Math.ceil(this.growMembers(v).length / 2)) : g.target;
     // (food, s30's D13: bread two a member, pies one for two, where the village keeps an appetite; none otherwise)
@@ -2569,7 +2577,7 @@ export class MineflayerWorld implements WorldAdapter {
       try {
         if (LETTERS_PACE && MERCHANT_ON && v.complete) this.postStall(v);
         // (#246, #247: a market stall or the copper canopy while the current stage wants one)
-        if (LADDER && (TRADE_AGE || COPPER_AGE) && v.complete) this.postRungWorks(v);
+        if (LADDER && (TRADE_AGE || COPPER_AGE || MUSIC_AGE) && v.complete) this.postRungWorks(v);
         if (v.initiatives?.length) this.initiativeTick(v);
       } catch (e) {
         console.error(`[initiative] ${v.name}: check failed:`, e);
@@ -3979,7 +3987,7 @@ export class MineflayerWorld implements WorldAdapter {
 
   /** #246, #247: the trade and copper rungs' level counts (ladder.ts levelCounts) into the ladder, credited to `member`. */
   private ladderLevels(v: Village, member: string) {
-    if (!tradeCurrent(v) && !copperCurrent(v)) return;
+    if (!tradeCurrent(v) && !copperCurrent(v) && !husbandryCurrent(v) && !musicCurrent(v)) return;
     const got = levelCounts(v, storageContents(v));
     for (const [counter, n] of got) for (const news of noteLadder(v, counter, member, n, Date.now(), clockOf(v.name, Date.now())?.day)) this.ladderNews(v, news);
     if (got.length) this.villages.save();
@@ -5085,7 +5093,7 @@ export class MineflayerWorld implements WorldAdapter {
           this.ownSold.delete(v.name);
           m.restockAt = Date.now() + this.restockMs();
           // (#21, MC_LETTERS: the whole list again, so a saved merchant gains the offers appended since it was summoned)
-          if (LETTERS || COPPER_AGE) for (const c of offersCommands(sel.replace(']', ',limit=1]'), m.uses)) await this.rcon.command(c);
+          if (LETTERS || COPPER_AGE || MUSIC_AGE) for (const c of offersCommands(sel.replace(']', ',limit=1]'), m.uses)) await this.rcon.command(c);
           else for (const [i] of OFFERS.entries()) await this.rcon.command(`data modify entity ${sel.replace(']', ',limit=1]')} Offers.Recipes[${i}].uses set value 0`);
           this.villages.save();
           console.log(`[merchant] ${v.name}: restocked (next in ${Math.round(this.restockMs() / 60000)} min)`);
@@ -5240,6 +5248,8 @@ export class MineflayerWorld implements WorldAdapter {
     if (item === 'carrot') return pigCarrotKeep((v.layouts ?? []).flatMap((l) => l.slots ?? [])) || undefined;
     // (#247, MC_COPPER_AGE: the spyglass's amethyst shard, one, once the copper blocks are made and while no spyglass is stored)
     if (item === 'amethyst_shard') return shardKeep(v, storageContents(v));
+    // (MC_MUSIC_AGE: redstone for the note blocks still to make, the bell for the bell post)
+    if (item === 'redstone' || (item === 'bell' && musicCurrent(v))) return musicKeep(v, item);
     if (!lettersCurrent(v)) return undefined;
     const store = storageContents(v);
     const farmed = (v.layouts ?? []).some((l) => (l.slots ?? []).some((q) => q.kind === 'sugar_cane'));
@@ -5283,7 +5293,8 @@ export class MineflayerWorld implements WorldAdapter {
    * G8 (#246, #247): a ladder stage's work posted by the village, as postStall posts the first market stall, one open at
    * a time: another market stall while the trade rung's stalls stage wants one (TRADE_STALLS standing); the copper canopy
    * while the copper rung's roof stage is current, once storage holds the copper blocks the rung made for its roof (taken
-   * as gathered from storage, s40's fromStore: an initiative gathers only logs, cobblestone and sand).
+   * as gathered from storage, s40's fromStore: an initiative gathers only logs, cobblestone and sand); the music rung's
+   * bandstand once storage holds its note blocks, and its bell post once storage holds the bell, the same way.
    */
   private postRungWorks(v: Village) {
     const now = Date.now();
@@ -5291,7 +5302,8 @@ export class MineflayerWorld implements WorldAdapter {
     this.rungWorkAt.set(v.name, now + 60000);
     if (!v.storageHut || !CHOOSE.families.has('initiatives')) return;
     const st = v.ladder, sd = st?.current ? RUNG_DEFS[st.current as RungId]?.stages[st.stage] : undefined;
-    const want = sd?.counter === 'stalls' && tradeCurrent(v) ? 'market_stall' : sd?.counter === 'croof' && copperCurrent(v) ? COPPER_CANOPY : '';
+    const want = sd?.counter === 'stalls' && tradeCurrent(v) ? 'market_stall' : sd?.counter === 'croof' && copperCurrent(v) ? COPPER_CANOPY
+      : sd?.counter === 'bandstand' && musicCurrent(v) ? MUSIC_BANDSTAND : sd?.counter === 'bell' && musicCurrent(v) ? MUSIC_BELL_POST : '';
     if (!want || !st?.current) return;
     const same = (v.initiatives ?? []).filter((i) => i.kind === want);
     if (same.some((i) => i.state === 'open')) return;
@@ -5300,10 +5312,12 @@ export class MineflayerWorld implements WorldAdapter {
     if (!k) return;
     const wood = this.catalogWoodOf(v);
     let gathered: Counts | undefined;
-    if (want === COPPER_CANOPY) {
-      const need = designBill(k.make(wood)).copper_block ?? COPPER_MADE, have = storageContents(v).copper_block ?? 0;
-      if (have < need) return console.log(`[ladder] ${v.name}: the copper canopy waits for ${need} copper blocks in storage (${have})`);
-      gathered = { copper_block: need };
+    // (the rung's own goods, taken as gathered from storage: copper blocks, note blocks, the bell)
+    const own = want === COPPER_CANOPY ? { item: 'copper_block', n: COPPER_MADE } : want === MUSIC_BANDSTAND ? { item: 'note_block', n: MUSIC_NOTES } : want === MUSIC_BELL_POST ? { item: 'bell', n: 1 } : undefined;
+    if (own) {
+      const need = designBill(k.make(wood))[own.item] ?? own.n, have = storageContents(v)[own.item] ?? 0;
+      if (have < need) return console.log(`[ladder] ${v.name}: the ${k.words} waits for ${need} ${own.item} in storage (${have})`);
+      gathered = { [own.item]: need };
     }
     const spot = this.smallWorkSpot(v, k, wood, STALL_BY);
     if (!spot) return console.log(`[ladder] ${v.name}: no spot for the village's ${k.words} yet`);
@@ -5411,6 +5425,8 @@ export class MineflayerWorld implements WorldAdapter {
     if ((this.tradeKeep(v, 'carrot') ?? 0) > 0) out.add('carrot');
     // (#247, MC_COPPER_AGE: the spyglass's amethyst shard while the rung wants one)
     if ((this.tradeKeep(v, 'amethyst_shard') ?? 0) > 0) out.add('amethyst_shard');
+    // (MC_MUSIC_AGE: redstone for the note blocks, the bell for its post, while the rung wants them)
+    if (musicCurrent(v)) for (const n of ['redstone', 'bell']) if ((this.tradeKeep(v, n) ?? 0) > 0) out.add(n);
     try {
       if (CHOOSE.families.has('furnish')) for (const n of Object.keys(this.decorDemand(v))) out.add(n);
     } catch {
@@ -6180,6 +6196,10 @@ export class MineflayerWorld implements WorldAdapter {
         // copper brought up, copper blocks made)
         if (TRADE_AGE && q.type === 'trade' && (!act || c.status[act.depAt]?.state === 'done')) got.push(...tradeCounts(q.type, q.message));
         if (COPPER_AGE) got.push(...copperCounts(q.type, q.message));
+        // (MC_HUSBANDRY_AGE: young born, wool sheared; MC_MUSIC_AGE: redstone bought once the activity's deposit landed,
+        // note blocks made)
+        if (HUSBANDRY_AGE) got.push(...husbandryCounts(q.type, q.message));
+        if (MUSIC_AGE && (q.type !== 'trade' || !act || c.status[act.depAt]?.state === 'done')) got.push(...musicCounts(q.type, q.message));
         for (const [counter, n] of got) {
           for (const news of noteLadder(v, counter, c.agent, n, Date.now(), clockOf(v.name, Date.now())?.day)) this.ladderNews(v, news);
         }

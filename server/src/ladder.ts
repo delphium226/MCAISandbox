@@ -9,19 +9,22 @@
  */
 import type { LadderState, Village } from './village';
 import { rungNeeds, type RungId } from './wanted';
-import { COPPER_AGE, DIAMOND_AGE, DIAMOND_Y, IRON_MINERS, LADDER, LADDER_START, LETTERS, TRADE_AGE } from './ladderFlags';
+import { COPPER_AGE, DIAMOND_AGE, DIAMOND_Y, HUSBANDRY_AGE, IRON_MINERS, LADDER, LADDER_START, LETTERS, MUSIC_AGE, TRADE_AGE } from './ladderFlags';
 import { BUYS, ORDERS_ON } from './merchant';
 
-export { COPPER_AGE, DIAMOND_AGE, IRON_AGE, IRON_MINERS, LADDER, LETTERS, OWN_TOOLS, TRADE_AGE } from './ladderFlags';
+export { COPPER_AGE, DIAMOND_AGE, HUSBANDRY_AGE, IRON_AGE, IRON_MINERS, LADDER, LETTERS, MUSIC_AGE, OWN_TOOLS, TRADE_AGE } from './ladderFlags';
 
 /** What a stage counts: cells dug at the iron levels, raw iron brought up, ingots smelted, tools given to members; for
  *  letters (MC_LETTERS) sugar cane harvested, leather bought or caught, books bound and library pieces shelved; for diamond
  *  (MC_DIAMOND_AGE) blocks dug down below y 0, diamonds brought up and diamond pickaxes given; for trade (MC_TRADE_AGE) lots sold
  *  to the merchant, market stalls standing, emeralds in storage (its highest since the rung began), orders filled and lots
  *  of crafted goods sold; for copper (MC_COPPER_AGE) raw copper brought up, copper blocks made, the copper canopy built and
- *  the instruments in storage (a lightning rod, a spyglass). */
+ *  the instruments in storage (a lightning rod, a spyglass); for husbandry (MC_HUSBANDRY_AGE) pen kinds holding a breeding
+ *  pair, young born in the pens, wool sheared from a pen and hay bales in storage; for music (MC_MUSIC_AGE) redstone bought,
+ *  note blocks made, the bandstand built and the bell post built. */
 export type Counter = 'cells' | 'raw_iron' | 'ingots' | 'tools' | 'cane' | 'leather' | 'books' | 'shelved' | 'depth' | 'diamonds' | 'dtools'
-  | 'sales' | 'stalls' | 'emeralds' | 'orders' | 'crafted' | 'copper' | 'cblocks' | 'croof' | 'instruments';
+  | 'sales' | 'stalls' | 'emeralds' | 'orders' | 'crafted' | 'copper' | 'cblocks' | 'croof' | 'instruments'
+  | 'pens' | 'bred' | 'wool' | 'hay' | 'redstone' | 'notes' | 'bandstand' | 'bell';
 
 export interface StageDef {
   /** The stage in words, with {n} and {t} for the count and the target where it is counted. */
@@ -74,6 +77,17 @@ export const COPPER_RAW = 64, COPPER_MADE = 5, COPPER_INSTRUMENTS = 2;
 /** The copper rung's work: the small work (smallWorks.ts RUNG_WORKS) whose roof is the stage 2 blocks. */
 export const COPPER_CANOPY = 'copper_canopy';
 const TRADE_FEEDS = /^(activity:lib:sell|make:(torch|glass|stone_bricks|bread))$/;
+
+/** The husbandry rung's targets (docs/specs/ladder-rungs.md): pens of 3 kinds (of chicken, sheep, pig, cow, rabbit, goat)
+ *  each holding a breeding pair; 20 young born in the pens (breed_pen's count of the pen before and after, from the server);
+ *  32 wool sheared from a pen's flock (a sheep gives 1-3, so some 16 shearings); 8 hay bales in storage at once (72 wheat,
+ *  about 4 harvests of a neighbourhood field). */
+export const HUSBANDRY_PENS = 3, HUSBANDRY_BRED = 20, HUSBANDRY_WOOL = 32, HUSBANDRY_HAY = 8;
+/** The music rung's targets: 8 redstone bought (one a note block), 8 note blocks made (an octave of a scale), the bandstand
+ *  built of them (one), the bell post built (one; the bell bought from the merchant). */
+export const MUSIC_REDSTONE = 8, MUSIC_NOTES = 8;
+/** The music rung's works (smallWorks.ts RUNG_WORKS), posted by the village while their stage is current. */
+export const MUSIC_BANDSTAND = 'bandstand', MUSIC_BELL_POST = 'bell_post';
 
 /** The rungs (spec section 3, sized by draft 2's B1 for iron). Iron's stages are counted by code, and letters' with
  *  MC_LETTERS. */
@@ -151,9 +165,38 @@ export const RUNG_DEFS: Record<RungId, RungDef> = {
       ]
       : [{ words: '20 merchant sales' }, { words: 'a market stall per neighbourhood' }, { words: '50 emeralds in the village chest' }, { words: '10 merchant orders filled' }],
   },
+  husbandry: {
+    id: 'husbandry', name: 'the age of husbandry', what: 'pens of several kinds, bred herds, wool from a flock and a hay store', after: ['iron'], tier: 2, time: 'about 2-3 hours',
+    // (MC_HUSBANDRY_AGE: the pens, their breeding and shearing exist (#139, #229); stage 1 is a level, kinds of pen holding a
+    // pair; the hay is a level of storage, baled by the workshop while the rung is current)
+    stages: HUSBANDRY_AGE
+      ? [
+        { words: '{n} of {t} kinds of animal penned with a breeding pair', counter: 'pens', target: HUSBANDRY_PENS, feeds: /^(annex|pen:[a-z_]+)$/ },
+        { words: '{n} of {t} young animals bred in the pens', counter: 'bred', target: HUSBANDRY_BRED, feeds: /^(penwork:\d+:breed|penwork:\d+:enlarge|penfeed)$/ },
+        { words: '{n} of {t} wool sheared from a pen\'s flock', counter: 'wool', target: HUSBANDRY_WOOL, feeds: /^(penwork:\d+:shear|pen:sheep|iron:forge:shears)$/ },
+        { words: '{n} of {t} hay bales in the village storage', counter: 'hay', target: HUSBANDRY_HAY, feeds: /^(make:hay_block|farm:\d+|slot:wheat)$/ },
+      ]
+      : [{ words: 'a breeding pen per animal' }, { words: '20 animals bred' }, { words: 'wool from a flock' }, { words: 'a hay bale store' }],
+  },
+  music: {
+    id: 'music', name: 'the age of music', what: 'note blocks, a bandstand tuned to a scale and a bell in the square', after: ['iron'], tier: 2, time: 'about 2 hours',
+    // (MC_MUSIC_AGE: a jukebox needs a diamond (tier 3) and a disc drops only from a creeper a skeleton kills or from a
+    // dungeon chest, so the draft's jukebox and disc became the bandstand of tuned note blocks; the bell is bought, as no
+    // recipe makes one)
+    stages: MUSIC_AGE
+      ? [
+        { words: '{n} of {t} redstone bought from the merchant for note blocks', counter: 'redstone', target: MUSIC_REDSTONE, feeds: /^(activity:lib:buy:redstone|activity:lib:sell)$/ },
+        { words: '{n} of {t} note blocks made', counter: 'notes', target: MUSIC_NOTES, feeds: /^(make:note_block|activity:lib:buy:redstone)$/ },
+        { words: 'a bandstand of note blocks tuned to a scale built in the village', counter: 'bandstand', target: 1, feeds: /^help:bandstand$/ },
+        { words: 'a bell hung on a post in the village', counter: 'bell', target: 1, feeds: /^(help:bell_post|activity:lib:buy:bell|activity:lib:sell)$/ },
+      ]
+      : [{ words: 'note blocks' }, { words: 'a jukebox' }, { words: 'a music disc' }, { words: 'a bell in the square' }],
+  },
 };
 /** The ballot's fixed order: the trunk first, then the branches. */
-const ORDER: RungId[] = ['letters', 'diamond', 'enchantment', 'nether', 'copper', 'machines', 'trade'];
+const ORDER: RungId[] = ['letters', 'diamond', 'enchantment', 'nether', 'copper', 'machines', 'trade', 'husbandry', 'music'];
+/** The ballot's order, for the checks (a ballot offers at most 4: the lowest tier's first four in this order). */
+export const RUNG_ORDER: readonly RungId[] = ORDER;
 
 /** News of a stage or a rung, shown for a village day. */
 export interface LadderNews {
@@ -266,6 +309,11 @@ export const tradeCurrent = (v: Village): boolean => TRADE_AGE && LADDER && v.la
 /** Whether copper is the current rung (MC_COPPER_AGE and MC_LADDER on). */
 export const copperCurrent = (v: Village): boolean => COPPER_AGE && LADDER && v.ladder?.current === 'copper';
 
+/** Whether husbandry is the current rung (MC_HUSBANDRY_AGE and MC_LADDER on). */
+export const husbandryCurrent = (v: Village): boolean => HUSBANDRY_AGE && LADDER && v.ladder?.current === 'husbandry';
+/** Whether music is the current rung (MC_MUSIC_AGE and MC_LADDER on). */
+export const musicCurrent = (v: Village): boolean => MUSIC_AGE && LADDER && v.ladder?.current === 'music';
+
 /** Whether letters is the current rung (MC_LETTERS and MC_LADDER on). */
 export const lettersCurrent = (v: Village): boolean => LETTERS && LADDER && v.ladder?.current === 'letters';
 /** Whether the village has reached letters. */
@@ -357,10 +405,88 @@ export function copperCounts(type: string, message: string): Array<[Counter, num
 }
 
 /**
+ * The husbandry rung's counts from a chore step's message: the young a breeding saw born ("fed 2 cows wheat in the pen on
+ * annex slot 1: 1 young born, 3 in the pen", breed_pen's count of the pen's entities by the server before and after) and
+ * the wool a pen's shearing gave ("sheared 3 sheep in the pen on annex slot 2: 5 wool (...)", given by command and put in
+ * storage by the chore's deposit). [] with MC_HUSBANDRY_AGE off.
+ */
+export function husbandryCounts(type: string, message: string): Array<[Counter, number]> {
+  if (!HUSBANDRY_AGE) return [];
+  const out: Array<[Counter, number]> = [];
+  if (type === 'breed_pen') {
+    const m = /: (\d+) young born\b/.exec(message);
+    if (m) out.push(['bred', Number(m[1])]);
+  } else if (type === 'shear_pen') {
+    const m = /^sheared \d+ sheep in the pen on annex slot \d+: (\d+) wool\b/.exec(message);
+    if (m) out.push(['wool', Number(m[1])]);
+  }
+  return out.filter(([, q]) => q > 0);
+}
+
+/**
+ * The music rung's counts from a chore step's message: redstone a trade bought ("bought N redstone for E emerald", once
+ * the activity's deposit landed: the world gates it as letters' leather) and note blocks a make put into storage. [] with
+ * MC_MUSIC_AGE off.
+ */
+export function musicCounts(type: string, message: string): Array<[Counter, number]> {
+  if (!MUSIC_AGE) return [];
+  const out: Array<[Counter, number]> = [];
+  if (type === 'trade') {
+    const m = /\bbought (\d+) redstone\b/.exec(message);
+    if (m) out.push(['redstone', Number(m[1])]);
+  } else if (type === 'make') {
+    const m = /put into storage: (\d+) note_block\b/.exec(message);
+    if (m) out.push(['notes', Number(m[1])]);
+  }
+  return out.filter(([, q]) => q > 0);
+}
+
+/** The kinds of animal in a built pen holding a breeding pair (2 or more), husbandry's first stage. */
+export function pairedPenKinds(v: Village): string[] {
+  const kinds = new Set<string>();
+  for (const l of v.layouts ?? []) for (const s of l.slots ?? []) if (s.annex && s.kind && s.pen?.built && (s.pen.animals ?? 0) >= 2) kinds.add(s.kind);
+  return [...kinds].sort();
+}
+
+/**
+ * A husbandry or music good's target in storage while its rung is current (the world's makeTarget): hay bales, the
+ * rung's HUSBANDRY_HAY at least; note blocks, the stock plus those still to make (MUSIC_NOTES less those counted). 0 when
+ * the rung is not current.
+ */
+export function rungGoodTarget(v: Village, item: string, store: Record<string, number>): number {
+  const have = store[item] ?? 0;
+  if (item === 'hay_block') return husbandryCurrent(v) ? Math.max(have, HUSBANDRY_HAY) : 0;
+  if (item === 'note_block') return musicCurrent(v) ? have + Math.max(0, MUSIC_NOTES - (v.ladder?.totals?.notes ?? 0)) : 0;
+  return 0;
+}
+
+/** Whether a rung work of this kind stands built in the village. */
+const builtWork = (v: Village, kind: string) => (v.initiatives ?? []).some((i) => i.kind === kind && i.state === 'built');
+
+/**
+ * What storage keeps of a good the merchant sells for the music rung (the world's tradeKeep, so lib:buy buys it): redstone,
+ * one for each note block still to make; the bell, one while the bell post is neither built nor posted (an open post holds
+ * its bell as gathered). undefined otherwise.
+ */
+export function musicKeep(v: Village, item: string): number | undefined {
+  if (!musicCurrent(v)) return undefined;
+  if (item === 'redstone') {
+    const left = Math.max(0, MUSIC_NOTES - (v.ladder?.totals?.notes ?? 0));
+    return left > 0 ? left : undefined;
+  }
+  if (item === 'bell') {
+    const posted = (v.initiatives ?? []).some((i) => i.kind === MUSIC_BELL_POST && i.state === 'open');
+    return !builtWork(v, MUSIC_BELL_POST) && !posted ? 1 : undefined;
+  }
+  return undefined;
+}
+
+/**
  * The trade and copper rungs' counts that are levels, not events (#246, #247): market stalls standing, emeralds in
- * storage, the copper canopy built, the instruments in storage (a lightning rod, a spyglass: one of each). Each as what
- * is new over the rung's total so far, so its total is the highest level seen since the rung began. [] unless one of the
- * two is current.
+ * storage, the copper canopy built, the instruments in storage (a lightning rod, a spyglass: one of each); husbandry's pen
+ * kinds holding a pair and hay bales stored; music's bandstand and bell post built. Each as what
+ * is new over the rung's total so far, so its total is the highest level seen since the rung began. [] unless one of them
+ * is current.
  */
 export function levelCounts(v: Village, store: Record<string, number>): Array<[Counter, number]> {
   const st = LADDER ? v.ladder : undefined;
@@ -369,6 +495,9 @@ export function levelCounts(v: Village, store: Record<string, number>): Array<[C
   const lv: Array<[Counter, number]> = [];
   if (tradeCurrent(v)) lv.push(['stalls', built('market_stall')], ['emeralds', store.emerald ?? 0]);
   if (copperCurrent(v)) lv.push(['croof', built(COPPER_CANOPY)], ['instruments', ((store.lightning_rod ?? 0) > 0 ? 1 : 0) + ((store.spyglass ?? 0) > 0 ? 1 : 0)]);
+  // (husbandry: pen kinds holding a pair, hay bales stored; music: the bandstand and the bell post built)
+  if (husbandryCurrent(v)) lv.push(['pens', pairedPenKinds(v).length], ['hay', store.hay_block ?? 0]);
+  if (musicCurrent(v)) lv.push(['bandstand', built(MUSIC_BANDSTAND)], ['bell', built(MUSIC_BELL_POST)]);
   return lv.map(([c, n]): [Counter, number] => [c, n - (st.totals?.[c] ?? 0)]).filter(([, n]) => n > 0);
 }
 

@@ -153,6 +153,38 @@ function copperCanopy(w: string): Design {
   ]);
 }
 
+/** The music rung's scale: a C major octave from middle C (a note block's `note` is semitones above F#3: C4 is 6). */
+export const BANDSTAND_NOTES = [6, 8, 10, 11, 13, 15, 17, 18];
+
+/** The music rung (MC_MUSIC_AGE): a 6x4 bandstand, a plank floor with fence posts at the corners under a slab roof, and two
+ *  rows of four note blocks tuned to a C major octave (the rung's 8 note blocks, set by command with their `note`), air
+ *  above each so they sound. */
+function bandstand(w: string): Design {
+  const notes = Object.fromEntries(BANDSTAND_NOTES.map((n, i) => [String(i + 1), `note_block[note=${n}]`]));
+  return design('bandstand', w, 'a bandstand: two rows of note blocks tuned to a C major scale under a slab roof on fence posts', {
+    P: `${w}_planks`, F: `${w}_fence`, S: `${w}_slab[type=bottom]`, ...notes,
+  }, [
+    ['PPPPPP', 'PPPPPP', 'PPPPPP', 'PPPPPP'],
+    ['F....F', '.1234.', '.5678.', 'F....F'],
+    ['F....F', '......', '......', 'F....F'],
+    ['SSSSSS', 'SSSSSS', 'SSSSSS', 'SSSSSS'],
+  ]);
+}
+
+/** The music rung (MC_MUSIC_AGE): a 3x3 bell post, a cobblestone base, two fence posts and a log beam the bell (bought
+ *  from the merchant) hangs from, a slab cap over the beam. */
+function bellPost(w: string): Design {
+  return design('bell_post', w, 'a bell post: a bell hung from a log beam on two fence posts over a cobblestone base', {
+    C: 'cobblestone', F: `${w}_fence`, L: `${logOf(w)}[axis=x]`, B: 'bell[attachment=ceiling,facing=north]', S: `${w}_slab[type=bottom]`,
+  }, [
+    ['CCC', 'CCC', 'CCC'],
+    ['...', 'F.F', '...'],
+    ['...', 'FBF', '...'],
+    ['...', 'LLL', '...'],
+    ['...', 'SSS', '...'],
+  ]);
+}
+
 /** A 3x3 signpost: a sign facing south on a two-high fence post. */
 function signpost(w: string): Design {
   return design('signpost', w, 'a signpost: a sign on a fence post', {
@@ -449,6 +481,9 @@ export const SMALL_WORKS: SmallWorkKind[] = [
  *  member's menu. #247: the copper canopy, its roof the copper age's blocks. */
 export const RUNG_WORKS: SmallWorkKind[] = [
   { kind: 'copper_canopy', words: 'copper canopy', forWhat: 'a copper roof for the copper age, of the copper blocks the workshop made', make: copperCanopy },
+  // (MC_MUSIC_AGE: the bandstand of the rung's note blocks, the bell post of the bell bought from the merchant)
+  { kind: 'bandstand', words: 'bandstand', forWhat: 'music for the age of music: note blocks tuned to a scale, for anyone to play', make: bandstand },
+  { kind: 'bell_post', words: 'bell post', forWhat: 'a bell in the village square for the age of music, rung to call the village together', make: bellPost },
 ];
 
 /** A small work's kind by its key: the menu's (SMALL_WORKS), a yard's (R1's YARD_WORKS, empty with the flag off) or the

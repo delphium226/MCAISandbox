@@ -39,9 +39,10 @@ await sec('the pig pen', () => {
   ok(F.pigCarrotKeep([pigPen, { kind: 'carrots' }]) === 0, 'a carrot farm feeds it: none bought');
   ok(F.pigCarrotKeep([{ kind: 'pig', pen: { built: false } }]) === 0, 'no pig pen built: none');
   const o = M.OFFERS.find((x) => x.item === 'carrot' && x.dir === 'sells');
-  // (#247, MC_COPPER_AGE: the amethyst shard appended after it)
-  const last = M.OFFERS.length - 1 - (M.OFFERS[M.OFFERS.length - 1]?.item === 'amethyst_shard' ? 1 : 0);
-  ok(o && M.OFFERS.indexOf(o) === last, 'the merchant sells carrots, last in its list but for the copper age shard (saved uses keep their indices)');
+  // (#247, MC_COPPER_AGE: the amethyst shard appended after it; MC_MUSIC_AGE: the redstone after that)
+  let last = M.OFFERS.length - 1;
+  while (last > 0 && ['amethyst_shard', 'redstone', 'bell'].includes(M.OFFERS[last].item)) last--;
+  ok(o && M.OFFERS.indexOf(o) === last, 'the merchant sells carrots, last in its list but for the rungs\' goods appended after (saved uses keep their indices)');
 });
 
 await sec('the gate', async () => {

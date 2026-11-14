@@ -34,6 +34,14 @@ export const TRADE_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_TRADE_AGE') 
  *  spyglass made); while it is current the mine keeps copper ore, the workshop makes the rung's goods and the merchant
  *  sells an amethyst shard for the spyglass. */
 export const COPPER_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_COPPER_AGE') ?? 'on');
+/** MC_HUSBANDRY_AGE (with MC_LADDER, on by default; off turns it off): the age of husbandry's four counted stages (pens of
+ *  three kinds holding a breeding pair, young bred in the pens, wool sheared from a pen's flock, hay bales stored); while
+ *  it is current the workshop bales the village's spare wheat into hay. */
+export const HUSBANDRY_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_HUSBANDRY_AGE') ?? 'on');
+/** MC_MUSIC_AGE (with MC_LADDER, on by default; off turns it off): the age of music's four counted stages (redstone bought
+ *  for note blocks, note blocks made, a bandstand of them tuned to a scale, a bell hung in the square); while it is current
+ *  the merchant sells redstone and the bell, the workshop makes note blocks and the village posts the two works. */
+export const MUSIC_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_MUSIC_AGE') ?? 'on');
 /** The diamond level's y (runs/2026-10-30/diamond/spec.md: diamond ore peaks at -57 to -53 on minevale3, 2 laid open per
  *  100 cells dug at -56, lava below -55 cutting 8% of tunnels there). */
 export const DIAMOND_Y = -56;

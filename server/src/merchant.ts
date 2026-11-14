@@ -6,7 +6,7 @@
  * arbitrage check; the world summons it, restocks it and charges trades (mcWorld.ts, the trade skill).
  */
 import type { Counts } from './mineflayer/mcMaterials';
-import { COPPER_AGE, LETTERS } from './ladderFlags';
+import { COPPER_AGE, LETTERS, MUSIC_AGE } from './ladderFlags';
 import { rawSetting } from './settings';
 import { CUTTER } from './cutter';
 import { DYE_BED } from './dyeBed';
@@ -40,6 +40,8 @@ export const BUYS: MerchantOffer[] = [
   { item: 'torch', n: 24, emeralds: 1, stock: 4, dir: 'buys' },
 ];
 
+/** #162: the monument's bell, sold in its place in the list (MC_MONUMENT_DETAIL with the dye bed or the candles). */
+const BELL_SOLD = CUTTER.on && (DYE_BED.on || FURNISH.candles);
 /** What it sells (a peaceful world's missing drops; the Nether's and the End's stay out while Phase S holds them). */
 /** #217 step 6: flint and arrows sold where monsters come and bows are on. */
 const BOWS = !/^(off|0|false|no)$/i.test(rawSetting('MC_BOWS') ?? 'on') && /^(hostile|normal)$/i.test(rawSetting('MC_WORLD_MODE') ?? 'peaceful');
@@ -62,7 +64,7 @@ export const SELLS: MerchantOffer[] = [
   ] : []),
   // (#162: the monument's bell, which no recipe makes; vanilla's armourers sell one. Last, for the same reason)
   // (#162 E, MC_FURNISH_CANDLES: the furnishing's bell)
-  ...(CUTTER.on && (DYE_BED.on || FURNISH.candles) ? [{ item: 'bell', n: 1, emeralds: 12, stock: 1, dir: 'sells' as const }] : []),
+  ...(BELL_SOLD ? [{ item: 'bell', n: 1, emeralds: 12, stock: 1, dir: 'sells' as const }] : []),
   // (#217 step 6, MC_BOWS: the fletcher's trade when the chain is short: flint for arrows (no gravel trip yet), and arrows.
   // Last, for the same reason; only in worlds with monsters, where the bow goods are made)
   ...(BOWS ? [{ item: 'flint', n: 4, emeralds: 1, stock: 8, dir: 'sells' as const }, { item: 'arrow', n: 8, emeralds: 1, stock: 4, dir: 'sells' as const }] : []),
@@ -71,6 +73,11 @@ export const SELLS: MerchantOffer[] = [
   // (#247, MC_COPPER_AGE: the copper age's spyglass takes an amethyst shard, which only a geode gives (MC_GEODE, off); bought
   // only while the rung wants one. Last, for the same reason)
   ...(COPPER_AGE ? [{ item: 'amethyst_shard', n: 1, emeralds: 2, stock: 2, dir: 'sells' as const }] : []),
+  // (MC_MUSIC_AGE: the music rung's note blocks take a redstone each, which a peaceful iron mine above the redstone levels
+  // does not give; vanilla's clerics sell it, 2 for an emerald. Bought only while the rung wants it. Last, for the same
+  // reason)
+  // (and the music rung's bell post takes a bell: appended here too when the monument's offer above is off)
+  ...(MUSIC_AGE ? [{ item: 'redstone', n: 2, emeralds: 1, stock: 4, dir: 'sells' as const }, ...(BELL_SOLD ? [] : [{ item: 'bell', n: 1, emeralds: 12, stock: 1, dir: 'sells' as const }])] : []),
 ];
 
 export const OFFERS: MerchantOffer[] = [...BUYS, ...SELLS];
