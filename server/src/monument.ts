@@ -1006,6 +1006,29 @@ export function newPresetMonument(type: 'cathedral' | 'castle', preset: string, 
   return m;
 }
 
+/** The village's own monument (not a civic record, not a person's asked one) finished: built with every job done, the
+ *  furnishing, a re-roof and a re-furnish too. It then gives the monument's place to a person's asked record. */
+export function ownMonumentDone(v: Village): boolean {
+  const m = v.monument;
+  if (!m || monumentType(m) === 'civic' || m3(m).askedBy || m3(m).asked || m.state !== 'built') return false;
+  try {
+    return currentStage(m) === 0;
+  } catch {
+    return false;
+  }
+}
+/** Whether the monument's place holds a record a person's asked one must wait for (none, or the own one finished: no). */
+export const monumentHolds = (v: Village) => !!v.monument && !ownMonumentDone(v);
+/** The own finished monument set aside (`monumentDone`) so a person's asked record may begin; civicDone puts it back
+ *  when that record leaves. True when the place is free. */
+export function parkMonument(v: Village): boolean {
+  if (!v.monument) return true;
+  if (!ownMonumentDone(v) || v.monumentDone) return false;
+  v.monumentDone = v.monument;
+  delete v.monument;
+  return true;
+}
+
 /** The current stage's parts: built and in all. */
 export function stageParts(m: Monument): { stage: number; built: number; of: number } {
   const c = monumentPlan(m), st = currentStage(m);

@@ -97,7 +97,7 @@ function world(v: Record<string, unknown>) {
     growMembers: () => Array.from({ length: 25 }, (_, i) => ({ name: `M${i}` })), talkSay: (_n: string, l: string) => said.push(l), mayorOf: () => mayor,
     talkPlace: () => null, catalogWoodOf: () => 'spruce', dyeCounts: () => ({}), flowerCounts: () => ({}), makeableColours: () => new Set<string>(),
     materials: { plan: () => ({ fuel: { smelts: 400 } }) }, villages: { save: () => {}, note: () => {}, villages: new Map([[String(v.name).toLowerCase(), v]]) },
-    monumentNews: () => {}, civicTick: () => true, talkDesignStart: () => said.push('DESIGN'),
+    monumentNews: () => {}, civicTick: () => true, monumentAt: new Map([[String(v.name), Infinity]]), talkDesignStart: () => said.push('DESIGN'),
   });
   return { w, said };
 }
@@ -144,6 +144,34 @@ for (const [text, p, id] of [
   const r2 = P.addRequest({ village: t.v.name, from: 'Ann', to: 'Mayor', text: 'salisbury cathedral please', at: Date.now() });
   t.w.talkAct(t.v, mayor, r2, { kind: 'build', say: 'Yes!', work: 'cathedral:salisbury' }, [], [], T.presetShortlist('salisbury cathedral'));
   ok(P.requestById(r2.id)?.status === 'refused' && /being built already/.test(P.requestById(r2.id)?.reason ?? ''), `a second Salisbury: ${P.requestById(r2.id)?.reason}`);
+}
+// (the village's own monument, finished, gives its place to an asked record and takes it back after; while it is still
+// being built the record waits)
+{
+  const t = ask('build conwy castle', { work: 'castle:conwy' });
+  const own = M.newMonument('spruce', Date.now());
+  own.state = 'built';
+  own.done = M.monumentPlan(own).jobs.map((_, i) => i);
+  const rest = M.monumentPlan(own).jobs.length - 1;
+  own.done = own.done.slice(0, rest);
+  t.v.monument = own;
+  ok(M.monumentHolds(t.v) && t.w.talkCivicStart(t.v, t.r, Date.now()) === false && t.v.monument === own, 'an own monument with a job left: the asked record waits');
+  own.done = M.monumentPlan(own).jobs.map((_, i) => i);
+  ok(M.ownMonumentDone(t.v) && !M.monumentHolds(t.v), 'the own monument finished: it holds the place no longer');
+  ok(t.w.talkCivicStart(t.v, t.r, Date.now()) === true && t.v.monumentDone === own && t.v.monument !== own && M.presetIdOf(t.v.monument) === 'castle:conwy',
+    `the asked castle begins beside the finished monument (${t.v.monument && M.presetIdOf(t.v.monument)})`);
+  t.v.monument.state = 'built';
+  t.w.monumentTick(t.v);
+  ok(t.v.monument === own && !t.v.monumentDone && t.v.civics?.at(-1)?.preset === 'castle:conwy' && P.requestById(t.r.id)?.status === 'done',
+    'built: the castle in civics, the own monument back in its place');
+  // (a second asked record later begins the same way; a person's preset record never counts as the own monument)
+  const t2 = P.addRequest({ village: t.v.name, from: 'Ann', to: 'Mayor', text: 'york minster please', at: Date.now() });
+  P.updateRequest(t2.id, { kind: 'build', status: 'queued', piece: D.civicPiece('cathedral:york') });
+  ok(t.w.talkCivicStart(t.v, P.requestById(t2.id)!, Date.now() + 864e5) === true && t.v.monumentDone === own && M.monumentHolds(t.v), 'a second asked record begins; it holds the place');
+  // (set aside with no record in its place, as after a lost record: monumentTick puts it back, no new monument begun)
+  delete t.v.monument;
+  t.w.monumentTick(t.v);
+  ok(t.v.monument === own && !t.v.monumentDone, 'an own monument set aside with nothing in its place is put back');
 }
 // (the designed way and the refusal stay as they were)
 {

@@ -249,6 +249,11 @@ export function civicDone(v: Village, now: number, preset?: { id: string; kind: 
   if (Object.keys(kit).length) c.kit = kit;
   ((v as VillageCivic).civics ??= []).push(c);
   delete v.monument;
+  // (the village's own finished monument, set aside for this record, takes its place back: monument.ts parkMonument)
+  if (v.monumentDone) {
+    v.monument = v.monumentDone;
+    delete v.monumentDone;
+  }
   return c;
 }
 

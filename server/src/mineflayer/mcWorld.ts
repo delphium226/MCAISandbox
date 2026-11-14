@@ -126,7 +126,7 @@ import { TALK_DESIGNS, askedName, castPublic, civicIdOf, civicPiece, failWords, 
 import { ASKED_BLOCK, ASKED_PRESET, TALK_BIG, namesMaterial, askedCathedral, askedEta, askedNoun, askedRoute, askedWords, bigBudget, easyOf, isAskedPreset, makeResolver, slowShare } from '../askedWork';
 import { COLOUR_ALIAS, COLOUR_BLOCKS } from '../sculpture';
 import { V2_LIMITS as TALK_V2 } from '../buildingGen';
-import { askedStandIn, newAsked, newPresetMonument, parsePresetId, presetIdOf } from '../monument';
+import { askedStandIn, monumentHolds, newAsked, newPresetMonument, parkMonument, parsePresetId, presetIdOf } from '../monument';
 import { presetPick, presetShortlist } from '../talkPresets';
 import { yardMaterials } from './mcKiln';
 import { stoneStandIn, DEEP_BLOCKS, deepStandIn, GEM_STAND, DYE_FAILS, DYE_WAIT_MIN, dyeStandIn, dyeStood, furnishLeaveOut, leftOutItems, refurnishOn, COPPER_ROOF, COPPER_BLOCKS, copperFrom, copperOn, copperReached, copperStandIn, reroofReturns } from '../monument';
@@ -4738,6 +4738,11 @@ export class MineflayerWorld implements WorldAdapter {
       console.log(`[civic] ${v.name}: ${text}; ${civicLine(v)}`);
       this.talkCivicEnd(v, c, now);
     }
+    // (an own finished monument set aside with no record in its place, as after a restart mid-way: put back)
+    if (!v.monument && v.monumentDone) {
+      v.monument = v.monumentDone;
+      delete v.monumentDone;
+    }
     if (!v.monument) {
       if (CIVIC.on && this.civicTick(v, now)) return;
       if (!ironReached(v)) return;
@@ -7403,7 +7408,7 @@ export class MineflayerWorld implements WorldAdapter {
     if ((m && monumentType(m) === 'civic' && m.preset === o.id) || requestsOf(v.name).some((x) => open(x) && x.piece === civicPiece(o.id))) return { why: `${o.title} is already asked for` };
     const place = this.talkPlace(v, r, p.place), home = villageHome(v);
     const ahead = requestsOf(v.name).filter((x) => open(x) && civicIdOf(x.piece)).length;
-    const busy = !v.complete ? 'after the village is finished' : m ? `after the ${monumentType(m) === 'civic' ? presetWords(m.preset) : m3(m).askedBy ? cathedralName(m).replace(/^the /, '') : monumentNoun(m)} under way${ahead && parsePresetId(o.id) ? ` and ${ahead} asked before it` : ''}` : ahead ? 'after the public buildings asked for before it' : '';
+    const busy = !v.complete ? 'after the village is finished' : m && monumentHolds(v) ? `after the ${monumentType(m) === 'civic' ? presetWords(m.preset) : m3(m).askedBy ? cathedralName(m).replace(/^the /, '') : monumentNoun(m)} under way${ahead && parsePresetId(o.id) ? ` and ${ahead} asked before it` : ''}` : ahead ? 'after the public buildings asked for before it' : '';
     const where = place ? (place.x !== undefined && home ? ` ${place.words} (${bearing(home, { x: place.x, z: place.z! })})${place.note ? `; ${place.note}` : ''}` : `; ${place.note ?? ''}`) : '';
     // (MC_TALK_PRESETS: a cathedral's or castle's stages and a rough ETA, the civic tier's pace for the members, as an asked work's)
     const stages = (o as DesignOffer & { stages?: number }).stages;
@@ -7556,7 +7561,7 @@ export class MineflayerWorld implements WorldAdapter {
     const eta = askedEta(d.blocks, members, slowShare(d, (b) => pl.plan(b)), timeScale());
     const m = v.monument;
     const ahead = requestsOf(v.name).filter((x) => x.id !== r.id && (x.status === 'queued' || x.status === 'under_way') && civicIdOf(x.piece)).length;
-    const busy = !v.complete ? ', after the village is finished' : m ? `, after the ${monumentType(m) === 'civic' ? presetWords(m.preset).replace(/^the /, '') : monumentNoun(m)} under way` : ahead ? ', after the public works asked for before it' : '';
+    const busy = !v.complete ? ', after the village is finished' : m && monumentHolds(v) ? `, after the ${monumentType(m) === 'civic' ? presetWords(m.preset).replace(/^the /, '') : monumentNoun(m)} under way` : ahead ? ', after the public works asked for before it' : '';
     const subs = res.notes.filter((n) => / built in /.test(n));
     const form = `${res.form}${res.cuts.length ? ` (cut to fit: ${[...new Set(res.cuts)].join(', ')})` : ''}`;
     updateRequest(r.id, { drawing: undefined, piece: civicPiece(`${ASKED_PRESET}${d.name}`), units: d.blocks, eta, outcome: `drawn: ${form}`.slice(0, 200) });
@@ -7583,7 +7588,8 @@ export class MineflayerWorld implements WorldAdapter {
 
   /** A person's civic building begun when no record is open and the tier's gap has passed (talkTick); true if begun. */
   private talkCivicStart(v: Village, r: PlayerRequest, now: number): boolean {
-    if (v.monument || !this.talkDesignsOn() || !v.storageHut) return false;
+    // (the village's own monument, finished, gives its place to the asked record: parkMonument, put back by civicDone)
+    if (monumentHolds(v) || !this.talkDesignsOn() || !v.storageHut) return false;
     const last = civicsOf(v).at(-1);
     if (last && now - (last.built ?? last.at) < (CIVIC.gap * 60000) / timeScale()) return false;
     const id = civicIdOf(r.piece)!, e = civicEntry(id);
@@ -7606,6 +7612,7 @@ export class MineflayerWorld implements WorldAdapter {
     Object.assign(rec, civicKit(v, kilnSize(smelts)));
     // (an asked work's dye flowers, as the cathedral's: picked where they grow when the dyer is off)
     if (askedD) rec.flowers = dyeFlowers(DYE_BED.on ? this.dyeCounts(v) : this.flowerCounts(v));
+    parkMonument(v);
     v.monument = rec;
     this.villages.save();
     updateRequest(r.id, { status: 'under_way', started: now });
@@ -7633,6 +7640,7 @@ export class MineflayerWorld implements WorldAdapter {
       if (DYE_BED.on && rec.detail) rec.colours = Object.fromEntries(windowColours(DETAIL_COLOURS, this.makeableColours(v)).map((x) => [x, x]));
     }
     Object.assign(rec, civicKit(v, kilnSize(this.materials.plan(monumentPlan(rec).bill, {}).fuel.smelts)));
+    parkMonument(v);
     v.monument = rec;
     this.villages.save();
     updateRequest(r.id, { status: 'under_way', started: now });
@@ -7784,7 +7792,7 @@ export class MineflayerWorld implements WorldAdapter {
         const c = civicsOf(v).find((x) => x.preset === cid && !x.skipped);
         return { state: `finished ${mins(now - (r.closed ?? now))} min ago`, ...(c?.site ? { where: siteAt(c.site) } : asked ? { where: asked } : {}) };
       }
-      if (r.status === 'queued') return { state: `accepted, not started yet: ${!v.complete ? 'after the village is finished' : m ? `after the ${monumentType(m) === 'civic' ? presetWords(m.preset) : monumentNoun(m)} under way` : 'waiting its turn'}`, ...(asked ? { where: asked } : {}) };
+      if (r.status === 'queued') return { state: `accepted, not started yet: ${!v.complete ? 'after the village is finished' : m && monumentHolds(v) ? `after the ${monumentType(m) === 'civic' ? presetWords(m.preset) : monumentNoun(m)} under way` : 'waiting its turn'}`, ...(asked ? { where: asked } : {}) };
       if (m && presetIdOf(m) === cid) {
         if (m.state === 'site') return { state: m.site ? 'its site is being levelled' : 'its site is being chosen', ...(m.site ? { where: siteAt(m.site) } : asked ? { where: asked } : {}) };
         return { state: 'being built', done: m.done.length, of: monumentPlan(m).jobs.length, ...(m.site ? { where: siteAt(m.site) } : {}) };

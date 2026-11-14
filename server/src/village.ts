@@ -583,6 +583,9 @@ export interface Village {
   maps?: { cells?: Record<string, { id: number; by: string; t: number }>; hung?: Record<string, number> };
   /** M1 (#144, MC_MONUMENT): the cathedral the village builds after the iron age (monument.ts). */
   monument?: Monument;
+  /** The village's own monument once finished, set aside while a person's asked record (civic, drawn or preset) holds the
+   *  monument's place (monument.ts parkMonument); back in `monument` when that record leaves it (civic.ts civicDone). */
+  monumentDone?: Monument;
   /** Survival (d) spec 5 (MC_WALLS): the village wall, once voted or refused (walls.ts, mineflayer/mcWalls.ts). */
   wall?: WallRecord;
   plots: Plot[];
