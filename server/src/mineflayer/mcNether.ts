@@ -425,6 +425,12 @@ export async function netherDig(a: BotAgent, args: Record<string, unknown>, sign
   if (!pick) netherParty.drop(v.name, a.name);
   if (!pick) throw new Error('nether_dig: no diamond pickaxe (ancient debris drops nothing to a lesser one; the diamond age forges them)');
   const before = await count(a, 'ancient_debris');
+  // (netherrack to bridge the stair over caves: the expeditions' from storage, up to 16)
+  const rack = Math.min(16, storageContents(v).netherrack ?? 0);
+  if (rack > 0 && (await count(a, 'netherrack')) < 8) await withdrawItems(a, v, { netherrack: rack }, signal).catch((e: Error) => {
+    if (e.message === 'cancelled') throw e;
+  });
+  const tally = { bridged: 0 };
   const notes: string[] = [];
   let seen = 0, failed = 0, back = '';
   try {
@@ -447,7 +453,7 @@ export async function netherDig(a: BotAgent, args: Record<string, unknown>, sign
         await a.bot.equip(a.bot.inventory.items().find((it) => it.name === pick)!, 'hand').catch(() => undefined);
         // (the spec's B1: a stair dug down toward it, each cell and its neighbours read for lava first; the pathfinder
         // found no path 35 blocks down through the Nether's rock, nether7 11-14)
-        const why = await stairTo(a, c, deadline, signal);
+        const why = await stairTo(a, c, deadline, signal, tally);
         if (why) throw new Error(why);
         await mineBlock(a, c, signal, false, 30000);
       } catch (e) {
@@ -461,7 +467,7 @@ export async function netherDig(a: BotAgent, args: Record<string, unknown>, sign
     netherParty.drop(v.name, a.name);
   }
   const dug = (await count(a, 'ancient_debris')) - before;
-  const out = `dug ${Math.max(0, dug)} ancient debris in the Nether (${seen} seen at y ${DEBRIS_Y.min}-${DEBRIS_Y.max}); ${[...notes, back].filter(Boolean).join('; ')}`;
+  const out = `dug ${Math.max(0, dug)} ancient debris in the Nether (${seen} seen at y ${DEBRIS_Y.min}-${DEBRIS_Y.max}${tally.bridged ? `; ${tally.bridged} netherrack bridged caves under the stair by command` : ''}); ${[...notes, back].filter(Boolean).join('; ')}`;
   console.log(`[nether] ${v.name}: ${a.name} ${out}`);
   if (!overworld(a)) throw new Error(`nether_dig: still in ${dimOf(a)} (${out})`);
   return out;
@@ -473,7 +479,7 @@ export async function netherDig(a: BotAgent, args: Record<string, unknown>, sign
  * cell's feet and head) are dug with bot.dig (Paper times it) only when safeToDig: no lava, fire or an unloaded cell beside
  * any, nothing that falls over them; the floor of the next cell must be firm. Returns why it stopped short, or null.
  */
-async function stairTo(a: BotAgent, target: Cell, deadline: number, signal: AbortSignal): Promise<string | null> {
+async function stairTo(a: BotAgent, target: Cell, deadline: number, signal: AbortSignal, tally: { bridged: number }): Promise<string | null> {
   const bot = a.bot;
   const name = (x: number, y: number, z: number) => nameAt(a, x, y, z);
   for (let n = 0; n < 120; n++) {
@@ -495,7 +501,21 @@ async function stairTo(a: BotAgent, target: Cell, deadline: number, signal: Abor
       await sleep(100, signal);
     }
     const f = name(step.to.x, step.to.y - 1, step.to.z);
-    if (!f || AIR.test(f) || HOT.test(f)) return `the stair stopped at ${at(p)}: no floor at ${step.to.x},${step.to.y - 1},${step.to.z} (${f || 'unloaded'})`;
+    if (!f || HOT.test(f) || /^(water|nether_portal)$/.test(f)) return `the stair stopped at ${at(p)}: no floor at ${step.to.x},${step.to.y - 1},${step.to.z} (${f || 'unloaded'})`;
+    // (a cave under the next step: a netherrack the member carries set there by a command charged to it, confirmed on
+    // the server; nether8's stairs all stopped at the first cave)
+    if (AIR.test(f)) {
+      const fx = step.to.x, fy = step.to.y - 1, fz = step.to.z;
+      if ((await count(a, 'netherrack')) < 1) return `the stair stopped at ${at(p)}: a cave under ${fx},${fy},${fz} and no netherrack to bridge it`;
+      await a.world.rcon.command(`clear ${a.name} minecraft:netherrack 1`);
+      await a.world.rcon.command(inDim(dimOf(a), `setblock ${fx} ${fy} ${fz} minecraft:netherrack keep`));
+      await sleep(200, signal);
+      if (!passed(await a.world.rcon.command(inDim(dimOf(a), `execute if block ${fx} ${fy} ${fz} minecraft:netherrack`)).catch(() => ''))) {
+        await a.world.rcon.command(`give ${a.name} minecraft:netherrack 1`);
+        return `the stair stopped at ${at(p)}: the bridge block at ${fx},${fy},${fz} did not take`;
+      }
+      tally.bridged++;
+    }
     await walk(a, new goals.GoalBlock(step.to.x, step.to.y, step.to.z), `the stair at ${step.to.x},${step.to.y},${step.to.z}`, signal, 8000).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
     });
