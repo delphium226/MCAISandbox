@@ -40,7 +40,8 @@ export function isDwelling(name: string): boolean {
   // (a building a person asked for and the architect drew, talkDesign.ts: a public work whatever its words)
   if (n.startsWith('asked_')) return false;
   if (VANILLA_PIECE.test(n)) return /_(small|medium|big)_house_\d+$/.test(n);
-  return /house|cottage|home|cabin|dwelling|lodge|hut/.test(n) && !/hall|library|meeting|shop|smith|temple|church|tavern|inn|market|barn|storage|workshop|mine|tower/.test(n);
+  // (rungs test 11-14: a member moved into the sea rung's small_lighthouse; works named "...house" are not homes)
+  return /house|cottage|home|cabin|dwelling|lodge|hut/.test(n) && !/hall|library|meeting|shop|smith|temple|church|tavern|inn|market|barn|storage|workshop|mine|tower|lighthouse|gatehouse|greenhouse|warehouse/.test(n);
 }
 
 /** The dwellings standing: structures, not the layouts' names (a failed build is no house). */
