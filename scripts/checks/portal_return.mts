@@ -1,11 +1,10 @@
 // The Nether rung's way back, by itself (nether1-3, 11-14: members went home through the far portal and were back in the
-// Nether at once). Joins as NAME with the shared world, goes through the portal whose frame's lower corner is X Y Z (axis
+// Nether at once). Joins as NAME, goes through the portal whose frame's lower corner is X Y Z (axis
 // x, lit), steps off at the far side, walks to the far portal's front, steps in and logs every respawn and position
 // packet for 15 s. Test worlds only.
 // Usage: MC_SERVER_DIR=mc/testserver2 node node_modules/tsx/dist/cli.mjs scripts/checks/portal_return.mts NAME PORT X Y Z TIMESCALE
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { sharedWorlds } from '../../server/src/mineflayer/mcSharedWorld';
 
 const require = createRequire(import.meta.url);
 const mineflayer = require('mineflayer');
@@ -17,7 +16,7 @@ const rcon = (...c: string[]) => execFileSync('python', ['mc/rcon.py', ...c], { 
 const sleep = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
 const t0 = Date.now();
 const log = (s: string) => console.log(`${((Date.now() - t0) / 1000).toFixed(1).padStart(6)} ${s}`);
-const bot = mineflayer.createBot({ host: '127.0.0.1', port: Number(port), username: name, version: '26.1', auth: 'offline', timeScale: Number(TS), sharedWorlds });
+const bot = mineflayer.createBot({ host: '127.0.0.1', port: Number(port), username: name, version: '26.1', auth: 'offline', timeScale: Number(TS) });
 bot.loadPlugin(pathfinder);
 const dim = () => String(bot.game?.dimension ?? '?');
 const pos = () => (bot.entity ? `${bot.entity.position.x.toFixed(1)},${bot.entity.position.y.toFixed(1)},${bot.entity.position.z.toFixed(1)}` : '?');
