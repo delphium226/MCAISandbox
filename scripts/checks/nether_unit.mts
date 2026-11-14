@@ -169,6 +169,16 @@ if (MODE === 'off' || MODE === 'hostile') {
   // the debris stair: one along the longer axis and one down; the cells cleared; never down through the floor underfoot
   const st1 = P.stairStep({ x: 0, y: 50, z: 0 }, { x: 10, y: 15, z: 3 });
   ok(JSON.stringify(st1.to) === '{"x":1,"y":49,"z":0}' && st1.dig.map((c) => `${c.x},${c.y},${c.z}`).join(' ') === '1,51,0 1,50,0 1,49,0', `a stair step down (${JSON.stringify(st1)})`);
+  // the whole stair read first: solid netherrack to debris at y 15 is fine; a lava sea at y 31 in the way is not; a cave
+  // is bridged while netherrack lasts
+  const rock = (_x: number, y: number) => (y > 50 ? 'air' : 'netherrack');
+  const sea = (_x: number, y: number) => (y > 50 ? 'air' : y <= 31 && y >= 25 ? 'lava' : 'netherrack');
+  const cave = (_x: number, y: number) => (y > 50 ? 'air' : y <= 40 && y >= 36 ? 'air' : 'netherrack');
+  const ps = P.planStair({ x: 0, y: 51, z: 0 }, { x: 40, y: 15, z: 0 }, rock);
+  ok('steps' in ps && ps.steps > 30 && ps.bridges === 0, `a stair through rock (${JSON.stringify(ps)})`);
+  ok('why' in P.planStair({ x: 0, y: 51, z: 0 }, { x: 40, y: 15, z: 0 }, sea), 'none through the lava sea');
+  const pc = P.planStair({ x: 0, y: 51, z: 0 }, { x: 40, y: 15, z: 0 }, cave);
+  ok('steps' in pc && pc.bridges > 0 && 'why' in P.planStair({ x: 0, y: 51, z: 0 }, { x: 40, y: 15, z: 0 }, cave, 0), `a cave bridged with netherrack, not without (${JSON.stringify(pc)})`);
   ok(P.stairStep({ x: 0, y: 50, z: 0 }, { x: 0, y: 15, z: 0 }).to.x === 1 && P.stairStep({ x: 0, y: 16, z: 0 }, { x: 5, y: 15, z: 0 }).to.y === 16, 'aside when straight over it; level once beside its height');
   ok(['netherrack', 'blackstone', 'basalt', 'soul_sand', 'nether_quartz_ore'].every((n) => P.DIG_NETHER.includes(n)) && ['netherrack', 'quartz', 'gold_nugget', 'blackstone'].every((n) => L.NETHER_BLOCKS.includes(n)), 'the blocks dug and the items counted');
 }

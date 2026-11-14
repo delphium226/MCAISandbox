@@ -182,5 +182,36 @@ export function stairStep(p: Cell, t: Cell): { to: Cell; dig: Cell[] } {
   return { to, dig };
 }
 
+/**
+ * The whole stair from `p` to within reach of `t`, read from the world before a block is dug (the debris dig's choice of
+ * target: nether9's stairs all ran into the lava sea at y 31 over the debris): every cell dug and its neighbours free of
+ * lava and fire and loaded, nothing loose over them, each step's floor firm or a cave bridged (at most `bridges`), never
+ * water or lava under a step. Null with why it fails, else the steps and the bridges it takes.
+ */
+export function planStair(p: Cell, t: Cell, name: (x: number, y: number, z: number) => string, bridges = 16, maxSteps = 120): { steps: number; bridges: number } | { why: string } {
+  let cur = { ...p }, used = 0;
+  const dug = new Set<string>();
+  const key = (c: Cell) => `${c.x},${c.y},${c.z}`;
+  // (cells already dug or bridged by the plan read as such)
+  const read = (x: number, y: number, z: number) => (dug.has(`${x},${y},${z}`) ? 'air' : name(x, y, z));
+  for (let n = 0; n < maxSteps; n++) {
+    if (Math.hypot(t.x + 0.5 - (cur.x + 0.5), t.y + 0.5 - (cur.y + 1.62), t.z + 0.5 - (cur.z + 0.5)) <= 4.2) return { steps: n, bridges: used };
+    const st = stairStep(cur, t);
+    for (const c of st.dig) {
+      const b = read(c.x, c.y, c.z);
+      if (!b) return { why: `unloaded at ${key(c)}` };
+      if (/^(air|cave_air)$/.test(b)) continue;
+      if (/^(bedrock|obsidian|crying_obsidian|nether_portal)$/.test(b) || (b === 'ancient_debris' && key(c) !== key(t))) return { why: `${b} at ${key(c)}` };
+      if (!safeToDig(c, cur, read) || /^(gravel|sand|soul_sand|red_sand)$/.test(read(c.x, c.y + 1, c.z))) return { why: `lava or loose ground by ${key(c)}` };
+      dug.add(key(c));
+    }
+    const f = read(st.to.x, st.to.y - 1, st.to.z);
+    if (!f || HOT.test(f) || /^(water|nether_portal)$/.test(f)) return { why: `${f || 'unloaded'} under ${key(st.to)}` };
+    if (/^(air|cave_air)$/.test(f) && ++used > bridges) return { why: `more than ${bridges} caves to bridge` };
+    cur = st.to;
+  }
+  return { why: 'too long' };
+}
+
 /** The overworld point a Nether position stands for (vanilla's 1:8). */
 export const overworldOf = (c: { x: number; z: number }) => ({ x: c.x * 8, z: c.z * 8 });

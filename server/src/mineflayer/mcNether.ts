@@ -11,7 +11,7 @@ import type { BotAgent } from './botAgent';
 import type { Village } from '../village';
 import { villageHome } from '../village';
 import { NETHER_BLOCKS, NETHER_DEBRIS, NETHER_PARTY } from '../ladder';
-import { DEBRIS_REACH, DEBRIS_Y, DIG_NETHER, FRAME_BLOCKS, HOT, TRIP_BLOCKS, TRIP_MIN, exposed, farStand, frameCells, inTripBox, innerCells, nearPortal, planPortal, safeToDig, stairStep, type Cell, type PortalSite } from '../netherPlan';
+import { DEBRIS_REACH, DEBRIS_Y, DIG_NETHER, FRAME_BLOCKS, HOT, TRIP_BLOCKS, TRIP_MIN, exposed, farStand, frameCells, inTripBox, innerCells, nearPortal, planPortal, planStair, safeToDig, stairStep, type Cell, type PortalSite } from '../netherPlan';
 import { dimOf, inDim, overworld } from './mcDim';
 import { recall } from './mcRescue';
 import { timeScale } from './mcRules';
@@ -443,9 +443,12 @@ export async function netherDig(a: BotAgent, args: Record<string, unknown>, sign
       const feet = a.bot.entity.position.floored();
       const all = nearestBlocks(a, [id], DEBRIS_REACH, 24, (q) => !tried.has(`${q.x},${q.y},${q.z}`), DEBRIS_Y);
       seen = Math.max(seen, all.length);
-      const c = all.find((q) => safeToDig(q, feet, name));
+      // (the first whose whole stair, read before any dig, keeps off lava and loose ground: netherPlan.ts planStair)
+      const rack = await count(a, 'netherrack');
+      const c = all.find((q) => safeToDig(q, feet, name) && 'steps' in planStair(feet, q, name, rack));
       if (!c) {
-        notes.push(all.length ? `${all.length} debris seen, each beside lava or fire` : `no ancient debris seen within ${DEBRIS_REACH} blocks at y ${DEBRIS_Y.min}-${DEBRIS_Y.max}`);
+        const why = all.slice(0, 3).map((q) => { const r = planStair(feet, q, name, rack); return 'why' in r ? `${at(q)}: ${r.why}` : ''; }).filter(Boolean).join('; ');
+        notes.push(all.length ? `${all.length} debris seen, none with a stair to it clear of lava (${why})` : `no ancient debris seen within ${DEBRIS_REACH} blocks at y ${DEBRIS_Y.min}-${DEBRIS_Y.max}`);
         break;
       }
       tried.add(`${c.x},${c.y},${c.z}`);
