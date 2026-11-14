@@ -65,7 +65,9 @@ const planText = (p: Any) => ('why' in p ? p.why : `${p.count}: ${Object.entries
 
 // the merchant's offers: appended after the old ones (a saved merchant's uses keep their indices)
 // (MC_PIG_CARROTS appends the pigs' carrots after them)
-const tail = OFFERS[OFFERS.length - 1]?.item === 'carrot' ? OFFERS.slice(0, -1) : OFFERS;
+// (#247, MC_COPPER_AGE: and the copper age's amethyst shard after those)
+const noShard = OFFERS[OFFERS.length - 1]?.item === 'amethyst_shard' ? OFFERS.slice(0, -1) : OFFERS;
+const tail = noShard[noShard.length - 1]?.item === 'carrot' ? noShard.slice(0, -1) : noShard;
 ok(tail[tail.length - 2]?.item === 'leather' && tail[tail.length - 1]?.item === 'sugar_cane' && SELLS.some((o) => o.item === 'leather'), `offers end with leather and sugar_cane (${OFFERS.length})`);
 
 // the seed first (B1): no cane farmed, 5 emeralds, 3 leather

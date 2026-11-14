@@ -21,11 +21,12 @@ to be on the ballot at any time. don't offer advanced rungs before simpler rungs
 | 5 | the Nether | needs obsidian from enchantment; a second dimension |
 
 A ballot with one option is no ballot: the village takes it up ("the one open to it"), as before. With nothing
-implemented left the ladder stays at its last rung reached. Today, with letters and diamond on: iron, then letters
-alone, then diamond alone, then nothing. As rungs are implemented they join the ballot in their tier with no further
-change here.
+implemented left the ladder stays at its last rung reached. Today, with letters, trade, copper and diamond on: iron,
+then a ballot of letters, copper and trade (the first real ballot), then the two left, then the last, then diamond
+alone, then nothing. As rungs are implemented they join the ballot in their tier with no further change here.
 
-Checks: `ladder_unit` (the rule, letters then diamond, nothing after), `diamond_unit` (MC_LADDER_START=diamond).
+Checks: `ladder_unit` (the rule, tier 2 rung by rung, then diamond, nothing after), `diamond_unit`
+(MC_LADDER_START=diamond; diamond only after tier 2), `trade_copper_unit` (#246, #247).
 
 ## Building the rest
 
@@ -41,19 +42,54 @@ Every rung needs the four parts letters (#21) and diamond (#22, cc4757d, ~750 li
 
 In order (simplest first, so each tier opens as soon as possible):
 
-### 1. Trade (tier 2, ~half a session, #246)
+### 1. Trade (tier 2, #246): built 11-14, `MC_TRADE_AGE` (on)
 
-All the work exists (`merchant.ts`, `pay.ts`, market stalls, `MC_MERCHANT_ORDERS`). Counters only:
-merchant sales, a market stall per neighbourhood, emeralds in the village chest, merchant orders filled.
-Stage 4 needs `MC_MERCHANT_ORDERS` on: the rung is implemented only with it (or stage 4 changes to "N barters").
+All the work existed (`merchant.ts`, the trade skill, market stalls, `MC_MERCHANT_ORDERS`). Built:
 
-### 2. Copper (tier 2, ~1 session, #247)
+| Stage | Counter, target | Counted where | Feeds |
+|---|---|---|---|
+| 1. lots sold to the merchant | `sales`, 20 | the trade step's "sold N item for E emerald" at the chore's end, once its deposit landed (`ladder.ts` tradeCounts) | `activity:lib:sell`, the makes of torches, glass, stone bricks, bread |
+| 2. market stalls standing | `stalls`, 3 | built `market_stall` initiatives, a level (`levelCounts`), at a chore's end and when an initiative is built | `help:market_stall` (an initiative's help, by its kind) |
+| 3. emeralds in the village storage | `emeralds`, 40 | storage's emeralds, the highest seen since the rung began (a level) | as stage 1 |
+| 4. lots of the workshop's goods sold | `crafted`, 10 | sales of torches, glass, stone bricks, bread (lots) | as stage 1 |
 
-Exists: copper ore in the iron mine (`mcMine.ts`), the kiln smelts it, the cutter makes cut copper, monuments lay copper
-roofs. New: keep copper ore when found (stage 1's counter), copper blocks and cut copper for a work (stage 2). Stage 3's
-waxing needs honeycomb, which needs bees (a new chain); replace it with "a copper roof on a civic building" now and
-bring waxing back with the bees rung below. Stage 4: a lightning rod (3 ingots) and a spyglass (amethyst shard from the
-geode, `MC_GEODE`).
+Stage 4 is "10 merchant orders filled" (`orders`) only with `MC_MERCHANT_ORDERS` on (off by default); otherwise lots of
+the workshop's own goods sold, counted with the default flags. "A stall per neighbourhood" became 3 stalls: the target is
+fixed per rung, and the first stall (posted at completion) plus two more is what one neighbourhood's growth gives room
+for. Behaviour while trade is current (beside the brain's state): the workshop keeps a lot and a batch more of the four
+goods (`makeTarget`'s `tradeExtra`, left out of `sellKeep`, so a lot stands for sale); selling no longer stops at "enough
+emeralds" and `emeraldKeep` holds 40 (payments do not spend stage 3); while stage 2 is current the village posts another
+market stall as its own work (`postRungWorks`, as #134's first stall). Targets: the merchant buys some 50 lots a restock
+(every 20 minutes); 20 + about 20 more lots for the emeralds + 10 crafted lots is ~50 lots, about 2 hours of sales.
+
+### 2. Copper (tier 2, #247): built 11-14, `MC_COPPER_AGE` (on)
+
+Before: the iron mine left the copper ore in its walls (`mcMine.ts` keeps only iron and coal, and copper while a
+monument's copper roof wants it, `MC_COPPER_ROOF`, off); the cathedral's copper roof comes only after the rung. Built:
+
+| Stage | Counter, target | Counted where | Feeds |
+|---|---|---|---|
+| 1. raw copper kept from the iron mine | `copper`, 64 | the iron trip's "brought up ..., N raw copper" (`mcBuild.ts` digIron), `copperCounts` | `iron:dig` |
+| 2. copper blocks made | `cblocks`, 5 | a make's "put into storage: N copper_block" | `make:copper_block` |
+| 3. a copper-roofed canopy built | `croof`, 1 | the built `copper_canopy` initiative (a level) | `help:copper_canopy` |
+| 4. a lightning rod and a spyglass | `instruments`, 2 | one of each in storage (a level) | `make:lightning_rod`, `make:spyglass`, `activity:lib:buy:amethyst_shard` |
+
+While copper is current: the mine keeps the copper ore it meets (`setKeepCopper`, with the monument's want); the dig
+stays offered beside a monument's iron until the 64 are up; the workshop makes the rung's goods (`COPPER_GOODS`, targets
+in `ladder.ts` copperTarget: 5 blocks, then one rod and one spyglass; raw copper smelted in the same make); the
+merchant sells an amethyst shard (2 emeralds, appended last to its offers) while the spyglass wants one, instead of the
+geode (`MC_GEODE`, off); and once storage holds the 5 blocks the village posts the canopy (`smallWorks.ts` RUNG_WORKS: a
+3x3 canopy on fence posts, its roof the 5 blocks in a cross with wood slabs at the corners), the blocks taken as gathered
+from storage (`fromStore`). Stage 3 is a copper roof on a small work, not on a civic building or the monument: those
+roofs come in their own stages hours apart, and the cathedral's copper roof follows the rung (`copperReached`). Waxing
+comes back with the bees rung. Copper's needs in `wanted.ts` are [] with the flag (the shard is the merchant's).
+Targets: 64 raw copper is about 18 ores (2-5 each), the 5 blocks take 45, the rod 3 and the spyglass 2.
+
+What a live run should watch for: `[ladder] ... the iron mine keeps the copper ore`, iron trips' "N raw copper",
+`[ladder] ... posts iN, a market stall / copper canopy`, "the copper canopy waits for 5 copper blocks", the merchant's
+"sells N item" lines while trade is current, and each stage's `[ladder] ... finished stage` line. Risk: if every iron
+level is finished when copper is chosen, nothing digs (the dig is not offered on a finished chain); count the copper
+rung's first half-hour of trips.
 
 ### 3. Machines (tier 3, ~2 sessions, #24)
 
@@ -97,6 +133,6 @@ additions to tier 2.
 
 ## Order of work
 
-1. Trade, 2. copper (tier 2 then has three rungs, so the first real ballot after iron), 3. husbandry (optional, tier 2),
+1. Trade, 2. copper (both built 11-14: tier 2 has three rungs, the first real ballot after iron), 3. husbandry (optional, tier 2),
 4. machines, 5. bees and maps (optional, tier 3), 6. enchantment, 7. the Nether (spec first). Each rung goes into a test
 train with its flag on and off.

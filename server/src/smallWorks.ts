@@ -30,7 +30,7 @@ export interface SmallWorkKind {
 /** A design name's prefix for small works. */
 export const SMALL_WORK_PREFIX = 'small_';
 /** Whether a design is a small work's. */
-export const isSmallWork = (name: string) => name.startsWith(SMALL_WORK_PREFIX) && SMALL_WORKS.some((k) => name.startsWith(`${SMALL_WORK_PREFIX}${k.kind}_`));
+export const isSmallWork = (name: string) => name.startsWith(SMALL_WORK_PREFIX) && [...SMALL_WORKS, ...RUNG_WORKS].some((k) => name.startsWith(`${SMALL_WORK_PREFIX}${k.kind}_`));
 
 /** A wood kind's log (the Nether's are stems, bamboo's is a block). */
 const logOf = (wood: string) => (wood === 'crimson' || wood === 'warped' ? `${wood}_stem` : wood === 'bamboo' ? 'bamboo_block' : `${wood}_log`);
@@ -137,6 +137,19 @@ function gazebo(w: string): Design {
     ['F...F', '.....', '.....', '.....', 'F...F'],
     ['F...F', '.....', '.....', '.....', 'F...F'],
     ['SSSSS', 'SSSSS', 'SSSSS', 'SSSSS', 'SSSSS'],
+  ]);
+}
+
+/** #247 (MC_COPPER_AGE): a 3x3 canopy, fence posts over a plank floor under a roof of 5 copper blocks in a cross with wood
+ *  slabs at the corners: the copper age's copper roof, of its second stage's blocks. */
+function copperCanopy(w: string): Design {
+  return design('copper_canopy', w, 'a copper canopy: fence posts and a roof of copper blocks over a plank floor', {
+    P: `${w}_planks`, F: `${w}_fence`, B: 'copper_block', S: `${w}_slab[type=bottom]`,
+  }, [
+    ['PPP', 'PPP', 'PPP'],
+    ['F.F', '...', 'F.F'],
+    ['F.F', '...', 'F.F'],
+    ['SBS', 'BBB', 'SBS'],
   ]);
 }
 
@@ -432,8 +445,15 @@ export const SMALL_WORKS: SmallWorkKind[] = [
   ...VANILLA_WORKS.filter(crewCanBuild),
 ];
 
-/** A small work's kind by its key: the menu's (SMALL_WORKS) or a yard's (R1's YARD_WORKS, empty with the flag off). */
-export const smallWorkKind = (kind: string) => SMALL_WORKS.find((k) => k.kind === kind) ?? YARD_WORKS.find((k) => k.kind === kind);
+/** The ladder's works (G8): posted by the village while a rung's stage wants one (mcWorld.ts postRungWorks), never on a
+ *  member's menu. #247: the copper canopy, its roof the copper age's blocks. */
+export const RUNG_WORKS: SmallWorkKind[] = [
+  { kind: 'copper_canopy', words: 'copper canopy', forWhat: 'a copper roof for the copper age, of the copper blocks the workshop made', make: copperCanopy },
+];
+
+/** A small work's kind by its key: the menu's (SMALL_WORKS), a yard's (R1's YARD_WORKS, empty with the flag off) or the
+ *  ladder's (RUNG_WORKS). */
+export const smallWorkKind = (kind: string) => SMALL_WORKS.find((k) => k.kind === kind) ?? YARD_WORKS.find((k) => k.kind === kind) ?? RUNG_WORKS.find((k) => k.kind === kind);
 
 /** The kinds a village's members may start (R1): with MC_VANILLA_ALL, vanilla's kinds and the yards a crew can build only in
  *  the village's own style (`biome`: its library's); without, SMALL_WORKS itself. */
@@ -448,7 +468,7 @@ export function menuWorks(biome?: string): SmallWorkKind[] {
  * made in a neighbourhood's wood is gathered and billed in that wood, not the catalogue's.
  */
 export function smallWorkWood(name: string): string | undefined {
-  const kinds = [...SMALL_WORKS, ...GARDEN_WORKS, ...VANILLA_WORKS, ...YARD_WORKS].map((k) => k.kind).sort((a, b) => b.length - a.length);
+  const kinds = [...SMALL_WORKS, ...GARDEN_WORKS, ...VANILLA_WORKS, ...YARD_WORKS, ...RUNG_WORKS].map((k) => k.kind).sort((a, b) => b.length - a.length);
   const k = kinds.find((x) => name.startsWith(`${SMALL_WORK_PREFIX}${x}_`));
   // (#140: a flower bed's mix follows its wood after a "~": "small_front_bed_oak~dandelion-poppy")
   return k ? name.slice(SMALL_WORK_PREFIX.length + k.length + 1).split('~')[0] || undefined : undefined;
@@ -679,7 +699,7 @@ const capOf = (group: string) => (group === 'lamp' ? GREEN_LAMPS : group === 'pa
 /** A small work's kind from its design's name ("small_lamp_posts_birch" -> lamp_posts; the longest kind first). */
 export function smallWorkKindOf(name: string): string | undefined {
   if (!name.startsWith(SMALL_WORK_PREFIX)) return undefined;
-  const kinds = [...SMALL_WORKS, ...GARDEN_WORKS, ...VANILLA_WORKS, ...YARD_WORKS].map((k) => k.kind).sort((a, b) => b.length - a.length);
+  const kinds = [...SMALL_WORKS, ...GARDEN_WORKS, ...VANILLA_WORKS, ...YARD_WORKS, ...RUNG_WORKS].map((k) => k.kind).sort((a, b) => b.length - a.length);
   return kinds.find((x) => name.startsWith(`${SMALL_WORK_PREFIX}${x}_`));
 }
 

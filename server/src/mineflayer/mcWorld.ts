@@ -17,7 +17,7 @@ import { FOUNDRY_SKILLS } from './foundry/list';
 import { FLOWERS } from './foundry/flowers';
 import { TOOL } from './mcBlocks';
 import { LIBRARY_KEEP, loadLibrary, type LibrarySpec } from '../library';
-import { MERCHANT_ON, MERCHANT_RESTOCK_MIN, MERCHANT_TAG, OFFERS, ORDERS_ON, ORDER_EXPIRE_RESTOCKS, ORDER_RAW_CAP, ORDER_SIZE, levelOf, offersCommands, orderPay, ordersOpen, stablePick, stallCell, summonCommand, villageTag, type MerchantOffer, type MerchantOrder } from '../merchant';
+import { BUYS, MERCHANT_ON, MERCHANT_RESTOCK_MIN, MERCHANT_TAG, OFFERS, ORDERS_ON, ORDER_EXPIRE_RESTOCKS, ORDER_RAW_CAP, ORDER_SIZE, levelOf, offersCommands, orderPay, ordersOpen, stablePick, stallCell, summonCommand, villageTag, type MerchantOffer, type MerchantOrder } from '../merchant';
 import { Vec3 } from 'vec3';
 import { collectFilter, collectTargets, exposed, villageStationCell } from './mcSurvival';
 import { at, nearestBlocks, onVillageGround, stateAt } from './mcUtil';
@@ -27,7 +27,7 @@ import { ironDone, ironLevelFull, ironStairsHeld, mineAreas, mineGives, mineCanG
 import { EGGS, PENS_BIG, PEN_KINDS, PEN_ORDER, PEN_VARIETY, SLOT_KINDS, SLOT_ORDER, enlargedSlot, penCap, penLure, penPlan, penSlotFit, penWords, pigCarrotKeep, restockLine, worksFurnaces } from '../farmSlots';
 import { bowsOn, archeryCounts } from './mcArchery';
 import { BOW_NW, BOW_RANK, FLINT_TRIP_MAX, arrowsLying, bowsFirst, flintCounts, flintShort, gravelOut, gravelSkip, gravelSource, recentShots, type GravelSpot } from './mcFlint';
-import { ARMS_GOODS, BOW_GOODS, FOOD_GOODS, HUNT_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, ROD_GOOD, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
+import { ARMS_GOODS, BOW_GOODS, COPPER_GOODS, FOOD_GOODS, HUNT_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, ROD_GOOD, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
 import { PROMPT_SELF, UNUSED_GOOD, UNUSED_TAG, ambitionGap, feedKinds, needsLine as basicNeedsLine, scarcityLine, selfLine, type HouseFacts, type SelfFacts } from '../promptSelf';
@@ -36,7 +36,7 @@ import { Palette, reserved, type Dropped } from '../palette';
 import { workerNumber } from '../agentNames';
 import { KIND_PHRASE, TEMPERAMENT_MODE, activeKinds, kindWeights, optionWeight, personaOf, temperament, vectorOf } from '../temperament';
 import { GOALS_ON, GOAL_PIN, ensureGoals, goalLine, goalName, goalScore, goalWeight, goalsOf, noteEnd as goalNoteEnd, goalPlanOf, goalWordsDue, serves, specOf, topCraft, type Goals, type OptionFacts } from '../goals';
-import { IRON_AGE, IRON_MINERS, LADDER, LETTERS, RUNG_DEFS, VW, chooseRung, feedsStage, ladderOf, lettersCounts, lettersCurrent, lettersReached, LETTERS_BOOKS, noteLadder, openRungBallot, progressLine, rungOptions, rungPreview, stageTag, type Counter as LadderCounter, type LadderNews } from '../ladder';
+import { COPPER_AGE, COPPER_CANOPY, COPPER_MADE, COPPER_RAW, IRON_AGE, IRON_MINERS, LADDER, LETTERS, RUNG_DEFS, TRADE_AGE, TRADE_EMERALDS, TRADE_GOODS, TRADE_STALLS, VW, chooseRung, copperCounts, copperCurrent, copperTarget, shardKeep, feedsStage, ladderOf, levelCounts, lettersCounts, lettersCurrent, lettersReached, LETTERS_BOOKS, noteLadder, tradeCounts, tradeCurrent, openRungBallot, progressLine, rungOptions, rungPreview, stageTag, type Counter as LadderCounter, type LadderNews } from '../ladder';
 import type { RungId } from '../wanted';
 import type { ChronicleEntry } from '../social';
 import { BALLOTS_PARALLEL, STYLE_LOOK, VOTE_MAX_MS, VOTE_SETTING, castAll, predictedBallot, predictedChoice, parseStyle, styleOption, tally, woodStyleOptions, type Ballot, type BallotRequest, type StyleHouse, type VoteMode, type VoteOption, type VoteRecord, type VoteTopic } from '../vote';
@@ -850,6 +850,8 @@ export class MineflayerWorld implements WorldAdapter {
       const wood = this.catalogWoodOf(v);
       goods = [...goods.filter((g) => !LETTERS_GOODS.some((q) => q.item === g.item)), ...LETTERS_GOODS.map((g) => (g.item === 'book' ? g : { ...g, wood }))];
     }
+    // (#247, MC_COPPER_AGE: the rung's copper blocks, lightning rod and spyglass while copper is current)
+    if (copperCurrent(v)) goods = [...goods.filter((g) => !COPPER_GOODS.some((q) => q.item === g.item)), ...COPPER_GOODS];
     // (#178, MC_STRING: fishing rods from the string trip's string)
     if (STRING && !goods.some((g) => g.item === ROD_GOOD.item)) goods = [...goods, ROD_GOOD];
     // (#217 step 6, MC_BOWS: bows from the hunt's string, arrows from flint and the pens' feathers, for the watch and the hunt)
@@ -1268,10 +1270,12 @@ export class MineflayerWorld implements WorldAdapter {
     // world test from here, the browsing member may be far from the mine: the stairs test the ground as they go)
     if (DIAMONDS_ON && ironDone(m, now)) deepenForDiamonds(this.villages, v, undefined, now);
     const pickless = deepDigBlocked(v, hasIronPick(a), store), deep = deepDigWords(v, store), first = ironFirstFact(v);
+    // (#247, MC_COPPER_AGE: the copper rung's raw copper still to bring up: the dig stays offered beside a monument's iron)
+    const copperDig = copperCurrent(v) && (v.ladder?.totals?.copper ?? 0) < COPPER_RAW;
     if (ironDone(m, now)) why.push('iron level finished');
     else if (stairsBy) why.push(`the iron stairs being dug by ${stairsBy}`);
     else if (full) why.push(`${numberWord(full.length)} miners on the iron level (${full.join(', ')})`);
-    else if (monumentBusy && raw + ingots >= IRON_MONUMENT_ENOUGH && !deep) why.push(`iron enough while the monument is built (${raw + ingots} stored)`);
+    else if (monumentBusy && raw + ingots >= IRON_MONUMENT_ENOUGH && !deep && !copperDig) why.push(`iron enough while the monument is built (${raw + ingots} stored)`);
     else if (slot === undefined) why.push('every leg busy');
     else if (backing('dig')) why.push('digging backs off');
     else if (pickless) why.push(pickless);
@@ -1279,7 +1283,7 @@ export class MineflayerWorld implements WorldAdapter {
       added++;
       add({
         id: 'iron:dig', kind: 'iron', key: `irondig:${slot}`, excludes: [`irondig:${slot}=`], name: deep?.name ?? 'Dig for iron in the mine', rank: 700,
-        facts: `${deep ? `${deep.facts}; ` : first ? `${first}; ` : ''}${raw} raw iron and ${ingots} iron ingots in storage; the iron level ${m.iron ? `${m.iron.level !== undefined ? `at y ${m.iron.level}, ` : ''}${m.iron.dug} cells dug` : 'not started'}${others('iron', 'iron:dig')}; ${record('iron')}${lastOf('iron', 'iron:dig')}`,
+        facts: `${deep ? `${deep.facts}; ` : first ? `${first}; ` : ''}${copperDig ? `the mine keeps the copper ore it meets for the copper age (${v.ladder?.totals?.copper ?? 0} of ${COPPER_RAW} raw copper brought up); ` : ''}${raw} raw iron and ${ingots} iron ingots in storage; the iron level ${m.iron ? `${m.iron.level !== undefined ? `at y ${m.iron.level}, ` : ''}${m.iron.dug} cells dug` : 'not started'}${others('iron', 'iron:dig')}; ${record('iron')}${lastOf('iron', 'iron:dig')}`,
         effect: deep?.effect ?? `raw iron for the smelters (${raw} in storage)`,
       }, { kind: 'iron', stage: 'dig', tool: '', iron: raw });
     }
@@ -1589,11 +1593,21 @@ export class MineflayerWorld implements WorldAdapter {
     const ordered = ORDERS_ON ? (v.merchant?.orders ?? []).filter((o) => o.state === 'open' && o.item === g.item).reduce((s, o) => s + o.n, 0) : 0;
     // (G2, MC_ACTS: a batch for each open request of a member's for it)
     const requested = ACTS.on ? openRequests(v.name, `make:${g.item}`) * g.batch : 0;
-    return ordered + requested + this.baseTarget(v, g);
+    return ordered + requested + this.baseTarget(v, g) + this.tradeExtra(v, g);
+  }
+
+  /** #246 (MC_TRADE_AGE): while trade is the current rung, a good the merchant buys that the workshop makes (TRADE_GOODS) is
+   *  kept a lot and a batch over its target, so a lot stands over its sell keep (sellKeep leaves this out). */
+  private tradeExtra(v: Village, g: MakeGood): number {
+    if (!tradeCurrent(v) || !TRADE_GOODS.includes(g.item)) return 0;
+    const o = BUYS.find((x) => x.item === g.item);
+    return o ? o.n + g.batch : 0;
   }
 
   private baseTarget(v: Village, g: MakeGood): number {
     if (g.rung === 'letters') return this.lettersTarget(v, g.item);
+    // (#247, MC_COPPER_AGE: the copper blocks still to make, then a lightning rod and a spyglass)
+    if (g.rung === 'copper') return copperTarget(v, g.item, storageContents(v));
     // (survival (c): stone swords for half the members; the rest as the table)
     if (g.arms) return !armsOn() ? 0 : g.item === 'stone_sword' ? Math.max(2, Math.ceil(this.growMembers(v).length / 2)) : g.target;
     // (food, s30's D13: bread two a member, pies one for two, where the village keeps an appetite; none otherwise)
@@ -2554,6 +2568,8 @@ export class MineflayerWorld implements WorldAdapter {
       // (before the sweep, which leaves members to the growth's chore and tasks, s30)
       try {
         if (LETTERS_PACE && MERCHANT_ON && v.complete) this.postStall(v);
+        // (#246, #247: a market stall or the copper canopy while the current stage wants one)
+        if (LADDER && (TRADE_AGE || COPPER_AGE) && v.complete) this.postRungWorks(v);
         if (v.initiatives?.length) this.initiativeTick(v);
       } catch (e) {
         console.error(`[initiative] ${v.name}: check failed:`, e);
@@ -3961,6 +3977,31 @@ export class MineflayerWorld implements WorldAdapter {
     logAct({ type: 'ladder', village: v.name, kind: news.kind, rung: news.rung, stage: news.stage, text: news.text, workers: news.workers, t: Date.now() });
   }
 
+  /** #246, #247: the trade and copper rungs' level counts (ladder.ts levelCounts) into the ladder, credited to `member`. */
+  private ladderLevels(v: Village, member: string) {
+    if (!tradeCurrent(v) && !copperCurrent(v)) return;
+    const got = levelCounts(v, storageContents(v));
+    for (const [counter, n] of got) for (const news of noteLadder(v, counter, member, n, Date.now(), clockOf(v.name, Date.now())?.day)) this.ladderNews(v, news);
+    if (got.length) this.villages.save();
+  }
+
+  /** #162: the iron mine keeps copper ore (mcMine's setKeepCopper): while a monument's roof wants raw copper (`on`), or
+   *  (#247, MC_COPPER_AGE) while a village's current rung is copper. */
+  private keepCopper(on: boolean) {
+    this.copperWants.mon = on;
+    setKeepCopper(this.copperWants.mon || this.copperWants.rung.size > 0);
+  }
+  private copperWants = { mon: false, rung: new Set<string>() };
+  /** #247: a village's copper rung into the mine's copper keep, on a change. */
+  private copperRungKeep(v: Village) {
+    const want = copperCurrent(v);
+    if (want === this.copperWants.rung.has(v.name)) return;
+    if (want) this.copperWants.rung.add(v.name);
+    else this.copperWants.rung.delete(v.name);
+    setKeepCopper(this.copperWants.mon || this.copperWants.rung.size > 0);
+    console.log(`[ladder] ${v.name}: the iron mine ${want ? 'keeps' : 'no longer keeps'} the copper ore it meets (the copper age)`);
+  }
+
   private ladderNote(v: Village, text: string) {
     console.log(`[ladder] ${v.name}: ${text}`);
     this.villages.note(v, text);
@@ -4935,6 +4976,8 @@ export class MineflayerWorld implements WorldAdapter {
     if (state === 'built' && it.by !== STALL_BY && WANTS.esteem) noteBuilt(v.name, it.by, [...this.agents.values()].filter((b) => b.village()?.name === v.name).map((b) => b.name), `the ${smallWorkKind(it.kind)?.words ?? it.kind}`, Date.now());
     it.end = Date.now();
     it.why = why;
+    // (#246, #247: a market stall or the copper canopy built into the ladder's levels, credited to its last crew member)
+    if (state === 'built' && LADDER) this.ladderLevels(v, it.steps[it.steps.length - 1]?.agent ?? it.crew[0] ?? it.by);
     this.villages.note(v, `${it.by}'s ${it.kind} (${it.id}) ${state}: ${why}; crew ${it.crew.join(', ')}`);
     this.villages.save();
     console.log(`[initiative] ${v.name}: ${it.id} ${state} in ${((it.end - it.at) / 60000).toFixed(1)} min (${why}); started by ${it.by}, crew ${it.crew.join(', ')}; ${it.steps.length} steps`);
@@ -5042,7 +5085,7 @@ export class MineflayerWorld implements WorldAdapter {
           this.ownSold.delete(v.name);
           m.restockAt = Date.now() + this.restockMs();
           // (#21, MC_LETTERS: the whole list again, so a saved merchant gains the offers appended since it was summoned)
-          if (LETTERS) for (const c of offersCommands(sel.replace(']', ',limit=1]'), m.uses)) await this.rcon.command(c);
+          if (LETTERS || COPPER_AGE) for (const c of offersCommands(sel.replace(']', ',limit=1]'), m.uses)) await this.rcon.command(c);
           else for (const [i] of OFFERS.entries()) await this.rcon.command(`data modify entity ${sel.replace(']', ',limit=1]')} Offers.Recipes[${i}].uses set value 0`);
           this.villages.save();
           console.log(`[merchant] ${v.name}: restocked (next in ${Math.round(this.restockMs() / 60000)} min)`);
@@ -5127,8 +5170,9 @@ export class MineflayerWorld implements WorldAdapter {
   sellKeep(v: Village, item: string, store: Counts = storageContents(v)): number {
     const goods = this.goodsFor(v);
     const g = goods.find((x) => x.item === item);
-    if (g?.food) return v.foodFlow?.short ? Infinity : this.makeTarget(v, g) + g.batch;
-    if (g) return this.makeTarget(v, g) + g.batch;
+    // (#246: the trade rung's lot over the target is for sale)
+    if (g?.food) return v.foodFlow?.short ? Infinity : this.makeTarget(v, g) - this.tradeExtra(v, g) + g.batch;
+    if (g) return this.makeTarget(v, g) - this.tradeExtra(v, g) + g.batch;
     if (item === 'wheat') {
       const bread = goods.find((x) => x.item === 'bread');
       const missing = bread ? Math.max(0, this.makeTarget(v, bread) - (store.bread ?? 0)) : 0;
@@ -5171,7 +5215,8 @@ export class MineflayerWorld implements WorldAdapter {
     }
     if (!best) return { why: dir === 'buys' ? 'nothing above its keep the merchant buys' : (spare.emerald ?? 0) ? 'nothing wanted' : 'no emeralds' };
     // (selling stops once storage holds what buying would spend: emeralds nobody spends are a surplus too, lesson 149)
-    if (dir === 'buys' && (store.emerald ?? 0) >= this.emeraldKeep(v, keepOf, store)) return { why: 'enough emeralds' };
+    // (#246, MC_TRADE_AGE: not while trade is the current rung, whose stages are sales and emeralds)
+    if (dir === 'buys' && !tradeCurrent(v) && (store.emerald ?? 0) >= this.emeraldKeep(v, keepOf, store)) return { why: 'enough emeralds' };
     return { offer: best.offer, index: best.index, times: best.times };
   }
 
@@ -5180,7 +5225,8 @@ export class MineflayerWorld implements WorldAdapter {
     let e = 0;
     const uses = this.merchantUses(v);
     for (const o of OFFERS) if (o.dir === 'sells' && uses.has(o.item) && !(huntOn() && HUNTED_NOT_BOUGHT.has(o.item))) e += Math.ceil(Math.max(0, keepOf(o.item) - (store[o.item] ?? 0)) / o.n) * o.emeralds;
-    return Math.max(4, e);
+    // (#246, MC_TRADE_AGE: the rung's emeralds kept while trade is current, so payments do not spend its third stage)
+    return Math.max(4, e, tradeCurrent(v) ? TRADE_EMERALDS : 0);
   }
 
   /**
@@ -5192,6 +5238,8 @@ export class MineflayerWorld implements WorldAdapter {
   tradeKeep(v: Village, item: string): number | undefined {
     // (MC_PIG_CARROTS: a pig pen's carrots while no slot grows a pig's food)
     if (item === 'carrot') return pigCarrotKeep((v.layouts ?? []).flatMap((l) => l.slots ?? [])) || undefined;
+    // (#247, MC_COPPER_AGE: the spyglass's amethyst shard, one, once the copper blocks are made and while no spyglass is stored)
+    if (item === 'amethyst_shard') return shardKeep(v, storageContents(v));
     if (!lettersCurrent(v)) return undefined;
     const store = storageContents(v);
     const farmed = (v.layouts ?? []).some((l) => (l.slots ?? []).some((q) => q.kind === 'sugar_cane'));
@@ -5226,6 +5274,49 @@ export class MineflayerWorld implements WorldAdapter {
     const empty = CANE_FULL - (slot.cells?.length ?? slot.planted ?? 0);
     const short = CANE_FULL - this.caneStalks(v);
     return Math.max(0, Math.min(empty, short, storageContents(v).sugar_cane ?? 0));
+  }
+
+  /** #246, #247: when each village's rung works were last looked at (once a minute). */
+  private rungWorkAt = new Map<string, number>();
+
+  /**
+   * G8 (#246, #247): a ladder stage's work posted by the village, as postStall posts the first market stall, one open at
+   * a time: another market stall while the trade rung's stalls stage wants one (TRADE_STALLS standing); the copper canopy
+   * while the copper rung's roof stage is current, once storage holds the copper blocks the rung made for its roof (taken
+   * as gathered from storage, s40's fromStore: an initiative gathers only logs, cobblestone and sand).
+   */
+  private postRungWorks(v: Village) {
+    const now = Date.now();
+    if ((this.rungWorkAt.get(v.name) ?? 0) > now) return;
+    this.rungWorkAt.set(v.name, now + 60000);
+    if (!v.storageHut || !CHOOSE.families.has('initiatives')) return;
+    const st = v.ladder, sd = st?.current ? RUNG_DEFS[st.current as RungId]?.stages[st.stage] : undefined;
+    const want = sd?.counter === 'stalls' && tradeCurrent(v) ? 'market_stall' : sd?.counter === 'croof' && copperCurrent(v) ? COPPER_CANOPY : '';
+    if (!want || !st?.current) return;
+    const same = (v.initiatives ?? []).filter((i) => i.kind === want);
+    if (same.some((i) => i.state === 'open')) return;
+    if (same.filter((i) => i.state === 'built').length >= (want === 'market_stall' ? TRADE_STALLS : 1)) return;
+    const k = smallWorkKind(want);
+    if (!k) return;
+    const wood = this.catalogWoodOf(v);
+    let gathered: Counts | undefined;
+    if (want === COPPER_CANOPY) {
+      const need = designBill(k.make(wood)).copper_block ?? COPPER_MADE, have = storageContents(v).copper_block ?? 0;
+      if (have < need) return console.log(`[ladder] ${v.name}: the copper canopy waits for ${need} copper blocks in storage (${have})`);
+      gathered = { copper_block: need };
+    }
+    const spot = this.smallWorkSpot(v, k, wood, STALL_BY);
+    if (!spot) return console.log(`[ladder] ${v.name}: no spot for the village's ${k.words} yet`);
+    const design = k.make((WOOD_VARIANTS && hoodWoodAt(v, spot.x, spot.z)) || wood);
+    const probe = { id: '_new', design: design.name, ...(gathered ? { gathered } : {}) } as Pick<Initiative, 'id' | 'design'>;
+    if (!this.initiativeStep(v, probe, this.makeSpare(v, STALL_BY), new Set(), design)) return console.log(`[ladder] ${v.name}: the village's ${k.words} waits (nothing to gather for it now)`);
+    if (!v.designs[design.name]) v.designs[design.name] = design;
+    const it: Initiative = { id: `i${(v.initiativeN = (v.initiativeN ?? 0) + 1)}`, by: STALL_BY, kind: k.kind, design: design.name, x: spot.x, y: spot.y, z: spot.z, at: now, state: 'open', crew: [], steps: [], ...(gathered ? { gathered: { ...gathered }, fromStore: { ...gathered } } : {}) };
+    v.initiatives = [...(v.initiatives ?? []), it];
+    const rung = RUNG_DEFS[st.current as RungId]?.name ?? st.current;
+    this.villages.note(v, `The village posts a ${k.words} at ${spot.x},${spot.z} (${it.id}) for ${rung}`);
+    this.villages.save();
+    console.log(`[ladder] ${v.name}: the village posts ${it.id}, a ${k.words} (${design.name}) at ${spot.x},${spot.y},${spot.z} for ${rung}`);
   }
 
   /** #134: when each village's posted market stall was last looked at (once a minute). */
@@ -5295,8 +5386,13 @@ export class MineflayerWorld implements WorldAdapter {
 
   /** An option's feed alias for the ladder (ladder.ts feedsStage): what it runs where its id does not say, a slot's crop
    *  (`slot:sugar_cane`), a start's, the item a trade would buy (`activity:lib:buy:leather`). */
-  private feedAlias(o: ChoiceOption): string | undefined {
+  private feedAlias(o: ChoiceOption, v?: Village): string | undefined {
     const d = OPTION_RUN.get(o);
+    // (#246, #247: an initiative's step by its kind, `help:market_stall`, `help:copper_canopy`)
+    if (d?.kind === 'help' && v) {
+      const it = (v.initiatives ?? []).find((i) => i.id === d.id);
+      return it ? `help:${it.kind}` : undefined;
+    }
     if (d?.kind === 'slot' || d?.kind === 'start') return `${d.kind}:${d.slotKind}`;
     if (d?.kind === 'activity' && d.spec.id === 'lib:buy' && typeof d.args.item === 'string') return `${o.id}:${d.args.item}`;
     return undefined;
@@ -5313,6 +5409,8 @@ export class MineflayerWorld implements WorldAdapter {
     // (#21, MC_LETTERS: leather while the rung's books want it, cane while no slot farms it, spec 9 B1)
     if (lettersCurrent(v)) for (const n of ['leather', 'sugar_cane']) if ((this.tradeKeep(v, n) ?? 0) > 0) out.add(n);
     if ((this.tradeKeep(v, 'carrot') ?? 0) > 0) out.add('carrot');
+    // (#247, MC_COPPER_AGE: the spyglass's amethyst shard while the rung wants one)
+    if ((this.tradeKeep(v, 'amethyst_shard') ?? 0) > 0) out.add('amethyst_shard');
     try {
       if (CHOOSE.families.has('furnish')) for (const n of Object.keys(this.decorDemand(v))) out.add(n);
     } catch {
@@ -6078,11 +6176,17 @@ export class MineflayerWorld implements WorldAdapter {
         else if (LETTERS && (q.type !== 'trade' && q.type !== 'fish' || (act && c.status[act.depAt]?.state === 'done'))) got.push(...lettersCounts(q.type, q.message));
         // (#22, MC_DIAMOND_AGE: the chain's depth, diamonds brought up, a diamond pickaxe given; only while diamond is current)
         if (DIAMONDS_ON && v.ladder?.current === 'diamond') got.push(...diamondCounts(v, q.type, q.message, String(q.args?.item ?? '')));
+        // (#246, MC_TRADE_AGE: lots sold and orders filled, once the activity's deposit landed; #247, MC_COPPER_AGE: raw
+        // copper brought up, copper blocks made)
+        if (TRADE_AGE && q.type === 'trade' && (!act || c.status[act.depAt]?.state === 'done')) got.push(...tradeCounts(q.type, q.message));
+        if (COPPER_AGE) got.push(...copperCounts(q.type, q.message));
         for (const [counter, n] of got) {
           for (const news of noteLadder(v, counter, c.agent, n, Date.now(), clockOf(v.name, Date.now())?.day)) this.ladderNews(v, news);
         }
         if (got.length) this.villages.save();
       }
+      // (#246, #247: the levels, stalls standing, emeralds stored, the canopy, the instruments)
+      this.ladderLevels(v, c.agent);
     }
     // (G1: every chore's end into its member's journal and kind table, grow, eat and tidy too; a contention end is no lesson
     // about the chore; the intent marked ended)
@@ -9042,7 +9146,7 @@ export class MineflayerWorld implements WorldAdapter {
           id, kind: 'help', key, excludes: [`${key}=`, ...(step.what === 'gather' ? [`initiative:${it.id}:build=`] : [`initiative:${it.id}:`])],
           name: mine ? `Continue your ${kindOf.words}: ${short}` : posted ? `Help build the village's ${kindOf.words} at ${it.x},${it.z}: ${short}` : anon ? `Help build the ${kindOf.words} at ${it.pending ? 'a new green' : `${it.x},${it.z}`}: ${short}` : `Help ${it.by} build a ${kindOf.words}: ${short}`,
           rank: (posted ? 150 : 1050) + r, at: { x: it.x, y: it.y, z: it.z },
-          facts: `${mine ? 'your own project' : posted ? 'the village\'s project: a merchant comes to the first market stall built' : anon ? "a member's project" : `${it.by}'s project`}, started ${ago(now - it.at)}; ${anon ? '' : `${crew.length ? `helping: ${crew.slice(0, 4).join(', ')}${crew.length > 4 ? ` and ${crew.length - 4} more` : ''}` : 'nobody helping yet'}; ${it.steps.length} steps taken; `}${where}${step.what === 'gather' ? `; ${step.material} still to gather for it` : step.what === 'build' ? '; its materials are gathered' : ''}`,
+          facts: `${mine ? 'your own project' : posted ? (it.kind === 'market_stall' && !v.merchant ? 'the village\'s project: a merchant comes to the first market stall built' : `the village's project: ${kindOf.forWhat}`) : anon ? "a member's project" : `${it.by}'s project`}, started ${ago(now - it.at)}; ${anon ? '' : `${crew.length ? `helping: ${crew.slice(0, 4).join(', ')}${crew.length > 4 ? ` and ${crew.length - 4} more` : ''}` : 'nobody helping yet'}; ${it.steps.length} steps taken; `}${where}${step.what === 'gather' ? `; ${step.material} still to gather for it` : step.what === 'build' ? '; its materials are gathered' : ''}`,
           effect: step.what === 'build' ? `a ${kindOf.words} stands in the village: ${kindOf.forWhat}` : step.what === 'prepare' ? `level ground for the ${kindOf.words} and later small works` : `+${step.amount} ${step.material} toward the ${kindOf.words} (${kindOf.forWhat})`,
         }, { kind: 'help', id: it.id, step });
       }
@@ -9179,7 +9283,7 @@ export class MineflayerWorld implements WorldAdapter {
         const wants = KILN.on ? stageWantsPlanned(m, planOf(this, m)) : stageWants(m, (b) => this.monumentRaw(m, b));
         // (#162 tier 3, chain B: the iron mine keeps the copper ore it meets while the roof wants raw copper)
         // (MC_TALK_BIG: and an asked work's copper blocks)
-        if (COPPER_ROOF.on || m3(m).asked) setKeepCopper((!!m3(m).copper || !!m3(m).asked) && (wants.raw_copper ?? 0) > 0);
+        if (COPPER_ROOF.on || m3(m).asked) this.keepCopper((!!m3(m).copper || !!m3(m).asked) && (wants.raw_copper ?? 0) > 0);
         // (#199: until the kiln stands, the yard wants its furnaces' cobblestone (kilnStone) too, claimed or gathered as the
         // stage's: a timber civic building's stage wanted 2 and the kiln waited on 64)
         // (before the kiln's record: its build takes the furnaces' cobblestone off the yard before it is ready)
@@ -9844,7 +9948,7 @@ export class MineflayerWorld implements WorldAdapter {
     // G2 (MC_SKILL=on, #17): the member's skill at each option's kind
     if (SKILL.on) for (const o of out) if (o.kind !== 'eat') o.sw = skillWeight(skillOf(v.name, a.name, o.kind));
     // G8 (MC_LADDER): the options that feed the ladder's current stage
-    if (LADDER && v.ladder?.current) for (const o of out) if (feedsStage(v, o.id, this.feedAlias(o))) {
+    if (LADDER && v.ladder?.current) for (const o of out) if (feedsStage(v, o.id, this.feedAlias(o, v))) {
       o.vw = VW;
       o.ladderTag = stageTag(v);
     }
@@ -11672,6 +11776,8 @@ export class MineflayerWorld implements WorldAdapter {
     if (characterAny()) characterSample(v.name, [...this.agents.values()].filter((b) => b.village()?.name === v.name).map((b) => ({ name: b.name })), now);
     // (G8: the ladder started, and after a rung the start-of-day ballot on the next)
     if (LADDER && v.complete) this.rungTick(v, now);
+    // (#247, MC_COPPER_AGE: the mine keeps copper ore while copper is the current rung)
+    if (LADDER && COPPER_AGE) this.copperRungKeep(v);
     // (G7: people's requests laid out, followed and closed; promises run)
     if (PLAYER_TALK.on) this.talkTick(v, now);
     // (#108: contracts orphaned by a restart refunded, once a village after the load)

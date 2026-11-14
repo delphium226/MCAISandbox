@@ -53,7 +53,7 @@ import { postLayout } from '../layout';
 import { pathLamps, planPadPaths } from '../padPaths';
 import { parseRefit } from '../refit';
 import { CHOOSE } from '../choose';
-import { DIAMOND_AGE, IRON_AGE, LETTERS, LETTERS_PACE, OWN_TOOLS } from '../ladderFlags';
+import { COPPER_AGE, DIAMOND_AGE, IRON_AGE, LETTERS, LETTERS_PACE, OWN_TOOLS } from '../ladderFlags';
 import { boardSigns, claimRule, zoneBoxes } from '../rules';
 import { boardCells } from '../streetPlan';
 import { rawSetting } from '../settings';
@@ -6399,6 +6399,8 @@ async function digIron(a: BotAgent, args: Record<string, unknown>, signal: Abort
   const raw = () => a.bot.inventory.items().filter((it) => it.name === 'raw_iron').reduce((n, it) => n + it.count, 0);
   const coal = () => a.bot.inventory.items().filter((it) => it.name === 'coal').reduce((n, it) => n + it.count, 0);
   const gem = () => a.bot.inventory.items().filter((it) => it.name === 'diamond').reduce((n, it) => n + it.count, 0);
+  // (#247, MC_COPPER_AGE: the raw copper kept while the copper rung is current, counted by ladder.ts copperCounts)
+  const copper = () => a.bot.inventory.items().filter((it) => it.name === 'raw_copper').reduce((n, it) => n + it.count, 0);
   const before = { iron: v.mine.iron?.got.raw_iron ?? 0, dug: v.mine.iron?.dug ?? 0, steps: v.mine.iron?.steps ?? 0, gaveUp: v.mine.iron?.abandoned?.length ?? 0 };
   let out = await ironTrip(a, v, want, signal, Date.now() + minutes * 60000);
   // Still down there (its walks up failed, or it fell into a cave below the level): teleported home, never left 40 blocks
@@ -6408,13 +6410,13 @@ async function digIron(a: BotAgent, args: Record<string, unknown>, signal: Abort
   const topY = Math.min(v.mine.level + v.mine.steps - 1, v.plots[0]?.y ?? Infinity);
   if (inIronLevel(a) || a.bot.entity.position.y < topY - 4) out += `; ${(await teleportHome(a, signal)) ?? 'no home to go back to'}`;
   const i = v.mine.iron;
-  const carried = { iron: raw(), coal: coal(), diamond: gem() };
+  const carried = { iron: raw(), coal: coal(), diamond: gem(), copper: copper() };
   const stored = await STORAGE_SKILLS.deposit.run(a, { item: 'all' }, signal).catch((e: Error) => {
     if (e.message === 'cancelled') throw e;
     return `not deposited: ${e.message.slice(0, 100)}`;
   });
   const progress = !!i && (i.steps > before.steps || i.dug > before.dug || (i.got.raw_iron ?? 0) > before.iron || (i.abandoned?.length ?? 0) > before.gaveUp);
-  const text = `iron trip: ${out}; stairs ${i?.steps ?? 0} steps${i?.level !== undefined ? ` (level y=${i.level})` : ''}, ${i?.dug ?? 0} tunnel cells, ${i?.got.raw_iron ?? 0} raw iron and ${i?.got.coal ?? 0} coal in all; brought up ${carried.iron} raw iron, ${carried.coal} coal${DIAMOND_AGE && IRON_AGE ? `, ${carried.diamond} diamond` : ''}${picks ? ` (${picks})` : ''}; ${stored}`;
+  const text = `iron trip: ${out}; stairs ${i?.steps ?? 0} steps${i?.level !== undefined ? ` (level y=${i.level})` : ''}, ${i?.dug ?? 0} tunnel cells, ${i?.got.raw_iron ?? 0} raw iron and ${i?.got.coal ?? 0} coal in all; brought up ${carried.iron} raw iron, ${carried.coal} coal${DIAMOND_AGE && IRON_AGE ? `, ${carried.diamond} diamond` : ''}${COPPER_AGE && carried.copper ? `, ${carried.copper} raw copper` : ''}${picks ? ` (${picks})` : ''}; ${stored}`;
   if (!progress && !i?.finished) throw new Error(`dig_iron: no progress: ${text}`);
   return text;
 }

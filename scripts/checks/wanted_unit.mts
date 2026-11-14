@@ -37,6 +37,9 @@ if (process.argv[2] === '--off') {
 
 process.env.MC_INNOVATE = 'on';
 process.env.MC_LADDER = 'on';
+// (#247: the copper rung's needs as words, the spyglass's shard not the merchant's: the wishes and the planned rung needs
+// below are measured on them; trade_copper_unit.mts has MC_COPPER_AGE on)
+process.env.MC_COPPER_AGE = 'off';
 const { loadLibrary, validateLibrarySpec } = await import('../../server/src/library');
 const { LIBRARY, LOCKED_SKILLS, RUNG_SKILLS, WANTED_TOP, candidates, complexity, techOf } = await import('../../server/src/tech');
 const { wantedList, topWanted, recordTop, rungNeeds, RUNG_NEEDS, RUNGS } = await import('../../server/src/wanted');

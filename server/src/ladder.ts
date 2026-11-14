@@ -9,14 +9,19 @@
  */
 import type { LadderState, Village } from './village';
 import { rungNeeds, type RungId } from './wanted';
-import { DIAMOND_AGE, DIAMOND_Y, IRON_MINERS, LADDER, LADDER_START, LETTERS } from './ladderFlags';
+import { COPPER_AGE, DIAMOND_AGE, DIAMOND_Y, IRON_MINERS, LADDER, LADDER_START, LETTERS, TRADE_AGE } from './ladderFlags';
+import { BUYS, ORDERS_ON } from './merchant';
 
-export { DIAMOND_AGE, IRON_AGE, IRON_MINERS, LADDER, LETTERS, OWN_TOOLS } from './ladderFlags';
+export { COPPER_AGE, DIAMOND_AGE, IRON_AGE, IRON_MINERS, LADDER, LETTERS, OWN_TOOLS, TRADE_AGE } from './ladderFlags';
 
 /** What a stage counts: cells dug at the iron levels, raw iron brought up, ingots smelted, tools given to members; for
  *  letters (MC_LETTERS) sugar cane harvested, leather bought or caught, books bound and library pieces shelved; for diamond
- *  (MC_DIAMOND_AGE) blocks dug down below y 0, diamonds brought up and diamond pickaxes given. */
-export type Counter = 'cells' | 'raw_iron' | 'ingots' | 'tools' | 'cane' | 'leather' | 'books' | 'shelved' | 'depth' | 'diamonds' | 'dtools';
+ *  (MC_DIAMOND_AGE) blocks dug down below y 0, diamonds brought up and diamond pickaxes given; for trade (MC_TRADE_AGE) lots sold
+ *  to the merchant, market stalls standing, emeralds in storage (its highest since the rung began), orders filled and lots
+ *  of crafted goods sold; for copper (MC_COPPER_AGE) raw copper brought up, copper blocks made, the copper canopy built and
+ *  the instruments in storage (a lightning rod, a spyglass). */
+export type Counter = 'cells' | 'raw_iron' | 'ingots' | 'tools' | 'cane' | 'leather' | 'books' | 'shelved' | 'depth' | 'diamonds' | 'dtools'
+  | 'sales' | 'stalls' | 'emeralds' | 'orders' | 'crafted' | 'copper' | 'cblocks' | 'croof' | 'instruments';
 
 export interface StageDef {
   /** The stage in words, with {n} and {t} for the count and the target where it is counted. */
@@ -53,6 +58,22 @@ export const LETTERS_BOOKS = 16, LETTERS_PIECES = 5, LETTERS_SHELVES = 4;
  *  10 diamonds (three pickaxes' 9); a diamond pickaxe for each of the deep miners (IRON_MINERS dig at once). */
 export const DIAMOND_DEPTH = -DIAMOND_Y, DIAMOND_FIND = 10, DIAMOND_PICKS = IRON_MINERS;
 export { DIAMOND_Y };
+
+/** The trade rung's targets (#246; docs/specs/ladder-rungs.md): 20 lots sold (a lot is one offer's 1 emerald: 16 logs,
+ *  24 torches, 12 glass...; the merchant buys some 50 lots a restock, every 20 minutes); 3 market stalls standing (the
+ *  first, posted at completion, and two more the village posts while the stage is current); 40 emeralds in storage at
+ *  once (selling goes on past the usual keep while the rung is current); 10 orders filled with MC_MERCHANT_ORDERS, else 10
+ *  lots of the workshop's goods sold (TRADE_GOODS, made a lot over their keep while the rung is current). */
+export const TRADE_SALES = 20, TRADE_STALLS = 3, TRADE_EMERALDS = 40, TRADE_ORDERS = 10, TRADE_CRAFTED = 10;
+/** The merchant's goods the workshop makes (planks are sawn from logs and not counted; bread only with an appetite). */
+export const TRADE_GOODS = ['torch', 'glass', 'stone_bricks', 'bread'];
+/** The copper rung's targets (#247): 64 raw copper brought up from the iron mine (about 18 ores); 5 copper blocks (45
+ *  ingots), the canopy's roof; the canopy built (one); 2 instruments, a lightning rod (3 ingots) and a spyglass (2 ingots
+ *  and an amethyst shard, which the merchant sells while the rung wants one). */
+export const COPPER_RAW = 64, COPPER_MADE = 5, COPPER_INSTRUMENTS = 2;
+/** The copper rung's work: the small work (smallWorks.ts RUNG_WORKS) whose roof is the stage 2 blocks. */
+export const COPPER_CANOPY = 'copper_canopy';
+const TRADE_FEEDS = /^(activity:lib:sell|make:(torch|glass|stone_bricks|bread))$/;
 
 /** The rungs (spec section 3, sized by draft 2's B1 for iron). Iron's stages are counted by code, and letters' with
  *  MC_LETTERS. */
@@ -101,7 +122,15 @@ export const RUNG_DEFS: Record<RungId, RungDef> = {
   },
   copper: {
     id: 'copper', name: 'the copper age', what: 'copper from the mine, copper roofs, a lightning rod and a spyglass', after: ['iron'], tier: 2, time: 'about 2 hours',
-    stages: [{ words: '64 copper ore kept from the iron mine' }, { words: 'copper blocks and cut copper for a work' }, { words: 'waxed copper roofs' }, { words: 'a lightning rod and a spyglass' }],
+    // (MC_COPPER_AGE, #247: waxing needs honeycomb, so bees; stage 3 is a copper roof instead, the canopy of stage 2's blocks)
+    stages: COPPER_AGE
+      ? [
+        { words: '{n} of {t} raw copper kept from the iron mine\'s copper ore', counter: 'copper', target: COPPER_RAW, feeds: /^iron:dig\b/ },
+        { words: '{n} of {t} copper blocks made for a copper roof', counter: 'cblocks', target: COPPER_MADE, feeds: /^make:copper_block$/ },
+        { words: 'a copper-roofed canopy built in the village', counter: 'croof', target: 1, feeds: /^help:copper_canopy$/ },
+        { words: '{n} of {t} copper instruments made (a lightning rod and a spyglass)', counter: 'instruments', target: COPPER_INSTRUMENTS, feeds: /^(make:lightning_rod|make:spyglass|activity:lib:buy:amethyst_shard)$/ },
+      ]
+      : [{ words: '64 copper ore kept from the iron mine' }, { words: 'copper blocks and cut copper for a work' }, { words: 'waxed copper roofs' }, { words: 'a lightning rod and a spyglass' }],
   },
   machines: {
     id: 'machines', name: 'the age of machines', what: 'a hopper egg collector, rails and redstone', after: ['iron'], tier: 3, time: 'about 3 hours',
@@ -109,7 +138,18 @@ export const RUNG_DEFS: Record<RungId, RungDef> = {
   },
   trade: {
     id: 'trade', name: 'the age of trade', what: 'merchant sales, market stalls and emeralds', after: ['iron'], tier: 2, time: 'about 2 hours',
-    stages: [{ words: '20 merchant sales' }, { words: 'a market stall per neighbourhood' }, { words: '50 emeralds in the village chest' }, { words: '10 merchant orders filled' }],
+    // (MC_TRADE_AGE, #246: the last stage is orders filled only with MC_MERCHANT_ORDERS, off by default; lots of the
+    // workshop's goods sold otherwise)
+    stages: TRADE_AGE
+      ? [
+        { words: '{n} of {t} lots sold to the merchant', counter: 'sales', target: TRADE_SALES, feeds: TRADE_FEEDS },
+        { words: '{n} of {t} market stalls standing', counter: 'stalls', target: TRADE_STALLS, feeds: /^help:market_stall$/ },
+        { words: '{n} of {t} emeralds in the village storage', counter: 'emeralds', target: TRADE_EMERALDS, feeds: TRADE_FEEDS },
+        ORDERS_ON
+          ? { words: '{n} of {t} merchant orders filled', counter: 'orders', target: TRADE_ORDERS, feeds: /^activity:lib:sell$/ }
+          : { words: '{n} of {t} lots of the workshop\'s goods sold (torches, glass, stone bricks, bread)', counter: 'crafted', target: TRADE_CRAFTED, feeds: TRADE_FEEDS },
+      ]
+      : [{ words: '20 merchant sales' }, { words: 'a market stall per neighbourhood' }, { words: '50 emeralds in the village chest' }, { words: '10 merchant orders filled' }],
   },
 };
 /** The ballot's fixed order: the trunk first, then the branches. */
@@ -221,6 +261,11 @@ export function rungTotal(v: Village, rung: RungId, counter: Counter): number {
 /** Whether diamond is the current rung (MC_DIAMOND_AGE and MC_LADDER on). */
 export const diamondCurrent = (v: Village): boolean => DIAMOND_AGE && LADDER && v.ladder?.current === 'diamond';
 
+/** Whether trade is the current rung (MC_TRADE_AGE and MC_LADDER on). */
+export const tradeCurrent = (v: Village): boolean => TRADE_AGE && LADDER && v.ladder?.current === 'trade';
+/** Whether copper is the current rung (MC_COPPER_AGE and MC_LADDER on). */
+export const copperCurrent = (v: Village): boolean => COPPER_AGE && LADDER && v.ladder?.current === 'copper';
+
 /** Whether letters is the current rung (MC_LETTERS and MC_LADDER on). */
 export const lettersCurrent = (v: Village): boolean => LETTERS && LADDER && v.ladder?.current === 'letters';
 /** Whether the village has reached letters. */
@@ -253,6 +298,78 @@ export function lettersCounts(type: string, message: string): Array<[Counter, nu
     if (m) out.push(['shelved', Number(m[1])]);
   }
   return out.filter(([, n]) => n > 0);
+}
+
+/**
+ * #247 (MC_COPPER_AGE): a copper good's target in storage while copper is the current rung, as the stock plus what is
+ * still wanted: copper blocks, COPPER_MADE less those counted; once they are made, one lightning rod and one spyglass.
+ * 0 when copper is not current.
+ */
+export function copperTarget(v: Village, item: string, store: Record<string, number>): number {
+  if (!copperCurrent(v)) return 0;
+  const left = Math.max(0, COPPER_MADE - (v.ladder?.totals?.cblocks ?? 0)), have = store[item] ?? 0;
+  if (item === 'copper_block') return have + left;
+  if ((item === 'lightning_rod' || item === 'spyglass') && !left) return Math.max(1, have);
+  return have;
+}
+
+/** #247: the amethyst shards storage keeps for the merchant's sale (the world's tradeKeep): one while the copper rung's
+ *  spyglass is wanted and none is stored; undefined otherwise. */
+export function shardKeep(v: Village, store: Record<string, number>): number | undefined {
+  return copperTarget(v, 'spyglass', store) > (store.spyglass ?? 0) ? 1 : undefined;
+}
+
+/**
+ * The trade rung's counts from a chore step's message (#246): a trade's sale, "sold N item for E emerald", as lots of its
+ * standing offer (and lots of crafted goods for TRADE_GOODS), or an order filled (an item no standing offer buys: the
+ * trade skill fills an order only then) as one sale and one order. [] with MC_TRADE_AGE off; noteLadder keeps only what
+ * the current rung counts.
+ */
+export function tradeCounts(type: string, message: string): Array<[Counter, number]> {
+  if (!TRADE_AGE || type !== 'trade') return [];
+  const m = /\bsold (\d+) ([a-z0-9_]+) for \d+ emerald/.exec(message);
+  if (!m) return [];
+  const n = Number(m[1]), item = m[2], offer = BUYS.find((o) => o.item === item);
+  const out: Array<[Counter, number]> = [];
+  if (offer) {
+    const lots = Math.floor(n / offer.n);
+    out.push(['sales', lots]);
+    if (TRADE_GOODS.includes(item)) out.push(['crafted', lots]);
+  } else out.push(['sales', 1], ['orders', 1]);
+  return out.filter(([, q]) => q > 0);
+}
+
+/**
+ * The copper rung's counts from a chore step's message (#247): the raw copper an iron trip brought up ("brought up ...,
+ * N raw copper", mcBuild.ts digIron) and the copper blocks a make put into storage. [] with MC_COPPER_AGE off.
+ */
+export function copperCounts(type: string, message: string): Array<[Counter, number]> {
+  if (!COPPER_AGE) return [];
+  const out: Array<[Counter, number]> = [];
+  if (type === 'dig_iron') {
+    const m = /brought up [^;]*?\b(\d+) raw copper\b/.exec(message);
+    if (m) out.push(['copper', Number(m[1])]);
+  } else if (type === 'make') {
+    const m = /put into storage: (\d+) copper_block\b/.exec(message);
+    if (m) out.push(['cblocks', Number(m[1])]);
+  }
+  return out.filter(([, q]) => q > 0);
+}
+
+/**
+ * The trade and copper rungs' counts that are levels, not events (#246, #247): market stalls standing, emeralds in
+ * storage, the copper canopy built, the instruments in storage (a lightning rod, a spyglass: one of each). Each as what
+ * is new over the rung's total so far, so its total is the highest level seen since the rung began. [] unless one of the
+ * two is current.
+ */
+export function levelCounts(v: Village, store: Record<string, number>): Array<[Counter, number]> {
+  const st = LADDER ? v.ladder : undefined;
+  if (!st?.current) return [];
+  const built = (kind: string) => (v.initiatives ?? []).filter((i) => i.kind === kind && i.state === 'built').length;
+  const lv: Array<[Counter, number]> = [];
+  if (tradeCurrent(v)) lv.push(['stalls', built('market_stall')], ['emeralds', store.emerald ?? 0]);
+  if (copperCurrent(v)) lv.push(['croof', built(COPPER_CANOPY)], ['instruments', ((store.lightning_rod ?? 0) > 0 ? 1 : 0) + ((store.spyglass ?? 0) > 0 ? 1 : 0)]);
+  return lv.map(([c, n]): [Counter, number] => [c, n - (st.totals?.[c] ?? 0)]).filter(([, n]) => n > 0);
 }
 
 /** The tag on an option that feeds the current stage. */

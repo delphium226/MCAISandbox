@@ -12,7 +12,7 @@
  */
 import { FOOD_POINTS } from './appetite';
 import { boardOf } from './barter';
-import { DIAMOND_AGE, IRON_AGE, LETTERS } from './ladderFlags';
+import { COPPER_AGE, DIAMOND_AGE, IRON_AGE, LETTERS } from './ladderFlags';
 import { goalsOf } from './goals';
 import { BUYS, SELLS } from './merchant';
 import { LIBRARY, LOCKED_SKILLS, techOf } from './tech';
@@ -150,7 +150,8 @@ export const RUNG_NEEDS: Record<RungId, Array<{ capability: string; how: 'have' 
   diamond: DIAMOND_AGE && IRON_AGE ? [] : [{ capability: 'deep_mine', how: 'hand', note: 'the deep stair past lava, its holders, teleport home' }],
   enchantment: [{ capability: 'cast_obsidian', how: 'ticket', note: 'water poured on lava for obsidian' }, { capability: 'enchant', how: 'hand', note: 'enchanting by a charged command, the XP ledger' }],
   nether: [{ capability: 'nether_travel', how: 'hand', note: 'portals, walking in the Nether, debris mining' }, { capability: 'barter_piglin', how: 'ticket', note: 'gold bartered with piglins' }],
-  copper: [{ capability: 'copper_side', how: 'hand', note: 'copper kept from the iron mine' }, { capability: 'amethyst', how: 'ticket', note: 'amethyst shards for the spyglass (its climb-out from a deeper geode, #96)' }],
+  // (MC_COPPER_AGE: copper kept from the iron mine, the blocks, the canopy and the instruments are built, the shard bought, #247)
+  copper: COPPER_AGE ? [] : [{ capability: 'copper_side', how: 'hand', note: 'copper kept from the iron mine' }, { capability: 'amethyst', how: 'ticket', note: 'amethyst shards for the spyglass (its climb-out from a deeper geode, #96)' }],
   machines: [{ capability: 'machines', how: 'hand', note: 'rails and hoppers laid by command' }],
   trade: [],
 };

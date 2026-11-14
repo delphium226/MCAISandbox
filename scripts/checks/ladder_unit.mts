@@ -36,17 +36,25 @@ ok(news?.kind === 'rung' && !st.current && st.reached.length === 1 && st.reached
 ok(st.reached[0].workers.length === 4 && st.reached[0].workers[3][0] === 'Eve', 'each stage\'s workers kept');
 ok(/reached the iron age/.test(L.progressLine(village, t0 + 50, 600000)), 'the line after the rung');
 const opts = L.rungOptions(village);
-// (11-14: only implemented rungs, and only the lowest tier not yet reached: letters (tier 2) with MC_LETTERS, else diamond)
-ok(opts.join(',') === (L.LETTERS ? 'letters' : L.DIAMOND_AGE ? 'diamond' : ''), `the ballot's options after iron: implemented, simplest tier first: ${opts.join(', ')}`);
-ok((['enchantment', 'nether', 'copper', 'machines', 'trade'] as const).every((r) => !L.rungImplemented(r)), 'the rungs in words are not implemented');
-ok(L.rungImplemented('iron') && L.rungImplemented('diamond') === L.DIAMOND_AGE && L.rungImplemented('letters') === L.LETTERS, 'iron, letters and diamond implemented with their flags');
+// (11-14: only implemented rungs, and only the lowest tier not yet reached: tier 2's letters (MC_LETTERS), copper
+// (MC_COPPER_AGE) and trade (MC_TRADE_AGE) in the ballot's order, else diamond)
+const tier2 = (['letters', 'copper', 'trade'] as const).filter((r) => L.rungImplemented(r));
+ok(opts.join(',') === (tier2.length ? tier2.join(',') : L.DIAMOND_AGE ? 'diamond' : ''), `the ballot's options after iron: implemented, simplest tier first: ${opts.join(', ')}`);
+ok((['enchantment', 'nether', 'machines'] as const).every((r) => !L.rungImplemented(r)), 'the rungs in words are not implemented');
+ok(L.rungImplemented('iron') && L.rungImplemented('diamond') === L.DIAMOND_AGE && L.rungImplemented('letters') === L.LETTERS
+  && L.rungImplemented('trade') === L.TRADE_AGE && L.rungImplemented('copper') === L.COPPER_AGE, 'iron, letters, trade, copper and diamond implemented with their flags');
 {
-  // letters reached: diamond (tier 3) opens; diamond reached too: nothing implemented is left, enchantment's words are not offered
+  // tier 2 reached rung by rung: diamond (tier 3) opens only once every implemented tier-2 rung is reached; diamond reached
+  // too: nothing implemented is left, enchantment's words are not offered
   const v2 = { name: 'T2', complete: true } as unknown as import('../../server/src/village').Village;
   const s2 = L.ladderOf(v2, t0)!;
   s2.current = undefined;
-  s2.reached = [{ rung: 'iron', t: t0, workers: [] }, { rung: 'letters', t: t0, workers: [] }] as never;
-  ok(L.rungOptions(v2).join(',') === (L.DIAMOND_AGE ? 'diamond' : ''), `letters reached: diamond next (${L.rungOptions(v2).join(', ')})`);
+  s2.reached = [{ rung: 'iron', t: t0, workers: [] }] as never;
+  for (const [i, r] of tier2.entries()) {
+    s2.reached.push({ rung: r, t: t0, workers: [] } as never);
+    const left = tier2.slice(i + 1);
+    ok(L.rungOptions(v2).join(',') === (left.length ? left.join(',') : L.DIAMOND_AGE ? 'diamond' : ''), `${r} reached: ${left.length ? `${left.join(', ')} still before diamond` : 'diamond next'} (${L.rungOptions(v2).join(', ')})`);
+  }
   s2.reached.push({ rung: 'diamond', t: t0, workers: [] } as never);
   ok(L.rungOptions(v2).length === 0, 'every implemented rung reached: no ballot');
 }
@@ -57,10 +65,10 @@ for (const id of opts) {
 ok(/foundry must build: .*obsidian/i.test(L.rungPreview('enchantment')), 'enchantment\'s preview names the ticketed skill');
 L.openRungBallot(village, opts);
 ok(st.offered?.length === opts.length && /choosing its next ambition/.test(L.progressLine(village, t0 + 60, 600000)), 'a ballot open: offered, and the line says so');
-L.chooseRung(village, 'letters', opts, t0 + 70);
-ok(st.current === 'letters' && !st.offered && st.ballots.length === 1, 'the winner becomes the current rung');
+L.chooseRung(village, 'machines', opts, t0 + 70);
+ok(st.current === 'machines' && !st.offered && st.ballots.length === 1, 'the winner becomes the current rung');
 ok(/not built yet/.test(L.progressLine(village, t0 + 80, 600000)), `a stage without a counter says so: ${L.progressLine(village, t0 + 80, 600000)}`);
-ok(L.noteLadder(village, 'cells', 'Ada', 999, t0 + 90).length === 0, 'letters counts nothing yet');
+ok(L.noteLadder(village, 'cells', 'Ada', 999, t0 + 90).length === 0, 'machines counts nothing yet');
 for (const line of [L.progressLine(village, t0 + 80, 600000)]) ok(line.length <= 300, `line size ${line.length}`);
 const view = L.ladderView(village) as { rungs: Array<{ id: string; stages: Array<{ state: string }> }> };
 ok(view.rungs.find((r) => r.id === 'iron')!.stages.every((s) => s.state === 'done'), 'the view: iron done');

@@ -6,7 +6,7 @@
  * arbitrage check; the world summons it, restocks it and charges trades (mcWorld.ts, the trade skill).
  */
 import type { Counts } from './mineflayer/mcMaterials';
-import { LETTERS } from './ladderFlags';
+import { COPPER_AGE, LETTERS } from './ladderFlags';
 import { rawSetting } from './settings';
 import { CUTTER } from './cutter';
 import { DYE_BED } from './dyeBed';
@@ -68,6 +68,9 @@ export const SELLS: MerchantOffer[] = [
   ...(BOWS ? [{ item: 'flint', n: 4, emeralds: 1, stock: 8, dir: 'sells' as const }, { item: 'arrow', n: 8, emeralds: 1, stock: 4, dir: 'sells' as const }] : []),
   // (MC_PIG_CARROTS: a farmer's carrots for a pig pen while no slot grows them. Last, for the same reason)
   ...(PIG_CARROTS ? [{ item: 'carrot', n: 4, emeralds: 1, stock: 4, dir: 'sells' as const }] : []),
+  // (#247, MC_COPPER_AGE: the copper age's spyglass takes an amethyst shard, which only a geode gives (MC_GEODE, off); bought
+  // only while the rung wants one. Last, for the same reason)
+  ...(COPPER_AGE ? [{ item: 'amethyst_shard', n: 1, emeralds: 2, stock: 2, dir: 'sells' as const }] : []),
 ];
 
 export const OFFERS: MerchantOffer[] = [...BUYS, ...SELLS];

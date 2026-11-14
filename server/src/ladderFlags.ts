@@ -24,6 +24,16 @@ export const LETTERS_PACE = !/^(off|0|false|no)$/i.test(rawSetting('MC_LETTERS_P
  *  diamond rung's four counted stages (depth, diamonds, the first diamond pickaxe, one per deep miner), the iron chain laid
  *  deep to the diamond level while the rung is current, diamond ore kept by the mine, and the diamond pickaxe forge. */
 export const DIAMOND_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_DIAMOND_AGE') ?? 'on');
+/** MC_TRADE_AGE (with MC_LADDER, #246; on by default, the user's rule since 10-30; off turns it off): the age of trade's
+ *  four counted stages (lots sold to the merchant, market stalls standing, emeralds in storage, merchant orders filled or,
+ *  with MC_MERCHANT_ORDERS off, lots of crafted goods sold); while it is current the workshop makes a lot more of the
+ *  goods the merchant buys, storage sells until it holds the rung's emeralds, and the village posts market stalls. */
+export const TRADE_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_TRADE_AGE') ?? 'on');
+/** MC_COPPER_AGE (with MC_LADDER and MC_IRON_AGE, #247; on by default; off turns it off): the copper age's four counted
+ *  stages (raw copper kept from the iron mine, copper blocks made, a copper-roofed canopy built, a lightning rod and a
+ *  spyglass made); while it is current the mine keeps copper ore, the workshop makes the rung's goods and the merchant
+ *  sells an amethyst shard for the spyglass. */
+export const COPPER_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_COPPER_AGE') ?? 'on');
 /** The diamond level's y (runs/2026-10-30/diamond/spec.md: diamond ore peaks at -57 to -53 on minevale3, 2 laid open per
  *  100 cells dug at -56, lava below -55 cutting 8% of tunnels there). */
 export const DIAMOND_Y = -56;

@@ -44,7 +44,9 @@ const make = (level: number | undefined, current = 'diamond', picks = 3): Villag
 if (START) {
   const v = { name: 'T', complete: true } as unknown as Village;
   const s = L.ladderOf(v, 1)!;
-  ok(s.current === 'diamond' && s.reached.map((r) => r.rung).join() === 'iron' && L.rungOptions(v).join() === (L.LETTERS ? 'letters' : ''), `MC_LADDER_START=diamond: starts on diamond, iron reached (${L.progressLine(v, 2, 1)})`);
+  // (11-14: the tier-2 rungs implemented, letters, copper and trade, are still open: none of them is reached)
+  const tier2 = (['letters', 'copper', 'trade'] as const).filter((r) => L.rungImplemented(r)).join();
+  ok(s.current === 'diamond' && s.reached.map((r) => r.rung).join() === 'iron' && L.rungOptions(v).join() === tier2, `MC_LADDER_START=diamond: starts on diamond, iron reached, tier 2 open (${L.rungOptions(v).join(', ')}; ${L.progressLine(v, 2, 1)})`);
   process.exit(fails ? 1 : 0);
 }
 if (OFF) {
@@ -142,6 +144,21 @@ const { default: minecraftData } = await import('minecraft-data');
 const { Materials } = await import('../../server/src/mineflayer/mcMaterials');
 const gp = new Materials(minecraftData('26.1'), { gems: true }).plan({ diamond_pickaxe: 1 }, { diamond: 3, stick: 2 });
 ok(!Object.keys(gp.gather).length && gp.steps.length === 1 && gp.steps[0].item === 'diamond_pickaxe', `a diamond pickaxe from 3 stored diamonds: ${JSON.stringify(gp.steps)}`);
+
+// 5b. 11-14's ballot: diamond (tier 3) is offered only once every implemented tier-2 rung (letters, copper, trade) is reached
+{
+  const vb = { name: 'TB', complete: true } as unknown as Village;
+  const sb = L.ladderOf(vb, 1)!;
+  sb.current = undefined;
+  sb.reached = [{ rung: 'iron', t: 1, workers: [] }];
+  const tier2 = (['letters', 'copper', 'trade'] as const).filter((r) => L.rungImplemented(r));
+  const before = tier2.map((r) => {
+    const o = L.rungOptions(vb).includes('diamond');
+    sb.reached.push({ rung: r, t: 1, workers: [] });
+    return o;
+  });
+  ok(before.every((o) => !o) && L.rungOptions(vb).join() === 'diamond', `diamond only after ${tier2.join(', ')} are reached (then: ${L.rungOptions(vb).join(', ')})`);
+}
 
 // 6. The flag off, in a process of its own
 for (const mode of ['off', 'start']) {

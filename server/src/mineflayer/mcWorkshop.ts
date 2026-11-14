@@ -29,7 +29,7 @@ export interface MakeGood { item: string; target: number; batch: number; unit: n
   carve?: true;
   /** G8's rung goods (#21): made for the ladder's current rung, targets from its stages (the world's makeTarget), never a
    *  merchant order. */
-  rung?: 'letters';
+  rung?: 'letters' | 'copper';
   /** Survival (c)'s arms (MC_ARMS, mob modes only): targets from the members (the world's makeTarget), 0 elsewhere. */
   arms?: true }
 
@@ -43,6 +43,17 @@ export const LETTERS_GOODS: MakeGood[] = [
   { item: 'book', target: 0, batch: 4, unit: 1, words: 'books', forWhat: 'books for the library\'s shelves and lectern (the age of letters)', allow: ['sugar_cane'], rung: 'letters' },
   { item: 'bookshelf', target: 0, batch: 1, unit: 1, words: 'bookshelves', forWhat: 'shelves for the library (the age of letters)', rung: 'letters' },
   { item: 'lectern', target: 0, batch: 1, unit: 1, words: 'a lectern', forWhat: 'the library\'s lectern (the age of letters)', variant: 'slabs', rung: 'letters' },
+];
+
+/**
+ * #247 (MC_COPPER_AGE): the copper age's goods, while copper is the current rung: copper blocks for the canopy's roof (raw
+ * copper from the iron mine smelted to ingots in the same make), then a lightning rod and a spyglass (its amethyst shard
+ * the merchant's). Their targets are the world's (ladder.ts copperTarget).
+ */
+export const COPPER_GOODS: MakeGood[] = [
+  { item: 'copper_block', target: 0, batch: 2, unit: 1, words: 'copper blocks', forWhat: 'the copper canopy\'s roof (the copper age): 9 copper ingots, smelted from the iron mine\'s raw copper, make one', rung: 'copper' },
+  { item: 'lightning_rod', target: 0, batch: 1, unit: 1, words: 'a lightning rod', forWhat: 'the copper age\'s lightning rod: 3 copper ingots', rung: 'copper' },
+  { item: 'spyglass', target: 0, batch: 1, unit: 1, words: 'a spyglass', forWhat: 'the copper age\'s spyglass: 2 copper ingots and an amethyst shard (the merchant sells one)', rung: 'copper' },
 ];
 
 /** The goods, in this order on ties (spec 4.4; mud bricks, chests and the stone axe, shovel and sword cut, D11). */
