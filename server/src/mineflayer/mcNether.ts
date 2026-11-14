@@ -426,7 +426,7 @@ export async function netherDig(a: BotAgent, args: Record<string, unknown>, sign
   if (!pick) throw new Error('nether_dig: no diamond pickaxe (ancient debris drops nothing to a lesser one; the diamond age forges them)');
   const before = await count(a, 'ancient_debris');
   // (netherrack to bridge the stair over caves: the expeditions' from storage, up to 16)
-  const rack = Math.min(16, storageContents(v).netherrack ?? 0);
+  const rack = Math.min(32, storageContents(v).netherrack ?? 0);
   if (rack > 0 && (await count(a, 'netherrack')) < 8) await withdrawItems(a, v, { netherrack: rack }, signal).catch((e: Error) => {
     if (e.message === 'cancelled') throw e;
   });
@@ -445,7 +445,31 @@ export async function netherDig(a: BotAgent, args: Record<string, unknown>, sign
       seen = Math.max(seen, all.length);
       // (the first whose whole stair, read before any dig, keeps off lava and loose ground: netherPlan.ts planStair)
       const rack = await count(a, 'netherrack');
-      const c = all.find((q) => safeToDig(q, feet, name) && 'steps' in planStair(feet, q, name, rack));
+      // (from where it stands, else from a standing cell round the far portal nearer the debris: minevale3's portal stands
+      // over the lava sea, and every stair from it met lava, nether10 11-14)
+      const starts = [feet, ...standCells(a, v.nether!.far!, 24)];
+      let c: Vec3 | undefined, from: Cell | undefined, best = Infinity;
+      for (const q of all.slice(0, 8)) {
+        if (!safeToDig(q, feet, name)) continue;
+        const near = starts.slice(1).sort((u, w) => Math.hypot(u.x - q.x, u.z - q.z) - Math.hypot(w.x - q.x, w.z - q.z)).slice(0, 4);
+        for (const st of [feet, ...near]) {
+          const r = planStair(st, q, name, rack);
+          const cost = 'steps' in r ? r.steps + Math.hypot(st.x - feet.x, st.z - feet.z) : Infinity;
+          if (cost < best) { best = cost; c = q; from = st; }
+        }
+      }
+      if (c && from && (from.x !== feet.x || from.y !== feet.y || from.z !== feet.z)) {
+        await walk(a, new goals.GoalBlock(from.x, from.y, from.z), `the stair's head at ${from.x},${from.y},${from.z}`, signal, 60000).catch((e: Error) => {
+          if (e.message === 'cancelled') throw e;
+        });
+        const q = a.bot.entity.position.floored();
+        if (q.x !== from.x || q.y !== from.y || q.z !== from.z) {
+          notes.push(`could not reach the stair's head at ${from.x},${from.y},${from.z}`);
+          tried.add(`${c.x},${c.y},${c.z}`);
+          if (++failed >= 4) break;
+          continue;
+        }
+      }
       if (!c) {
         const why = all.slice(0, 3).map((q) => { const r = planStair(feet, q, name, rack); return 'why' in r ? `${at(q)}: ${r.why}` : ''; }).filter(Boolean).join('; ');
         notes.push(all.length ? `${all.length} debris seen, none with a stair to it clear of lava (${why})` : `no ancient debris seen within ${DEBRIS_REACH} blocks at y ${DEBRIS_Y.min}-${DEBRIS_Y.max}`);
@@ -473,6 +497,22 @@ export async function netherDig(a: BotAgent, args: Record<string, unknown>, sign
   const out = `dug ${Math.max(0, dug)} ancient debris in the Nether (${seen} seen at y ${DEBRIS_Y.min}-${DEBRIS_Y.max}${tally.bridged ? `; ${tally.bridged} netherrack bridged caves under the stair by command` : ''}); ${[...notes, back].filter(Boolean).join('; ')}`;
   console.log(`[nether] ${v.name}: ${a.name} ${out}`);
   if (!overworld(a)) throw new Error(`nether_dig: still in ${dimOf(a)} (${out})`);
+  return out;
+}
+
+/** Cells a member can stand on round the far portal (firm ground under two of air, no lava or fire under), within
+ *  `reach` across and 12 up and down, off its kept floor; at most 200, from the bot's own world. */
+function standCells(a: BotAgent, far: Cell, reach: number): Cell[] {
+  const out: Cell[] = [];
+  for (let dx = -reach; dx <= reach; dx += 2) for (let dz = -reach; dz <= reach; dz += 2) for (let dy = -12; dy <= 12; dy++) {
+    const x = far.x + dx, y = far.y + dy, z = far.z + dz;
+    const g = nameAt(a, x, y - 1, z);
+    if (!g || AIR.test(g) || HOT.test(g) || /^(water|nether_portal|.*_fungus|.*_roots|nether_sprouts|twisting_vines|weeping_vines)$/.test(g)) continue;
+    if (!AIR.test(nameAt(a, x, y, z)) || !AIR.test(nameAt(a, x, y + 1, z))) continue;
+    if (nearPortal(far, { x, y: y - 1, z })) continue;
+    out.push({ x, y, z });
+    if (out.length >= 200) return out;
+  }
   return out;
 }
 
