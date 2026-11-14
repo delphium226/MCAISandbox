@@ -294,7 +294,7 @@ export const RUNG_DEFS: Record<RungId, RungDef> = {
       ? [
         { words: 'a cartography table made', counter: 'ctable', target: 1, feeds: /^make:cartography_table$/ },
         { words: 'a map of the village\'s own area, made at its centre', counter: 'vmap', target: 1, feeds: /^(rung:chart:-?\d+:-?\d+|make:map|activity:lib:buy:redstone)$/ },
-        { words: '{n} of {t} maps of the nearest areas hung in item frames on the village\'s map wall', counter: 'mapwall', target: MAPS_WALL, feeds: /^(rung:chart:-?\d+:-?\d+|rung:hang_maps|help:map_wall|make:(map|item_frame))$/ },
+        { words: '{n} of {t} maps of the nearest areas hung in item frames on the village\'s map wall', counter: 'mapwall', target: MAPS_WALL, feeds: /^(rung:chart:-?\d+:-?\d+|rung:hang_maps|help:map_wall|make:(map|item_frame)|activity:lib:buy:leather)$/ },
         { words: '{n} of {t} areas of the land around the village charted (a 3x3 atlas)', counter: 'mapped', target: MAPS_ATLAS, feeds: /^(rung:chart:-?\d+:-?\d+|make:map|activity:lib:buy:redstone)$/ },
       ]
       : [{ words: 'a cartography table' }, { words: 'a map of the village' }, { words: 'a map wall' }, { words: 'an explorer map' }],
@@ -808,6 +808,12 @@ export function rungKeep(v: Village, item: string, store: Record<string, number>
   }
   if (mapsCurrent(v) && item === 'redstone') {
     const n = Math.min(4, chartWanted(v).length) - (store.map ?? 0) - (store.compass ?? 0);
+    return n > 0 ? n : undefined;
+  }
+  // (rungs test 11-14: the map wall's item frames take a leather each, and nothing else brought leather in once letters
+  // was reached: the maps run's wall stood from minute 7 with no frame made all run)
+  if (mapsCurrent(v) && item === 'leather' && stage === 2) {
+    const n = MAPS_WALL - Object.keys(v.maps?.hung ?? {}).length - (store.item_frame ?? 0);
     return n > 0 ? n : undefined;
   }
   if (beesCurrent(v) && item === 'bee_nest' && stage === 0 && !rungWorkPosted(v, BEES_APIARY)) return BEES_NESTS;

@@ -5331,6 +5331,8 @@ export class MineflayerWorld implements WorldAdapter {
     if (item === 'bell' && musicCurrent(v)) return musicKeep(v, item);
     // (the enchantment rung: bottles o' enchanting for the levels, lapis for the books to enchant)
     if (item === 'gold_ingot' || item === 'bee_nest' || item === 'experience_bottle' || item === 'lapis_lazuli') return rungKeep(v, item, storageContents(v));
+    // (the maps rung: a leather for each of the map wall's item frames still to make)
+    if (item === 'leather' && mapsCurrent(v)) return rungKeep(v, item, storageContents(v));
     if (!lettersCurrent(v)) return undefined;
     const store = storageContents(v);
     const farmed = (v.layouts ?? []).some((l) => (l.slots ?? []).some((q) => q.kind === 'sugar_cane'));
@@ -5722,7 +5724,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (MC_MUSIC_AGE: redstone for the note blocks, the bell for its post, while the rung wants them)
     if (musicCurrent(v)) for (const n of ['redstone', 'bell']) if ((this.tradeKeep(v, n) ?? 0) > 0) out.add(n);
     // (the tier-3 rungs: gold and redstone for the powered rails, redstone for the maps' compasses, the apiary's bee nests)
-    if (machinesCurrent(v) || beesCurrent(v) || mapsCurrent(v)) for (const n of ['gold_ingot', 'redstone', 'bee_nest']) if ((this.tradeKeep(v, n) ?? 0) > 0) out.add(n);
+    if (machinesCurrent(v) || beesCurrent(v) || mapsCurrent(v)) for (const n of ['gold_ingot', 'redstone', 'bee_nest', 'leather']) if ((this.tradeKeep(v, n) ?? 0) > 0) out.add(n);
     // (the enchantment rung: bottles o' enchanting for the levels, lapis for the books)
     if (enchantmentCurrent(v)) for (const n of ['experience_bottle', 'lapis_lazuli']) if ((this.tradeKeep(v, n) ?? 0) > 0) out.add(n);
     try {
