@@ -8605,7 +8605,9 @@ export class MineflayerWorld implements WorldAdapter {
         if (slot.kind === 'sheep' && (store.shears ?? 0) > 0 && due(pen, 'shear', 5 / scale)) works.push([3, 'shear', 'shear_pen', 'Shear the sheep in the pen', `${store.shears} shears in storage; ${pen.wool ?? 0} wool sheared here so far`]);
         // (MC_MACHINES_AGE, #24: the age of machines' egg collector, a hopper in the floor feeding a chest; its hopper from
         // storage or made from 5 iron ingots and a chest)
-        if (slot.kind === 'chicken' && machinesCurrent(v) && stageCounter(v) === 'collector' && !v.machines?.collector && ((store.hopper ?? 0) > 0 || (store.iron_ingot ?? 0) >= 5) && due(pen, 'collector', 5))
+        // (rungs test 11-14: raw iron counted, the job's plan smelts it: the machines run held 76 raw iron and 1 ingot, the
+        // forge spending each ingot made, and the collector was never offered)
+        if (slot.kind === 'chicken' && machinesCurrent(v) && stageCounter(v) === 'collector' && !v.machines?.collector && ((store.hopper ?? 0) > 0 || (store.iron_ingot ?? 0) + (store.raw_iron ?? 0) >= 5) && due(pen, 'collector', 5))
           works.push([6, 'collector', 'fit_egg_collector', 'Fit an egg collector under the chicken pen', `a hopper in the pen's floor feeding a chest behind its fence (the age of machines); ${store.hopper ?? 0} hoppers and ${store.iron_ingot ?? 0} iron ingots in storage`]);
         // (never the seeds a field's open planting still needs: G3f's neighbourhood field was sown half, s30)
         const lure = penLure(slot.kind!, store);

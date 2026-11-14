@@ -2469,11 +2469,12 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
   if (!m.iron || ((m.iron as IronRetry).noStart && retryDue(m.iron as IronRetry, Date.now()))) m.iron = layIronStart(v, m, reg);
   ironRetry(v, m, m.iron, reg);
   // (a worked-out mine: a new shaft, laid by this trip, which digs its stairs)
-  let opened = '';
-  if (shaftDue(m, Date.now())) opened = openShaft(reg, v, m, a);
-  // (MC_DIAMOND_AGE: the chain laid deeper while the village wants diamonds)
-  // (not under other miners' feet: their trips would end at once)
-  if (diamondWanted(v) && !(ironTrips.get(v.name)?.size ?? 0)) opened = deepenForDiamonds(reg, v, a) || opened;
+  // (MC_DIAMOND_AGE: the chain laid deeper while the village wants diamonds, first: a worked-out level becomes a landing
+  // rather than a new shaft back up toward the iron heights; and under other miners' feet too, their trips ending at the
+  // next cell (rungs test 11-14: with three miners always on the level's legs the chain never went down, 8 of 56 blocks
+  // in 50 minutes, and the worked-out level at y -4 opened a shaft up to y 32))
+  let opened = diamondWanted(v) ? deepenForDiamonds(reg, v, a) : '';
+  if (!opened && shaftDue(m, Date.now())) opened = openShaft(reg, v, m, a);
   const i = m.iron;
   if (i.finished) return `the iron level is finished: ${i.finished}`;
   if (IRON_AGE) {
