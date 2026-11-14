@@ -125,3 +125,44 @@ its materials. Builds on the talk build of 11-12 (ca8461a: statues, fountains an
 - Cut copper planned by crafting is 9 raw copper a block (the stonecutter would give 2.25): use the cutter for asked
   records once the carver serves them.
 - Gold: raw gold is not routed (dig_iron may meet some); a gold block resolves to yellow concrete.
+
+## A named preset monument (MC_TALK_PRESETS, on; the user's 11-14)
+
+The 30x30x30 limit is for designed works. On 11-14 the Mayor refused "build salisbury cathedral here" as too large
+(testagents-w6-111038.log, r17), offering St Mary Redcliffe, though the village builds whole cathedrals and castles at 1:3.
+
+- **Matching (code, talkPresets.ts).** The person's words (without their place words) are folded (no accents, "saint" and
+  "st." as "st", no apostrophes) and matched against the monument presets of gothicGen (the cathedrals) and castleGen (the
+  castles); their civic entries (parish churches, abbeys, chapels, civic castles) stay on talkDesign's civic shortlist. A
+  preset's names: its id ("notre dame", "white tower", "krak des chevaliers"), its description's head ("York Minster", "The
+  White Tower of London", "Notre-Dame de Paris"), the head's part before a comma, and a few aliases ("tower of london",
+  "alcazar", "stephansdom"). A name of two words or more matches alone; a one-word name needs a word of its type in the
+  line (cathedral, minster, abbey, church, basilica, duomo... / castle, fortress, keep, citadel, chateau, palace...), so
+  "build some wells" is not Wells Cathedral and "a house in york" is not York Minster.
+- **The shortlist.** Each match (at most 2) goes first on the Mayor's "Pre-designed buildings" as `cathedral:salisbury` or
+  `castle:conwy`, drawn as its record would be at MC_MONUMENT_SCALE (1:3): "Salisbury Cathedral, a cathedral (47x23, 42
+  high, 3223 blocks; the real one at 1:3, built in 15 parts)". The prompt says a listed cathedral or castle is taken
+  whatever its size (the limits are for designed works).
+- **Code verifies.** The Mayor's pick of the preset (by id or title) is taken; a refusal, or `design`, while a preset
+  matched is taken as the preset too (presetPick), its line "Yes, NAME, we can build that" instead of the model's sorry. A
+  pick of another listed building or work stands. Built already, under way (the village's own cathedral of that preset
+  included) or asked for already: refused with why.
+- **What the Mayor says.** "Salisbury Cathedral, a cathedral at 1:3: 47x23, 42 high, 3223 blocks in 15 parts over 9
+  stages; about 100 min of work for our 25 members, after the ... under way" (askedEta, the civic tier's pace; the request
+  keeps the ETA).
+- **The record.** Queued as a person's civic building (piece `civic:cathedral:salisbury`), begun by talkCivicStart when no
+  record is open: newPresetMonument, the monument's own record of that type and preset (detail, furnishing, dressing as the
+  village's cathedral would have), at 1:3, `askedBy` the person, glass colours from the village's flowers, the last civic
+  record's kiln, lodge and quarries (civicKit). Built (or its site failed CIVIC_SITE_FAILS times) it leaves the monument's
+  place as a civic record does (civicDone under its typed id, kind cathedral or castle), so the request is done and the
+  village's own monument may begin after it.
+- **Unchanged.** An unknown landmark ("the Eiffel Tower") is designed if it fits 30x30x30, else refused with the nearest;
+  a material or size named ("a red wool castle tower") is designed. `MC_TALK_PRESETS=off`: no preset offers, the old prompt.
+- **Checks.** `scripts/checks/talk_presets.mts` (in check:offline): the matcher on 22 lines, the offers, the prompt,
+  presetPick, talkAct and talkCivicStart on a stub world (pick, refusal and `design` all queue the preset; the record's
+  type, preset and 1:3; built, it leaves the place and the request is done; a second Salisbury refused), the pyramid and
+  the Eiffel Tower unchanged, flag off.
+- **Risks.** A village whose own cathedral stands keeps it as `v.monument` for good, so no asked record (civic, drawn or
+  preset) can begin there; a cathedral or castle at 1:3 is 2,000-3,600+ blocks, much more than a civic building, and holds
+  the monument's place for hours; the furnishing re-furnish (`state === 'built'` with its stage current) does not run for
+  an asked preset, which leaves at once when built.

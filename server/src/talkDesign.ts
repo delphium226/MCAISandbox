@@ -139,7 +139,7 @@ export function sampler(standing: Set<string> = new Set(), n = 6): DesignOffer[]
 }
 
 /** An offer's line in the talk prompt. */
-export const offerLine = (o: DesignOffer) => `- ${o.id}: ${o.title}, ${aKind(o.kind)} (${o.width}x${o.depth}, ${o.height} high, ${o.blocks} blocks)`;
+export const offerLine = (o: DesignOffer) => `- ${o.id}: ${o.title}, ${aKind(o.kind)} (${o.width}x${o.depth}, ${o.height} high, ${o.blocks} blocks${/^(cathedral|castle):/.test(o.id) ? `; the real one at 1:${o.scale}, built in ${o.jobs} parts` : ''})`;
 
 /** The building a model's `work` names among the offers (its id, else its title, else a word of its kind); undefined if
  *  none. Any civic entry by exact id is accepted too (an id the Mayor knew from the list before). */

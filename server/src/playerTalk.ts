@@ -14,7 +14,7 @@ import path from 'node:path';
 import type { ToolDef } from './world';
 import { rawSetting } from './settings';
 import { offerLine, type DesignOffer } from './talkDesign';
-import { TALK_BIG } from './askedWork';
+import { TALK_BIG, TALK_PRESETS } from './askedWork';
 
 export const PLAYER_TALK = {
   on: !/^(off|0|false|no)$/i.test(rawSetting('MC_TALK') ?? 'on'),
@@ -425,8 +425,13 @@ const MEMBER_RULES = `${FACT_RULES} If a chore on your list would find out (expl
 const MAYOR_RULES = `${FACT_RULES}
 - You cannot call a vote: the members vote on the wall's stages and the public works when the village puts them to a ballot. Say so rather than refuse the idea.`;
 
+// (MC_TALK_PRESETS, talkPresets.ts: a cathedral or castle on the list is built at the monument's scale, never refused for
+// its size; the 11-14 Mayor refused Salisbury Cathedral as larger than 30x30x30)
+const PRESET_LINE = '(a real building, drawn in full; a cathedral or castle on that list is built at 1:3 in many parts over hours, so take it whatever its size: the size limits below are for designed works only; work is its whole id, as "cathedral:salisbury");';
+const withPresets = (s: string) => (TALK_PRESETS.on ? s.replace('(a real building, drawn in full);', PRESET_LINE) : s);
+
 export const talkSystem = (role: 'mayor' | 'member', designs = false) =>
-  (role === 'mayor' ? `${designs ? (TALK_BIG.on ? MAYOR_BIG_SYSTEM : MAYOR_DESIGN_SYSTEM) : MAYOR_SYSTEM}\n${MAYOR_RULES}` : `${MEMBER_SYSTEM}\n${MEMBER_RULES}`);
+  (role === 'mayor' ? `${designs ? withPresets(TALK_BIG.on ? MAYOR_BIG_SYSTEM : MAYOR_DESIGN_SYSTEM) : MAYOR_SYSTEM}\n${MAYOR_RULES}` : `${MEMBER_SYSTEM}\n${MEMBER_RULES}`);
 
 export function talkTool(role: 'mayor' | 'member', designs = false): ToolDef {
   const kinds = role === 'mayor' ? ['chat', 'build', 'refuse'] : ['chat', 'promise', 'forward', 'refuse'];

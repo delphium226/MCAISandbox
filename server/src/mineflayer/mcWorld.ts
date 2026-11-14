@@ -126,7 +126,8 @@ import { TALK_DESIGNS, askedName, castPublic, civicIdOf, civicPiece, failWords, 
 import { ASKED_BLOCK, ASKED_PRESET, TALK_BIG, namesMaterial, askedCathedral, askedEta, askedNoun, askedRoute, askedWords, bigBudget, easyOf, isAskedPreset, makeResolver, slowShare } from '../askedWork';
 import { COLOUR_ALIAS, COLOUR_BLOCKS } from '../sculpture';
 import { V2_LIMITS as TALK_V2 } from '../buildingGen';
-import { askedStandIn, newAsked } from '../monument';
+import { askedStandIn, newAsked, newPresetMonument, parsePresetId, presetIdOf } from '../monument';
+import { presetPick, presetShortlist } from '../talkPresets';
 import { yardMaterials } from './mcKiln';
 import { stoneStandIn, DEEP_BLOCKS, deepStandIn, GEM_STAND, DYE_FAILS, DYE_WAIT_MIN, dyeStandIn, dyeStood, furnishLeaveOut, leftOutItems, refurnishOn, COPPER_ROOF, COPPER_BLOCKS, copperFrom, copperOn, copperReached, copperStandIn, reroofReturns } from '../monument';
 import { DEEP_KEEP, deepenForStone, setKeepCopper } from './mcMine';
@@ -4726,8 +4727,10 @@ export class MineflayerWorld implements WorldAdapter {
   private monumentTick(v: Village) {
     const now = Date.now();
     // (MC_CIVIC: a civic building that stands, or whose site failed CIVIC_SITE_FAILS times, leaves the record for the next)
-    if (CIVIC.on && v.monument && monumentType(v.monument) === 'civic' && (v.monument.state === 'built' || (v.monument.state === 'site' && (v.monument.fails ?? 0) >= CIVIC_SITE_FAILS))) {
-      const c = civicDone(v, now);
+    // (MC_TALK_PRESETS: a person's cathedral or castle leaves it the same way, under its typed id)
+    const askedPreset = !!v.monument && monumentType(v.monument) !== 'civic' && !!m3(v.monument).askedBy;
+    if ((CIVIC.on || askedPreset) && v.monument && (monumentType(v.monument) === 'civic' || askedPreset) && (v.monument.state === 'built' || (v.monument.state === 'site' && (v.monument.fails ?? 0) >= CIVIC_SITE_FAILS))) {
+      const c = civicDone(v, now, askedPreset ? { id: presetIdOf(v.monument), kind: monumentType(v.monument), blocks: monumentPlan(v.monument).design.blocks } : undefined);
       this.villages.save();
       const text = c.skipped ? `The village gives up ${presetWords(c.preset)}: ${c.skipped}` : `The village finished ${presetWords(c.preset)} (${aKind(c.kind)}, ${c.blocks} blocks)`;
       if (M3.news) this.monumentNews(v, text, 'Mayor');
@@ -7166,7 +7169,10 @@ export class MineflayerWorld implements WorldAdapter {
     // (built here, under way or asked for already: not offered again, nor named nearest)
     const standing = new Set([...civicsOf(v).filter((c) => !c.skipped).map((c) => c.preset), ...(v.monument && monumentType(v.monument) === 'civic' ? [v.monument.preset] : []),
       ...requestsOf(v.name).filter((x) => x.status === 'queued' || x.status === 'under_way').map((x) => civicIdOf(x.piece)).filter((x): x is string => !!x)]);
-    const designs = role === 'mayor' && this.talkDesignsOn() ? shortlist(rs.map((x) => withoutPlace(x.text)).join(' '), standing) : undefined;
+    // (MC_TALK_PRESETS: a cathedral or castle the words name first, at the monument's scale; one built or asked for already
+    // stays on the list, so the Mayor's pick is answered with why not, talkCivicCheck)
+    const asks = rs.map((x) => withoutPlace(x.text)).join(' ');
+    const designs = role === 'mayor' && this.talkDesignsOn() ? [...presetShortlist(asks), ...shortlist(asks, standing)] : undefined;
     const others = designs && !designs.length ? sampler(standing) : undefined;
     let options: Array<{ id: string; name: string }> | undefined;
     if (role === 'member' && v.complete) {
@@ -7247,6 +7253,21 @@ export class MineflayerWorld implements WorldAdapter {
       if (line) this.talkSay(a.name, line);
       return;
     }
+    // (MC_TALK_DESIGNS: a pre-designed building taken by the civic path, its record queued behind the one under way)
+    const takeCivic = (civic: DesignOffer) => {
+      const c = this.talkCivicCheck(v, r, p, civic);
+      if ('why' in c) return refuse(c.why);
+      // (a refusal code overrode says no "sorry, too big" before the facts)
+      const say = p.kind === 'build' ? p.say : `Yes, ${r.from}, we can build that`;
+      updateRequest(r.id, { kind: 'build', status: 'queued', say, answer: answerLine(say, c.facts), piece: civicPiece(civic.id), what: c.what, units: civic.blocks, ...(c.eta ? { eta: c.eta } : {}), ...(c.place ? { place: c.place } : {}) });
+      this.talkSay(a.name, answerLine(say, c.facts));
+      console.log(`[talk] ${v.name}: ${r.from}'s ${r.id} takes the pre-designed ${civic.id} (${c.what})${p.kind !== 'build' || /^design$/i.test(p.work ?? '') ? ` (the Mayor answered ${p.kind}${p.work ? ` ${p.work}` : ''}: code took the preset named)` : ''}`);
+      if (MEMORY.on) applyWrites(v.name, a.name, { remember: `${r.from} (a person) asked for ${c.what}${c.place ? ` ${c.place.words}` : ''}; I said yes` }, 'world', now);
+    };
+    // (MC_TALK_PRESETS, talkPresets.ts: a cathedral or castle the person named is built at 1:3, though the Mayor refused it
+    // or would have it designed: 11-14's Mayor refused Salisbury Cathedral as larger than 30x30x30)
+    const pre = designs && (p.kind === 'build' || p.kind === 'refuse') ? presetPick(p, designs) : undefined;
+    if (pre) return takeCivic(pre);
     // (a Mayor's refusal names what the village could build instead, when the model's reason does not)
     // (MC_TALK_DESIGNS: the pre-designed building the Mayor named nearest, when its reason does not name it)
     const near = designs && matchDesign(designs, p.nearest ?? '');
@@ -7281,15 +7302,7 @@ export class MineflayerWorld implements WorldAdapter {
       // (MC_TALK_BIG: not when the person named a material or a size: "a red wool castle tower" is drawn, not a stone tower house)
       const own = TALK_BIG.on && /^design$/i.test(asked) && namesMaterial(r.text);
       const civic = asked && !/^design$/i.test(asked) ? matchDesign(designs, asked) : named.length && !own ? named.find((o) => o.id === p.nearest) ?? named[0] : undefined;
-      if (civic) {
-        const c = this.talkCivicCheck(v, r, p, civic);
-        if ('why' in c) return refuse(c.why);
-        updateRequest(r.id, { kind: 'build', status: 'queued', say: p.say, answer: answerLine(p.say, c.facts), piece: civicPiece(civic.id), what: c.what, units: civic.blocks, ...(c.place ? { place: c.place } : {}) });
-        this.talkSay(a.name, answerLine(p.say, c.facts));
-        console.log(`[talk] ${v.name}: ${r.from}'s ${r.id} takes the pre-designed ${civic.id} (${c.what})`);
-        if (MEMORY.on) applyWrites(v.name, a.name, { remember: `${r.from} (a person) asked for ${c.what}${c.place ? ` ${c.place.words}` : ''}; I said yes` }, 'world', now);
-        return;
-      }
+      if (civic) return takeCivic(civic);
       if (/^design$/i.test(asked) || (!/^(houses?|homes?|a street of houses)$/i.test(asked) && !matchWork(offers, asked))) {
         void this.talkDesignStart(v, a, r, p, designs, refuse);
         return;
@@ -7381,16 +7394,23 @@ export class MineflayerWorld implements WorldAdapter {
   }
 
   /** A person's request for a pre-designed building checked and placed; or why not. */
-  private talkCivicCheck(v: Village, r: PlayerRequest, p: Pick<Respond, 'place'>, o: DesignOffer): { what: string; facts: string; place?: NonNullable<PlayerRequest['place']> } | { why: string } {
+  private talkCivicCheck(v: Village, r: PlayerRequest, p: Pick<Respond, 'place'>, o: DesignOffer): { what: string; facts: string; eta?: number; place?: NonNullable<PlayerRequest['place']> } | { why: string } {
     const open = (x: PlayerRequest) => x.id !== r.id && (x.status === 'queued' || x.status === 'under_way');
     if (civicsOf(v).some((c) => c.preset === o.id && !c.skipped)) return { why: `we have built ${o.title} already` };
     const m = v.monument;
+    // (MC_TALK_PRESETS: the village's own cathedral of that preset counts too)
+    if (m && parsePresetId(o.id) && presetIdOf(m) === o.id) return { why: `${o.title} is being built already` };
     if ((m && monumentType(m) === 'civic' && m.preset === o.id) || requestsOf(v.name).some((x) => open(x) && x.piece === civicPiece(o.id))) return { why: `${o.title} is already asked for` };
     const place = this.talkPlace(v, r, p.place), home = villageHome(v);
     const ahead = requestsOf(v.name).filter((x) => open(x) && civicIdOf(x.piece)).length;
-    const busy = !v.complete ? 'after the village is finished' : m ? `after the ${monumentType(m) === 'civic' ? presetWords(m.preset) : monumentNoun(m)} under way` : ahead ? 'after the public buildings asked for before it' : '';
+    const busy = !v.complete ? 'after the village is finished' : m ? `after the ${monumentType(m) === 'civic' ? presetWords(m.preset) : m3(m).askedBy ? cathedralName(m).replace(/^the /, '') : monumentNoun(m)} under way${ahead && parsePresetId(o.id) ? ` and ${ahead} asked before it` : ''}` : ahead ? 'after the public buildings asked for before it' : '';
     const where = place ? (place.x !== undefined && home ? ` ${place.words} (${bearing(home, { x: place.x, z: place.z! })})${place.note ? `; ${place.note}` : ''}` : `; ${place.note ?? ''}`) : '';
-    return { what: `${o.title} (${aKind(o.kind)})`, place: place ?? undefined, facts: `${o.title}, ${aKind(o.kind)} at 1:${o.scale}: ${o.width}x${o.depth}, ${o.height} high, ${o.blocks} blocks in ${o.jobs} parts${where}${busy ? `, ${busy}` : ''}` };
+    // (MC_TALK_PRESETS: a cathedral's or castle's stages and a rough ETA, the civic tier's pace for the members, as an asked work's)
+    const stages = (o as DesignOffer & { stages?: number }).stages;
+    const eta = parsePresetId(o.id) ? askedEta(o.blocks, this.growMembers(v).length, 0, timeScale()) : undefined;
+    const pace = eta ? `; about ${eta >= 120 ? `${Math.round(eta / 30) / 2} hours` : `${eta} min`} of work for our ${this.growMembers(v).length} members` : '';
+    return { what: `${o.title} (${aKind(o.kind)})`, place: place ?? undefined, ...(eta ? { eta } : {}),
+      facts: `${o.title}, ${aKind(o.kind)} at 1:${o.scale}: ${o.width}x${o.depth}, ${o.height} high, ${o.blocks} blocks in ${o.jobs} parts${stages ? ` over ${stages} stages` : ''}${pace}${where}${busy ? `, ${busy}` : ''}` };
   }
 
   /** Requests whose architect's drawing is under way (lost on a restart: talkTick fails them). */
@@ -7567,6 +7587,9 @@ export class MineflayerWorld implements WorldAdapter {
     const last = civicsOf(v).at(-1);
     if (last && now - (last.built ?? last.at) < (CIVIC.gap * 60000) / timeScale()) return false;
     const id = civicIdOf(r.piece)!, e = civicEntry(id);
+    // (MC_TALK_PRESETS: a person's cathedral or castle, the monument's own record of that type and preset)
+    const pre = parsePresetId(id);
+    if (pre) return this.talkPresetStart(v, r, pre, now);
     // (MC_TALK_BIG: a person's requested work drawn by the architect, its design kept in the village's designs)
     const askedD = isAskedPreset(id) ? v.designs[id.slice(ASKED_PRESET.length)] : undefined;
     if (!e && !askedD) {
@@ -7591,6 +7614,33 @@ export class MineflayerWorld implements WorldAdapter {
     if (M3.news) this.monumentNews(v, text, 'Mayor');
     else this.villages.note(v, text);
     console.log(`[talk] ${v.name}: ${r.from}'s ${r.id} begins the civic ${monumentLine(rec)}${r.place?.x !== undefined ? ` near ${r.place.x},${r.place.z}` : ''}`);
+    const m = this.mayorOf(v);
+    if (m) this.talkSay(m.name, `${r.from}, work on ${title} has begun${r.place?.words ? ` ${r.place.words}` : ''}.`);
+    return true;
+  }
+
+  /** MC_TALK_PRESETS: a person's cathedral or castle begun as the monument's record of that type and preset, at the
+   *  monument's scale, its glass colours chosen as the village's own cathedral's are; it leaves the monument's place when
+   *  built (monumentTick, civicDone). */
+  private talkPresetStart(v: Village, r: PlayerRequest, pre: { type: 'cathedral' | 'castle'; preset: string }, now: number): boolean {
+    const rec = newPresetMonument(pre.type, pre.preset, this.catalogWoodOf(v), now, r.from);
+    rec.arch = { by: r.from, reason: `asked for by ${r.from}: "${r.text.slice(0, 100)}"` };
+    if (r.place?.x !== undefined) (rec as { near?: { x: number; z: number } }).near = { x: r.place.x, z: r.place.z! };
+    if (MONUMENT.glazing && rec.palette === 'full') {
+      const counts = DYE_BED.on ? this.dyeCounts(v) : this.flowerCounts(v);
+      rec.colours = glassColours(counts);
+      rec.flowers = dyeFlowers(counts);
+      if (DYE_BED.on && rec.detail) rec.colours = Object.fromEntries(windowColours(DETAIL_COLOURS, this.makeableColours(v)).map((x) => [x, x]));
+    }
+    Object.assign(rec, civicKit(v, kilnSize(this.materials.plan(monumentPlan(rec).bill, {}).fuel.smelts)));
+    v.monument = rec;
+    this.villages.save();
+    updateRequest(r.id, { status: 'under_way', started: now });
+    const c = monumentPlan(rec), title = cathedralName(rec);
+    const text = `The village begins ${title}, ${aKind(pre.type)} at 1:${rec.scale}: ${c.design.blocks} blocks in ${c.jobs.length} parts over ${c.stageNames.length} stages, as ${r.from} asked${r.place?.words ? ` (${r.place.words})` : ''}`;
+    if (M3.news) this.monumentNews(v, text, 'Mayor');
+    else this.villages.note(v, text);
+    console.log(`[talk] ${v.name}: ${r.from}'s ${r.id} begins the asked ${pre.type} ${monumentLine(rec)}${r.place?.x !== undefined ? ` near ${r.place.x},${r.place.z}` : ''}`);
     const m = this.mayorOf(v);
     if (m) this.talkSay(m.name, `${r.from}, work on ${title} has begun${r.place?.words ? ` ${r.place.words}` : ''}.`);
     return true;
@@ -7651,7 +7701,7 @@ export class MineflayerWorld implements WorldAdapter {
       }
       const cid = civicIdOf(r.piece);
       if (cid && r.status === 'under_way') {
-        if (v.monument && v.monument.preset === cid) continue;
+        if (v.monument && presetIdOf(v.monument) === cid) continue;
         const c = civicsOf(v).find((x) => x.preset === cid);
         if (c) this.talkCivicEnd(v, c, now);
         else updateRequest(r.id, { status: 'failed', outcome: 'its record is gone', closed: now });
@@ -7735,7 +7785,7 @@ export class MineflayerWorld implements WorldAdapter {
         return { state: `finished ${mins(now - (r.closed ?? now))} min ago`, ...(c?.site ? { where: siteAt(c.site) } : asked ? { where: asked } : {}) };
       }
       if (r.status === 'queued') return { state: `accepted, not started yet: ${!v.complete ? 'after the village is finished' : m ? `after the ${monumentType(m) === 'civic' ? presetWords(m.preset) : monumentNoun(m)} under way` : 'waiting its turn'}`, ...(asked ? { where: asked } : {}) };
-      if (m && m.preset === cid) {
+      if (m && presetIdOf(m) === cid) {
         if (m.state === 'site') return { state: m.site ? 'its site is being levelled' : 'its site is being chosen', ...(m.site ? { where: siteAt(m.site) } : asked ? { where: asked } : {}) };
         return { state: 'being built', done: m.done.length, of: monumentPlan(m).jobs.length, ...(m.site ? { where: siteAt(m.site) } : {}) };
       }

@@ -8,6 +8,8 @@
 import { checkPlaceClaim, withoutPlace, offerWorks, parseRespond, talkSystem, talkTool, talkUser, workWords, type TalkCtx, type WorkOffer } from '../../server/src/playerTalk';
 import { chat, header, PEEK, REPEAT, Tally } from './benchUtil.mts';
 import { sampler, shortlist } from '../../server/src/talkDesign';
+import { presetPick, presetShortlist } from '../../server/src/talkPresets';
+const STRICT = { n: 0, of: 0 };
 
 const MODEL = process.argv[2] ?? 'gpt-oss:120b-cloud';
 const TIMES = process.argv[3] ? Number(process.argv[3]) : REPEAT(6);
@@ -29,7 +31,9 @@ const MENU = [
 ];
 // (MC_TALK_DESIGNS: the shortlist code makes from the line, else the sampler, as talkCall does)
 const designed = (lines: string[], extra: Partial<TalkCtx> = {}) => {
-  const designs = shortlist(lines.map((l) => withoutPlace(l)).join(' '));
+  // (MC_TALK_PRESETS: a cathedral or castle the words name first, at 1:3)
+  const asks = lines.map((l) => withoutPlace(l)).join(' ');
+  const designs = [...presetShortlist(asks), ...shortlist(asks)];
   return mayor(lines, { designs, ...(designs.length ? {} : { otherDesigns: sampler() }), ...extra });
 };
 const member = (lines: string[]) => talkUser({ agent: 'Ada', role: 'member', village: 'Minevale3', persona, from: 'SausageOfDoom4', lines, history: [], state, options: MENU });
@@ -88,6 +92,19 @@ const CASES: Array<[string, 'mayor' | 'member', string, (r: R) => boolean]> = [
   ['big: a terracotta arch (design)', 'mayor', designed(['build a terracotta arch over the road']), (r) => r?.kind === 'build' && r.work === 'design' && /arch/i.test(r.what ?? '')],
   ['big: a 25-block statue of a dragon (design)', 'mayor', designed(['make a statue of a dragon, 25 blocks tall, out of green concrete']), (r) => r?.kind === 'build' && r.work === 'design' && /dragon/i.test(r.what ?? '')],
   ['big: a 500-block castle (refuse)', 'mayor', designed(['build me a castle 500 blocks wide with a moat around the whole village']), (r) => r?.kind === 'refuse' && !!r.reason],
+  // (MC_TALK_PRESETS, 11-14: a named cathedral or castle is its preset at 1:3, not refused as over 30x30x30; passes when
+  // code's presetPick takes the preset from the answer (a loose id, a refusal, "design"); STRICT counts the exact id)
+  ...([['presets: salisbury cathedral here', 'build salisbury cathedral here', 'cathedral:salisbury'], ['presets: conwy castle', 'Mayor, could the village build Conwy Castle?', 'castle:conwy'],
+    ['presets: a copy of notre dame', 'I would love a copy of Notre Dame next to the hall', 'cathedral:notre_dame'], ['presets: the white tower', 'build the white tower please', 'castle:white_tower'],
+  ] as Array<[string, string, string]>).map(([label, line, id]): [string, 'mayor', string, (r: R) => boolean] => {
+    const designs = [...presetShortlist(withoutPlace(line)), ...shortlist(withoutPlace(line))];
+    return [label, 'mayor', designed([line]), (r) => {
+      if (r?.kind === 'build' && r.work === id) STRICT.n++;
+      STRICT.of++;
+      return !!r && presetPick(r, designs)?.id === id && (!/here/.test(line) || /here/.test(r.place ?? ''));
+    }];
+  }),
+  ['presets: the eiffel tower (refuse or design)', 'mayor', designed(['build the eiffel tower']), (r) => (r?.kind === 'refuse' && !!r.reason) || (r?.kind === 'build' && r.work === 'design')],
   ['member: logs (promise)', 'member', member(['Ada, can you get me some logs?']), (r) => r?.kind === 'promise' && r.option === 'gather:logs'],
   ['member: bake bread (promise)', 'member', member(['Ada, we are hungry, could you bake some bread']), (r) => r?.kind === 'promise' && r.option === 'make:bread'],
   ['member: a church (forward)', 'member', member(['Ada, can the village build a church?']), (r) => r?.kind === 'forward'],
@@ -119,4 +136,5 @@ for (const [label, role, user, ok] of CASES) {
   }
   console.log(`${tally.line(label)}; ${Object.entries(kinds).map(([k, q]) => `${q} ${k}`).join(', ')}`);
 }
+if (STRICT.of) console.log(`presets: the exact id ${STRICT.n} of ${STRICT.of}`);
 console.log(all.line(MODEL));

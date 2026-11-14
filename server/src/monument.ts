@@ -889,6 +889,8 @@ export type MonumentM3 = Monument & {
   dress?: boolean;
   /** MC_TALK_BIG: a person's requested work (a civic record drawn from the architect's design, askedWork.ts). */
   asked?: AskedWork;
+  /** MC_TALK_PRESETS: the person who asked for this cathedral or castle (it leaves the monument's place when built). */
+  askedBy?: string;
   /** #162: its stonecutter (mcCutter.ts) and dye bed (mcDyeBed.ts). */
   cutter?: CutterRecord;
   dyeBed?: DyeBed;
@@ -966,9 +968,43 @@ export function noteTrade(m: Monument, member: string, trade: Trade, now: number
 }
 
 /** The monument's name for lines: its dedication, else "the cathedral" (or "the castle", #153). */
-export const cathedralName = (m: Monument) => (monumentType(m) === 'civic' ? (m3(m).asked ? `the ${m3(m).asked!.what.replace(/^(a|an|the)\s+/i, '')}` : civicEntry(m.preset)?.title ?? `the ${monumentNoun(m)}`) : m3(m).name ? `the ${monumentNoun(m)} of ${m3(m).name}` : `the ${monumentNoun(m)}`);
+export const cathedralName = (m: Monument) => (monumentType(m) !== 'civic' && m3(m).askedBy && !m3(m).name ? presetTitle(monumentType(m) as 'cathedral' | 'castle', m.preset) : monumentType(m) === 'civic' ? (m3(m).asked ? `the ${m3(m).asked!.what.replace(/^(a|an|the)\s+/i, '')}` : civicEntry(m.preset)?.title ?? `the ${monumentNoun(m)}`) : m3(m).name ? `the ${monumentNoun(m)} of ${m3(m).name}` : `the ${monumentNoun(m)}`);
 const PRESET_WORDS: Record<string, string> = { notre_dame: 'Notre-Dame', salisbury: 'Salisbury', chartres: 'Chartres', conwy: 'Conwy', white_tower: 'the White Tower' };
-export const presetWords = (p: string) => PRESET_WORDS[p] ?? (isAskedPreset(p) ? `the ${askedWords(p)}` : civicEntry(p)?.title ?? p);
+export const presetWords = (p: string) => PRESET_WORDS[p] ?? (isAskedPreset(p) ? `the ${askedWords(p)}` : parsePresetId(p) ? presetTitle(parsePresetId(p)!.type, parsePresetId(p)!.preset) : civicEntry(p)?.title ?? p);
+
+// ---- MC_TALK_PRESETS: a person's preset monument (talkPresets.ts) ----------------------------------------------------
+
+/** A cathedral's or castle's preset as one id ("cathedral:salisbury", "castle:conwy"): a person's request's piece, a
+ *  finished record's civics entry. */
+export const presetId = (type: 'cathedral' | 'castle', preset: string) => `${type}:${preset}`;
+export function parsePresetId(id?: string): { type: 'cathedral' | 'castle'; preset: string } | null {
+  const x = /^(cathedral|castle):([a-z0-9_]+)$/.exec(id ?? '');
+  if (!x) return null;
+  const type = x[1] as 'cathedral' | 'castle';
+  return presetsOf(type)[x[2]] ? { type, preset: x[2] } : null;
+}
+/** A record's id as requests and civics name it: a civic record's preset, a cathedral's or castle's typed id. */
+export const presetIdOf = (m: Monument) => (monumentType(m) === 'civic' ? m.preset : presetId(monumentType(m) as 'cathedral' | 'castle', m.preset));
+/** Names where the description's head does not make one ("Salisbury" -> "Salisbury Cathedral" is the rule). */
+const PRESET_TITLES: Record<string, string> = {
+  notre_dame: 'Notre-Dame de Paris', st_vitus: 'St. Vitus Cathedral, Prague', st_stephen: "St. Stephen's Cathedral, Vienna", white_tower: 'the White Tower of London',
+  alcazar_segovia: 'the Alcázar of Segovia', carcassonne: 'the walled city of Carcassonne', leon: 'León Cathedral',
+};
+/** A cathedral's or castle's name for people: "Salisbury Cathedral", "York Minster", "Conwy Castle". */
+export function presetTitle(type: 'cathedral' | 'castle', preset: string): string {
+  if (PRESET_TITLES[preset]) return PRESET_TITLES[preset];
+  const p = presetsOf(type)[preset] as { description?: string } | undefined;
+  const head = (p?.description ?? preset.replace(/_/g, ' ')).split(':')[0].trim();
+  return /\b(cathedral|minster|abbey|castle|chateau|château|krak|castel|fortress|palace|tower)\b/i.test(head) ? head.replace(/^The /, 'the ') : `${head} ${type === 'castle' ? 'Castle' : 'Cathedral'}`;
+}
+/** A person's cathedral or castle as a record (MC_TALK_PRESETS): the monument's own record of that type and preset at the
+ *  monument's scale (MC_MONUMENT_SCALE, 1:3), marked asked by the person, so it leaves the monument's place when built. */
+export function newPresetMonument(type: 'cathedral' | 'castle', preset: string, wood: string, now: number, by: string): MonumentM3 {
+  const m = newMonument(wood, now, type) as MonumentM3;
+  m.preset = preset;
+  m.askedBy = by;
+  return m;
+}
 
 /** The current stage's parts: built and in all. */
 export function stageParts(m: Monument): { stage: number; built: number; of: number } {

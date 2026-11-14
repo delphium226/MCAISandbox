@@ -32,6 +32,11 @@ export const TALK_BIG = {
 /** Test hook. */
 export function setTalkBig(s: Partial<typeof TALK_BIG>): void { Object.assign(TALK_BIG, s); }
 
+/** MC_TALK_PRESETS (talkPresets.ts): a cathedral or castle preset a person names is built as an asked monument record. */
+export const TALK_PRESETS = { on: !/^(off|0|false|no)$/i.test(rawSetting('MC_TALK_PRESETS') ?? 'on') };
+/** Test hook. */
+export function setTalkPresets(s: Partial<typeof TALK_PRESETS>): void { Object.assign(TALK_PRESETS, s); }
+
 /** A big work's units cap: 150 a member, 3,000 to 9,000 (a solid 30-base stepped pyramid in glass is ~6,500). */
 export const bigBudget = (members: number) => Math.max(3000, Math.min(9000, Math.round(150 * Math.max(1, members))));
 
