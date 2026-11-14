@@ -1347,13 +1347,18 @@ type StairsFit = (st: { x: number; z: number }, dir: [number, number]) => boolea
  * The world's test of a deeper level's stairs start (I4: the first start met an old tunnel's or a cave's air two steps
  * down, the next lay in a branch passed undug, which no bot could reach): the start a dug cell (open at the level and
  * the head cell over it, no water) on a solid floor, and every step's three cells and the ceiling over them solid
- * natural ground, down to `steps`. A chunk not loaded counts as solid (it is checked as dug).
+ * natural ground, down to `steps`. A chunk not loaded counts as solid (it is checked as dug). `full`: the stairs' whole
+ * length, whose end must lie inside the village's range (rungs test 11-14: diamond3's deep stairs from y -13 ran east into
+ * the range's edge after their first steps were found clear, and the dig was given up and banned for 20 minutes).
  */
-function stairsFit(a: BotAgent, L: number, steps: number): StairsFit {
+function stairsFit(a: BotAgent, L: number, steps: number, full = steps): StairsFit {
   const at = (x: number, y: number, z: number) => a.bot.blockAt(new Vec3(x, y, z));
   const open = (x: number, y: number, z: number) => { const b = at(x, y, z); return !!b && b.boundingBox === 'empty' && !wetAt(a, b.position); };
   const solid = (x: number, y: number, z: number) => { const b = at(x, y, z); return !b || (b.boundingBox === 'block' && DIGGABLE.has(b.name) && !FALLING.has(b.name)); };
+  const v = typeof a.village === 'function' ? a.village() : null, home = v ? villageHome(v) : null;
   return (st, [dx, dz]) => {
+    // (unsafe's range is 90 from home; the second lane lies a block aside)
+    if (home && Math.hypot(st.x + dx * full - home.x, st.z + dz * full - home.z) > 88) return false;
     const floor = at(st.x, L - 1, st.z);
     if (!open(st.x, L, st.z) || !open(st.x, L + 1, st.z) || floor?.boundingBox !== 'block') return false;
     for (let k = 1; k <= steps; k++) {
@@ -1441,7 +1446,7 @@ function ironRestart(m: Mine, a?: BotAgent): { x: number; z: number; y: number; 
   const old = m.iron ? parentOf(m, m.iron) : m.ironPast?.at(-1) ?? null;
   // (with a bot, MC_IRON_AGE: only starts the world shows fit, down to the level's aim)
   // (a deep leg, MC_DIAMOND_AGE: on its first DIAMOND_FIT steps, as layNextIronLevel's)
-  const fits = a && old?.level !== undefined ? stairsFit(a, old.level, Math.min((m.iron as DeepLeg | undefined)?.diamond ? DIAMOND_FIT : Infinity, old.level - (m.iron?.targetY ?? old.level - IRON_DROP) + 1)) : undefined;
+  const fits = a && old?.level !== undefined ? stairsFit(a, old.level, Math.min((m.iron as DeepLeg | undefined)?.diamond ? DIAMOND_FIT : Infinity, old.level - (m.iron?.targetY ?? old.level - IRON_DROP) + 1), old.level - (m.iron?.targetY ?? old.level - IRON_DROP) + 1) : undefined;
   if (old) return ironDeeperStart(old, m.iron?.abandoned ?? [], fits, ORE_ON ? (m.iron as OreLevel | undefined)?.toward : undefined, m.iron ? stairsOff(m, old, m.iron) : []);
   // (the first level, MC_IRON_AGE #113: a dug cell of the mine to start from, its first steps solid; All1's starts lay in
   // branches passed undug, which no bot could reach)
@@ -1473,7 +1478,7 @@ export function layNextIronLevel(reg: { note: (v: Village, s: string) => void; s
   // (with a bot, the world's test too: stairsFit)
   // (a landing opened again, MC_DIAMOND_AGE: its deep legs given up before are not started again)
   const given = dia ? (i as DeepLeg).deepGiven ?? [] : [];
-  const s = ironDeeperStart(i, given, a ? stairsFit(a, i.level, dia ? Math.min(DIAMOND_FIT, i.level - target + 1) : i.level - target + 1) : undefined, ore?.toward);
+  const s = ironDeeperStart(i, given, a ? stairsFit(a, i.level, dia ? Math.min(DIAMOND_FIT, i.level - target + 1) : i.level - target + 1, i.level - target + 1) : undefined, ore?.toward);
   if (!s) {
     reg.note(v, `no clear way down from the iron level at y=${i.level} to another below it`);
     return deep ? '' : openShaft(reg, v, m, a);
