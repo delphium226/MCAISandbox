@@ -28,6 +28,7 @@ import { isPaused } from '../runClock';
 import { WALK_DIG } from './mcBlocks';
 import { GEODE_GROWTH, GEODE_GUARD, GEODE_LINING, geodeBreakCost, geodeStepCost, stateIds } from './mcGeode';
 import { dimOf, overworld, type Dim } from './mcDim';
+import { farBox } from '../netherPlan';
 
 const { pathfinder, Movements } = pathfinderPkg;
 /** Blocks no walk enters (the Nether rung, spec row 16): portals carry a member to another dimension; soul fire burns. */
@@ -260,9 +261,11 @@ export class BotAgent implements WorldAgent {
   protectedGround() {
     const now = Date.now();
     if (now - this.protectedCache.at < 5000) return this.protectedCache.boxes;
-    // (the Nether rung, spec row 6: village ground is the overworld's; none off it)
+    // (the Nether rung, spec row 6: village ground is the overworld's; off it, only the ground round its village's far
+    // portal in that dimension, so no walk digs the way back away)
     if (!overworld(this)) {
-      this.protectedCache = { at: now, boxes: [] };
+      const far = this.village()?.nether?.far;
+      this.protectedCache = { at: now, boxes: far && far.dim === this.dim ? [farBox(far)] : [] };
       return this.protectedCache.boxes;
     }
     const p = this.bot.entity?.position;

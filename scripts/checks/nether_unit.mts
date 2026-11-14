@@ -162,6 +162,9 @@ if (MODE === 'off' || MODE === 'hostile') {
   ok(!P.safeToDig({ x: 2, y: 60, z: 0 }, feet, world('3,60,0')) && !P.safeToDig({ x: 2, y: 59, z: 0 }, feet, world('2,58,0')), 'never a block with lava beside or under it');
   ok(!P.safeToDig({ x: 2, y: 60, z: 0 }, feet, (x, y, z) => (x === 2 && y === 60 && z === 1 ? '' : world()(x, y, z))), 'never one with an unloaded neighbour');
   ok(P.exposed({ x: 2, y: 60, z: 0 }, world()) && !P.exposed({ x: 2, y: 50, z: 0 }, world()), 'exposed: a face on air');
+  const far = { x: -213, y: 50, z: 5 };
+  ok(P.nearPortal(far, { x: -212, y: 49, z: 4 }) && P.nearPortal(far, { x: -209, y: 47, z: 9 }) && !P.nearPortal(far, { x: -208, y: 50, z: 5 }) && !P.nearPortal(far, { x: -213, y: 46, z: 5 }), 'the far portal\'s ground is kept: 4 out, 3 under');
+  ok(JSON.stringify(P.farBox(far)) === JSON.stringify({ x1: -217, z1: 1, x2: -209, z2: 9, y: 47, y2: 55 }), 'and is a protected box off the overworld');
   ok(['netherrack', 'blackstone', 'basalt', 'soul_sand', 'nether_quartz_ore'].every((n) => P.DIG_NETHER.includes(n)) && ['netherrack', 'quartz', 'gold_nugget', 'blackstone'].every((n) => L.NETHER_BLOCKS.includes(n)), 'the blocks dug and the items counted');
 }
 
@@ -186,7 +189,7 @@ if (MODE === 'off' || MODE === 'hostile') {
   ok(/if \(a\.dim !== 'overworld'\) continue;\s*const column/.test(WS) && (WS.match(/\.dim === 'overworld' && \(s = stateAt/g) ?? []).length === 2, 'world reads with no reader asked skip a bot in the Nether; the atlas takes overworld columns only');
   const BA = readFileSync(new URL('../../server/src/mineflayer/botAgent.ts', import.meta.url), 'utf-8');
   ok(/AVOID_BLOCKS = \['nether_portal', 'end_portal', 'end_gateway', 'soul_fire'\]/.test(BA) && /m\.blocksToAvoid\.add/.test(BA), 'walks avoid the portals and soul fire');
-  ok(/chunkColumnLoad', \(p\) => \{ if \(overworld\(this\)\)/.test(BA) && /if \(!overworld\(this\)\) \{\s*this\.protectedCache/.test(BA), 'the atlas and village ground are the overworld\'s');
+  ok(/chunkColumnLoad', \(p\) => \{ if \(overworld\(this\)\)/.test(BA) && /if \(!overworld\(this\)\) \{\s*const far = this\.village\(\)\?\.nether\?\.far;\s*this\.protectedCache = \{ at: now, boxes: far && far\.dim === this\.dim \? \[farBox\(far\)\] : \[\] \}/.test(BA), 'the atlas and village ground are the overworld\'s');
   ok(/recallFromDim\(this, 'logged in there/.test(BA), 'a log-in off the overworld is recalled before unbury');
   const W = readFileSync(new URL('../../server/src/mineflayer/mcWorld.ts', import.meta.url), 'utf-8');
   ok(/a\.dim !== 'overworld' \|\| !underHome/.test(W) && /private netherWatch\(\)/.test(W), 'the underground watch skips the Nether; the Nether watch recalls a lost member');

@@ -11,7 +11,7 @@ import type { BotAgent } from './botAgent';
 import type { Village } from '../village';
 import { villageHome } from '../village';
 import { NETHER_BLOCKS, NETHER_DEBRIS, NETHER_PARTY } from '../ladder';
-import { DEBRIS_REACH, DEBRIS_Y, DIG_NETHER, FRAME_BLOCKS, TRIP_BLOCKS, TRIP_MIN, exposed, farStand, frameCells, inTripBox, innerCells, planPortal, safeToDig, type Cell, type PortalSite } from '../netherPlan';
+import { DEBRIS_REACH, DEBRIS_Y, DIG_NETHER, FRAME_BLOCKS, TRIP_BLOCKS, TRIP_MIN, exposed, farStand, frameCells, inTripBox, innerCells, nearPortal, planPortal, safeToDig, type Cell, type PortalSite } from '../netherPlan';
 import { dimOf, inDim, overworld } from './mcDim';
 import { recall } from './mcRescue';
 import { timeScale } from './mcRules';
@@ -111,6 +111,10 @@ async function stepOut(a: BotAgent, signal: AbortSignal, exit?: Cell): Promise<v
   const feet = () => bot.entity.position.floored();
   // (a known stand cell (the village's portal's, the far portal's) is walked to without reading the world: the arrival's
   // chunk can take seconds to come, and at 3x the arrival cooldown is 5 s; nether2 went back while it waited, 11-14)
+  // (the position packet comes after the respawn: steering from the old dimension's x, z walked the member along the
+  // portal's plane and back into it; wait until it stands near the exit, up to 4 s)
+  if (exit) for (let i = 0; i < 40 && Math.hypot(bot.entity.position.x - exit.x - 0.5, bot.entity.position.z - exit.z - 0.5) > 4; i++) await sleep(100, signal);
+  if (exit && Math.hypot(bot.entity.position.x - exit.x - 0.5, bot.entity.position.z - exit.z - 0.5) > 4) exit = undefined;
   if (exit) {
     try {
       await bot.lookAt(new Vec3(exit.x + 0.5, exit.y + 1.6, exit.z + 0.5), true);
@@ -371,7 +375,7 @@ export async function netherExpedition(a: BotAgent, args: Record<string, unknown
     while (dug < want && Date.now() < deadline) {
       checkAbort(signal);
       const feet = a.bot.entity.position.floored();
-      const keep = (q: Vec3) => !tried.has(`${q.x},${q.y},${q.z}`) && inTripBox(far, q) && exposed(q, name) && safeToDig(q, feet, name);
+      const keep = (q: Vec3) => !tried.has(`${q.x},${q.y},${q.z}`) && inTripBox(far, q) && !nearPortal(far, q) && exposed(q, name) && safeToDig(q, feet, name);
       const c = nearestBlocks(a, ids, 10, 24, keep)[0] ?? nearestBlocks(a, ids, 20, 24, keep)[0];
       if (!c) break;
       tried.add(`${c.x},${c.y},${c.z}`);
