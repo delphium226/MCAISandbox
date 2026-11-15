@@ -413,7 +413,7 @@ export async function netherExpedition(a: BotAgent, args: Record<string, unknown
         continue;
       }
       const keep = (q: Vec3) => !tried.has(`${q.x},${q.y},${q.z}`) && inTripBox(far, q) && !nearPortal(far, q, true) && !onBridge(v.nether?.bridge, q) && exposed(q, name) && safeToDig(q, feet, name)
-        && expeditionStand(q, ground, feet) !== null;
+        && expeditionStand(q, ground, feet, name) !== null;
       const c = nearestBlocks(a, ids, 10, 24, keep)[0] ?? nearestBlocks(a, ids, 20, 24, keep)[0];
       if (!c) {
         if (!dug) notes.push(`no block in reach of the far portal's ground (${ground.cells.size} cells, ${ground.stands.size} columns with an inland stand)`);
@@ -421,7 +421,7 @@ export async function netherExpedition(a: BotAgent, args: Record<string, unknown
       }
       tried.add(`${c.x},${c.y},${c.z}`);
       try {
-        const s = expeditionStand(c, ground, feet)!;
+        const s = expeditionStand(c, ground, feet, name)!;
         if (s.x !== feet.x || s.y !== feet.y || s.z !== feet.z) await groundWalk(a, s, signal);
         const q = a.bot.entity.position.floored();
         // (a stand not reached, or not within reach once there, is dropped: netherT4's members tried one stand 8 times a trip)

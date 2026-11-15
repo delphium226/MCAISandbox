@@ -351,8 +351,18 @@ export function islandDig(island: Map<string, Cell>, name: Name): IslandDig {
   return { stands, floors, cells: island };
 }
 
-/** After a dig at `c`: the stands beside it read again (a wall dug away can leave a drop beside a stand). */
+/** After a dig at `c`: a floor dug is a pit one deep, its cell the ground's now (the one over it no longer, the floor
+ *  under it kept); the stands beside it read again (a wall dug away can leave a drop beside a stand). */
 export function afterIslandDig(d: IslandDig, c: Cell, name: Name): void {
+  if (d.floors.has(key(c))) {
+    const over = { x: c.x, y: c.y + 1, z: c.z };
+    d.cells.delete(key(over));
+    const k = `${c.x},${c.z}`, list = (d.stands.get(k) ?? []).filter((s) => s.y !== over.y);
+    if (list.length) d.stands.set(k, list); else d.stands.delete(k);
+    d.floors.delete(key(c));
+    d.cells.set(key(c), c);
+    d.floors.add(key({ x: c.x, y: c.y - 1, z: c.z }));
+  }
   for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
     const k = `${c.x + dx},${c.z + dz}`, list = d.stands.get(k);
     if (!list) continue;
@@ -362,13 +372,16 @@ export function afterIslandDig(d: IslandDig, c: Cell, name: Name): void {
 }
 
 /** Where an expedition digs `c` from: an inland stand of the island within reach of it (the eye 4.2 from its middle),
- *  nearest `feet`; null when `c` is a floor of the island's ground (a dug floor is a hole in the way back) or no stand
- *  reaches it. */
-export function expeditionStand(c: Cell, d: IslandDig, feet: Cell): Cell | null {
-  if (d.floors.has(key(c))) return null;
+ *  not standing on it, nearest `feet`. Null when nothing solid lies under `c` (its drop would fall: netherT5-7's digs under
+ *  the floating island's edge brought back none of 24 a trip), or when no stand reaches it. A floor of the ground with
+ *  something solid under it is dug as a pit one deep (afterIslandDig), never a hole in the way back. */
+export function expeditionStand(c: Cell, d: IslandDig, feet: Cell, name: Name): Cell | null {
+  const below = name(c.x, c.y - 1, c.z);
+  if (!below || clearAt(below) || HOT.test(below) || /^(water|nether_portal)$/.test(below)) return null;
   let best: Cell | null = null, bd = Infinity;
   for (let dx = -4; dx <= 4; dx++) for (let dz = -4; dz <= 4; dz++) {
     for (const s of d.stands.get(`${c.x + dx},${c.z + dz}`) ?? []) {
+      if (s.x === c.x && s.z === c.z && s.y === c.y + 1) continue;
       if (Math.hypot(s.x + 0.5 - (c.x + 0.5), s.y + 1.62 - (c.y + 0.5), s.z + 0.5 - (c.z + 0.5)) > 4.2) continue;
       const q = Math.hypot(s.x - feet.x, s.y - feet.y, s.z - feet.z);
       if (q < bd) { bd = q; best = s; }
