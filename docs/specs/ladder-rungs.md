@@ -460,8 +460,18 @@ recall, 0 `[lag]`, 0 `[crash-guard]`). Stage 3 has not ended: round minevale3's 
 8-22 within 64 lies under the lava sea, and only 3 lie above it (y 45, 109), so 4 cannot be dug there yet (nether12
 also weighed only the 24 nearest, all under the sea: the search now takes every one in reach, not run live since).
 
-Risks: **stage 3 at minevale3** (above; the answer is the spec's B4, longer Nether walks to rock with debris, or a
-bridge over the lava sea); the far side may be a lava sea or a cave; Nether chunks cost 330-350 decodes a trip, capped
+**B4, the trek (11-15, `MC_NETHER_TREK`, on; nether.md B4 "as built").** Measured first from world 2's region files:
+the far portal stands on a floating island over the lava sea, walking reaches 171 cells and no dry debris; past one flat
+bridge of 26 netherrack the mainland holds 25 dry debris within 100 and 364 within 300. The user chose the bridge. A
+debris trip now lays (once, kept and protected) that bridge at the island's level, walks legs of 40 with breadcrumbs,
+digs where a safe stair reaches, and walks back along the breadcrumbs; 15 minutes; a pinned walk backs off to a
+breadcrumb. Runs: netherT1 (world 2) ended stages 3 and 4 (+30, +31 min; stairs near the island, the bridge not yet
+planned for want of loaded chunks: fixed); **netherT3 (world 6) ended both through the trek alone** (Clara: bridge of 26,
+debris 54-104 blocks out over two trips, stage 3 at +40.8, the ingot at +41.4). 0 `[lag]`, 3-5 `[stuck]`, 0 `[repath]`;
+recalls only from expeditions that fell off the island (Dev, Elena). **The Nether rung is reached live.**
+
+Risks: the island's edge (expeditions fall off it to the lava sea's shore and are recalled); the far side may be a lava
+sea or a cave; Nether chunks cost 330-350 decodes a trip, capped
 only by the party's 3 slots; bodies mode carries the dimension but was not tested; stale Nether state between runs is
 cleared only by reset_site; a stone pickaxe can wear out mid-trip (the rest of the trip digs nothing).
 
