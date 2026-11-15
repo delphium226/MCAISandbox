@@ -6,7 +6,7 @@
  */
 import type { Village } from '../village';
 import { DIAMOND_AGE, DIAMOND_Y, IRON_AGE, LADDER } from '../ladderFlags';
-import { DIAMOND_DEPTH, type Counter } from '../ladder';
+import { DIAMOND_DEPTH, enchantmentCurrent, type Counter } from '../ladder';
 import { IRON_MINERS } from '../ladderFlags';
 import { chainDeepest, deepChain, deepPicksShort, diamondWanted, picksGiven } from './mcMine';
 
@@ -71,7 +71,10 @@ export function diamondForgeNeed(v: Village, members: Array<{ name: string; digs
   // (#180: said only when true; train 13's menus said it while no member had dug at all)
   if (!diggers.length) return 'no member has dug in the mine yet';
   if (!miners.length) return 'every deep miner has a diamond pickaxe';
-  if (diamonds < PICK_DIAMONDS) return `diamonds short for a diamond pickaxe (${diamonds} of ${PICK_DIAMONDS})`;
+  // (the enchanting table's 2 diamonds kept while the enchantment rung has none placed: rungs test 11-14, enchantment5's
+  // forge gave three deep miners diamond pickaxes from the stocked and mined diamonds and the table was never made)
+  const keep = enchantmentCurrent(v) && !v.enchant?.table ? 2 : 0;
+  if (diamonds - keep < PICK_DIAMONDS) return `diamonds short for a diamond pickaxe (${diamonds} of ${PICK_DIAMONDS}${keep ? `, ${keep} kept for the enchanting table` : ''})`;
   return { for: miners[0].name };
 }
 
