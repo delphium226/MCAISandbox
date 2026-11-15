@@ -241,7 +241,7 @@ if (MODE === 'off' || MODE === 'hostile') {
   P.afterIslandDig(g2, { x: 2, y: 49, z: 6 }, tw);
   ok(g2.cells.has('2,49,6') && !g2.cells.has('2,50,6') && P.expeditionStand({ x: 2, y: 48, z: 6 }, g2, { x: 2, y: 50, z: 2 }, tw) === null, 'the pit is ground now and its floor is kept: pits are one deep');
   const NE = readFileSync(new URL('../../server/src/mineflayer/mcNether.ts', import.meta.url), 'utf-8');
-  ok(/KEEP_GROUND\.add\(a\.name\)/.test(NE) && /maxDropDown: 1/.test(NE) && /expeditionStand\(q, ground, feet, name\) !== null/.test(NE) && /putBack = groundMoves\(a\)/.test(NE) && /canDig: false/.test(NE), 'the expedition walks its ground without drops, digs from its stands and picks up its drops under the same rules');
+  ok(/KEEP_GROUND\.add\(a\.name\)/.test(NE) && /maxDropDown: 1/.test(NE) && /expeditionStand\(q, ground, feet, name\) !== null/.test(NE) && /putBack = groundMoves\(a\)/.test(NE) && /const putBack = groundMoves\(a\);\s*KEEP_GROUND\.add\(a\.name\);\s*try \{\s*await crossBridge/.test(NE) && /canDig: false/.test(NE), 'the expedition walks its ground without drops, digs from its stands and picks up its drops under the same rules; a trek walks to its bridge and over it so too');
   ok(/ancient_debris'\)\) > had/.test(NE), 'a debris drop is counted on the server and looked for when not taken');
   const BA2 = readFileSync(new URL('../../server/src/mineflayer/botAgent.ts', import.meta.url), 'utf-8');
   ok(/if \(this\.trek && !overworld\(this\)\) \{\s*const to = trekPinned\(this\.trek/.test(BA2) && /bridge\.cells\) this\.protectedCache\.boxes\.push/.test(BA2), 'rescuePinned keeps to the trek\'s breadcrumbs; the bridge is protected ground');

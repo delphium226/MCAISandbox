@@ -506,7 +506,16 @@ export async function netherDig(a: BotAgent, args: Record<string, unknown>, sign
     if (trek) {
       a.trek = { crumbs: [], backoffs: 0 };
       console.log(`[nether] ${v.name}: ${a.name} starts a trek from the far portal at ${far.x},${far.y},${far.z}`);
-      await crossBridge(a, v, signal, notes);
+      // (to the bridge and over it by the ground's rules: netherT8's second trek walked off the island on its way to the
+      // bridge and fell to y 24)
+      const putBack = groundMoves(a);
+      KEEP_GROUND.add(a.name);
+      try {
+        await crossBridge(a, v, signal, notes);
+      } finally {
+        KEEP_GROUND.delete(a.name);
+        putBack();
+      }
     }
     while ((await count(a, 'ancient_debris')) - before < want && Date.now() < deadline) {
       checkAbort(signal);
