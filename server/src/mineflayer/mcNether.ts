@@ -419,9 +419,18 @@ export async function netherExpedition(a: BotAgent, args: Record<string, unknown
         if (s.x !== feet.x || s.y !== feet.y || s.z !== feet.z) await groundWalk(a, s, signal);
         const q = a.bot.entity.position.floored();
         if (q.x !== s.x || q.y !== s.y || q.z !== s.z) throw new Error(`could not walk to ${s.x},${s.y},${s.z} on the island's ground to dig ${at(c)}`);
-        await mineBlock(a, c, signal, false, 5000);
+        // (the drops picked up only where they lie on the ground's own cells: mineBlock's pick-up walked to a drop that fell
+        // below the edge, and netherT4's Dev and Finn followed it off the island at their first dig)
+        await mineBlock(a, c, signal, false, 5000, false);
         dug++;
         afterIslandDig(ground, c, name);
+        await sleep(400, signal);
+        const p = new Vec3(c.x + 0.5, c.y + 0.5, c.z + 0.5);
+        for (const e of Object.values(a.bot.entities).filter((e) => e.name === 'item' && e.position.distanceTo(p) < 6)) {
+          const cell = e.position.floored();
+          if (!onGround(cell) || cell.distanceTo(a.bot.entity.position.floored()) < 1) continue;
+          await groundWalk(a, { x: cell.x, y: cell.y, z: cell.z }, signal);
+        }
       } catch (e) {
         if ((e as Error).message === 'cancelled') throw e;
         if (++failed >= 8) {
