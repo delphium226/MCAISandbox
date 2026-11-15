@@ -188,7 +188,7 @@ export const RUNG_DEFS: Record<RungId, RungDef> = {
         { words: '{n} of {t} obsidian cast from still lava in the deep mine', counter: 'obsidian', target: ENCHANT_OBSIDIAN, feeds: /^(rung:(fill_bucket|obsidian)|iron:forge:bucket|iron:dig)$/ },
         { words: 'the enchanting table made and placed in the library', counter: 'etable', target: 1, feeds: /^(make:(enchanting_table|book)|rung:place_table)$|^iron:dig\b/ },
         { words: '{n} of {t} experience levels held by the village\'s enchanter', counter: 'xplevel', target: ENCHANT_LEVELS, feeds: /^(rung:xp_bottles|activity:lib:buy:experience_bottle|activity:lib:sell)$|^iron:(dig|smelt)\b/ },
-        { words: '{n} of {t} books enchanted at the enchanting table', counter: 'enchanted', target: ENCHANT_BOOKS, feeds: /^(rung:enchant|make:book|activity:lib:buy:lapis_lazuli)$/ },
+        { words: '{n} of {t} books enchanted at the enchanting table', counter: 'enchanted', target: ENCHANT_BOOKS, feeds: /^(rung:enchant|make:book|activity:lib:buy:(lapis_lazuli|leather))$/ },
       ]
       : [{ words: '4 obsidian' }, { words: 'the enchanting table in the library' }, { words: '8 levels held by an enchanter' }, { words: '5 enchanted tools or books' }],
   },
@@ -826,6 +826,12 @@ export function rungKeep(v: Village, item: string, store: Record<string, number>
     if (item === 'experience_bottle' && stage === 2) return ENCHANT_BOTTLES;
     if (item === 'lapis_lazuli' && stage >= 2) {
       const n = ENCHANT_BOOKS - (v.ladder?.totals?.enchanted ?? 0);
+      return n > 0 ? n : undefined;
+    }
+    // (a leather for each book still to bind: enchantment7 (11-15) enchanted the 2 stocked books by minute 40 and never
+    // bound a third, the village holding no leather and nothing buying it once letters was reached)
+    if (item === 'leather' && stage >= 2) {
+      const n = ENCHANT_BOOKS - (v.ladder?.totals?.enchanted ?? 0) - (store.book ?? 0);
       return n > 0 ? n : undefined;
     }
   }
