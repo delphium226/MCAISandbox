@@ -28,7 +28,7 @@ export interface MerchantOffer { item: string; n: number; emeralds: number; stoc
 
 /** What the merchant buys (the village's goods: those with keeps the world can count, F3/F4 of the check); planks at a
  *  log's price (4 planks a log: crafting must not double a good's worth). */
-export const BUYS: MerchantOffer[] = [
+const BASE_BUYS: MerchantOffer[] = [
   { item: 'birch_log', n: 16, emeralds: 1, stock: 8, dir: 'buys' },
   { item: 'oak_log', n: 16, emeralds: 1, stock: 8, dir: 'buys' },
   { item: 'birch_planks', n: 64, emeralds: 1, stock: 4, dir: 'buys' },
@@ -39,6 +39,25 @@ export const BUYS: MerchantOffer[] = [
   { item: 'glass', n: 12, emeralds: 1, stock: 4, dir: 'buys' },
   { item: 'torch', n: 24, emeralds: 1, stock: 4, dir: 'buys' },
 ];
+
+/**
+ * #246, #24, #251 (MC_MERCHANT_MORE, on): what vanilla's farmer and mason buy that the village holds by the hundred: 6
+ * pumpkins, and 16 granite, andesite or diorite, for an emerald (the members' own sales' rates, own.ts OWN_SALES). The rungs
+ * test's village earned 15-21 emeralds in 50 minutes, lib:sell offered in 2% of choices (nothing of the nine goods above
+ * their keeps) while storage held some 700 pumpkins and 600 of each stone; the rungs that buy from the merchant waited on
+ * it. Appended after SELLS in OFFERS so a saved merchant's uses keep their indices.
+ */
+export const MERCHANT_MORE = !/^(off|0|false|no)$/i.test(rawSetting('MC_MERCHANT_MORE') ?? 'on');
+const MORE_BUYS: MerchantOffer[] = MERCHANT_MORE ? [
+  { item: 'pumpkin', n: 6, emeralds: 1, stock: 6, dir: 'buys' },
+  { item: 'granite', n: 16, emeralds: 1, stock: 4, dir: 'buys' },
+  { item: 'andesite', n: 16, emeralds: 1, stock: 4, dir: 'buys' },
+  { item: 'diorite', n: 16, emeralds: 1, stock: 4, dir: 'buys' },
+] : [];
+/** What storage keeps of MORE_BUYS' goods before the merchant may have them (pumpkin pies, the stones' building uses). */
+export const MORE_KEEP = 64;
+export const MORE_ITEMS = new Set(MORE_BUYS.map((o) => o.item));
+export const BUYS: MerchantOffer[] = [...BASE_BUYS, ...MORE_BUYS];
 
 /** #162: the monument's bell, sold in its place in the list (MC_MONUMENT_DETAIL with the dye bed or the candles). */
 const BELL_SOLD = CUTTER.on && (DYE_BED.on || FURNISH.candles);
@@ -91,7 +110,28 @@ export const SELLS: MerchantOffer[] = [
   ...(ENCHANTMENT_AGE && IRON_AGE ? [{ item: 'experience_bottle', n: 1, emeralds: 2, stock: 8, dir: 'sells' as const }, { item: 'lapis_lazuli', n: 2, emeralds: 1, stock: 4, dir: 'sells' as const }] : []),
 ];
 
-export const OFFERS: MerchantOffer[] = [...BUYS, ...SELLS];
+export const OFFERS: MerchantOffer[] = [...BASE_BUYS, ...SELLS, ...MORE_BUYS];
+
+/**
+ * #246, #24, #251 (MC_RUNG_BUYS_FIRST, on): the goods the merchant sells for a ladder stage (kept by the world's tradeKeep
+ * while a rung wants them) are bought before anything else: other purchases (a pig pen's carrots, fishing rods, string)
+ * take only the emeralds above what the rung's goods still to buy cost. The rungs test's machines and bees runs spent 8 of
+ * their 15-17 emeralds on carrots and rods while the powered rails' gold and the bee nests waited.
+ */
+export const RUNG_BUYS_FIRST = !/^(off|0|false|no)$/i.test(rawSetting('MC_RUNG_BUYS_FIRST') ?? 'on');
+export const RUNG_BOUGHT = new Set(['gold_ingot', 'bee_nest', 'redstone', 'bell', 'experience_bottle', 'lapis_lazuli', 'leather', 'amethyst_shard', 'sugar_cane']);
+/** The emeralds the rung goods still to buy cost: for each sold rung good, its rung keep (`rungKeep`, undefined while no
+ *  rung wants it) above what storage holds, in whole lots at the offer's price. 0 with MC_RUNG_BUYS_FIRST off. */
+export function rungReserve(rungKeep: (item: string) => number | undefined, store: Counts): number {
+  if (!RUNG_BUYS_FIRST) return 0;
+  let e = 0;
+  for (const o of SELLS) {
+    if (!RUNG_BOUGHT.has(o.item)) continue;
+    const short = (rungKeep(o.item) ?? 0) - (store[o.item] ?? 0);
+    if (short > 0) e += Math.ceil(short / o.n) * o.emeralds;
+  }
+  return e;
+}
 /**
  * s42 (#73, the user's idea at s41: the merchant drives demand): orders. At each restock the merchant posts orders for goods
  * the village's workshop can make ("wants 16 birch_fence, pays 3 emeralds"); an open order raises the good's make target by

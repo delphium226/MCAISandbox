@@ -12,6 +12,7 @@ import { rungNeeds, type RungId } from './wanted';
 import { BEES_AGE, COPPER_AGE, DIAMOND_AGE, DIAMOND_Y, ENCHANTMENT_AGE, HUSBANDRY_AGE, IRON_AGE, IRON_MINERS, LADDER, LADDER_START, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE, NETHER_AGE, SEA_AGE, TRADE_AGE } from './ladderFlags';
 import { boatOf } from './enchantSea';
 import { BUYS, ORDERS_ON } from './merchant';
+import { wildCover } from './wildNests';
 
 export { BEES_AGE, COPPER_AGE, DIAMOND_AGE, ENCHANTMENT_AGE, HUSBANDRY_AGE, IRON_AGE, IRON_MINERS, LADDER, LETTERS, MACHINES_AGE, MAPS_AGE, MUSIC_AGE, NETHER_AGE, NETHER_PARTY, OWN_TOOLS, SEA_AGE, TRADE_AGE } from './ladderFlags';
 
@@ -279,7 +280,7 @@ export const RUNG_DEFS: Record<RungId, RungDef> = {
     // canopy's roof, the copper rung's stage 3)
     stages: BEES_AGE
       ? [
-        { words: '{n} of {t} bee nests with their bees in the village apiary, over campfires among flowers', counter: 'hives', target: BEES_NESTS, feeds: /^(help:apiary|make:campfire|activity:lib:buy:bee_nest|activity:lib:sell)$/ },
+        { words: '{n} of {t} bee nests with their bees over campfires among flowers (in the village apiary, or wild nests tended where they hang)', counter: 'hives', target: BEES_NESTS, feeds: /^(help:apiary|make:campfire|activity:lib:buy:bee_nest|activity:lib:sell|rung:wild_nest)$/ },
         { words: '{n} of {t} honeycomb sheared from full bee nests', counter: 'honeycomb', target: BEES_COMB, feeds: /^(rung:apiary:shear|activity:lib:honeycomb|iron:forge:shears)$/ },
         { words: '{n} of {t} honey bottles filled at the apiary', counter: 'honey', target: BEES_HONEY, feeds: /^(rung:apiary:bottle|make:glass_bottle)$/ },
         { words: '{n} of {t} copper blocks of the copper canopy waxed with honeycomb', counter: 'waxed', target: BEES_WAX, feeds: /^(rung:wax_copper|rung:apiary:shear)$/ },
@@ -816,7 +817,8 @@ export function rungKeep(v: Village, item: string, store: Record<string, number>
     const n = MAPS_WALL - Object.keys(v.maps?.hung ?? {}).length - (store.item_frame ?? 0);
     return n > 0 ? n : undefined;
   }
-  if (beesCurrent(v) && item === 'bee_nest' && stage === 0 && !rungWorkPosted(v, BEES_APIARY)) return BEES_NESTS;
+  // (#251, MC_WILD_NESTS: none bought while the wild nests tended and still to tend cover the hives)
+  if (beesCurrent(v) && item === 'bee_nest' && stage === 0 && !rungWorkPosted(v, BEES_APIARY)) return wildCover(v, BEES_NESTS) ? 0 : BEES_NESTS;
   // (MC_NETHER_AGE: the ingot's 4 gold ingots from the debris stage on, while no ingot is made)
   if (netherCurrent(v) && item === 'gold_ingot' && stage >= 2 && !netheriteHeld(store)) return NETHER_GOLD;
   // (MC_ENCHANTMENT_AGE: bottles o' enchanting while the levels stage is current; a lapis for each book still to enchant)

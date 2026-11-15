@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-315 settings.
+318 settings.
 
 ## Game speed
 
@@ -126,6 +126,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_INNOVATE` | flag | `off` |  |  | On with MC_INNOVATE=on. |
 | `MC_MAKE_PARALLEL` | number | `4` |  |  | Crafting makes going at once in a village (they share the hut's table and its aisle; smelting makes go by furnace). |
 | `MC_MERCHANT` | flag | `on` |  |  | On by default since s42 (Stg2: purchases only of what the village uses); MC_MERCHANT=off turns it off. |
+| `MC_MERCHANT_MORE` | flag | `on` |  | `MC_MERCHANT` | #246, #24, #251 (on by default; off turns it off): the merchant also buys what vanilla's farmer and mason buy and the village holds by the hundred: 6 pumpkins, and 16 granite, andesite or diorite, for an emerald, above a stack kept in storage (the rungs that buy from the merchant waited on 15-21 emeralds in 50 minutes). |
 | `MC_MERCHANT_ORDER_SIZE` | number | `1` |  |  | An order's count in the good's batches (MC_MERCHANT_ORDER_SIZE, 1). |
 | `MC_MERCHANT_ORDERS` | flag | `off` |  | `MC_MERCHANT` | s42 (#73, the user's idea at s41: the merchant drives demand): orders. At each restock the merchant posts orders for goods the village's workshop can make ("wants 16 birch_fence, pays 3 emeralds"); an open order raises the good's make target by its count (a sink for the workshop, F258) and... |
 | `MC_MERCHANT_RESTOCK` | number | `20` |  |  | Minutes between restocks (wall minutes times MC_TIME_SCALE, as the other after-phase clocks). |
@@ -140,6 +141,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_PAY_LEVY` | string | `contracts` |  |  | The levy on contracts (the user's choice 3: gifts go free): 'contracts' or 'off'. |
 | `MC_PAY_MAX` | string | (unset) |  |  | The most a request may offer, in whole emeralds (per step for wages). |
 | `MC_PURSE` | number | `4` |  |  | Emeralds each member gets once, when its own chest is placed (the user's choice 1). |
+| `MC_RUNG_BUYS_FIRST` | flag | `on` |  | `MC_MERCHANT` | #246, #24, #251 (on by default; off turns it off): the goods the merchant sells for a ladder stage (gold, bee nests, redstone, bottles o' enchanting...) are bought first: other purchases (carrots, fishing rods) take only the emeralds above what the rung's goods still cost. |
 | `MC_RUNG_WAGE` | number | `1` |  | `MC_PAY` | MC_RUNG_WAGE (#250; 1 by default, 0 off; nothing while MC_PAY is off): emeralds the village pays into a member's own chest for each chore whose option fed the ladder's current stage when picked and that ended well, at most 5 emeralds a member a village day (one wage when a wage is more); taken from storage's emeralds above the merchant's keep (the trade rung's 40 while trade is current), else minted. The ladder's tag on such options and the progress line say it. |
 | `MC_SPECIAL` | string | (unset) |  |  | Specialisation modes (claim, ...: comma list). |
 | `MC_STORAGE_BARRELS` | flag | `on` |  |  | MC_STORAGE_BARRELS=off: the hut's nine chest spots only (s40: barrels in the six cells between them, on by default). |
@@ -305,6 +307,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_SAND_TRIPS` | flag | `on` |  | `MC_MONUMENT` | MC_SAND_TRIPS=on (#202; off turns it off): when a monument or civic building still wants 128 sand or more for its sandstone and the sand within the village range has run out, members (up to MC_SAND_PARTY at once) fetch a full inventory from the nearest dry sand the atlas knows (beach or desert) up to 400 blocks from home, and brings it to the lodge ([sand] expedition lines). In a world with monsters only in the morning and within the curfew. Two trips that bring nothing end them, and the sandstone stands in as stone bricks. The short lists leave out a sandstone building when the sand the atlas knows in that range is short of it. |
 | `MC_SEA_AGE` | flag | `on` |  | `MC_LADDER` | MC_SEA_AGE (on by default; off turns it off, its stages in words and the rung off the ballot): the age of the sea's four counted stages (3 boats made, a dock built out over the nearest water, 24 fish caught, a lighthouse built); while the rung is current the workshop makes boats in the village's wood, a lantern and a lightning rod, and the village posts the lighthouse. |
 | `MC_TRADE_AGE` | flag | `on` |  | `MC_LADDER` | MC_TRADE_AGE (#246; on by default, the user's rule since 10-30; off turns it off, its stages in words and the rung off the ballot): the age of trade's four counted stages (20 lots sold to the merchant, 3 market stalls standing, 40 emeralds in storage, then 10 merchant orders filled with MC_MERCHANT_ORDERS or else 10 lots of the workshop's torches, glass, stone bricks or bread sold); while the rung is current the workshop keeps a lot more of those goods for sale, storage sells past its emerald keep, and the village posts market stalls. |
+| `MC_WILD_NESTS` | flag | `on` |  | `MC_BEES_AGE` | #251 (on by default; off turns it off): the bees rung tends the wild bee nests the atlas has seen within the village's range where they hang (a nest cannot be moved without Silk Touch): a lit campfire set under each (tend_wild_nest), then it counts as one of the 2 hives and is sheared and bottled like the apiary nests; no nest is bought while the wild ones cover the hives. |
 
 ## Needs and food
 

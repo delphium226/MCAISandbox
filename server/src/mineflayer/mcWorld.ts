@@ -17,7 +17,8 @@ import { FOUNDRY_SKILLS } from './foundry/list';
 import { FLOWERS } from './foundry/flowers';
 import { TOOL } from './mcBlocks';
 import { LIBRARY_KEEP, loadLibrary, type LibrarySpec } from '../library';
-import { BUYS, MERCHANT_ON, MERCHANT_RESTOCK_MIN, MERCHANT_TAG, OFFERS, ORDERS_ON, ORDER_EXPIRE_RESTOCKS, ORDER_RAW_CAP, ORDER_SIZE, levelOf, offersCommands, orderPay, ordersOpen, stablePick, stallCell, summonCommand, villageTag, type MerchantOffer, type MerchantOrder } from '../merchant';
+import { WILD_NESTS, wildCandidates } from '../wildNests';
+import { BUYS, MERCHANT_ON, MERCHANT_RESTOCK_MIN, MORE_ITEMS, MORE_KEEP, RUNG_BOUGHT, rungReserve, MERCHANT_TAG, OFFERS, ORDERS_ON, ORDER_EXPIRE_RESTOCKS, ORDER_RAW_CAP, ORDER_SIZE, levelOf, offersCommands, orderPay, ordersOpen, stablePick, stallCell, summonCommand, villageTag, type MerchantOffer, type MerchantOrder } from '../merchant';
 import { Vec3 } from 'vec3';
 import { collectFilter, collectTargets, exposed, villageStationCell } from './mcSurvival';
 import { at, nearestBlocks, onVillageGround, stateAt } from './mcUtil';
@@ -5265,6 +5266,8 @@ export class MineflayerWorld implements WorldAdapter {
       return v.foodFlow?.short ? Infinity : this.foodKeep(v, 'wheat', store) + 3 * missing;
     }
     if (/_log$/.test(item)) return this.logsKeep(v) + 64;
+    // (MC_MERCHANT_MORE: the farmer's pumpkins and the mason's stones above a stack)
+    if (MORE_ITEMS.has(item)) return MORE_KEEP;
     return 16;
   }
 
@@ -5282,6 +5285,8 @@ export class MineflayerWorld implements WorldAdapter {
       for (const o of m.orders ?? []) if (o.state === 'open' && (spare[o.item] ?? 0) >= o.n) return { offer: { item: o.item, n: o.n, emeralds: o.emeralds, stock: 1, dir: 'buys' }, index: -1, times: 1, order: o.id };
     const store = storageContents(v);
     let best: { offer: MerchantOffer; index: number; times: number; score: number } | null = null;
+    // (MC_RUNG_BUYS_FIRST: what the rung's goods still cost is held back from other purchases)
+    const reserve = dir === 'sells' ? rungReserve((item) => this.tradeKeep(v, item), store) : 0;
     for (const [i, o] of OFFERS.entries()) {
       if (o.dir !== dir) continue;
       const left = o.stock - (m.uses[i] ?? 0);
@@ -5295,7 +5300,8 @@ export class MineflayerWorld implements WorldAdapter {
         // (survival (d), MC_HUNT: string and bone come from the night hunt instead)
         if (!this.merchantUses(v).has(o.item) || (huntOn() && HUNTED_NOT_BOUGHT.has(o.item))) continue;
         const short = keepOf(o.item) - (store[o.item] ?? 0);
-        const times = Math.min(left, maxTimes, Math.ceil(short / o.n), Math.floor((spare.emerald ?? 0) / o.emeralds));
+        const purse = (spare.emerald ?? 0) - (RUNG_BOUGHT.has(o.item) ? 0 : reserve);
+        const times = Math.min(left, maxTimes, Math.ceil(short / o.n), Math.floor(purse / o.emeralds));
         if (short > 0 && times >= 1 && (!best || short > best.score)) best = { offer: o, index: i, times, score: short };
       }
     }
@@ -5471,6 +5477,13 @@ export class MineflayerWorld implements WorldAdapter {
         tag('rung:power_line', 'Lay the powered rails on the rail line', `${line.powered?.length ?? 0} of ${MACHINES_POWERED} powered; ${store.powered_rail ?? 0} powered rails and ${store.redstone_torch ?? 0} redstone torches in storage`,
           'a powered stretch on the line, lit by a redstone torch: the age of machines', job('power_line', 'lay_rail_line', { mode: 'power' }, ['powered_rail', 'redstone_torch']));
     }
+    // (#251, MC_WILD_NESTS: the nearest wild nest still to tend, with a campfire in storage for it)
+    const hut = villageHome(v), wild = WILD_NESTS && beesCurrent(v) && counter === 'hives' && hut ? wildCandidates(v, hut, now, timeScale()) : [];
+    if (wild.length && (store.campfire ?? 0) > 0 && !back('wild_nest')) {
+      const [x, y, z] = wild[0];
+      tag('rung:wild_nest', `Set a campfire under the wild bee nest at ${x},${y},${z}`, `${Math.round(Math.hypot(x - hut!.x, z - hut!.z))} blocks from the storage hut; ${wild.length} wild nest${wild.length === 1 ? '' : 's'} to tend; ${store.campfire} campfires in storage; a nest cannot be moved without Silk Touch, so it is tended where it hangs: the smoke keeps its bees calm`,
+        'a wild bee nest with its bees for the age of bees, nothing bought', job('wild_nest', 'tend_wild_nest', { x, y, z }, ['campfire']), 990, { x, z });
+    }
     if (beesCurrent(v) && apiaryNests(v).length && (v.apiary?.housed?.length ?? 0) > 0) {
       const tended = v.apiary?.tended ?? {};
       const due = (what: string) => now - (tended[what] ?? 0) > (3 * 60000) / Math.max(1, timeScale());
@@ -5590,6 +5603,16 @@ export class MineflayerWorld implements WorldAdapter {
     const st = v.ladder, sd = st?.current ? RUNG_DEFS[st.current as RungId]?.stages[st.stage] : undefined;
     // (MC_BEES_AGE: an apiary standing whose nests have not all taken their bees, tried again)
     if (beesCurrent(v) && (v.apiary?.housed?.length ?? 0) < BEES_NESTS && (v.initiatives ?? []).some((i) => i.kind === BEES_APIARY && i.state === 'built')) this.houseBees(v, STALL_BY);
+    // (#251, MC_WILD_NESTS: the wild bee nests the atlas has seen within the village's range, recorded for tending)
+    if (WILD_NESTS && beesCurrent(v) && stageCounter(v) === 'hives') {
+      const home = villageHome(v), seen = home ? this.atlas.nestsNear(home.x, home.z, VILLAGE_RANGE) : [];
+      const fresh = seen.map((p) => p.join(',')).filter((k) => !v.apiary?.wild?.[k]);
+      if (fresh.length) {
+        v.apiary = { ...v.apiary, wild: { ...v.apiary?.wild, ...Object.fromEntries(fresh.map((k) => [k, {}])) } };
+        this.villages.save();
+        console.log(`[bees] ${v.name}: wild bee nests seen within ${VILLAGE_RANGE}: ${fresh.join('; ')} (${Object.keys(v.apiary.wild ?? {}).length} known)`);
+      }
+    }
     const want = sd?.counter === 'stalls' && tradeCurrent(v) ? 'market_stall' : sd?.counter === 'croof' && copperCurrent(v) ? COPPER_CANOPY
       : sd?.counter === 'bandstand' && musicCurrent(v) ? MUSIC_BANDSTAND : sd?.counter === 'bell' && musicCurrent(v) ? MUSIC_BELL_POST
       : sd?.counter === 'hives' && beesCurrent(v) ? BEES_APIARY : sd?.counter === 'mapwall' && mapsCurrent(v) ? MAPS_WALL_WORK

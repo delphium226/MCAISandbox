@@ -41,7 +41,7 @@ await sec('the pig pen', () => {
   const o = M.OFFERS.find((x) => x.item === 'carrot' && x.dir === 'sells');
   // (#247, MC_COPPER_AGE: the amethyst shard appended after it; MC_MUSIC_AGE: the redstone after that)
   let last = M.OFFERS.length - 1;
-  while (last > 0 && ['amethyst_shard', 'redstone', 'bell', 'gold_ingot', 'bee_nest'].includes(M.OFFERS[last].item)) last--;
+  while (last > 0 && ['amethyst_shard', 'redstone', 'bell', 'gold_ingot', 'bee_nest', 'pumpkin', 'granite', 'andesite', 'diorite'].includes(M.OFFERS[last].item)) last--;
   ok(o && M.OFFERS.indexOf(o) === last, 'the merchant sells carrots, last in its list but for the rungs\' goods appended after (saved uses keep their indices)');
 });
 

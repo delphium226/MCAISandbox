@@ -56,6 +56,7 @@ import { pathLamps, planPadPaths, planRailLine, poweredRun } from '../padPaths';
 import { parseRefit } from '../refit';
 import { CHOOSE } from '../choose';
 import { COPPER_AGE, DIAMOND_AGE, IRON_AGE, LETTERS, LETTERS_PACE, OWN_TOOLS } from '../ladderFlags';
+import { SMOKE_REACH, WILD_NESTS, campfireCell, wildTended } from '../wildNests';
 import { BEES_APIARY, COPPER_CANOPY, breedRoom, ENCHANT_BOOKS, ENCHANT_OBSIDIAN, MACHINES_POWERED, MAPS_WALL_WORK, RAIL_LINE_MAX, cellKey as mapKey, chartPoint, mapCell, villageCentre, wallCells } from '../ladder';
 import { APIARY_NESTS, MAP_WALL_FRAMES } from '../smallWorks';
 import { boardSigns, claimRule, zoneBoxes } from '../rules';
@@ -7959,6 +7960,7 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   fit_egg_collector: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), undefined), run: fitEggCollector },
   lay_rail_line: { run: layRailLine },
   tend_apiary: { run: tendApiary },
+  tend_wild_nest: { check: (x) => (num(x.x, 'x'), num(x.y, 'y'), num(x.z, 'z'), undefined), run: tendWildNest },
   wax_copper: { run: waxCopper },
   chart_map: { check: (x) => (num(x.i, 'i'), num(x.j, 'j'), undefined), run: chartMap },
   hang_maps: { run: hangMaps },
@@ -8210,10 +8212,11 @@ async function layRailLine(a: BotAgent, args: Record<string, unknown>, signal: A
 /** The bees a nest bought from the merchant comes with (set in it by command once the apiary stands). */
 export const NEST_BEES = '{bees:[{entity_data:{id:"minecraft:bee"},min_ticks_in_hive:0,ticks_in_hive:0},{entity_data:{id:"minecraft:bee"},min_ticks_in_hive:0,ticks_in_hive:0}]}';
 
-/** The apiary's nests in the world (the design's nest cells at its structure). */
+/** The apiary's nests in the world (the design's nest cells at its structure), then the wild nests tended where they hang
+ *  (#251, MC_WILD_NESTS). */
 export function apiaryNests(v: Village): Array<[number, number, number]> {
   const w = rungWorkAt(v, BEES_APIARY);
-  return w ? APIARY_NESTS.map(([x, l, z]): [number, number, number] => [w.s.x1 + x, w.s.y + l, w.s.z1 + z]) : [];
+  return [...(w ? APIARY_NESTS.map(([x, l, z]): [number, number, number] => [w.s.x1 + x, w.s.y + l, w.s.z1 + z]) : []), ...(WILD_NESTS ? wildTended(v) : [])];
 }
 
 /**
@@ -8247,8 +8250,9 @@ async function tendApiary(a: BotAgent, args: Record<string, unknown>, signal: Ab
     checkAbort(signal);
     if ((await serverCount(a, tool)) < 1) break;
     const [x, y, z] = n;
-    // (in front of the nest, south: its face; feet a layer below it)
-    await walk(a, new goals.GoalNear(x, y - 1, z + 1, 1), `the bee nest at ${x},${y},${z}`, signal, 60000).catch((e: Error) => {
+    // (in front of the nest, south: its face; feet a layer below it. #251: a wild nest from beside its campfire, below it)
+    const fire = v.apiary?.wild?.[`${x},${y},${z}`]?.campfire;
+    await walk(a, fire ? new goals.GoalNear(fire[0], fire[1], fire[2], 2) : new goals.GoalNear(x, y - 1, z + 1, 1), `the bee nest at ${x},${y},${z}`, signal, 60000).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
     });
     if (!(await full(n))) continue;
@@ -8256,8 +8260,8 @@ async function tendApiary(a: BotAgent, args: Record<string, unknown>, signal: Ab
     const block = a.bot.blockAt(new Vec3(x, y, z));
     if (!item || !block) continue;
     await a.bot.equip(item, 'hand');
-    await a.bot.lookAt(new Vec3(x + 0.5, y + 0.5, z + 0.95), true);
-    await a.bot.activateBlock(block, new Vec3(0, 0, 1)).catch(() => undefined);
+    await a.bot.lookAt(fire ? new Vec3(x + 0.5, y + 0.05, z + 0.5) : new Vec3(x + 0.5, y + 0.5, z + 0.95), true);
+    await a.bot.activateBlock(block, fire ? new Vec3(0, -1, 0) : new Vec3(0, 0, 1)).catch(() => undefined);
     let emptied = false;
     for (let i = 0; i < 8 && !emptied; i++) {
       await sleep(250, signal);
@@ -8280,6 +8284,54 @@ async function tendApiary(a: BotAgent, args: Record<string, unknown>, signal: Ab
   a.world.villages.note(v, `${a.name} ${out}`);
   console.log(`[bees] ${v.name}: ${a.name} ${out}`);
   return out;
+}
+
+/**
+ * #251 (MC_WILD_NESTS): a wild bee nest tended where it hangs. The member walks to it, reads the blocks under it, and sets
+ * a lit campfire on the first open cell over solid ground within 5 below (wildNests.ts campfireCell: the smoke must rise
+ * to the nest), by command charged to its inventory (runJob, a campfire withdrawn from storage); the server confirms the
+ * campfire and that the nest has bees (in it, or a bee within 16 blocks: by day they are out at the flowers). The nest is
+ * then one of the rung's hives (`apiary.housed`) and the apiary's shearing and bottling go to it. A nest that cannot be
+ * tended is recorded with why, and tried again after WILD_RETRY_MIN.
+ */
+async function tendWildNest(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('tend_wild_nest: not in a village');
+  const [x, y, z] = [num(args.x, 'x'), num(args.y, 'y'), num(args.z, 'z')].map(Math.floor);
+  const key = `${x},${y},${z}`;
+  const rcon = (c: string) => a.world.rcon.command(c).catch(() => '');
+  const fail = (why: string): never => {
+    v.apiary = { ...v.apiary, wild: { ...v.apiary?.wild, [key]: { fail: why, at: Date.now() } } };
+    a.world.villages.save();
+    console.log(`[bees] ${v.name}: ${a.name} could not tend the wild bee nest at ${key}: ${why}`);
+    throw new Error(`tend_wild_nest: ${why}`);
+  };
+  if (v.apiary?.wild?.[key]?.campfire) return `the wild bee nest at ${key} is tended already`;
+  await walk(a, new goals.GoalNearXZ(x, z, 3), `the wild bee nest at ${key}`, signal, 120000).catch((e: Error) => {
+    if (e.message === 'cancelled') throw e;
+  });
+  if (!passed(await rcon(`execute if block ${x} ${y} ${z} minecraft:bee_nest`))) fail('no bee nest there any more');
+  const under: string[] = [];
+  for (let k = 1; k <= SMOKE_REACH + 1; k++) under.push(a.bot.blockAt(new Vec3(x, y - k, z))?.name ?? '');
+  const cell = campfireCell(under, (n) => !!n && a.world.registry.blocksByName[n]?.boundingBox === 'block');
+  if ('why' in cell) return fail(cell.why);
+  const cy = y - cell.k;
+  let summary = 'a lit campfire there already';
+  if (!cell.have) {
+    summary = await runJob(a, { targets: [{ x, y: cy, z, block: 'campfire[lit=true]' }], area: { x1: x, z1: z, x2: x, z2: z }, y: cy, what: 'the campfire under the wild bee nest' }, signal);
+    await sleep(500, signal);
+  }
+  if (!passed(await rcon(`execute if block ${x} ${cy} ${z} minecraft:campfire[lit=true]`))) throw new Error(`tend_wild_nest: the server shows no lit campfire at ${x},${cy},${z} after the build (${summary.slice(0, 120)})`);
+  const bees = passed(await rcon(`execute if data block ${x} ${y} ${z} bees[0]`)) || passed(await rcon(`execute if entity @e[type=minecraft:bee,x=${x},y=${y},z=${z},distance=..16]`));
+  if (!bees) return fail('the nest has no bees in it or near it');
+  const housed = new Set(v.apiary?.housed ?? []);
+  housed.add(key);
+  v.apiary = { ...v.apiary, housed: [...housed], wild: { ...v.apiary?.wild, [key]: { campfire: [x, cy, z], at: Date.now() } } };
+  a.world.villages.save();
+  const out = `tended the wild bee nest at ${key}: a lit campfire under it at ${x},${cy},${z} (${housed.size} of the apiary's nests with their bees)`;
+  a.world.villages.note(v, `${a.name} ${out}`);
+  console.log(`[bees] ${v.name}: ${a.name} ${out}`);
+  return `${out} (${summary})`;
 }
 
 /** The copper blocks the canopy's roof can hold and their waxed forms (a placed block oxidises by random ticks). */

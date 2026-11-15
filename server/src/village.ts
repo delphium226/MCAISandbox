@@ -577,7 +577,9 @@ export interface Village {
     line?: RailLineRecord;
   };
   /** G8's bees rung (MC_BEES_AGE): the apiary's nests that took their bees ("x,y,z"), and when each was last tended. */
-  apiary?: { housed?: string[]; tended?: Record<string, number> };
+  /** #251 (MC_WILD_NESTS): wild bee nests ("x,y,z") the village tends in place, each with the lit campfire set under it,
+   *  or why it could not be (tried again after WILD_RETRY_MIN). A wild nest with its campfire is housed too. */
+  apiary?: { housed?: string[]; tended?: Record<string, number>; wild?: Record<string, { campfire?: [number, number, number]; fail?: string; at?: number }> };
   /** G8's maps rung (MC_MAPS_AGE; mcBuild.ts chart_map, hang_maps): the map areas charted ("i,j": the map's id, its maker,
    *  when) and the map wall's frames hung ("nw"...: the map id in it, confirmed by the server). */
   maps?: { cells?: Record<string, { id: number; by: string; t: number }>; hung?: Record<string, number> };

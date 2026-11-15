@@ -50,6 +50,11 @@ export interface ChunkSummary {
   geode?: [number, number, number, number];
   /** Set on summaries that looked for budding amethyst (1). */
   gv?: number;
+  /** #251 (MC_WILD_NESTS): wild bee nests in the column: how many, and the first (x, y, z). Missing when none or in
+   *  summaries from before. */
+  nest?: [number, number, number, number];
+  /** Set on summaries that looked for bee nests (1). */
+  nv?: number;
 }
 
 /** Surface materials, with the letter a map cell gets when it is mostly that. */
@@ -121,6 +126,8 @@ export class Atlas {
   private ore: Uint8Array;
   /** Budding amethyst's state ids (one block, one state). */
   private budding = new Set<number>();
+  /** Bee nests' state ids (#251). */
+  private nests = new Set<number>();
   private air: Uint8Array;
   /** Per state: 1 + its index in PLANT_KINDS (0: no plant of a kind recorded). */
   private plant: Uint8Array;
@@ -147,6 +154,7 @@ export class Atlas {
     this.plant = new Uint8Array(n);
     for (const b of reg.blocksArray) {
       if (b.name === 'budding_amethyst') for (let s = b.minStateId; s <= b.maxStateId; s++) this.budding.add(s);
+      if (b.name === 'bee_nest') for (let s = b.minStateId; s <= b.maxStateId; s++) this.nests.add(s);
       const pk = PLANT_KINDS.indexOf(b.name) + 1;
       if (pk) for (let s = b.minStateId; s <= b.maxStateId; s++) this.plant[s] = pk;
       const ore = /^(?:deepslate_)?(\w+?)_ore$/.exec(b.name);
@@ -185,8 +193,8 @@ export class Atlas {
   loaded(cx: number, cz: number) {
     const k = `${cx},${cz}`;
     const had = this.chunks.get(k);
-    // (#162 tier 3: a summary from before budding amethyst was looked for is made again)
-    if (!had || !had.gv || Date.now() - had.t > RESCAN_LOADED_MS) this.queue.set(k, [cx, cz]);
+    // (#162 tier 3: a summary from before budding amethyst was looked for is made again; #251: bee nests too)
+    if (!had || !had.gv || !had.nv || Date.now() - had.t > RESCAN_LOADED_MS) this.queue.set(k, [cx, cz]);
   }
 
   /** A block changed at x, z: its chunk is summarised again (at most once a minute). */
@@ -347,7 +355,35 @@ export class Atlas {
       // (always, empty too: "scanned, none" differs from a summary from before plants were recorded, the review's L2)
       plants,
       ...this.buddingIn(col, top, cx, cz), gv: 1,
+      ...this.nestsIn(col, top, cx, cz), nv: 1,
     };
+  }
+
+  /** #251: the column's bee nests (sections whose palette holds one only). */
+  private nestsIn(col: Column, top: number, cx: number, cz: number): { nest?: [number, number, number, number] } {
+    let n = 0, at: [number, number, number] | null = null;
+    for (let i = 0; i <= top; i++) {
+      const sec = col.sections[i];
+      if (!sec || !sec.solidBlockCount || !sec.palette?.some((st) => this.nests.has(st))) continue;
+      const y0 = col.minY + i * 16;
+      for (let j = 0; j < 4096; j++) {
+        if (!this.nests.has(sec.data.get(j))) continue;
+        n++;
+        at ??= [cx * 16 + (j & 15), y0 + (j >> 8), cz * 16 + ((j >> 4) & 15)];
+      }
+    }
+    return n && at ? { nest: [n, ...at] } : {};
+  }
+
+  /** #251: the wild bee nests the atlas has seen within r of x, z (the first of each chunk), nearest first. */
+  nestsNear(x: number, z: number, r: number): Array<[number, number, number]> {
+    const out: Array<[number, number, number]> = [];
+    for (let cx = (x - r) >> 4; cx <= (x + r) >> 4; cx++)
+      for (let cz = (z - r) >> 4; cz <= (z + r) >> 4; cz++) {
+        const n = this.chunks.get(`${cx},${cz}`)?.nest;
+        if (n && Math.hypot(n[1] - x, n[3] - z) <= r) out.push([n[1], n[2], n[3]]);
+      }
+    return out.sort((p, q) => Math.hypot(p[0] - x, p[2] - z) - Math.hypot(q[0] - x, q[2] - z));
   }
 
   /** #162 tier 3, chain C: the column's budding amethyst (sections whose palette holds it only). */
