@@ -217,3 +217,189 @@ export function planStair(p: Cell, t: Cell, name: (x: number, y: number, z: numb
 
 /** The overworld point a Nether position stands for (vanilla's 1:8). */
 export const overworldOf = (c: { x: number; z: number }) => ({ x: c.x * 8, z: c.z * 8 });
+
+/*
+ * B4, the long Nether walk applied to the debris dig (MC_NETHER_TREK; spec section 2, B4). Round minevale3's far portal
+ * the portal stands on a floating island in the open cave over the lava sea: walking reaches 171 cells, none off it, and no
+ * dry debris (11-15's measurement of world 2's region files). One flat bridge of netherrack at the island's level (25-34
+ * blocks there) reaches the mainland, with 25 dry debris within 100 blocks and 364 within 300. So a trek: the bridge (laid
+ * once, kept for later trips), then legs of up to 40 blocks toward the nearest debris that is not under lava, each leg's
+ * end a breadcrumb, a dig wherever a safe stair reaches one, and the way back along the breadcrumbs.
+ */
+
+/** A trek's limits: legs of 40 blocks, out to 300 from the far portal, a bridge of at most 40 netherrack, a ground of
+ *  1500 standing cells counted as the mainland, the trip 15 minutes (game time) with the walk out ending at 8, walk reach
+ *  read 40 across at most 4000 cells (one event loop serves every bot, lesson 16). */
+export const TREK = { leg: 40, out: 300, bridge: 40, mainland: 1500, tripMin: 15, outMin: 8, reach: 40, cap: 4000 };
+
+/** A member's trek while it is out (BotAgent.trek): the breadcrumbs (each leg's end; the first the bridge's far end), the
+ *  pinned stalls it backed off from, and whether a pinned stall ended it. */
+export interface Trek { crumbs: Cell[]; backoffs: number; ended?: boolean }
+
+type Name = (x: number, y: number, z: number) => string;
+const AIRN = /^(air|cave_air|void_air)$/;
+const SOFT = /^(crimson_fungus|warped_fungus|crimson_roots|warped_roots|nether_sprouts|twisting_vines|twisting_vines_plant|weeping_vines|weeping_vines_plant|short_grass|red_mushroom|brown_mushroom)$/;
+/** A cell a body passes through (air, or a Nether plant). */
+const clearAt = (n: string) => AIRN.test(n) || SOFT.test(n);
+const SIX = [[0, 0, 0], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+const DIRS4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+/** Lava or fire in the cell or beside it (or the cell not loaded). */
+function hotBy(name: Name, x: number, y: number, z: number): boolean {
+  return SIX.some(([dx, dy, dz]) => { const n = name(x + dx, y + dy, z + dz); return !n || HOT.test(n); });
+}
+const key = (c: Cell) => `${c.x},${c.y},${c.z}`;
+
+/** A cell a member can stand in on a trek: firm ground under it (not lava, fire, water, magma or a portal), its feet and
+ *  head clear, no lava or fire in or beside either. */
+export function standable(name: Name, x: number, y: number, z: number): boolean {
+  const g = name(x, y - 1, z);
+  if (!g || clearAt(g) || HOT.test(g) || /^(water|nether_portal|magma_block)$/.test(g)) return false;
+  const f = name(x, y, z), h = name(x, y + 1, z);
+  if (!f || !h || !clearAt(f) || !clearAt(h)) return false;
+  return !hotBy(name, x, y, z) && !hotBy(name, x, y + 1, z);
+}
+
+/**
+ * Where a member walks from `start` without digging (the measurement's rule, close to the pathfinder's): a step to a side
+ * cell level, one up (head room over the start), or down by up to 3 (the column clear), onto a standable cell; within
+ * `radius` across, at most `cap` cells. The cells with their walk steps.
+ */
+export function walkReach(start: Cell, name: Name, radius = TREK.reach, cap = TREK.cap): Map<string, { c: Cell; d: number }> {
+  const out = new Map<string, { c: Cell; d: number }>();
+  const memo = new Map<string, boolean>();
+  const can = (c: Cell) => { const k = key(c); let s = memo.get(k); if (s === undefined) memo.set(k, (s = standable(name, c.x, c.y, c.z))); return s; };
+  out.set(key(start), { c: start, d: 0 });
+  const q: Cell[] = [start];
+  for (let i = 0; i < q.length && out.size < cap; i++) {
+    const p = q[i], d = out.get(key(p))!.d;
+    for (const [dx, dz] of DIRS4) for (const dy of [1, 0, -1, -2, -3]) {
+      const n = { x: p.x + dx, y: p.y + dy, z: p.z + dz };
+      if (Math.abs(n.x - start.x) > radius || Math.abs(n.z - start.z) > radius || out.has(key(n))) continue;
+      if (dy === 1 && !clearAt(name(p.x, p.y + 2, p.z))) continue;
+      if (dy < 0) {
+        let ok = true;
+        for (let h = dy + 2; h < 2 && ok; h++) ok = clearAt(name(n.x, p.y + h, n.z));
+        if (!ok) continue;
+      }
+      if (!can(n)) continue;
+      out.set(key(n), { c: n, d: d + 1 });
+      q.push(n);
+      if (out.size >= cap) break;
+    }
+  }
+  return out;
+}
+
+/** Whether a standing cell is on the mainland: walking from it reaches TREK.mainland cells (a small islet does not). */
+export function onMainland(c: Cell, name: Name): boolean {
+  return walkReach(c, name, 64, TREK.mainland).size >= TREK.mainland;
+}
+
+/** A bridge off the far portal's island: the cell it starts from, the feet cells walked in order, the floor cells laid
+ *  with netherrack (the ones over air), and the landing on the mainland. */
+export interface BridgePlan { from: Cell; path: Cell[]; cells: Cell[]; land: Cell }
+
+/**
+ * The cheapest flat bridge at feet level `y` from the island's cells (`island`, the walk reach from the far portal) to the
+ * mainland: a walk over the plane at that level, a step onto existing firm ground free, a step over air one netherrack laid
+ * under it; never lava or fire in or beside the feet, the head or the floor, no lava within 3 under the floor (no
+ * bridging at lava level), no water or portal under it; at most `max` blocks. Null when none lands.
+ */
+export function planBridge(island: Cell[], y: number, name: Name, max = TREK.bridge, mainland: (c: Cell) => boolean = (c) => onMainland(c, name)): BridgePlan | null {
+  const home = new Set(island.map(key));
+  const starts = island.filter((c) => c.y === y);
+  if (!starts.length) return null;
+  const k2 = (x: number, z: number) => `${x},${z}`;
+  const cost = new Map<string, number>(), parent = new Map<string, string>(), small = new Set<string>();
+  const layers: Array<Array<[number, number]>> = [[]];
+  for (const c of starts) { cost.set(k2(c.x, c.z), 0); layers[0].push([c.x, c.z]); }
+  const x0 = Math.min(...starts.map((c) => c.x)) - max - 8, x1 = Math.max(...starts.map((c) => c.x)) + max + 8;
+  const z0 = Math.min(...starts.map((c) => c.z)) - max - 8, z1 = Math.max(...starts.map((c) => c.z)) + max + 8;
+  const back = (x: number, z: number): BridgePlan => {
+    const path: Cell[] = [];
+    let k: string | undefined = k2(x, z);
+    while (k) { const [px, pz] = k.split(',').map(Number); path.unshift({ x: px, y, z: pz }); k = parent.get(k); }
+    const from = path.shift()!;
+    const cells = path.filter((c) => AIRN.test(name(c.x, y - 1, c.z))).map((c) => ({ x: c.x, y: y - 1, z: c.z }));
+    return { from, path, cells, land: { x, y, z } };
+  };
+  for (let b = 0; b < layers.length && b <= max; b++) {
+    const layer = layers[b];
+    for (let i = 0; i < layer.length; i++) {
+      const [x, z] = layer[i];
+      if (cost.get(k2(x, z)) !== b) continue;
+      for (const [dx, dz] of DIRS4) {
+        const nx = x + dx, nz = z + dz;
+        if (nx < x0 || nx > x1 || nz < z0 || nz > z1) continue;
+        const f = name(nx, y, nz), h = name(nx, y + 1, nz), g = name(nx, y - 1, nz);
+        if (!f || !h || !g || !clearAt(f) || !clearAt(h) || hotBy(name, nx, y, nz) || hotBy(name, nx, y + 1, nz) || hotBy(name, nx, y - 1, nz)) continue;
+        if (/^(water|nether_portal)$/.test(g) || HOT.test(g)) continue;
+        let w = 0;
+        if (clearAt(g)) {
+          // (a plant is no floor; air only, and nothing hot within 3 under it)
+          if (!AIRN.test(g)) continue;
+          let dry = true;
+          for (let k = 2; k <= 4 && dry; k++) { const u = name(nx, y - k, nz); dry = !!u && !HOT.test(u); }
+          if (!dry) continue;
+          w = 1;
+        }
+        const nb = b + w, nk = k2(nx, nz);
+        if (nb > max || (cost.get(nk) ?? Infinity) <= nb) continue;
+        cost.set(nk, nb);
+        parent.set(nk, k2(x, z));
+        const cell = { x: nx, y, z: nz };
+        if (w === 0 && !home.has(key(cell)) && !small.has(key(cell)) && standable(name, nx, y, nz)) {
+          if (mainland(cell)) return back(nx, nz);
+          small.add(key(cell));
+        }
+        (layers[nb] ??= []).push([nx, nz]);
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * The next leg's end: of the cells the member reaches by walking (`reach`), within a leg's walk, the one nearest the
+ * target across; only if it comes at least 6 blocks nearer than where the member stands. Null: no way on toward it.
+ */
+export function chooseLeg(reach: Map<string, { c: Cell; d: number }>, cur: Cell, target: Cell, leg = TREK.leg): Cell | null {
+  const far = (c: Cell) => Math.hypot(c.x - target.x, c.z - target.z);
+  let best: Cell | null = null, bd = far(cur) - 6;
+  for (const { c, d } of reach.values()) {
+    if (d > leg * 2) continue;
+    const q = far(c);
+    if (q < bd) { bd = q; best = c; }
+  }
+  return best;
+}
+
+/** Whether a debris is worth walking toward: safe to dig and no lava in its column within 24 above it (not under the lava
+ *  sea or a lake), every cell read loaded. */
+export function trekTarget(c: Cell, name: Name): boolean {
+  if (!safeToDig(c, { x: c.x, y: c.y + 99, z: c.z }, name)) return false;
+  for (let k = 1; k <= 24; k++) { const n = name(c.x, c.y + k, c.z); if (!n || HOT.test(n)) return false; }
+  return true;
+}
+
+/**
+ * The trek-aware pinned rule (spec section 6, risk 10): a walk pinned on a trek does not send the member home (the far
+ * portal) but back to the last breadcrumb more than 6 blocks off, twice at most; after that the trek ends where it is
+ * (null) and the way back starts, keeping what it dug.
+ */
+export function trekPinned(t: Trek, pos: Cell): Cell | null {
+  if (t.backoffs >= 2) return null;
+  for (let i = t.crumbs.length - 1; i >= 0; i--) {
+    const c = t.crumbs[i];
+    if (Math.hypot(c.x - pos.x, c.y - pos.y, c.z - pos.z) > 6) return c;
+  }
+  return null;
+}
+
+/** The debris option's back-off after a trip, in game minutes: 4, doubled for each trip in a row that dug nothing, to 32. */
+export const futileBackoffMin = (futile: number) => 4 * 2 ** Math.max(0, Math.min(3, futile));
+
+/** Whether a Nether cell is one of the bridge's floor blocks (expeditions and stairs keep off it). */
+export function onBridge(bridge: { cells: Cell[] } | undefined, c: Cell): boolean {
+  return !!bridge && bridge.cells.some((q) => q.x === c.x && q.y === c.y && q.z === c.z);
+}

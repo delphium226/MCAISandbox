@@ -11,7 +11,8 @@ import type { BotAgent } from './botAgent';
 import type { Village } from '../village';
 import { villageHome } from '../village';
 import { NETHER_BLOCKS, NETHER_DEBRIS, NETHER_PARTY } from '../ladder';
-import { DEBRIS_REACH, DEBRIS_Y, DIG_NETHER, FRAME_BLOCKS, HOT, TRIP_BLOCKS, TRIP_MIN, exposed, farStand, frameCells, inTripBox, innerCells, nearPortal, planPortal, planStair, safeToDig, stairStep, type Cell, type PortalSite } from '../netherPlan';
+import { DEBRIS_REACH, DEBRIS_Y, DIG_NETHER, FRAME_BLOCKS, HOT, TREK, TRIP_BLOCKS, TRIP_MIN, chooseLeg, exposed, farStand, frameCells, inTripBox, innerCells, nearPortal, onBridge, planBridge, planPortal, planStair, safeToDig, stairStep, trekTarget, walkReach, type BridgePlan, type Cell, type PortalSite } from '../netherPlan';
+import { NETHER_TREK } from '../ladderFlags';
 import { dimOf, inDim, overworld } from './mcDim';
 import { recall } from './mcRescue';
 import { timeScale } from './mcRules';
@@ -375,7 +376,7 @@ export async function netherExpedition(a: BotAgent, args: Record<string, unknown
     while (dug < want && Date.now() < deadline) {
       checkAbort(signal);
       const feet = a.bot.entity.position.floored();
-      const keep = (q: Vec3) => !tried.has(`${q.x},${q.y},${q.z}`) && inTripBox(far, q) && !nearPortal(far, q, true) && exposed(q, name) && safeToDig(q, feet, name);
+      const keep = (q: Vec3) => !tried.has(`${q.x},${q.y},${q.z}`) && inTripBox(far, q) && !nearPortal(far, q, true) && !onBridge(v.nether?.bridge, q) && exposed(q, name) && safeToDig(q, feet, name);
       const c = nearestBlocks(a, ids, 10, 24, keep)[0] ?? nearestBlocks(a, ids, 20, 24, keep)[0];
       if (!c) break;
       tried.add(`${c.x},${c.y},${c.z}`);
@@ -410,7 +411,10 @@ export async function netherExpedition(a: BotAgent, args: Record<string, unknown
  * finds ancient debris in the chunks it holds at y 8-119 within 64 blocks (Paper's anti-xray is off: the probe read 6-7
  * there), and digs to each by the walks' own rules (natural Nether ground only; no block dug beside lava or water, the
  * pathfinder's flow rule; lava avoided), the debris itself only with no lava or fire beside it; back in a `finally`.
- * Counted on the server before and after ("dug N ancient debris").
+ * With MC_NETHER_TREK (B4) the trip is a trek: off the far portal's island by the village's bridge (laid the first time,
+ * netherrack charged to the member), then legs of up to 40 blocks toward debris clear of lava, each leg's end a
+ * breadcrumb, a dig wherever a safe stair reaches one, out for 8 minutes and to 300 blocks at most, the way back along
+ * the breadcrumbs; the trip 15 minutes. Counted on the server before and after ("dug N ancient debris").
  */
 export async function netherDig(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const v = a.village();
@@ -418,87 +422,308 @@ export async function netherDig(a: BotAgent, args: Record<string, unknown>, sign
   if (!v.nether?.portal?.lit) throw new Error('nether_dig: the village has no lit Nether portal');
   if (!overworld(a)) throw new Error(`nether_dig: already in ${dimOf(a)}`);
   const want = Math.max(1, Math.min(NETHER_DEBRIS, Number(args.n) || 2));
-  const deadline = Date.now() + tripMs(12);
+  const trek = NETHER_TREK;
+  const t0 = Date.now();
+  const deadline = t0 + tripMs(trek ? TREK.tripMin : 12), outBy = t0 + tripMs(TREK.outMin);
   const full = await joinParty(a, v, signal, deadline + tripMs(2));
   if (full) throw new Error(`nether_dig: ${full}`);
   const pick = await pickaxe(a, v, signal, ['netherite_pickaxe', 'diamond_pickaxe']);
   if (!pick) netherParty.drop(v.name, a.name);
   if (!pick) throw new Error('nether_dig: no diamond pickaxe (ancient debris drops nothing to a lesser one; the diamond age forges them)');
   const before = await count(a, 'ancient_debris');
-  // (netherrack to bridge the stair over caves: the expeditions' from storage, up to 16)
-  const rack = Math.min(32, storageContents(v).netherrack ?? 0);
-  if (rack > 0 && (await count(a, 'netherrack')) < 8) await withdrawItems(a, v, { netherrack: rack }, signal).catch((e: Error) => {
+  // (netherrack to bridge the stair over caves, and the trek's bridge: the expeditions' from storage)
+  const rack = Math.min(trek ? 64 : 32, storageContents(v).netherrack ?? 0);
+  if (rack > 0 && (await count(a, 'netherrack')) < (trek ? 40 : 8)) await withdrawItems(a, v, { netherrack: rack }, signal).catch((e) => {
     if (e.message === 'cancelled') throw e;
   });
   const tally = { bridged: 0 };
   const notes: string[] = [];
-  let seen = 0, failed = 0, back = '';
+  const tried = new Set<string>(), aimed = new Set<string>();
+  let seen = 0, failed = 0, back = '', legs = 0, farthest = 0, legFails = 0;
+  let aim: Cell | null = null;
   try {
     notes.push(await enterPortal(a, v, signal));
-    const id = a.world.registry.blocksByName.ancient_debris.id;
-    const tried = new Set<string>();
+    const far = v.nether!.far!;
     const name = (x: number, y: number, z: number) => nameAt(a, x, y, z);
+    if (trek) {
+      a.trek = { crumbs: [], backoffs: 0 };
+      console.log(`[nether] ${v.name}: ${a.name} starts a trek from the far portal at ${far.x},${far.y},${far.z}`);
+      await crossBridge(a, v, signal, notes);
+    }
     while ((await count(a, 'ancient_debris')) - before < want && Date.now() < deadline) {
       checkAbort(signal);
-      const feet = a.bot.entity.position.floored();
-      // (every one in reach: nether12's 24 nearest all lay under the lava sea, and the 3 above it were never weighed)
-      const all = nearestBlocks(a, [id], DEBRIS_REACH, 96, (q) => !tried.has(`${q.x},${q.y},${q.z}`), DEBRIS_Y);
-      seen = Math.max(seen, all.length);
-      // (the first whose whole stair, read before any dig, keeps off lava and loose ground: netherPlan.ts planStair)
-      const rack = await count(a, 'netherrack');
-      // (from where it stands, else from a standing cell round the far portal nearer the debris: minevale3's portal stands
-      // over the lava sea, and every stair from it met lava, nether10 11-14)
-      const starts = [feet, ...standCells(a, v.nether!.far!, 24)];
-      let c: Vec3 | undefined, from: Cell | undefined, best = Infinity;
-      for (const q of all) {
-        if (!safeToDig(q, feet, name)) continue;
-        const near = starts.slice(1).sort((u, w) => Math.hypot(u.x - q.x, u.z - q.z) - Math.hypot(w.x - q.x, w.z - q.z)).slice(0, 4);
-        for (const st of [feet, ...near]) {
-          const r = planStair(st, q, name, rack);
-          const cost = 'steps' in r ? r.steps + Math.hypot(st.x - feet.x, st.z - feet.z) : Infinity;
-          if (cost < best) { best = cost; c = q; from = st; }
-        }
-      }
-      if (c && from && (from.x !== feet.x || from.y !== feet.y || from.z !== feet.z)) {
-        await walk(a, new goals.GoalBlock(from.x, from.y, from.z), `the stair's head at ${from.x},${from.y},${from.z}`, signal, 60000).catch((e: Error) => {
-          if (e.message === 'cancelled') throw e;
-        });
-        const q = a.bot.entity.position.floored();
-        if (q.x !== from.x || q.y !== from.y || q.z !== from.z) {
-          notes.push(`could not reach the stair's head at ${from.x},${from.y},${from.z}`);
-          tried.add(`${c.x},${c.y},${c.z}`);
-          if (++failed >= 4) break;
-          continue;
-        }
-      }
-      if (!c) {
-        const why = all.slice(0, 3).map((q) => { const r = planStair(feet, q, name, rack); return 'why' in r ? `${at(q)}: ${r.why}` : ''; }).filter(Boolean).join('; ');
-        notes.push(all.length ? `${all.length} debris seen, none with a stair to it clear of lava (${why})` : `no ancient debris seen within ${DEBRIS_REACH} blocks at y ${DEBRIS_Y.min}-${DEBRIS_Y.max}`);
+      // (the pickaxe worn out on the way: the trip ends with what it has)
+      if (!(await pickInHand(a))) {
+        notes.push('the diamond pickaxe broke');
         break;
       }
-      tried.add(`${c.x},${c.y},${c.z}`);
-      try {
-        await a.bot.equip(a.bot.inventory.items().find((it) => it.name === pick)!, 'hand').catch(() => undefined);
-        // (the spec's B1: a stair dug down toward it, each cell and its neighbours read for lava first; the pathfinder
-        // found no path 35 blocks down through the Nether's rock, nether7 11-14)
-        const why = await stairTo(a, c, deadline, signal, tally);
-        if (why) throw new Error(why);
-        await mineBlock(a, c, signal, false, 30000);
-      } catch (e) {
-        if ((e as Error).message === 'cancelled') throw e;
-        notes.push(`${at(c)}: ${(e as Error).message.slice(0, 80)}`);
-        if (++failed >= 4) break;
+      const feet = a.bot.entity.position.floored();
+      // (from where it stands, else from a standing cell nearer the debris: round the far portal (minevale3's stands over
+      // the lava sea, and every stair from it met lava, nether10 11-14), or on a trek anywhere it walks to from here)
+      const reach = trek ? walkReach(feet, name) : null;
+      const starts = reach ? [...reach.values()].map((r) => r.c).filter((c) => !onBridge(v.nether?.bridge, { x: c.x, y: c.y - 1, z: c.z })) : standCells(a, far, 24);
+      const r = await digNear(a, feet, starts, tried, deadline, signal, tally);
+      seen = Math.max(seen, r.seen);
+      // (a walk to a stair's head is a leg too: netherT3's Clara dug at 104 blocks out by such walks alone, and her way
+      // back had only the bridge's end to walk to; a breadcrumb wherever the member stands 12 or more from the last)
+      if (a.trek) {
+        // (the stair's head, not its foot: the way back walks from crumb to crumb over ground)
+        const q = r.head ?? a.bot.entity.position.floored(), last = a.trek.crumbs[a.trek.crumbs.length - 1];
+        if (!last || Math.hypot(q.x - last.x, q.y - last.y, q.z - last.z) >= 12) {
+          a.trek.crumbs.push({ x: q.x, y: q.y, z: q.z });
+          legs++;
+          farthest = Math.max(farthest, Math.round(Math.hypot(q.x - far.x, q.z - far.z)));
+        }
       }
+      if (r.done === 'dug') continue;
+      if (r.done === 'failed') {
+        notes.push(r.why);
+        if (++failed >= 4) break;
+        continue;
+      }
+      if (!trek || !a.trek) {
+        notes.push(r.why);
+        break;
+      }
+      // (none a safe stair reaches from here: the next leg, while the walk out lasts)
+      if (a.trek.ended) { notes.push('a pinned walk ended the trek'); break; }
+      if (Date.now() > outBy) { notes.push(`turned back after ${TREK.outMin} minutes out (${r.why})`); break; }
+      const out = Math.hypot(feet.x - far.x, feet.z - far.z);
+      if (out >= TREK.out) { notes.push(`turned back ${TREK.out} blocks out (${r.why})`); break; }
+      const next = nextLeg(a, reach!, feet, far, aim, aimed, tried, name);
+      if (!next) { notes.push(`no way on from ${at(feet)} (${r.why})`); break; }
+      aim = next.aim;
+      await walk(a, new goals.GoalBlock(next.leg.x, next.leg.y, next.leg.z), `the trek's leg to ${next.leg.x},${next.leg.y},${next.leg.z}`, signal, 60000, { scaffold: false }).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+      });
+      const q = a.bot.entity.position.floored();
+      if (Math.hypot(q.x - feet.x, q.z - feet.z) < 4) {
+        aimed.add(`${aim.x},${aim.y},${aim.z}`);
+        aim = null;
+        if (++legFails >= 3) { notes.push(`three legs got nowhere (last toward ${next.leg.x},${next.leg.y},${next.leg.z})`); break; }
+        continue;
+      }
+      legs++;
+      a.trek.crumbs.push({ x: q.x, y: q.y, z: q.z });
+      farthest = Math.max(farthest, Math.round(Math.hypot(q.x - far.x, q.z - far.z)));
+      console.log(`[nether] ${v.name}: ${a.name} trek leg ${legs} to ${at(q)}, ${Math.round(Math.hypot(q.x - far.x, q.z - far.z))} from the far portal, toward ${aim.x},${aim.y},${aim.z}`);
     }
   } finally {
+    // (any failure here, a cut-short trip's too, still goes home: homeFrom recalls an aborted trip)
+    if (a.trek && !overworld(a) && !signal.aborted) await walkBack(a, deadline + tripMs(1), signal, notes).catch((e: Error) => notes.push(`the way back: ${e.message.slice(0, 60)}`));
+    a.trek = null;
     back = await homeFrom(a, v, signal);
     netherParty.drop(v.name, a.name);
   }
   const dug = (await count(a, 'ancient_debris')) - before;
-  const out = `dug ${Math.max(0, dug)} ancient debris in the Nether (${seen} seen at y ${DEBRIS_Y.min}-${DEBRIS_Y.max}${tally.bridged ? `; ${tally.bridged} netherrack bridged caves under the stair by command` : ''}); ${[...notes, back].filter(Boolean).join('; ')}`;
+  v.nether = { ...v.nether, futile: dug > 0 ? 0 : (v.nether?.futile ?? 0) + 1 };
+  a.world.villages.save();
+  const mins = ((Date.now() - t0) * Math.max(1, timeScale())) / 60000;
+  const walked = trek ? `; a trek of ${legs} legs, ${farthest} blocks out at most, ${mins.toFixed(1)} minutes` : '';
+  const out = `dug ${Math.max(0, dug)} ancient debris in the Nether (${seen} seen at y ${DEBRIS_Y.min}-${DEBRIS_Y.max}${tally.bridged ? `; ${tally.bridged} netherrack bridged caves under the stair by command` : ''}${walked}); ${[...notes, back].filter(Boolean).join('; ')}`;
   console.log(`[nether] ${v.name}: ${a.name} ${out}`);
   if (!overworld(a)) throw new Error(`nether_dig: still in ${dimOf(a)} (${out})`);
   return out;
+}
+
+/**
+ * One try at the debris in reach (64 blocks, y 8-119): the first whose whole stair, read before any dig, keeps off lava
+ * and loose ground (netherPlan.ts planStair), from where the member stands or from one of `starts` near the debris; the
+ * walk to the stair's head, the stair, the dig. 'none' with why when no stair is safe.
+ */
+async function digNear(a: BotAgent, feet: Cell, starts: Cell[], tried: Set<string>, deadline: number, signal: AbortSignal, tally: { bridged: number }): Promise<{ done: 'dug' | 'failed' | 'none'; seen: number; why: string; head?: Cell }> {
+  const id = a.world.registry.blocksByName.ancient_debris.id;
+  const name = (x: number, y: number, z: number) => nameAt(a, x, y, z);
+  // (every one in reach: nether12's 24 nearest all lay under the lava sea, and the 3 above it were never weighed)
+  const all = nearestBlocks(a, [id], DEBRIS_REACH, 96, (q) => !tried.has(`${q.x},${q.y},${q.z}`), DEBRIS_Y);
+  const rack = await count(a, 'netherrack');
+  let c: Vec3 | undefined, from: Cell | undefined, best = Infinity;
+  for (const q of all) {
+    if (!safeToDig(q, feet, name)) continue;
+    // (the 4 standing cells nearest it across, within 40)
+    const near: Array<[number, Cell]> = [];
+    for (const st of starts) {
+      const d = Math.hypot(st.x - q.x, st.z - q.z);
+      if (d > 40 || (near.length >= 4 && d >= near[3][0])) continue;
+      near.push([d, st]);
+      near.sort((u, w) => u[0] - w[0]);
+      if (near.length > 4) near.pop();
+    }
+    for (const st of [feet, ...near.map(([, s]) => s)]) {
+      const r = planStair(st, q, name, rack);
+      const cost = 'steps' in r ? r.steps + Math.hypot(st.x - feet.x, st.z - feet.z) : Infinity;
+      if (cost < best) { best = cost; c = q; from = st; }
+    }
+  }
+  if (!c || !from) {
+    const why = all.slice(0, 3).map((q) => { const r = planStair(feet, q, name, rack); return 'why' in r ? `${at(q)}: ${r.why}` : ''; }).filter(Boolean).join('; ');
+    return { done: 'none', seen: all.length, why: all.length ? `${all.length} debris seen, none with a stair to it clear of lava (${why})` : `no ancient debris seen within ${DEBRIS_REACH} blocks at y ${DEBRIS_Y.min}-${DEBRIS_Y.max}` };
+  }
+  tried.add(`${c.x},${c.y},${c.z}`);
+  if (from.x !== feet.x || from.y !== feet.y || from.z !== feet.z) {
+    await walk(a, new goals.GoalBlock(from.x, from.y, from.z), `the stair's head at ${from.x},${from.y},${from.z}`, signal, 60000, { scaffold: false }).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+    const q = a.bot.entity.position.floored();
+    if (q.x !== from.x || q.y !== from.y || q.z !== from.z) return { done: 'failed', seen: all.length, why: `could not reach the stair's head at ${from.x},${from.y},${from.z}` };
+  }
+  try {
+    await pickInHand(a);
+    // (the spec's B1: a stair dug down toward it, each cell and its neighbours read for lava first; the pathfinder
+    // found no path 35 blocks down through the Nether's rock, nether7 11-14)
+    const why = await stairTo(a, c, deadline, signal, tally);
+    if (why) throw new Error(why);
+    await mineBlock(a, c, signal, false, 30000);
+    console.log(`[nether] ${a.village()?.name}: ${a.name} dug the ancient debris at ${at(c)}`);
+    return { done: 'dug', seen: all.length, why: '', head: from };
+  } catch (e) {
+    if ((e as Error).message === 'cancelled') throw e;
+    return { done: 'failed', seen: all.length, why: `${at(c)}: ${(e as Error).message.slice(0, 80)}`, head: from };
+  }
+}
+
+/** A netherite or diamond pickaxe in hand, by the server's count (Mineflayer's view of the inventory lags); null when the
+ *  member holds neither (worn out). */
+async function pickInHand(a: BotAgent): Promise<string | null> {
+  for (const n of ['netherite_pickaxe', 'diamond_pickaxe']) {
+    if ((await count(a, n)) < 1) continue;
+    let it = a.bot.inventory.items().find((q) => q.name === n);
+    if (!it) {
+      await syncInventory(a).catch(() => undefined);
+      it = a.bot.inventory.items().find((q) => q.name === n);
+    }
+    if (it && a.bot.heldItem?.name !== n) await a.bot.equip(it, 'hand').catch(() => undefined);
+    return n;
+  }
+  return null;
+}
+
+/**
+ * The trek's way off the far portal's island (B4): the village's bridge, its missing blocks laid again; else, when the
+ * ground the far portal reaches is not the mainland, a new flat bridge at the island's level (netherPlan.ts planBridge, the
+ * cheaper of the stand cell's level and one under), each netherrack charged to the member, set by command and confirmed,
+ * then recorded on the village and kept off every dig. The bridge's far end is the trek's first breadcrumb.
+ */
+async function crossBridge(a: BotAgent, v: Village, signal: AbortSignal, notes: string[]): Promise<void> {
+  const name = (x: number, y: number, z: number) => nameAt(a, x, y, z);
+  const dim = dimOf(a);
+  const feet = a.bot.entity.position.floored();
+  const arrive = async (land: Cell, what: string) => {
+    await walk(a, new goals.GoalBlock(land.x, land.y, land.z), what, signal, 90000, { scaffold: false }).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+    const q = a.bot.entity.position;
+    const ok = Math.hypot(q.x - (land.x + 0.5), q.z - (land.z + 0.5)) <= 3;
+    if (ok) a.trek?.crumbs.push({ ...land });
+    return ok;
+  };
+  const old = v.nether?.bridge;
+  if (old && old.dim === dim) {
+    const laid = await layBridge(a, old.cells, signal);
+    if (typeof laid === 'string') { notes.push(laid); return; }
+    notes.push((await arrive(old.land, 'the far end of the village\'s bridge')) ? `crossed the village's bridge${laid ? ` (${laid} blocks laid again)` : ''}` : `could not cross the village's bridge to ${at(old.land)}`);
+    return;
+  }
+  const reach = walkReach(feet, name, TREK.reach, TREK.mainland);
+  if (reach.size >= TREK.mainland) return;
+  const island = [...reach.values()].map((r) => r.c);
+  const stand = v.nether?.far?.stand ?? feet;
+  // (the far side's chunks stream in after the arrival: netherT1's first trek planned none at once, where the saved world
+  // gave one of 26; up to three tries 3 s apart, game time)
+  let plan: BridgePlan | undefined, unloaded = 0;
+  for (let n = 0; n < 3 && !plan; n++) {
+    if (n) await sleep(3000 / Math.max(1, timeScale()), signal);
+    await a.bot.waitForChunksToLoad().catch(() => undefined);
+    plan = [stand.y, stand.y - 1].map((y) => planBridge(island, y, name)).filter((p): p is BridgePlan => !!p).sort((p, q) => p.cells.length - q.cells.length)[0];
+    unloaded = 0;
+    for (let i = 0; i < 32; i++) if (!name(Math.round(stand.x + 48 * Math.cos((i * Math.PI) / 16)), stand.y, Math.round(stand.z + 48 * Math.sin((i * Math.PI) / 16)))) unloaded++;
+  }
+  if (!plan) { notes.push(`the far portal's ground reaches ${reach.size} cells and no bridge of ${TREK.bridge} netherrack at its level lands on the mainland (${unloaded} of 32 cells 48 out not loaded)`); return; }
+  const have = await count(a, 'netherrack');
+  if (have < plan.cells.length) { notes.push(`a bridge of ${plan.cells.length} netherrack would reach the mainland at ${at(plan.land)}, but the member carries ${have}`); return; }
+  await walk(a, new goals.GoalBlock(plan.from.x, plan.from.y, plan.from.z), 'the bridge\'s start', signal, 60000, { scaffold: false }).catch((e: Error) => {
+    if (e.message === 'cancelled') throw e;
+  });
+  const p = a.bot.entity.position;
+  if (Math.hypot(p.x - (plan.from.x + 0.5), p.z - (plan.from.z + 0.5)) > 3) { notes.push(`could not reach the bridge's start at ${at(plan.from)}`); return; }
+  const laid = await layBridge(a, plan.cells, signal);
+  if (typeof laid === 'string') { notes.push(laid); return; }
+  v.nether = { ...v.nether, bridge: { dim: dim as 'the_nether' | 'the_end', from: plan.from, land: plan.land, cells: plan.cells, by: a.name, at: Date.now() } };
+  a.world.villages.save();
+  console.log(`[nether] ${v.name}: ${a.name} laid a bridge of ${laid} netherrack at y ${plan.cells[0]?.y ?? plan.from.y - 1} from ${at(plan.from)} to ${at(plan.land)}`);
+  notes.push((await arrive(plan.land, 'the far end of the new bridge')) ? `laid a bridge of ${laid} netherrack off the far portal's island` : `laid a bridge of ${laid} netherrack but could not cross it`);
+}
+
+/** The bridge's floor cells laid where the server shows none: each netherrack taken from the member (`clear`), set with
+ *  `setblock ... keep`, confirmed with `execute if block`, else given back. The count laid, or why it stopped. */
+async function layBridge(a: BotAgent, cells: Cell[], signal: AbortSignal): Promise<number | string> {
+  const dim = dimOf(a);
+  const is = async (c: Cell) => passed(await a.world.rcon.command(inDim(dim, `execute if block ${c.x} ${c.y} ${c.z} minecraft:netherrack`)).catch(() => ''));
+  const missing: Cell[] = [];
+  for (const c of cells) if (!(await is(c))) missing.push(c);
+  if (!missing.length) return 0;
+  if ((await count(a, 'netherrack')) < missing.length) return `the bridge wants ${missing.length} netherrack and the member carries fewer`;
+  let n = 0;
+  for (const c of missing) {
+    checkAbort(signal);
+    await a.world.rcon.command(`clear ${a.name} minecraft:netherrack 1`);
+    await a.world.rcon.command(inDim(dim, `setblock ${c.x} ${c.y} ${c.z} minecraft:netherrack keep`));
+    if (!(await is(c))) {
+      await a.world.rcon.command(`give ${a.name} minecraft:netherrack 1`);
+      return `the bridge block at ${c.x},${c.y},${c.z} did not take (${n} laid)`;
+    }
+    n++;
+  }
+  await sleep(300, signal);
+  return n;
+}
+
+/**
+ * The trek's next leg: toward the debris it aims at (kept while it is still worth walking to), else the nearest in view
+ * not under lava (netherPlan.ts trekTarget), else straight on away from the far portal; the leg's end the reachable cell
+ * nearest it within a leg's walk (chooseLeg). Debris it cannot get nearer to are dropped as aims.
+ */
+function nextLeg(a: BotAgent, reach: Map<string, { c: Cell; d: number }>, feet: Cell, far: Cell, aim: Cell | null, aimed: Set<string>, tried: Set<string>, name: (x: number, y: number, z: number) => string): { leg: Cell; aim: Cell } | null {
+  const k = (c: Cell) => `${c.x},${c.y},${c.z}`;
+  if (aim && !aimed.has(k(aim)) && !tried.has(k(aim))) {
+    const leg = chooseLeg(reach, feet, aim);
+    if (leg) return { leg, aim };
+    aimed.add(k(aim));
+  }
+  const id = a.world.registry.blocksByName.ancient_debris.id;
+  const all = nearestBlocks(a, [id], DEBRIS_REACH, 96, (q) => !aimed.has(k(q)) && !tried.has(k(q)), DEBRIS_Y);
+  for (const q of all) {
+    if (Math.hypot(q.x - far.x, q.z - far.z) > TREK.out || !trekTarget(q, name)) { aimed.add(k(q)); continue; }
+    const leg = chooseLeg(reach, feet, q);
+    if (leg) return { leg, aim: { x: q.x, y: q.y, z: q.z } };
+    aimed.add(k(q));
+  }
+  // (no debris worth it in view: on away from the far portal, 64 further along its bearing)
+  const dx = feet.x - far.x, dz = feet.z - far.z, d = Math.hypot(dx, dz) || 1;
+  const away = { x: Math.round(feet.x + (dx / d) * 64), y: feet.y, z: Math.round(feet.z + (dz / d) * 64) };
+  if (aimed.has(k(away))) return null;
+  const leg = chooseLeg(reach, feet, away);
+  return leg ? { leg, aim: away } : null;
+}
+
+/** The trek's way back: the breadcrumbs walked in reverse (a crumb not reached is passed for the one before it), until
+ *  `until`; from the first crumb leavePortal walks the bridge to the far portal. */
+async function walkBack(a: BotAgent, until: number, signal: AbortSignal, notes: string[]): Promise<void> {
+  const t = a.trek;
+  if (!t) return;
+  let missed = 0;
+  for (let i = t.crumbs.length - 1; i >= 0; i--) {
+    checkAbort(signal);
+    if (Date.now() > until) { notes.push(`the way back ran out of time at breadcrumb ${i + 1}`); return; }
+    const c = t.crumbs[i];
+    const p = a.bot.entity.position;
+    if (Math.hypot(p.x - (c.x + 0.5), p.y - c.y, p.z - (c.z + 0.5)) <= 3) continue;
+    await walk(a, new goals.GoalNear(c.x, c.y, c.z, 1), `breadcrumb ${i + 1} on the way back`, signal, 60000, { scaffold: false }).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      missed++;
+    });
+  }
+  notes.push(`walked back along ${t.crumbs.length} breadcrumbs${missed ? ` (${missed} not reached)` : ''}`);
 }
 
 /** Cells a member can stand on round the far portal (firm ground under two of air, no lava or fire under), within

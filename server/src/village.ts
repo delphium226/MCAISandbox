@@ -600,6 +600,10 @@ export interface Village {
     brought?: number;
     fail?: string;
     at?: number;
+    /** B4 (MC_NETHER_TREK): the flat netherrack bridge a trek laid off the far portal's island (its floor cells, where it
+     *  starts and lands), kept and protected for later trips; and the debris trips in a row that dug nothing. */
+    bridge?: { dim: 'the_nether' | 'the_end'; from: { x: number; y: number; z: number }; land: { x: number; y: number; z: number }; cells: Array<{ x: number; y: number; z: number }>; by?: string; at?: number };
+    futile?: number;
   };
   /** M1 (#144, MC_MONUMENT): the cathedral the village builds after the iron age (monument.ts). */
   monument?: Monument;

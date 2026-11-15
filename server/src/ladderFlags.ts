@@ -67,7 +67,10 @@ export const SEA_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_SEA_AGE') ?? '
  *  default): in the other modes lava, fire and falls hurt, and the rung stays in words, off the ballot. */
 export const NETHER_AGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_NETHER_AGE') ?? 'on') && /^\s*(peaceful)?\s*$/i.test(rawSetting('MC_WORLD_MODE') ?? '');
 /** MC_NETHER_PARTY: the most members in the Nether at once on the village's expeditions and digs (3). */
-export const NETHER_PARTY = Math.max(1, Math.min(8, Math.floor(Number(rawSetting('MC_NETHER_PARTY') ?? 3)) || 3));
+/** MC_NETHER_TREK (B4; on by default, off turns it off): a debris dig may walk up to 300 blocks from the far portal in legs,
+ *  over one netherrack bridge off the portal's island, back along its breadcrumbs. */
+export const NETHER_TREK = !/^(off|0|false|no)$/i.test(rawSetting('MC_NETHER_TREK') ?? 'on');
+export const NETHER_PARTY =Math.max(1, Math.min(8, Math.floor(Number(rawSetting('MC_NETHER_PARTY') ?? 3)) || 3));
 /** The diamond level's y (runs/2026-10-30/diamond/spec.md: diamond ore peaks at -57 to -53 on minevale3, 2 laid open per
  *  100 cells dug at -56, lava below -55 cutting 8% of tunnels there). */
 export const DIAMOND_Y = -56;

@@ -27,8 +27,8 @@ import { buriedAt, causeFromState, deathCauseOf, hazardOf, lavaStep, noteTrap, s
 import { isPaused } from '../runClock';
 import { WALK_DIG } from './mcBlocks';
 import { GEODE_GROWTH, GEODE_GUARD, GEODE_LINING, geodeBreakCost, geodeStepCost, stateIds } from './mcGeode';
-import { dimOf, overworld, type Dim } from './mcDim';
-import { farBox } from '../netherPlan';
+import { dimOf, inDim, overworld, type Dim } from './mcDim';
+import { farBox, trekPinned, type Trek } from '../netherPlan';
 
 const { pathfinder, Movements } = pathfinderPkg;
 /** Blocks no walk enters (the Nether rung, spec row 16): portals carry a member to another dimension; soul fire burns. */
@@ -222,6 +222,9 @@ export class BotAgent implements WorldAgent {
     return dimOf(this.bot);
   }
 
+  /** The member's Nether trek while one is out (B4, mcNether.ts nether_dig): its breadcrumbs, for the pinned rule. */
+  trek: Trek | null = null;
+
   /** The dimension last seen at a spawn or respawn (a change is told once). */
   private dimSeen: Dim = 'overworld';
 
@@ -266,6 +269,9 @@ export class BotAgent implements WorldAgent {
     if (!overworld(this)) {
       const far = this.village()?.nether?.far;
       this.protectedCache = { at: now, boxes: far && far.dim === this.dim ? [farBox(far)] : [] };
+      // (B4: the trek's bridge off the far portal's island, kept for later trips)
+      const bridge = this.village()?.nether?.bridge;
+      if (bridge && bridge.dim === this.dim) for (const c of bridge.cells) this.protectedCache.boxes.push({ x1: c.x, z1: c.z, x2: c.x, z2: c.z, y: c.y, y2: c.y });
       return this.protectedCache.boxes;
     }
     const p = this.bot.entity?.position;
@@ -1148,6 +1154,21 @@ export class BotAgent implements WorldAgent {
    */
   async rescuePinned(n: number, water: boolean, signal: AbortSignal): Promise<string | null> {
     const from = this.bot.entity.position.clone();
+    // (B4, spec section 6 risk 10: on a Nether trek not the far portal, which would throw the trek home mid-way, but back
+    // to a breadcrumb, twice at most; then the trek ends and its way back starts, keeping what it dug)
+    if (this.trek && !overworld(this)) {
+      const to = trekPinned(this.trek, from.floored());
+      if (!to) {
+        this.trek.ended = true;
+        console.log(`[nether] ${this.name} stalled ${n} times at ${at(from)} on a trek: the trek ends there (${this.trek.backoffs} back-offs)`);
+        return null;
+      }
+      await this.world.rcon.command(inDim(this.dim, `tp ${this.name} ${to.x + 0.5} ${to.y} ${to.z + 0.5}`));
+      this.trek.backoffs++;
+      const t = `backed off to the trek's breadcrumb at ${to.x},${to.y},${to.z}`;
+      console.log(`[rescue] ${this.name} stalled ${n} times at ${at(from)} on a Nether trek: ${t}`);
+      return t;
+    }
     // (the Nether rung, spec row 10: off the overworld the far portal, then the recall: mcRescue's teleportHome there)
     const t = await teleportHome(this, signal);
     if (!t) return null;

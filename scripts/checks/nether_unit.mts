@@ -181,6 +181,38 @@ if (MODE === 'off' || MODE === 'hostile') {
   ok('steps' in pc && pc.bridges > 0 && 'why' in P.planStair({ x: 0, y: 51, z: 0 }, { x: 40, y: 15, z: 0 }, cave, 0), `a cave bridged with netherrack, not without (${JSON.stringify(pc)})`);
   ok(P.stairStep({ x: 0, y: 50, z: 0 }, { x: 0, y: 15, z: 0 }).to.x === 1 && P.stairStep({ x: 0, y: 16, z: 0 }, { x: 5, y: 15, z: 0 }).to.y === 16, 'aside when straight over it; level once beside its height');
   ok(['netherrack', 'blackstone', 'basalt', 'soul_sand', 'nether_quartz_ore'].every((n) => P.DIG_NETHER.includes(n)) && ['netherrack', 'quartz', 'gold_nugget', 'blackstone'].every((n) => L.NETHER_BLOCKS.includes(n)), 'the blocks dug and the items counted');
+  // B4, the trek (MC_NETHER_TREK): minevale3's far portal on a floating island over the lava sea (11-15's measurement), as
+  // a fixture: the island 9x9 at y 49, a gap of 20 over the lava sea (y 31 and under), the mainland from x 29 to its
+  // edge at y 49; debris in the mainland's rock at y 40 and in the lava sea's at y 20
+  const isle = (lavaTop: number) => (x: number, y: number, z: number) => {
+    if (x < -20 || x > 120 || z < -60 || z > 60 || y < 0 || y > 127) return '';
+    if (x === 40 && z === 0 && (y === 40 || y === 20)) return 'ancient_debris';
+    if (y <= 31 || (x > 8 && x < 29 && y <= lavaTop)) return 'lava';
+    if (x >= 0 && x <= 8 && z >= 0 && z <= 8 && y === 49) return 'netherrack';
+    if (x >= 29 && y <= 49) return 'netherrack';
+    return 'air';
+  };
+  const w = isle(31);
+  const reach = P.walkReach({ x: 4, y: 50, z: 4 }, w);
+  ok(reach.size === 81 && [...reach.values()].every((r) => r.c.x <= 8), `the island's walk reach is the island (${reach.size} cells)`);
+  ok(P.onMainland({ x: 40, y: 50, z: 0 }, w) && !P.onMainland({ x: 4, y: 50, z: 4 }, w), 'the mainland is the mainland, the island is not');
+  const island = [...reach.values()].map((r) => r.c);
+  const br = P.planBridge(island, 50, w);
+  ok(!!br && br.cells.length === 20 && br.cells.every((c) => c.y === 49 && c.x >= 9 && c.x <= 28) && br.land.x === 29 && br.land.y === 50 && br.from.x === 8, `a flat bridge of 20 at the island's level to the mainland (${br ? `${br.cells.length} from ${JSON.stringify(br.from)} to ${JSON.stringify(br.land)}` : 'none'})`);
+  ok(P.planBridge(island, 50, w, 10) === null, 'none longer than its limit');
+  ok(P.planBridge(island, 50, isle(46)) === null && !!P.planBridge(island, 50, isle(44)), 'none with lava within 3 under its floor (no bridging at lava level)');
+  ok(P.onBridge(br ?? undefined, { x: 15, y: 49, z: br?.from.z ?? 0 }) && !P.onBridge(br ?? undefined, { x: 15, y: 50, z: br?.from.z ?? 0 }) && !P.onBridge(undefined, { x: 0, y: 0, z: 0 }), 'the bridge\'s cells are known (expeditions and stairs keep off them)');
+  const main = P.walkReach({ x: 40, y: 50, z: 0 }, w);
+  const leg = P.chooseLeg(main, { x: 40, y: 50, z: 0 }, { x: 110, y: 50, z: 0 });
+  ok(main.size === P.TREK.cap && !!leg && leg.x > 70 && Math.hypot(leg.x - 40, leg.z) <= P.TREK.leg + 1, `a leg of up to 40 toward the aim (${JSON.stringify(leg)})`);
+  ok(P.chooseLeg(main, { x: 40, y: 50, z: 0 }, { x: 42, y: 50, z: 0 }) === null, 'no leg when it would not come 6 nearer');
+  ok(P.trekTarget({ x: 40, y: 40, z: 0 }, w) && !P.trekTarget({ x: 40, y: 20, z: 0 }, w), 'debris in dry rock is an aim; debris in the lava sea is not');
+  const trek = { crumbs: [{ x: 29, y: 50, z: 5 }, { x: 60, y: 50, z: 0 }, { x: 95, y: 50, z: 0 }], backoffs: 0 };
+  ok(JSON.stringify(P.trekPinned(trek, { x: 96, y: 50, z: 0 })) === '{"x":60,"y":50,"z":0}' && JSON.stringify(P.trekPinned(trek, { x: 110, y: 50, z: 0 })) === '{"x":95,"y":50,"z":0}', 'pinned on a trek: back to the last breadcrumb more than 6 off, not home');
+  ok(P.trekPinned({ ...trek, backoffs: 2 }, { x: 96, y: 50, z: 0 }) === null && P.trekPinned({ crumbs: [], backoffs: 0 }, { x: 0, y: 50, z: 0 }) === null, 'twice at most, then the trek ends where it is');
+  ok([0, 1, 2, 3, 9].map(P.futileBackoffMin).join(',') === '4,8,16,32,32', 'the debris option backs off 4, 8, 16, 32 minutes after trips that dug nothing');
+  const BA2 = readFileSync(new URL('../../server/src/mineflayer/botAgent.ts', import.meta.url), 'utf-8');
+  ok(/if \(this\.trek && !overworld\(this\)\) \{\s*const to = trekPinned\(this\.trek/.test(BA2) && /bridge\.cells\) this\.protectedCache\.boxes\.push/.test(BA2), 'rescuePinned keeps to the trek\'s breadcrumbs; the bridge is protected ground');
 }
 
 // 5. The planner: the ingot from debris and gold, the flint and steel

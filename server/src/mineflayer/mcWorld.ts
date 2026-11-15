@@ -68,7 +68,8 @@ import { Atlas } from './mcAtlas';
 import { VILLAGE_BIOMES, listPieces, pieceToDesign, readPiece, vanillaLibrary, vanillaLights, vanillaShelves, villageBiome } from '../vanillaPieces';
 import { buildingDecor, buildingLights, decorSlots, type DecorSlot, type HomeBasics, placedDoor, placedOutside, signLabel, type DecorSpot, type LightSpot, type SignPlace, type SignSpot } from '../streetPlan';
 import { buildCatalog, type ActivitySpec } from '../activities';
-import { LETTERS_PACE, OWN_TOOLS } from '../ladderFlags';
+import { LETTERS_PACE, NETHER_TREK, OWN_TOOLS } from '../ladderFlags';
+import { TREK, futileBackoffMin } from '../netherPlan';
 import { isPaused } from '../runClock';
 import { BED_FLOWERS, FLOWER_MIX, GARDENS, GREENS_MIX, cappedGreens, flowerMix, gardenSpots, greenCounts, greenReserves, greensMixOrder, isFlowerWork, isGarden, menuWorks, mixWords, parterreShapeOf, reserveAreas, smallWorkKind, smallWorkKindOf, smallWorkSpots, smallWorkWood, type GardenSpot, type GreenArea, type GreenReserve, type SmallWorkKind } from '../smallWorks';
 import { FLOWER_ITEMS } from './mcMaterials';
@@ -5533,8 +5534,8 @@ export class MineflayerWorld implements WorldAdapter {
       if (counter === 'nblocks' && portal?.lit && a && party < NETHER_PARTY && !back(`expedition:${a.name}`))
         tag('rung:expedition', 'Go on an expedition to the Nether', `${v.ladder?.totals?.nblocks ?? 0} of ${NETHER_BROUGHT} Nether blocks brought back; through the village's portal, gather netherrack, blackstone, basalt, soul sand and quartz round the far portal (up to 24 blocks, 8 minutes) and back through it; a pickaxe needed; ${party} of ${NETHER_PARTY} members in the Nether now`,
           'Nether blocks for the village: the Nether', job(`expedition:${a.name}`, 'nether_expedition', {}, [...NETHER_BLOCKS]));
-      if (counter === 'debris' && portal?.lit && a && dpick > 0 && party < NETHER_PARTY && !back(`debris:${a.name}`))
-        tag('rung:debris', 'Dig ancient debris in the Nether', `${v.ladder?.totals?.debris ?? 0} of ${NETHER_DEBRIS} ancient debris dug; it lies deep in the Nether's rock (mostly at y 8-22, under its lava sea) near the far portal, mined with a diamond pickaxe (${held('diamond_pickaxe') ? 'yours' : `${store.diamond_pickaxe ?? 0} in storage`}); ${party} of ${NETHER_PARTY} members in the Nether now`,
+      if (counter === 'debris' && portal?.lit && a && dpick > 0 && party < NETHER_PARTY && !back(`debris:${a.name}`) && !back('debris'))
+        tag('rung:debris', 'Dig ancient debris in the Nether', `${v.ladder?.totals?.debris ?? 0} of ${NETHER_DEBRIS} ancient debris dug; it lies deep in the Nether's rock (mostly at y 8-22, under its lava sea)${NETHER_TREK ? `, and a trip walks up to ${TREK.out} blocks from the far portal to debris clear of lava${v.nether?.bridge ? ' over the village\'s bridge' : ''}` : ' near the far portal'}, mined with a diamond pickaxe (${held('diamond_pickaxe') ? 'yours' : `${store.diamond_pickaxe ?? 0} in storage`}); ${party} of ${NETHER_PARTY} members in the Nether now`,
           'ancient debris for netherite: the Nether', job(`debris:${a.name}`, 'nether_dig', {}, ['ancient_debris', ...NETHER_BLOCKS]));
     }
     // (MC_ENCHANTMENT_AGE: the bucket filled, obsidian cast at the deep level by a member with a diamond pickaxe, the table
@@ -12018,6 +12019,10 @@ export class MineflayerWorld implements WorldAdapter {
         // (G8's tier-3 rungs: the skill, then what it brought back or did not use put into storage by name; the chore backed
         // off 4 minutes, game time, whatever its end)
         this.rungJobAt.set(`${v.name}:${d.back}`, Date.now() + (4 * 60000) / Math.max(1, timeScale()));
+        // (B4: the debris dig, after trips in a row that dug nothing, backs off 8, 16, then 32 minutes for every member:
+        // nether7-12 sent a trip every 4 minutes to the same debris under the lava sea)
+        const futile = /^debris:/.test(d.back) && NETHER_TREK ? v.nether?.futile ?? 0 : 0;
+        if (futile > 0) this.rungJobAt.set(`${v.name}:debris`, Date.now() + (futileBackoffMin(futile) * 60000) / Math.max(1, timeScale()));
         const st = [worker.enqueue(d.skill, { ...d.args, chore: true })];
         if (d.deposit.length) st.push(worker.enqueue('deposit', { item: d.deposit[0], ...(d.deposit.length > 1 ? { also: d.deposit.slice(1).join(',') } : {}), ifAny: true, chore: true }));
         this.setChore(v, worker, opt.key, st, `${d.skill.replace(/_/g, ' ')}`, undefined, meta, opt.holds, opt);
