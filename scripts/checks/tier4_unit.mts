@@ -121,6 +121,7 @@ ok(L.LETTERS, 'MC_LETTERS is on (its default since 11-14)');
   note(v, L.enchantCounts('enchant_books', 'enchanted 3 books at the enchanting table (3 at the table); 4 levels left'), 'Dan', 50);
   ok(st.stage === 3 && st.count === 3 && L.rungKeep(v, 'lapis_lazuli', {}) === 2 && L.rungGoodTarget(v, 'book', {}) === 2, `3 of 5 enchanted, the lapis and books still wanted: ${L.progressLine(v, 50, 1)}`);
   ok(L.rungKeep(v, 'leather', {}) === 2 && L.rungKeep(v, 'leather', { book: 1 }) === 1 && L.rungKeep(v, 'leather', { book: 2 }) === undefined && L.feedsStage(v, 'activity:lib:buy', 'activity:lib:buy:leather'), 'a leather kept and bought for each book still to bind (enchantment7: none was, stage 4 stopped at the 2 stocked books)');
+  ok(/item === 'leather' && \(mapsCurrent\(v\) \|\| enchantmentCurrent\(v\)\)\) return rungKeep/.test(readFileSync(new URL('../../server/src/mineflayer/mcWorld.ts', import.meta.url), 'utf-8')), 'the trade keeps that leather (tradeKeep reads rungKeep for it while enchantment is current; enchantment8 bought none without it)');
   ok(!L.enchantCounts('enchant_books', 'enchanted no book at the enchanting table').length, 'no book enchanted counts nothing');
   news = note(v, L.enchantCounts('enchant_books', 'enchanted 2 books at the enchanting table (1 at the table, 1 by a charged command: the table\'s window did not answer); 2 levels left'), 'Dan', 60);
   ok(news[0]?.kind === 'rung' && st.reached.some((r) => r.rung === 'enchantment') && !st.current, `the rung is reached with 5 books: ${news[0]?.text}`);

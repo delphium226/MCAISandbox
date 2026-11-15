@@ -5345,8 +5345,9 @@ export class MineflayerWorld implements WorldAdapter {
     if (item === 'bell' && musicCurrent(v)) return musicKeep(v, item);
     // (the enchantment rung: bottles o' enchanting for the levels, lapis for the books to enchant)
     if (item === 'gold_ingot' || item === 'bee_nest' || item === 'experience_bottle' || item === 'lapis_lazuli') return rungKeep(v, item, storageContents(v));
-    // (the maps rung: a leather for each of the map wall's item frames still to make)
-    if (item === 'leather' && mapsCurrent(v)) return rungKeep(v, item, storageContents(v));
+    // (the maps rung: a leather for each of the map wall's item frames still to make; the enchantment rung: one for each
+    // book still to bind, enchantment7-8 having stopped at the 2 stocked books)
+    if (item === 'leather' && (mapsCurrent(v) || enchantmentCurrent(v))) return rungKeep(v, item, storageContents(v));
     if (!lettersCurrent(v)) return undefined;
     const store = storageContents(v);
     const farmed = (v.layouts ?? []).some((l) => (l.slots ?? []).some((q) => q.kind === 'sugar_cane'));
