@@ -5759,8 +5759,9 @@ export class MineflayerWorld implements WorldAdapter {
     if (musicCurrent(v)) for (const n of ['redstone', 'bell']) if ((this.tradeKeep(v, n) ?? 0) > 0) out.add(n);
     // (the tier-3 rungs: gold and redstone for the powered rails, redstone for the maps' compasses, the apiary's bee nests)
     if (machinesCurrent(v) || beesCurrent(v) || mapsCurrent(v)) for (const n of ['gold_ingot', 'redstone', 'bee_nest', 'leather']) if ((this.tradeKeep(v, n) ?? 0) > 0) out.add(n);
-    // (the enchantment rung: bottles o' enchanting for the levels, lapis for the books)
-    if (enchantmentCurrent(v)) for (const n of ['experience_bottle', 'lapis_lazuli']) if ((this.tradeKeep(v, n) ?? 0) > 0) out.add(n);
+    // (the enchantment rung: bottles o' enchanting for the levels, lapis and leather for the books; enchantment9 kept 3
+    // leather from b854564 on and bought none: it was not among the goods the village uses)
+    if (enchantmentCurrent(v)) for (const n of ['experience_bottle', 'lapis_lazuli', 'leather']) if ((this.tradeKeep(v, n) ?? 0) > 0) out.add(n);
     try {
       if (CHOOSE.families.has('furnish')) for (const n of Object.keys(this.decorDemand(v))) out.add(n);
     } catch {
