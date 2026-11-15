@@ -393,8 +393,10 @@ export function floorCost(n: number, wood: string | undefined, store: Counts): {
 }
 
 /** What a floor may go over: the ground left inside (grass, dirt, path, gravel, sand, the prepared ground's cobblestone
- *  patches); never a block the village placed there on purpose, nor a hole a member may stand in (lesson 44). */
-const FLOOR_OVER = ['#minecraft:dirt', 'minecraft:dirt_path', 'minecraft:farmland', 'minecraft:cobblestone', 'minecraft:gravel', '#minecraft:sand'];
+ *  patches); never a block the village placed there on purpose, nor a hole a member may stand in (lesson 44). Named one by
+ *  one: 26.1's #minecraft:dirt holds no grass_block (homes1: 3 of 35 cells laid, the cobblestone patches only). */
+const FLOOR_OVER = ['grass_block', 'dirt', 'coarse_dirt', 'podzol', 'rooted_dirt', 'mycelium', 'moss_block', 'mud', 'dirt_path', 'farmland', 'cobblestone', 'gravel', 'sand', 'red_sand']
+  .map((b) => `minecraft:${b}`);
 
 /**
  * lay_home_floor: the member's own house's bare cells (DecorPart.bare, the floor layer at the structure's y) laid with
@@ -445,8 +447,9 @@ async function layHomeFloor(a: BotAgent, _args: Record<string, unknown>, signal:
   // (the planks laid taken from the member, a log for 4; the rest stays carried, deposited as any carried stock)
   const cost = Math.min(have, Math.ceil(fresh / perItem));
   if (cost > 0) await a.world.rcon.take(a.name, item, cost).catch(() => 0);
-  // (recorded once anything is down: a cell holding something else is left as it is, never laid again and again)
-  if (laid) {
+  // (recorded once 9 in 10 cells are floored, or when this chore could lay no more: a cell holding something else is left
+  // as it is, never laid again and again; not after a partial lay that may go on, homes1's 3 of 35 recorded as done)
+  if (laid >= Math.ceil(cells.length * 0.9) || (laid && !fresh)) {
     ((v as Village & { homeFloors?: Record<string, FloorRecord> }).homeFloors ??= {})[st.id] = { at: Date.now(), by: a.name, block: c.block, n: laid };
     a.world.villages.save();
   }
