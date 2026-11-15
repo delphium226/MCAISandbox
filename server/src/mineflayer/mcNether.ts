@@ -11,7 +11,7 @@ import type { BotAgent } from './botAgent';
 import type { Village } from '../village';
 import { villageHome } from '../village';
 import { NETHER_BLOCKS, NETHER_DEBRIS, NETHER_PARTY } from '../ladder';
-import { DEBRIS_REACH, DEBRIS_Y, DIG_NETHER, FRAME_BLOCKS, HOT, TREK, TRIP_BLOCKS, TRIP_MIN, TRIP_OUT, TRIP_UPDOWN, afterIslandDig, chooseLeg, expeditionStand, exposed, farStand, frameCells, inTripBox, innerCells, islandDig, islandReach, nearPortal, onBridge, planBridge, planPortal, planStair, safeToDig, stairStep, trekTarget, walkReach, type BridgePlan, type Cell, type PortalSite } from '../netherPlan';
+import { DEBRIS_REACH, DEBRIS_Y, DIG_NETHER, FRAME_BLOCKS, HOT, TREK, TRIP_BLOCKS, TRIP_MIN, TRIP_OUT, TRIP_UPDOWN, afterIslandDig, chooseLeg, expeditionStand, exposed, farStand, frameCells, inTripBox, innerCells, islandDig, islandReach, nearPortal, standable, onBridge, planBridge, planPortal, planStair, safeToDig, stairStep, trekTarget, walkReach, type BridgePlan, type Cell, type PortalSite } from '../netherPlan';
 import { NETHER_TREK } from '../ladderFlags';
 import { dimOf, inDim, overworld } from './mcDim';
 import { recall } from './mcRescue';
@@ -438,11 +438,25 @@ export async function netherExpedition(a: BotAgent, args: Record<string, unknown
         afterIslandDig(ground, c, name);
         await sleep(400, signal);
         const p = new Vec3(c.x + 0.5, c.y + 0.5, c.z + 0.5);
+        // (where a drop rests: on the ground, or in a cell the dig opened beside it, standable now with its floor in place;
+        // netherT5's first trip dug 24 and brought back none, the drops lying in the dug cells off the ground read at arrival)
+        const rests = (q: Vec3) => onGround(q) || (standable(name, q.x, q.y, q.z)
+          && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => [-1, 0, 1].some((dy) => onGround(q.offset(dx, dy, dz)))));
+        let away = false;
         for (const e of Object.values(a.bot.entities).filter((e) => e.name === 'item' && e.position.distanceTo(p) < 6)) {
           const cell = e.position.floored();
-          if (!onGround(cell) || cell.distanceTo(a.bot.entity.position.floored()) < 1) continue;
-          await groundWalk(a, { x: cell.x, y: cell.y, z: cell.z }, signal);
+          if (cell.distanceTo(a.bot.entity.position.floored()) < 1) continue;
+          // (else the ground cell nearest it, within a block across: the pick-up reaches a block round the body)
+          let to: Cell | undefined = rests(cell) ? { x: cell.x, y: cell.y, z: cell.z } : undefined;
+          for (let dx = -1; dx <= 1 && !to; dx++) for (let dz = -1; dz <= 1 && !to; dz++) for (const dy of [0, -1, 1]) {
+            const q = cell.offset(dx, dy, dz);
+            if (onGround(q)) { to = { x: q.x, y: q.y, z: q.z }; break; }
+          }
+          if (!to) continue;
+          await groundWalk(a, to, signal);
+          away = true;
         }
+        if (away) await groundWalk(a, s, signal);
       } catch (e) {
         if ((e as Error).message === 'cancelled') throw e;
         if (++failed >= 8) {

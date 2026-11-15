@@ -233,7 +233,7 @@ if (MODE === 'off' || MODE === 'hostile') {
   P.afterIslandDig(g, { x: 9, y: 50, z: 4 }, iw);
   ok(!(g.stands.get('8,4') ?? []).length, 'a wall dug away by a stand leaves it a drop: no longer a dig stand');
   const NE = readFileSync(new URL('../../server/src/mineflayer/mcNether.ts', import.meta.url), 'utf-8');
-  ok(/KEEP_GROUND\.add\(a\.name\)/.test(NE) && /maxDropDown: 1/.test(NE) && /expeditionStand\(q, ground, feet\) !== null/.test(NE) && /mineBlock\(a, c, signal, false, 5000, false\)/.test(NE) && /onGround\(cell\)/.test(NE), 'the expedition walks its ground without drops, digs from its stands and picks up only drops lying on its ground');
+  ok(/KEEP_GROUND\.add\(a\.name\)/.test(NE) && /maxDropDown: 1/.test(NE) && /expeditionStand\(q, ground, feet\) !== null/.test(NE) && /mineBlock\(a, c, signal, false, 5000, false\)/.test(NE) && /rests\(cell\)/.test(NE), 'the expedition walks its ground without drops, digs from its stands and picks up only drops it reaches from its ground');
   ok(/ancient_debris'\)\) > had/.test(NE), 'a debris drop is counted on the server and looked for when not taken');
   const BA2 = readFileSync(new URL('../../server/src/mineflayer/botAgent.ts', import.meta.url), 'utf-8');
   ok(/if \(this\.trek && !overworld\(this\)\) \{\s*const to = trekPinned\(this\.trek/.test(BA2) && /bridge\.cells\) this\.protectedCache\.boxes\.push/.test(BA2), 'rescuePinned keeps to the trek\'s breadcrumbs; the bridge is protected ground');
