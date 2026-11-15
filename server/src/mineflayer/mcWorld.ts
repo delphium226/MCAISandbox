@@ -1334,8 +1334,11 @@ export class MineflayerWorld implements WorldAdapter {
     }
     const need = this.forgeNeed(v);
     const who = (need?.for ?? 'village').toLowerCase();
+    // (#251: the bees rung's shears count raw iron and the forge smelts it: the emerald run's apiary stood at minute 20 and
+    // no shears were made by its end, storage holding 1 ingot and 66 raw iron while the forge's pickaxes took every ingot)
+    const smeltRaw = !!need && need.tool === 'shears' && !need.for && beesCurrent(v);
     if (!need) why.push('no tool wanted');
-    else if (ingots < FORGE_COST[need.tool]) why.push(`ingots short for ${need.for ? `${need.for}'s` : 'the village\'s'} ${words(need.tool)} (${ingots} of ${FORGE_COST[need.tool]})`);
+    else if (ingots + (smeltRaw ? raw : 0) < FORGE_COST[need.tool]) why.push(`ingots short for ${need.for ? `${need.for}'s` : 'the village\'s'} ${words(need.tool)} (${ingots} of ${FORGE_COST[need.tool]})`);
     else if (busy.has(`ironforge:${who}`)) why.push('being forged');
     else if (backing(`forge:${need.tool}`)) why.push('forging backs off');
     else {
@@ -1345,7 +1348,7 @@ export class MineflayerWorld implements WorldAdapter {
         name: need.for ? `Make an iron tool for ${need.for}: ${words(need.tool)} (${need.why})` : `Make the village ${words(need.tool)} (${need.why})`, rank: 702,
         facts: `${ingots} iron ingots in storage, ${FORGE_COST[need.tool]} needed${others('iron', `iron:forge:${need.tool}`)}${lastOf('iron')}`,
         effect: need.for ? `${need.for} gets its own ${words(need.tool)}` : `a ${words(need.tool)} in the village storage`,
-      }, { kind: 'iron', stage: 'forge', tool: need.tool, iron: ingots, ...(need.for ? { for: need.for } : {}) });
+      }, { kind: 'iron', stage: 'forge', tool: need.tool, iron: ingots, ...(need.for ? { for: need.for } : {}), ...(smeltRaw ? { smeltRaw: true } : {}) });
     }
     // (#22, MC_DIAMOND_AGE: a diamond pickaxe for a deep miner without one, from stored diamonds less those earmarked)
     if (DIAMONDS_ON) {
@@ -11588,7 +11591,7 @@ export class MineflayerWorld implements WorldAdapter {
         const status = IRON_AGE
           ? stage === 'dig' ? worker.enqueue('dig_iron', { chore: true, minutes: 4, want: 6 })
             : stage === 'smelt' ? worker.enqueue('smelt_iron', { count: d.count ?? 8, furnace: d.k, chore: true })
-            : worker.enqueue('make_iron_tool', { item: d.tool, smelt: false, ...(d.for ? { for: d.for } : {}), chore: true })
+            : worker.enqueue('make_iron_tool', { item: d.tool, ...(d.smeltRaw ? {} : { smelt: false }), ...(d.for ? { for: d.for } : {}), chore: true })
           : stage === 'dig'
           ? worker.enqueue('dig_iron', { chore: true, minutes: 4, want: Math.max(1, (d.tool === 'bucket' ? 3 : 6) - d.iron) })
           : worker.enqueue('make_iron_tool', { item: stage, chore: true });
@@ -12945,7 +12948,7 @@ type OptionRun =
   | { kind: 'pen'; j: number; slotKind: string; x: number; y: number; z: number }
   | { kind: 'penwork'; j: number; what: string; skill: string; slotKind: string; animals: number }
   | { kind: 'cake' }
-  | { kind: 'iron'; stage: string; tool: string; iron: number; k?: number; count?: number; for?: string }
+  | { kind: 'iron'; stage: string; tool: string; iron: number; k?: number; count?: number; for?: string; smeltRaw?: boolean }
   | { kind: 'explore'; i: number; x: number; z: number; home: { x: number; z: number } }
   | { kind: 'make'; good: MakeGood; count: number; inputs: Counts; smelts: boolean; k?: number; stock: number; past?: boolean }
   | { kind: 'gather'; material: Material; n: number; amount: number; block: string; deposit: string; need: number; incoming: number; for: string[] }
