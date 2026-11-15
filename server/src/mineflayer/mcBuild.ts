@@ -6408,7 +6408,11 @@ async function digIron(a: BotAgent, args: Record<string, unknown>, signal: Abort
   const gem = () => a.bot.inventory.items().filter((it) => it.name === 'diamond').reduce((n, it) => n + it.count, 0);
   // (#247, MC_COPPER_AGE: the raw copper kept while the copper rung is current, counted by ladder.ts copperCounts)
   const copper = () => a.bot.inventory.items().filter((it) => it.name === 'raw_copper').reduce((n, it) => n + it.count, 0);
-  const before = { iron: v.mine.iron?.got.raw_iron ?? 0, dug: v.mine.iron?.dug ?? 0, steps: v.mine.iron?.steps ?? 0, gaveUp: v.mine.iron?.abandoned?.length ?? 0 };
+  // (the level the trip set out for, and its second lane's steps: a landing laid on the deep stairs, by this trip or another
+  // miner's, swaps the current level for a new one with nothing dug; enchantment6's two trips that laid the landing at y 25
+  // and dug the second lane were read as no progress, the village's dig was banned for an hour and the chain stalled)
+  const from = v.mine.iron;
+  const before = { iron: from?.got.raw_iron ?? 0, dug: from?.dug ?? 0, steps: from?.steps ?? 0, gaveUp: from?.abandoned?.length ?? 0, lane: (from as { steps2?: number } | undefined)?.steps2 ?? 0 };
   let out = await ironTrip(a, v, want, signal, Date.now() + minutes * 60000);
   // Still down there (its walks up failed, or it fell into a cave below the level): teleported home, never left 40 blocks
   // down, nor walked up (VanI5: the deposit's walk from a cave at y 11 dug a shaft up under the storage hut; the diff
@@ -6422,7 +6426,9 @@ async function digIron(a: BotAgent, args: Record<string, unknown>, signal: Abort
     if (e.message === 'cancelled') throw e;
     return `not deposited: ${e.message.slice(0, 100)}`;
   });
-  const progress = !!i && (i.steps > before.steps || i.dug > before.dug || (i.got.raw_iron ?? 0) > before.iron || (i.abandoned?.length ?? 0) > before.gaveUp);
+  const j = from ?? i;
+  const progress = !!i && (i !== from || !!j && (j.steps > before.steps || j.dug > before.dug || (j.got.raw_iron ?? 0) > before.iron
+    || (j.abandoned?.length ?? 0) > before.gaveUp || ((j as { steps2?: number }).steps2 ?? 0) > before.lane));
   const text = `iron trip: ${out}; stairs ${i?.steps ?? 0} steps${i?.level !== undefined ? ` (level y=${i.level})` : ''}, ${i?.dug ?? 0} tunnel cells, ${i?.got.raw_iron ?? 0} raw iron and ${i?.got.coal ?? 0} coal in all; brought up ${carried.iron} raw iron, ${carried.coal} coal${DIAMOND_AGE && IRON_AGE ? `, ${carried.diamond} diamond` : ''}${COPPER_AGE && carried.copper ? `, ${carried.copper} raw copper` : ''}${picks ? ` (${picks})` : ''}; ${stored}`;
   if (!progress && !i?.finished) throw new Error(`dig_iron: no progress: ${text}`);
   return text;
