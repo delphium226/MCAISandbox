@@ -505,6 +505,49 @@ MC_PAY is off.
   trade keep, the cap, conservation, the tag and the line; nothing with MC_PAY off or MC_RUNG_WAGE=0). A live run with
   MC_PAY on should count the `[pay] ... rung wage` lines against the fed chores and watch how many are minted.
 
+## Emeralds for the rungs (#246, #24, #251; built and run 11-15)
+
+**Measured** (the rungs test's trade, machines3 and bees runs, 10-minute bins): the village earned 15-21 emeralds in 50
+minutes, most in the first 10. `lib:sell` was offered in 2% of choices (29-37 of ~1,400): none of the merchant's nine
+goods stood above its keep, while storage held ~700 pumpkins and ~600 each of granite, andesite and diorite. Of the
+machines and bees runs' 15-17 emeralds, 8 went on carrots and fishing rods while the gold and the nests waited. (Members'
+own sales and rods, 10-14 each way, are their own purses and never reach storage.) Income was the limit, waste second.
+
+**Built** (each a flag, on):
+- `MC_MERCHANT_MORE` (merchant.ts MORE_BUYS): the merchant also buys what vanilla's farmer and mason buy: 6 pumpkins, and 16
+  granite, andesite or diorite, for an emerald (6 and 4 lots a restock), above a stack kept (`MORE_KEEP` 64, the world's
+  `sellKeep`). Appended after SELLS in OFFERS, so a saved merchant's uses keep their indices.
+- `MC_RUNG_BUYS_FIRST` (merchant.ts rungReserve, mcWorld.ts merchantPick): other purchases take only the emeralds above what
+  the rung's goods still to buy cost (gold, bee nests, redstone, bells, bottles o' enchanting, lapis, leather, the shard,
+  cane: kept by the world's tradeKeep while a rung wants them).
+- `MC_WILD_NESTS` (wildNests.ts; mcAtlas.ts records bee nests per chunk; mcBuild.ts tend_wild_nest): a nest cannot be
+  moved without Silk Touch, so the village tends the wild nests the atlas has seen within its range where they hang, as a
+  player would: option `rung:wild_nest` (stage 1's feed, a campfire in storage) walks to the nearest, sets a lit campfire on
+  the first open cell over ground within 5 below it (charged; nothing solid between, the smoke must reach), and the server
+  confirms the campfire and the nest's bees (in it, or a bee within 16). The nest is then a hive (`apiary.housed`), and
+  tend_apiary shears and bottles it from beside its campfire. A nest that fails is retried after 30 game minutes. No nest is
+  bought while two wild ones (tended or still to tend) cover the hives; otherwise the apiary of bought nests is the way.
+  Chosen over a crafted beehive (3 honeycomb from a wild nest, the bees led over by command): no bee NBT, no second trip,
+  and the bees are the nest's own.
+- The bees rung's shears (mcWorld.ts forge): the village's pair counts raw iron and the forge smelts it (bees showed 1 ingot
+  and 66 raw iron, the pickaxes taking every ingot, and no shears in 50 minutes).
+
+**Runs** (rt_base, the rungs test's settings, 2x, 25 members, minutes of the after phase):
+
+| Run | Code | Stages ended | Reached | Village emeralds earned / spent |
+|---|---|---|---|---|
+| machines | 39c72c8 | 6, 8, 10, 12 (6 gold bought at 11-11.5) | 12 (was: not, 0 of 6 powered) | 28 / 22 in 24 min (stopped once reached) |
+| trade | 39c72c8 | 5, 8, 20, 46 | 46 (was: not, 14 of 40 emeralds) | 95 / 8 |
+| bees | 39c72c8 | hives 20 (a wild nest at 10.9, 2 nests bought at 15.5); honeycomb 0: no shears | no | 35 / 21 |
+| bees2 | 2500e66 | hives 25 (the wild nest at 10.6, nests bought at 12.9 and 16.9), honeycomb 36 (village shears at 24.4), honey 50; waxing 0 | no: rt_base has no copper canopy to wax | 43 / 22 |
+
+Minevale3's atlas showed two wild nests in range: -1605,65,146 was tended in both bees runs (at 10.9 and 10.6); the other,
+-1573,88,-90, had no bee in it or within 16 both times (its campfire stays), so the apiary still took two bought nests.
+Bees' last stage cannot end from rt_base: `MC_LADDER_START=bees` counts copper as reached, but the checkpoint never built
+the copper canopy whose roof the stage waxes ("the village has no copper canopy standing"); a village that climbed through
+copper has one. Trade's stages took 46 minutes, so it was not resized. Gold from the world (mcMine.ts keeping gold ore on deep trips) was
+left out: the mine was another session's file, and the merchant's gold reached machines at minute 11 once emeralds came in.
+
 ## Rungs we do not have yet
 
 Minecraft's progression has more than the seven rungs above. Candidates, with the tier they would take:
