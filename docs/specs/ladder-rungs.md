@@ -469,6 +469,8 @@ breadcrumb. Runs: netherT1 (world 2) ended stages 3 and 4 (+30, +31 min; stairs 
 planned for want of loaded chunks: fixed); **netherT3 (world 6) ended both through the trek alone** (Clara: bridge of 26,
 debris 54-104 blocks out over two trips, stage 3 at +40.8, the ingot at +41.4). 0 `[lag]`, 3-5 `[stuck]`, 0 `[repath]`;
 recalls only from expeditions that fell off the island (Dev, Elena). **The Nether rung is reached live.**
+The stair code's own bridging over caves near the island (B1, up to 64 netherrack carried; 53-55 a trip in netherT1,
+above the lava sea, never at its level) stays as it is: the user allowed it on 11-15 beside the one trek bridge.
 
 Risks: the island's edge (expeditions fall off it to the lava sea's shore and are recalled); the far side may be a lava
 sea or a cave; Nether chunks cost 330-350 decodes a trip, capped
