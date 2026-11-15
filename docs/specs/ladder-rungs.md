@@ -343,6 +343,20 @@ off a given tool stays in its holder's inventory, so the option goes to them, or
 the merchant's bottles wait on sales; MC_LETTERS must be on (it is, since 11-14) for the library and the rung's place
 after letters.
 
+**Reached live (11-15, `runs/2026-11-15/deep/`, world 2, from rt_base with MC_LADDER_START=enchantment).**
+enchantment6's stall was a progress check, not the land: a trip that laid the landing at y 25 (or dug the second lane
+while another laid it) compared the new, empty level with the old one's counts, failed "no progress" and banned the
+village's dig for an hour (85b8a3f: a new level or the second lane's steps are progress). enchantment7 (85b8a3f): no
+dig failed or was banned; the chain laid a landing at y 31, found no way down from y 16, opened a shaft from the dry y -8
+level to y -56, cast 4 obsidian there and made and placed the table (**908ab0c verified**: the diamonds were kept), stages
+1-3 at +29, +29 and +40, then stage 4 stopped at the 2 stocked books: no leather came in for more. Leather is now kept
+and bought for each book still to bind (4387905 the keep, b854564 the trade's keep, 117fdcc the merchant's goods in use;
+enchantment8 and 9 each found the next missing link, stages 1-3 at +34/+34/+50 and +59/+59/+59). enchantment10, from a
+checkpoint at stage 4 (`ench_s4`, saved from enchantment9): 4 leather bought at +1.5, books bound and 3 enchanted by
++6.6, **the rung reached at +6.7** (then copper and husbandry ran on). The books are enchanted by the charged command
+every time (the table's window never answered on 26.1). Emeralds were not short: lapis 44-182 and emeralds in storage
+throughout. 0 `[lag]`; `[stuck]` 53-134 a run.
+
 ### The sea (tier 4): built 11-14, `MC_SEA_AGE` (on), after copper
 
 The draft's prismarine and conduit need an ocean monument: guardians (hostile, under water, Mining Fatigue) and water
