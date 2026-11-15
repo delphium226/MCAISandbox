@@ -431,32 +431,14 @@ export async function netherExpedition(a: BotAgent, args: Record<string, unknown
           if (left.length) ground.stands.set(k, left); else ground.stands.delete(k);
           throw new Error(`could not dig ${at(c)} from ${s.x},${s.y},${s.z} on the island's ground (at ${at(q)})`);
         }
-        // (the drops picked up only where they lie on the ground's own cells: mineBlock's pick-up walked to a drop that fell
-        // below the edge, and netherT4's Dev and Finn followed it off the island at their first dig)
-        await mineBlock(a, c, signal, false, 5000, false);
+        // (the drops picked up by mineBlock's own walk, under the ground's rules: no drop over one, no digging; netherT4's
+        // members followed a drop below the island's edge with the walk's usual rules, and netherT5-6's trips that walked
+        // to drops only on the ground read at arrival dug 24 and brought back none); then back to the stand
+        await mineBlock(a, c, signal, false, 5000);
         dug++;
         afterIslandDig(ground, c, name);
-        await sleep(400, signal);
-        const p = new Vec3(c.x + 0.5, c.y + 0.5, c.z + 0.5);
-        // (where a drop rests: on the ground, or in a cell the dig opened beside it, standable now with its floor in place;
-        // netherT5's first trip dug 24 and brought back none, the drops lying in the dug cells off the ground read at arrival)
-        const rests = (q: Vec3) => onGround(q) || (standable(name, q.x, q.y, q.z)
-          && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => [-1, 0, 1].some((dy) => onGround(q.offset(dx, dy, dz)))));
-        let away = false;
-        for (const e of Object.values(a.bot.entities).filter((e) => e.name === 'item' && e.position.distanceTo(p) < 6)) {
-          const cell = e.position.floored();
-          if (cell.distanceTo(a.bot.entity.position.floored()) < 1) continue;
-          // (else the ground cell nearest it, within a block across: the pick-up reaches a block round the body)
-          let to: Cell | undefined = rests(cell) ? { x: cell.x, y: cell.y, z: cell.z } : undefined;
-          for (let dx = -1; dx <= 1 && !to; dx++) for (let dz = -1; dz <= 1 && !to; dz++) for (const dy of [0, -1, 1]) {
-            const q = cell.offset(dx, dy, dz);
-            if (onGround(q)) { to = { x: q.x, y: q.y, z: q.z }; break; }
-          }
-          if (!to) continue;
-          await groundWalk(a, to, signal);
-          away = true;
-        }
-        if (away) await groundWalk(a, s, signal);
+        const r = a.bot.entity.position.floored();
+        if (r.x !== s.x || r.y !== s.y || r.z !== s.z) await groundWalk(a, s, signal);
       } catch (e) {
         if ((e as Error).message === 'cancelled') throw e;
         if (++failed >= 8) {
