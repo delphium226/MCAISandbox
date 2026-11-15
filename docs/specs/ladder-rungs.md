@@ -472,7 +472,17 @@ recalls only from expeditions that fell off the island (Dev, Elena). **The Nethe
 The stair code's own bridging over caves near the island (B1, up to 64 netherrack carried; 53-55 a trip in netherT1,
 above the lava sea, never at its level) stays as it is: the user allowed it on 11-15 beside the one trek bridge.
 
-Risks: the island's edge (expeditions fall off it to the lava sea's shore and are recalled); the far side may be a lava
+**The far portal's ground (11-15, nether.md B4).** Expeditions walk the island's own ground by steps of one (no
+digging, no drop over one, every walk of the trip), dig from stands with no drop beside them and only blocks with
+something solid under them (the drop stays), floors two thick as pits one deep; a trek walks to its bridge so too
+(8deeb1c, not yet live). netherT4-7 (world 2) found each of these in turn: drops followed off the edge, mineBlock's own
+walk digging through the floor, drops lost under the edge. **netherT8 (8761689) reached the rung again**: stage 2 at
++17 min in 3 trips with no fall or recall, stage 3 at +38 (Clara's treks, breadcrumbs at stair heads), the ingot at +40;
+0 `[lag]`, 18 `[stuck]`. No leg was walked (`nextLeg` still untested live); the way back along the breadcrumbs reached
+none of 4 on the third trek (the teleport to the far portal took her home); the pickaxe-wear end did not occur.
+
+Risks: the island's edge (fixed for expeditions in netherT8; a trek's walk to the bridge fell once there, fixed after);
+the way back along breadcrumbs can fail from a stair's foot (the teleport stands in); the far side may be a lava
 sea or a cave; Nether chunks cost 330-350 decodes a trip, capped
 only by the party's 3 slots; bodies mode carries the dimension but was not tested; stale Nether state between runs is
 cleared only by reset_site; a stone pickaxe can wear out mid-trip (the rest of the trip digs nothing).
