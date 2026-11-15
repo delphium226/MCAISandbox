@@ -14,6 +14,11 @@ import { rawSetting } from './settings';
 
 // (on by default since 10-25, the user's: "always use the newer building style"; =off turns it off)
 export const GEN_HOMES = !/^(off|0|false|no)$/i.test(rawSetting('MC_GEN_HOMES') ?? 'on');
+/** MC_HOME_FLOORS (on; off turns it off, the user's 11-15: houses built without floors): a home drawn with a planks floor of
+ *  its wood (fitHome takes it out last, when nothing else fits); before, floor none left the levelled grass inside. */
+export const HOME_FLOORS = !/^(off|0|false|no)$/i.test(rawSetting('MC_HOME_FLOORS') ?? 'on');
+/** A home's floor as drawn. */
+export const HOME_FLOOR: BuildingStyle['floor'] = HOME_FLOORS ? 'planks' : 'none';
 
 /** A wall's length under #141's MC_BIG_HOUSES (designs.ts): +2 (both; long on the longer wall only) or x1.5 kept odd (x15). */
 const grown = (n: number) => (BIG_HOUSES === 'both' || BIG_HOUSES === 'long' ? n + 2 : BIG_HOUSES === 'x15' ? Math.floor(n * 0.75) * 2 + 1 : n);
@@ -135,7 +140,7 @@ export function memberStyle(member: string, familyName: string, wood?: string): 
   const upper_walls: BuildingStyle['walls'] = walls === 'planks' || walls === 'logs' ? walls : 'planks';
   if (flat) overhang = 0;
   const style: BuildingStyle = {
-    name: homeName(member, familyName), description: '', width, depth, wall_height: storeys === 1 && h.X >= 0.5 ? 4 : 3, floor: 'none', base, frame, walls,
+    name: homeName(member, familyName), description: '', width, depth, wall_height: storeys === 1 && h.X >= 0.5 ? 4 : 3, floor: HOME_FLOOR, base, frame, walls,
     roof, roof_material: family.roof_material === 'sandstone' && roof !== 'flat' ? 'sandstone' : family.roof_material, overhang,
     windows: family.windows === 'open' && walls !== 'sandstone' ? 'panes' : family.windows, door_side: 'south',
     footprint, ...(wing ? { wing } : {}), storeys, ...(storeys === 2 ? { upper_walls } : {}), ...(wood ? { wood } : {}),
@@ -182,6 +187,8 @@ export function fitHome(style: BuildingStyle, budget: number, bill: HomeBill = {
     ['open windows', (s) => (s.windows === 'panes' ? { ...s, windows: 'open' } : null)],
     ['planks walls', (s) => (s.walls !== 'planks' ? { ...s, walls: 'planks', upper_walls: s.upper_walls && 'planks' } : null)],
     ['smaller', (s) => (s.width >= 7 ? { ...s, width: s.width - 2 } : s.depth >= 7 ? { ...s, depth: s.depth - 2 } : null)],
+    // (MC_HOME_FLOORS: the floor last, when nothing else fits)
+    ['earth floor', (s) => (s.floor !== 'none' ? { ...s, floor: 'none' } : null)],
   ];
   let s = style;
   let d = generateDesign(s);
@@ -291,7 +298,7 @@ export function styleFromChoice(member: string, familyName: string, c: HomeChoic
   const upper_walls: BuildingStyle['walls'] = walls === 'planks' || walls === 'logs' ? walls : 'planks';
   if (flat) overhang = 0;
   return {
-    name: homeName(member, familyName), description: '', width, depth, wall_height: c.storeys === 1 && h.X >= 0.5 ? 4 : 3, floor: 'none', base, frame, walls,
+    name: homeName(member, familyName), description: '', width, depth, wall_height: c.storeys === 1 && h.X >= 0.5 ? 4 : 3, floor: HOME_FLOOR, base, frame, walls,
     roof, roof_material: family.roof_material === 'sandstone' && roof !== 'flat' ? 'sandstone' : family.roof_material, overhang,
     windows: family.windows === 'open' && walls !== 'sandstone' ? 'panes' : family.windows, door_side: 'south',
     footprint, ...(wing ? { wing } : {}), storeys: c.storeys, ...(c.storeys === 2 ? { upper_walls } : {}), ...(wood ? { wood } : {}),

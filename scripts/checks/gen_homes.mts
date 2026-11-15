@@ -8,6 +8,7 @@
  * - every stair faces uphill (its tall side's column reaches its layer, its low side's does not rise above it);
  * - whole walls up to the roof (no gaps but the door and open windows), every cell inside the walls roofed over;
  * - ladders and open trapdoors against a solid block (a ladder's back, a shutter's wall);
+ * - with MC_HOME_FLOORS (on), a floor under every cell inside the walls, unless the budget's last cut took it (counted);
  * then counts distinct designs (prediction: at least 20 of 24 a family), compares the look of the most traditional and the
  * most open members' houses with their family's, and draws twice to see the same houses (deterministic).
  * Usage: node node_modules/tsx/dist/cli.mjs scripts/checks/gen_homes.mts [VERBOSE=1: every home's layers]
@@ -18,7 +19,7 @@ import path from 'node:path';
 import minecraftData from 'minecraft-data';
 import { V2_LIMITS, stairShape, type BuildingStyle } from '../../server/src/buildingGen';
 import { elevations, HOUSE_UNITS, HOUSE_UNITS_LARGE, outsideCells, outwardStep, validateDesign } from '../../server/src/designs';
-import { FAMILY, homeOwner, homeTraits, isHomeName, ownHomes } from '../../server/src/houseStyle';
+import { FAMILY, HOME_FLOORS, homeOwner, homeTraits, isHomeName, ownHomes } from '../../server/src/houseStyle';
 import { isDwelling } from '../../server/src/grow';
 import { isLandmark, woodVariant } from '../../server/src/designs';
 import { NAME_POOL } from '../../server/src/agentNames';
@@ -131,6 +132,8 @@ function check(d: Design, budget: number): string[] {
           if (!solid(d, at(d, l, x, z)) && !door && !window) problems.push(`a gap in the wall at ${x},${z} layer ${l}`);
         }
       if (inside && top < (style.storeys === 2 ? 8 : style.wall_height + 1)) problems.push(`no roof over ${x},${z}`);
+      // (MC_HOME_FLOORS, the user's 11-15: houses stood on the levelled grass; the budget's last cut may still take it)
+      if (inside && HOME_FLOORS && !solid(d, at(d, 0, x, z)) && !/earth floor/.test(d.description)) problems.push(`no floor at ${x},${z}`);
     }
   return problems;
 }
@@ -240,5 +243,7 @@ if (process.env.OUT) {
   lines.push(`size (MC_BIG_HOUSES=${process.env.MC_BIG_HOUSES ?? 'off'}): box ${m(all, (d) => d.width).toFixed(1)} x ${m(all, (d) => d.depth).toFixed(1)}, interior ${m(all, interior).toFixed(1)} cells; plains: interior ${m(plains, interior).toFixed(1)}, wood ${m(plains, wood).toFixed(0)}, units ${m(plains, (d) => cost(d).units).toFixed(0)} (${n} homes)`);
 }
 console.log(lines.join('\n'));
+const earth = all.filter((d) => /earth floor/.test(d.description)).length;
+console.log(`floors: ${HOME_FLOORS ? `${all.length - earth} of ${all.length} homes drawn with a floor${earth ? ` (${earth} lost it to the budget's last cut)` : ''}` : 'MC_HOME_FLOORS off: every home on the levelled ground'}`);
 console.log(failed ? `FAIL gen_homes: ${failed} problems` : `PASS gen_homes: ${all.length} homes in 5 families, every one valid, in budget and in its box`);
 process.exit(failed ? 1 : 0);

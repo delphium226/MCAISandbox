@@ -32,7 +32,7 @@ import { ARMS_GOODS, BEES_GOODS, ENCHANT_GOODS, NETHER_GOODS, SEA_GOODS, MACHINE
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
 import { PROMPT_SELF, UNUSED_GOOD, UNUSED_TAG, ambitionGap, feedKinds, needsLine as basicNeedsLine, scarcityLine, selfLine, type HouseFacts, type SelfFacts } from '../promptSelf';
-import { BAN_MEMBER, CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, basicOf, buildPrompt, choose, choreProductive, fixedPick, fnv1a, menuView, mulberry32, shuffled, trimMenu, weighted, weights } from '../choose';
+import { BAN_MEMBER, CHOOSE, ChoiceStats, DECOR_MORE, ChooserQueue, DISLIKED, basicOf, buildPrompt, choose, choreProductive, fixedPick, fnv1a, menuView, mulberry32, shuffled, trimMenu, weighted, weights } from '../choose';
 import { Palette, reserved, type Dropped } from '../palette';
 import { workerNumber } from '../agentNames';
 import { KIND_PHRASE, TEMPERAMENT_MODE, activeKinds, kindWeights, optionWeight, personaOf, temperament, vectorOf } from '../temperament';
@@ -56,7 +56,7 @@ import type { AgentBrain } from '../world';
 import type { Area, Design, Initiative, Monument, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
 import { PART_RE, STORAGE_KEEP, freeSpots, ownTools, storageContents, storageFlow, storageGross, storageSlots, storageStrays } from './mcStorage';
-import { HOME_BASICS, basicsCost, basicsFacts, basicsLeft, basicsOf, bedsOwed, freeDecorSlots, houseDecorOf, sheepPlace, woolInHand, type BasicsCells } from './mcHome';
+import { HOME_BASICS, basicsCost, basicsFacts, basicsLeft, basicsOf, bedsOwed, floorCost, floorsOf, freeDecorSlots, homeWood, houseDecorOf, sheepPlace, woolInHand, type BasicsCells } from './mcHome';
 import { HOUSE_DECOR, decorPicks, decorWants } from '../houseDecor';
 import { contractOf, deliveriesOf, deliveryWords, earmarked, levyOwed, levySweep, markAtEnd, payWageFor, reconcilePay, rungWageNow, startPay, storeByCommand, type PayWorld } from './mcPay';
 import { PAY, payOf } from '../pay';
@@ -67,7 +67,7 @@ import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 import { Atlas } from './mcAtlas';
 import { VILLAGE_BIOMES, listPieces, pieceToDesign, readPiece, vanillaLibrary, vanillaLights, vanillaShelves, villageBiome } from '../vanillaPieces';
-import { buildingDecor, buildingLights, decorSlots, type DecorSlot, type HomeBasics, placedDoor, placedOutside, signLabel, type DecorSpot, type LightSpot, type SignPlace, type SignSpot } from '../streetPlan';
+import { bareFloorCells, buildingDecor, buildingLights, decorSlots, type DecorSlot, type HomeBasics, placedDoor, placedOutside, signLabel, type DecorSpot, type LightSpot, type SignPlace, type SignSpot } from '../streetPlan';
 import { buildCatalog, type ActivitySpec } from '../activities';
 import { LETTERS_PACE, NETHER_TREK, OWN_TOOLS } from '../ladderFlags';
 import { TREK, futileBackoffMin } from '../netherPlan';
@@ -104,7 +104,7 @@ import { FIELD_RIPE, FLOWER_KEEP, FLOWER_WANTS, OWN_ROD, STRING } from '../suppl
 import { councilLine, needBoost, noteNeedOffer, noteNeedStatus, setCouncilStore, withInfluence } from '../council';
 import { CHARACTER, characterAny, characterFactor, characterRunBegin, goalFromValues, helpWeight, hexacoOf, hexacoWeights, identityLine, initCharacter, moodLine, moodWeight, needsLine, noteDecision, noteLines, noteRest, noteWork, requestWeight, restWeight, sample as characterSample, temperamentWords, think, valuesLine } from '../character';
 import { HOUSE_UNITS, HOUSE_UNITS_LARGE, LANDMARK_UNITS, MAX_SMELTS, VANILLA_ALL, WOOD_VARIANTS, baseName, houseBudget, isLandmark, isVanillaPieceName, validateDesign } from '../designs';
-import { GEN_HOMES, PLAIN_CHOICE, characterChoice, describeStyle, familyKey, fitChoice, homeOptions, homeOwner, isHomeName, styleFromChoice, type HomeChoice, type HomeOptions, type OwnChoice } from '../houseStyle';
+import { GEN_HOMES, HOME_FLOORS, PLAIN_CHOICE, characterChoice, describeStyle, familyKey, fitChoice, homeOptions, homeOwner, isHomeName, styleFromChoice, type HomeChoice, type HomeOptions, type OwnChoice } from '../houseStyle';
 import { HOME_DESIGN, castDesign, castProgram, characterOf, designNote, inHoldout, villageForms, type DesignContext, type DesignResult, type ProgramResult } from '../homeDesign';
 import { generateDesign } from '../buildingGen';
 import { applyWrites } from '../memory';
@@ -249,6 +249,8 @@ export type DecorPart = {
   basics?: BasicsCells;
   /** #141 (MC_HOUSE_DECOR): an owned dwelling's decoration slots (decorSlots, after its basics and furniture, in the box). */
   slots?: DecorSlotY[];
+  /** MC_HOME_FLOORS: an owned dwelling's floor cells left to the ground (bareFloorCells; at the structure's y). */
+  bare?: Array<{ x: number; z: number }>;
 };
 /** A decoration slot in the world (`y` the cell's). */
 export type DecorSlotY = DecorSlot & { y: number };
@@ -1068,14 +1070,16 @@ export class MineflayerWorld implements WorldAdapter {
           taken.push({ x: basics.table.x, layer: 1, z: basics.table.z });
           surfaces.unshift({ x: basics.table.x, layer: 2, z: basics.table.z });
         }
-        slots = decorSlots(place, { taken, surfaces, lights, signs })
+        slots = decorSlots(place, { taken, surfaces, lights, signs, ...(DECOR_MORE ? { per: 5, max: 8 } : {}) })
           .filter((q) => inBox(q) && q.layer >= 1 && q.layer < place.design.height).map((q) => ({ ...q, y: st.y + q.layer }));
       }
-      if (!spots.length && !basics) continue;
+      // (MC_HOME_FLOORS: the floor an owned dwelling was drawn without, its owner's to lay)
+      const bare = HOME_FLOORS && st.owner && isDwelling(st.kind) ? bareFloorCells(place).filter(inBox) : [];
+      if (!spots.length && !basics && !bare.length) continue;
       const r = v.decor?.[P.part];
       const open = spots.filter((q) => !r?.done.includes(`${q.x},${q.y},${q.z}`) && !r?.never?.includes(`${q.x},${q.y},${q.z}`));
       const own = chest?.spot && chest.spot.x >= st.x1 && chest.spot.x <= st.x2 && chest.spot.z >= st.z1 && chest.spot.z <= st.z2 ? { x: chest.spot.x, y: st.y + 1, z: chest.spot.z, facing: chest.spot.facing } : undefined;
-      parts.push({ part: P.part, label: P.label, structure: st, place, walk: P.walk, spots, open, ...(own ? { chest: own } : {}), ...(basics ? { basics } : {}), ...(slots?.length ? { slots } : {}) });
+      parts.push({ part: P.part, label: P.label, structure: st, place, walk: P.walk, spots, open, ...(own ? { chest: own } : {}), ...(basics ? { basics } : {}), ...(slots?.length ? { slots } : {}), ...(bare.length ? { bare } : {}) });
     }
     parts.sort((p, q) => q.open.length - p.open.length);
     this.decorCache.set(v.name, { sig, quick: { light, key }, parts });
@@ -8237,6 +8241,17 @@ export class MineflayerWorld implements WorldAdapter {
           }, { kind: 'own', what: 'shear', make: !shears });
         } else reasons.own ??= `storage is short for your house: ${short.map(([q, c]) => `${q}: ${(c as { short: string }).short}`).join('; ')}`;
       }
+      // MC_HOME_FLOORS (the user's 11-15): a house built without a floor gets one from its owner, before its decorations
+      if (HOME_FLOORS && st && P?.bare?.length && !floorsOf(v)[st.id]) {
+        const fc = floorCost(P.bare.length, homeWood(P), store);
+        if ('short' in fc) reasons.own ??= `no floor for your house: storage is short of ${fc.short}`;
+        else add({
+          id: 'own:floor', kind: 'own', key: me, excludes: [`${me}=`], name: 'Lay a floor in your own house', rank: 185,
+          at: { x: P.bare[0].x, z: P.bare[0].z },
+          facts: `your ${words(st.kind)} has bare earth for a floor (${P.bare.length} cells of grass and dirt inside its walls); ${countsText(fc.take)} from storage; ${dist(P.bare[0].x, P.bare[0].z)}`,
+          effect: `a ${words(fc.block)} floor in your own house`,
+        }, { kind: 'own', what: 'floor' });
+      }
       // #141 (MC_HOUSE_DECOR): basics in, the owner decorates its house from the trades' stock (2 pieces a chore, its taste's)
       if (HOUSE_DECOR && st && P?.slots && P.basics && !left.length) {
         const free = freeDecorSlots(v, P);
@@ -11487,6 +11502,11 @@ export class MineflayerWorld implements WorldAdapter {
           console.log(`[pay] ${v.name}: ${worker.name} goes to deliver ${k ? deliveryWords(k) : 'goods'} to ${k?.payer ?? '?'} (${d.contract})`);
           return;
         }
+        if (d.what === 'floor') {
+          this.setChore(v, worker, opt.key, [worker.enqueue('lay_home_floor', { chore: true })], 'lay a floor in your own house', undefined, meta, opt.holds, opt);
+          console.log(`[home] ${v.name}: ${worker.name} goes to lay its house's floor`);
+          return;
+        }
         if (d.what === 'decor') {
           this.setChore(v, worker, opt.key, [worker.enqueue('decorate_home', { chore: true })], 'decorate your own house', undefined, meta, opt.holds, opt);
           console.log(`[decor] ${v.name}: ${worker.name} goes to decorate its house`);
@@ -12969,6 +12989,7 @@ type OptionRun =
   | { kind: 'own'; what: 'chest' }
   | { kind: 'own'; what: 'basics' }
   | { kind: 'own'; what: 'decor' }
+  | { kind: 'own'; what: 'floor' }
   | { kind: 'decor'; item: string; amount: number }
   | { kind: 'own'; what: 'shear'; make: boolean }
   | { kind: 'own'; what: 'carry'; want: Counts }

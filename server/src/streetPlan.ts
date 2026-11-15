@@ -901,9 +901,10 @@ export interface DecorSlot { x: number; layer: number; z: number; kind: 'floor' 
  * off the doors' ring, the lights, the signs and the taken cells, each the farthest from the walls chosen. Surface: the free
  * cell over a full-block piece. Ceiling: the highest free cell of an open column (layer 3 or up) under a solid block,
  * nearest the room's middle. Worked out in the design's own cells, so the same slots turn with the house; pure
- * (scripts/checks/decor_slots.mts checks it at four turns).
+ * (scripts/checks/decor_slots.mts checks it at four turns). `per` and `max` (MC_DECOR_MORE: 5 and 8) change the count's
+ * rule; the slots before the count are the same at any count.
  */
-export function decorSlots(p: SignPlace, opts: { taken?: Array<{ x: number; layer: number; z: number }>; surfaces?: Array<{ x: number; layer: number; z: number }>; lights?: LightSpot[]; signs?: SignSpot[] } = {}): DecorSlot[] {
+export function decorSlots(p: SignPlace, opts: { taken?: Array<{ x: number; layer: number; z: number }>; surfaces?: Array<{ x: number; layer: number; z: number }>; lights?: LightSpot[]; signs?: SignSpot[]; per?: number; max?: number } = {}): DecorSlot[] {
   const g = placedGrid(p), d = p.design, rot = ((p.rot % 4) + 4) % 4;
   const cell = (l: number, i: number, j: number) => {
     const ch = d.layers[l]?.[j]?.[i];
@@ -947,7 +948,7 @@ export function decorSlots(p: SignPlace, opts: { taken?: Array<{ x: number; laye
       while (cell(l + 1, i, j) === '.') l++;
       if (l >= 3 && solidBlock(cell(l + 1, i, j)) && !taken.has(wk(i, l, j))) ceil.push({ i, j, l });
     }
-  const want = Math.max(2, Math.min(6, Math.floor(inside / 8)));
+  const want = Math.max(2, Math.min(opts.max ?? 6, Math.floor(inside / (opts.per ?? 8))));
   const mid = { i: si / Math.max(1, inside), j: sj / Math.max(1, inside) };
   const surf = (opts.surfaces ?? []).filter((s) => !taken.has(`${s.x},${s.layer},${s.z}`));
   // (stable sorts: ties keep the design's row, column order, the same at every turn)
@@ -981,6 +982,35 @@ export function decorSlots(p: SignPlace, opts: { taken?: Array<{ x: number; laye
     miss = got ? 0 : miss + 1;
   }
   return out2;
+}
+
+/**
+ * MC_HOME_FLOORS: a placed building's floor cells it leaves to the ground ("x,z" in the world): the inside cells at feet
+ * level (layer 1 open and closed off from the grid's edge by its walls and doors) whose floor layer is "_" (a generated
+ * home drawn with floor none: the levelled grass inside). Empty for a design with a floor. Pure.
+ */
+export function bareFloorCells(p: SignPlace): Array<{ x: number; z: number }> {
+  const d = p.design, rot = ((p.rot % 4) + 4) % 4, l0 = d.layers[0], l1 = d.layers[1];
+  if (!l0 || !l1 || l1.length !== d.depth || l0.length !== d.depth) return [];
+  const open = (i: number, j: number) => { const c = l1[j]?.[i]; return c === '.' || c === '_'; };
+  const reached = new Set<string>();
+  const queue: Array<[number, number]> = [];
+  for (let j = 0; j < d.depth; j++) for (let i = 0; i < d.width; i++) if ((i === 0 || j === 0 || i === d.width - 1 || j === d.depth - 1) && open(i, j)) queue.push([i, j]);
+  while (queue.length) {
+    const [i, j] = queue.pop()!;
+    if (i < 0 || j < 0 || i >= d.width || j >= d.depth || !open(i, j) || reached.has(`${i},${j}`)) continue;
+    reached.add(`${i},${j}`);
+    queue.push([i + 1, j], [i - 1, j], [i, j + 1], [i, j - 1]);
+  }
+  const { area } = placedGrid(p);
+  const out: Array<{ x: number; z: number }> = [];
+  for (let j = 0; j < d.depth; j++)
+    for (let i = 0; i < d.width; i++) {
+      if (l1[j][i] !== '.' || reached.has(`${i},${j}`) || l0[j][i] !== '_') continue;
+      const [u, w] = turnCell(i, j, d.width, d.depth, rot);
+      out.push({ x: area.x1 + u, z: area.z1 + w });
+    }
+  return out;
 }
 
 /** A placed building's entrance door and its way out (placedGrid's `door`, null for a noSign place: a town centre). */

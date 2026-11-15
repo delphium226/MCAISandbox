@@ -358,6 +358,103 @@ async function decorateHome(a: BotAgent, _args: Record<string, unknown>, signal:
   return `put ${done.join(' and ')} in your house (${rec.length} decorations; room for ${left} more)`;
 }
 
+// ---------------------------------------------------------------------------------------------
+// MC_HOME_FLOORS: the owner lays the floor its house was built without (the user's 11-15)
+// ---------------------------------------------------------------------------------------------
+
+/** A house's laid floor (the village's `homeFloors`, by structure id). */
+export interface FloorRecord { at: number; by: string; block: string; n: number }
+
+/** The village's laid floors, read only. */
+export function floorsOf(v: Village): Readonly<Record<string, FloorRecord>> {
+  return (v as Village & { homeFloors?: Record<string, FloorRecord> }).homeFloors ?? NO_FLOORS;
+}
+const NO_FLOORS: Readonly<Record<string, FloorRecord>> = Object.freeze({});
+
+/** A house's own wood (its style's, else its design name's "@wood"). */
+export function homeWood(P: DecorPart): string | undefined {
+  const d = P.place.design;
+  return (d.style as { wood?: string } | undefined)?.wood ?? /@(\w+)$/.exec(d.name)?.[1];
+}
+
+const WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak'];
+
+/**
+ * What a floor of `n` cells costs from storage `store`: planks of the house's own wood, else its logs (4 planks a log),
+ * else the most plentiful wood's planks or logs. The planks block it lays, or what is short.
+ */
+export function floorCost(n: number, wood: string | undefined, store: Counts): { take: Counts; block: string } | { short: string } {
+  const woods = [...(wood && WOODS.includes(wood) ? [wood] : []), ...WOODS.filter((w) => w !== wood).sort((p, q) => ((store[`${q}_planks`] ?? 0) + 4 * (store[`${q}_log`] ?? 0)) - ((store[`${p}_planks`] ?? 0) + 4 * (store[`${p}_log`] ?? 0)))];
+  for (const w of woods) {
+    if ((store[`${w}_planks`] ?? 0) >= n) return { take: { [`${w}_planks`]: n }, block: `${w}_planks` };
+    if ((store[`${w}_log`] ?? 0) * 4 >= n) return { take: { [`${w}_log`]: Math.ceil(n / 4) }, block: `${w}_planks` };
+  }
+  return { short: `${n} planks (or ${Math.ceil(n / 4)} logs of one wood)` };
+}
+
+/** What a floor may go over: the ground left inside (grass, dirt, path, gravel, sand, the prepared ground's cobblestone
+ *  patches); never a block the village placed there on purpose, nor a hole a member may stand in (lesson 44). */
+const FLOOR_OVER = ['#minecraft:dirt', 'minecraft:dirt_path', 'minecraft:farmland', 'minecraft:cobblestone', 'minecraft:gravel', '#minecraft:sand'];
+
+/**
+ * lay_home_floor: the member's own house's bare cells (DecorPart.bare, the floor layer at the structure's y) laid with
+ * planks of its wood: withdrawn in one trip, set by command (a fill a row span and a ground kind), each cell confirmed on
+ * the server, and only the planks laid taken from the member (a log for 4). Recorded once laid (9 in 10 cells or more).
+ */
+async function layHomeFloor(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('lay_home_floor: not in a village');
+  const st = v.structures.find((s) => s.owner === a.name && isDwelling(s.kind));
+  if (!st) throw new Error('lay_home_floor: you have no house of your own yet');
+  if (floorsOf(v)[st.id]) return 'your house has its floor already';
+  const P = a.world.decorParts(v).find((q) => q.structure.id === st.id);
+  const cells = P?.bare ?? [];
+  if (!P || !cells.length) return `your house (${st.kind}) has a floor`;
+  const c = floorCost(cells.length, homeWood(P), storageContents(v));
+  if ('short' in c) throw new Error(`lay_home_floor: storage is short of ${c.short}`);
+  const [item, q] = Object.entries(c.take)[0];
+  const before = await a.world.rcon.count(a.name, item).catch(() => 0);
+  await withdrawItems(a, v, { [item]: q }, signal).catch((e: Error) => { if (e.message === 'cancelled') throw e; });
+  const have = (await a.world.rcon.count(a.name, item).catch(() => 0)) - before;
+  const perItem = /_log$/.test(item) ? 4 : 1;
+  if (have * perItem < cells.length) throw new ContentionError(`lay_home_floor: another agent took the ${item}`, 'taken', `stock:${item}`);
+  const walked = await toDoor(a, P, signal);
+  const y = st.y;
+  const floored = async () => {
+    let n = 0;
+    for (const q of cells) if (/passed/i.test(await a.world.rcon.command(`execute if block ${q.x} ${y} ${q.z} minecraft:${c.block}`).catch(() => ''))) n++;
+    return n;
+  };
+  const already = await floored();
+  // (row spans of the cells, each filled over the ground kinds in turn)
+  const rows = new Map<number, number[]>();
+  for (const q of cells) (rows.get(q.z) ?? rows.set(q.z, []).get(q.z)!).push(q.x);
+  for (const [z, xs] of rows) {
+    xs.sort((p, q) => p - q);
+    for (let i = 0; i < xs.length; ) {
+      let j = i;
+      while (j + 1 < xs.length && xs[j + 1] === xs[j] + 1) j++;
+      for (const over of FLOOR_OVER) {
+        if (signal.aborted) throw new Error('cancelled');
+        await a.world.rcon.command(`fill ${xs[i]} ${y} ${z} ${xs[j]} ${y} ${z} minecraft:${c.block} replace ${over}`).catch(() => '');
+      }
+      i = j + 1;
+    }
+  }
+  const laid = await floored(), fresh = Math.max(0, laid - already);
+  // (the planks laid taken from the member, a log for 4; the rest stays carried, deposited as any carried stock)
+  const cost = Math.min(have, Math.ceil(fresh / perItem));
+  if (cost > 0) await a.world.rcon.take(a.name, item, cost).catch(() => 0);
+  // (recorded once anything is down: a cell holding something else is left as it is, never laid again and again)
+  if (laid) {
+    ((v as Village & { homeFloors?: Record<string, FloorRecord> }).homeFloors ??= {})[st.id] = { at: Date.now(), by: a.name, block: c.block, n: laid };
+    a.world.villages.save();
+  }
+  console.log(`[home] ${v.name}: ${a.name} laid ${fresh} ${c.block} in its house's floor (${laid} of ${cells.length} cells floored; ${cost} ${item})${walked ? '' : ' (from where it stood)'}`);
+  if (!laid) throw new Error(`lay_home_floor: no ${c.block} went down (the cells hold something else)`);
+  return `laid ${fresh} ${c.block.replace(/_/g, ' ')} as your house's floor${laid < cells.length ? ` (${cells.length - laid} cells hold something else)` : ''}`;
+}
+
 /** The atlas's sheep place for the village (the wool skill's own pick: the biggest recent cluster near the hut), or why none. */
 export function sheepPlace(a: BotAgent, v: Village): { x: number; y: number; z: number } | string {
   const h = v.storageHut;
@@ -454,6 +551,7 @@ async function shearForYard(a: BotAgent, args: Record<string, unknown>, signal: 
 export const HOME_SKILLS: Record<string, McSkill> = {
   home_basics: { run: homeBasics },
   decorate_home: { run: decorateHome },
+  lay_home_floor: { run: layHomeFloor },
   shear_for_bed: { run: shearForBed },
   shear_for_yard: { run: shearForYard },
 };

@@ -25,6 +25,9 @@ import { IRON_AGE } from './ladderFlags';
  *  re-ask (All1, F304: 299 fixed picks for a taken pick and 475 re-asks with every member on the model). */
 export const CHOOSE_BACKUP = /^(on|1|true|yes)$/i.test(rawSetting('MC_CHOOSE_BACKUP') ?? '');
 export const BAN_MEMBER = /^member$/i.test(rawSetting('MC_BAN_SCOPE') ?? '');
+/** MC_DECOR_MORE (on; off turns it off): own options banned per option (their ids are unrelated chores: three own-farm
+ *  failures banned decorating with them for an hour), and up to 8 decoration slots a house (villageReads). */
+export const DECOR_MORE = !/^(off|0|false|no)$/i.test(rawSetting('MC_DECOR_MORE') ?? 'on');
 const BAN_MEMBER_MS = 20 * 60000 / Math.max(0.1, Number(rawSetting('MC_TIME_SCALE') ?? 1) || 1);
 /** MC_WORK_BLOCKS: model decisions paced through the hour (modelCallsLastHour), at most PACE_BURST at a time. */
 const PACED = LLM_LIMITS && /^(on|1|true|yes)$/i.test(rawSetting('MC_WORK_BLOCKS') ?? '');
@@ -1099,7 +1102,8 @@ export class ChoiceStats {
       return mine.length >= 2 ? (mine[mine.length - 1] + BAN_MEMBER_MS > now ? { until: mine[mine.length - 1] + BAN_MEMBER_MS, scope: 'id' } : null) : null;
     }
     // (G8, MC_IRON_AGE: dig, smelt and forge are separate works; a miner's failures never ban the smiths, staged I3)
-    const perId = kind === 'make' || kind === 'gather' || kind === 'light' || kind === 'furnish' || kind === 'initiate' || kind === 'help' || kind === 'activity' || (IRON_AGE && kind === 'iron');
+    // (MC_DECOR_MORE: and own, whose ids are unrelated chores: the own farm's failures for want of land banned decorating)
+    const perId = kind === 'make' || kind === 'gather' || kind === 'light' || kind === 'furnish' || kind === 'initiate' || kind === 'help' || kind === 'activity' || (IRON_AGE && kind === 'iron') || (DECOR_MORE && kind === 'own');
     const fails = this.list(village).filter((e) => e.kind === kind && !e.ok && !e.cut && !e.contention && e.at > now - 2 * HOUR && e.at <= now);
     let own = 0, whole = 0;
     // Per id: any three of its failures within an hour

@@ -14,7 +14,7 @@
  * Usage: node_modules/.bin/tsx scripts/checks/choose_unit.mts
  */
 import {
-  CHOOSE, ChoiceStats, ChooserQueue, MENU_MAX, PER_KIND_MAX, buildPrompt, choose, choreProductive, clearQuotaBackoff, fixedPick, parseChoice, shuffled, trimMenu,
+  CHOOSE, ChoiceStats, ChooserQueue, DECOR_MORE, MENU_MAX, PER_KIND_MAX, buildPrompt, choose, choreProductive, clearQuotaBackoff, fixedPick, parseChoice, shuffled, trimMenu,
 } from '../../server/src/choose';
 import { CallFallback, CallWithdrawn, type CallRequest, type Reply } from '../../server/src/modelCall';
 import { BudgetExceeded, usage } from '../../server/src/modelUsage';
@@ -435,6 +435,14 @@ const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
   for (const [a, i, m] of [['Worker1', 'explore:1', 0], ['Worker2', 'explore:2', 1], ['Worker3', 'explore:3', 2], ['Worker1', 'explore:3', 3]] as const)
     s5.record({ village: 'V', agent: a, kind: 'explore', id: i, ok: false, cut: false, contention: false, productive: false, minutes: 1, at: T + m * MIN, line: 'x' });
   eq(s5.banned('V', 'explore', 'explore:3', T + 4 * MIN), null, 'explore is never banned');
+  // MC_DECOR_MORE (on): own options are banned per id (the rung runs' own-farm failures for want of land banned decorating)
+  const s5o = new ChoiceStats();
+  for (const [a, i, m] of [['Kai', 'own:farm:wheat', 0], ['Dev', 'own:farm:sugar_cane', 1], ['Jonah', 'own:farm:wheat', 2], ['Kai', 'own:farm:wheat', 3]] as const)
+    s5o.record({ village: 'V', agent: a, kind: 'own', id: i, ok: false, cut: false, contention: false, productive: false, minutes: 1, at: T + m * MIN, line: 'x' });
+  if (DECOR_MORE) {
+    eq(s5o.banned('V', 'own', 'own:decor', T + 4 * MIN), null, 'MC_DECOR_MORE: own farm failures leave decorating free');
+    eq(s5o.banned('V', 'own', 'own:farm:wheat', T + 4 * MIN), { until: T + 63 * MIN, scope: 'id' }, 'MC_DECOR_MORE: the failing own option banned alone');
+  } else eq(s5o.banned('V', 'own', 'own:decor', T + 4 * MIN), { until: T + 63 * MIN, scope: 'kind' }, 'MC_DECOR_MORE off: the whole own kind is banned');
 
   // The agent cooldown
   const s6 = new ChoiceStats();
