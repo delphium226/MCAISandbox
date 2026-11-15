@@ -58,10 +58,14 @@ import { RULES, laws as lawsOf, rulesInForce } from './rules';
 import { councilLine } from './council';
 import { CHARACTER, glance, identityOf, memberView, seriesView, villageView } from './character';
 import { phaseLine } from './society';
-import { LADDER, ladderView } from './ladder';
+import { LADDER, RUNG_DEFS, ladderView, rungImplemented } from './ladder';
+import { LADDER_START } from './ladderFlags';
+import { PAY, payOf } from './pay';
 import { rawSetting } from './settings';
 import type { ChoiceOutcome } from './choose';
-import { currentStage, monumentNoun, monumentPlan, monumentType } from './monument';
+import { currentStage, monumentNoun, monumentPlan, monumentType, presetIdOf } from './monument';
+import { requestsOf } from './playerTalk';
+import { civicIdOf } from './talkDesign';
 import { civicsOf } from './civic';
 import { WANTS, wantsOf } from './pursuits';
 
@@ -126,6 +130,8 @@ function agentOverview(a: WorldAgent) {
     brain: a.brain?.name ?? null,
     status,
     position: o.position,
+    // (the Nether rung: the dimension when not the overworld, so the maps never draw a Nether position as an overworld one)
+    ...(o.dimension ? { dim: o.dimension } : {}),
     biome: o.biome,
     health: o.health,
     food: o.food,
@@ -528,6 +534,37 @@ export function timeline(w: WorldAdapter, village: string, binMin = 10, now = Da
 /** When each village's monument last gained a job, as this process saw it (the record keeps only its stages' times). */
 const monumentSeen = new Map<string, { done: number; at: number }>();
 /**
+ * The Ladder view's additions (11-15): each rung's tier, words and whether the code can finish it; the test start rung; the
+ * rung ballots' tallies (the votes of topic rung); the rung wages paid (MC_RUNG_WAGE, from the pay ledger); and each rung's
+ * own works as the village records them (the machines' collector and rail line, the apiary, the maps, the enchanting
+ * table and levels, the dock, the Nether's portals, trips and trek bridge).
+ */
+function ladderExtras(v: Village) {
+  const rungInfo = Object.fromEntries((Object.keys(RUNG_DEFS) as Array<keyof typeof RUNG_DEFS>).map((id) => [id, { tier: RUNG_DEFS[id].tier, what: RUNG_DEFS[id].what, time: RUNG_DEFS[id].time, implemented: rungImplemented(id) }]));
+  const votes = (v.votes ?? []).filter((x) => x.topic === 'rung').slice(-6).reverse().map((x) => ({
+    k: x.k, at: x.at, closedAt: x.closedAt ?? null, mode: x.mode, options: x.options.map((o) => ({ id: o.id, name: o.name })), tally: x.tally,
+    winner: x.winner, tie: x.tie ?? null, cast: x.ballots.filter((b) => b.choice).length, ballots: x.ballots.length }));
+  const rows = PAY.on ? payOf(v).ledger.filter((r) => typeof r.why === 'string' && r.why.startsWith('a rung wage')) : [];
+  const by: Record<string, number> = {};
+  for (const r of rows) if (r.to) by[r.to] = (by[r.to] ?? 0) + r.n;
+  const wages = { on: PAY.on && PAY.rungWage > 0, wage: PAY.rungWage, total: rows.reduce((t, r) => t + r.n, 0), paid: rows.length, by,
+    recent: rows.slice(-8).reverse().map((r) => ({ t: r.t, to: r.to ?? null, n: r.n, why: r.why })) };
+  const n = v.nether, mc = v.machines, ap = v.apiary, mp = v.maps, en = v.enchant, dock = v.sea?.dock;
+  const works = {
+    machines: mc ? { collector: mc.collector ? { by: mc.collector.by, t: mc.collector.t } : null,
+      line: mc.line ? { cells: mc.line.cells?.length ?? 0, laid: mc.line.laid ?? 0, done: !!mc.line.done, cart: !!mc.line.cart, powered: mc.line.powered?.length ?? 0, torch: !!mc.line.torch, fail: mc.line.fail ?? null } : null } : null,
+    apiary: ap ? { housed: ap.housed?.length ?? 0, tended: Object.keys(ap.tended ?? {}).length,
+      wild: Object.values(ap.wild ?? {}).filter((x) => x.campfire).length, wildFailed: Object.values(ap.wild ?? {}).filter((x) => !x.campfire && x.fail).length } : null,
+    maps: mp ? { charted: Object.keys(mp.cells ?? {}).length, hung: Object.keys(mp.hung ?? {}).length } : null,
+    enchant: en ? { table: en.table ?? null, enchanter: en.enchanter ?? null, levels: en.levels ?? {}, dry: en.dry ?? null } : null,
+    dock: dock ? { cells: dock.cells?.length ?? 0, laid: dock.laid ?? 0, done: !!dock.done, fail: dock.fail ?? null } : null,
+    nether: n ? { portal: n.portal ?? null, far: n.far ?? null, trips: n.trips ?? 0, brought: n.brought ?? 0, fail: n.fail ?? null, at: n.at ?? null, futile: n.futile ?? 0,
+      bridge: n.bridge ? { dim: n.bridge.dim, from: n.bridge.from, land: n.bridge.land, cells: n.bridge.cells.length, by: n.bridge.by ?? null, at: n.bridge.at ?? null } : null } : null,
+  };
+  return { rungInfo, start: LADDER_START || null, votes, wages, works };
+}
+
+/**
  * The village's projects: its civic buildings, the monument (jobs and blocks done of the plan's, its stages, the yard, the
  * kiln with its tends, failures and bans), the ladder's stage, the homes, and the society's laws and pursuits.
  */
@@ -554,6 +591,9 @@ export function civicView(w: WorldAdapter, village: string, now = Date.now()) {
       stage: currentStage(m), stages: m.stages.map((s, i) => ({ name: plan?.stageNames[i] ?? `stage ${i + 1}`, began: s.began ?? null, ended: s.ended ?? null })),
       yard: m.yard, site: !!m.site, fails: m.fails ?? 0, backoff: m.backoff ?? null, lastJobAt, quarry: !!m.quarry,
       kiln: k ? { state: k.state, furnaces: k.furnaces.length, tends: k.tends, made: k.made, held: k.furnaces.reduce((t, f) => t + f.n, 0) } : null,
+      // (MC_TALK_PRESETS / MC_TALK_BIG: a person's asked record in the monument's place, and the village's own one set aside)
+      asked: (() => { const id = presetIdOf(m); const r = requestsOf(v.name).find((q) => q.status === 'under_way' && civicIdOf(q.piece) === id); return r ? { from: r.from, text: r.text } : null; })(),
+      parked: v.monumentDone ? { preset: v.monumentDone.preset, noun: monumentNoun(v.monumentDone), scale: v.monumentDone.scale } : null,
     };
   }
   // The kiln's tends from the chore record: monument:kiln:N (lane 0 builds it); failures, their reasons, and bans now
@@ -744,7 +784,8 @@ export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: Se
     const vn = url.searchParams.get('village') ?? '';
     const v = [...w.villages.villages.values()].find((x) => x.name.toLowerCase() === vn.toLowerCase());
     if (!v) return sendJson(res, 404, { error: `no village ${vn}` }), true;
-    return sendJson(res, 200, { on: LADDER, ladder: ladderView(v), given: v.mine?.ironGiven ?? [], iron: v.mine?.iron ? { level: v.mine.iron.level ?? null, dug: v.mine.iron.dug, legs: v.mine.iron.legs.length, finished: v.mine.iron.finished ?? null } : null }), true;
+    return sendJson(res, 200, { on: LADDER, ladder: ladderView(v), given: v.mine?.ironGiven ?? [], iron: v.mine?.iron ? { level: v.mine.iron.level ?? null, dug: v.mine.iron.dug, legs: v.mine.iron.legs.length, finished: v.mine.iron.finished ?? null } : null,
+      ...ladderExtras(v) }), true;
   }
   // Character v2 (spec 14.2, S2): every member compact, one member in full since T, the village's series since T
   if (url.pathname === '/api/character') {

@@ -627,7 +627,7 @@ function memberView(a) {
   const s = a.stats || {};
   const n = (x) => s[x] ?? 0;
   const cur = a.currentAction;
-  const where = a.position ? `${Math.round(a.position.x)}, ${Math.round(a.position.y)}, ${Math.round(a.position.z)}` : '?';
+  const where = a.position ? `${Math.round(a.position.x)}, ${Math.round(a.position.y)}, ${Math.round(a.position.z)}${a.dim ? ` in ${esc(dimWord(a.dim))}` : ''}` : '?';
   const watch = world?.kind === 'minecraft' ? `<button data-act="watch" data-agent="${esc(a.name)}" title="Spectate this agent in the game">Watch in game</button>` : '';
   const r = st.reasoning;
   const models = st.models ? `${esc(st.models.exec)} (executor), ${esc(st.models.plan)} (planner)${st.models.design ? `, ${esc(st.models.design)} (designer)` : ''}` +
@@ -696,7 +696,7 @@ function memberView(a) {
       <button class="danger" data-act="remove" data-agent="${esc(a.name)}" title="Take the agent out of the world (asks first)">Remove…</button></span>
     </div>
     <div class="now" style="margin-top:6px">
-      <div><b>${esc(a.dead ? 'Dead' : doingWords(a))}</b>${flags(a)}${cur ? ` <span class="mono sub">${esc(cur.type)} ${esc(fmtArgs(cur.args).slice(0, 120))}</span>` : ''}${a.queued ? ` <span class="sub">+${a.queued} queued</span>` : ''}</div>
+      <div><b>${esc(a.dead ? 'Dead' : doingWords(a))}</b>${flags(a)}${dimTag(a)}${cur ? ` <span class="mono sub">${esc(cur.type)} ${esc(fmtArgs(cur.args).slice(0, 120))}</span>` : ''}${a.queued ? ` <span class="sub">+${a.queued} queued</span>` : ''}</div>
       ${choiceLine(a)}
       ${intentLine(a)}
       ${utilLine(a.name)}
@@ -1000,31 +1000,90 @@ function peopleBody(v) {
     `<table class="streets"><tr><th>member</th><th>strongest traits</th><th>top value</th><th>goal</th><th>energy</th><th>mood</th><th>strongest friend</th></tr>${rows}</table>`);
 }
 /** Society -> Relations: the latest affinity matrix (cells coloured by sign), and the village's mood over time. */
-/** G8's Ladder view: the current rung and stage, every rung's stages with who did their work and when each ended, the
- *  tools given to members, the iron level, the rung ballots. */
+/** G8's Ladder view: the current rung (its tier and stage), who is away in another dimension, every rung's stages with who
+ *  did their work and when each ended, the rungs to come by tier, each rung's own works (the Nether's portals, trips and
+ *  bridge...), the rung wages, the rung ballots with their tallies, the tools given to members, the iron level. */
 function ladderBody(v) {
   const st = extraState(`ladder:${v.name}`);
   if (st) return st;
   const d = extraData.get(`ladder:${v.name}`).data;
   if (!d.on) return offBox('The ladder is off', 'Start the agent server with MC_LADDER=on (and MC_IRON_AGE=on for the iron work) to climb the ladder of ages.');
   const L = d.ladder;
-  if (!L) return offBox('No ladder yet', 'The ladder begins on the iron age once the village is complete.');
+  if (!L) return offBox('No ladder yet', `The ladder begins on ${d.start ? esc(d.start) : 'the iron age'} once the village is complete.`);
+  const info = d.rungInfo || {};
+  const tierOf = (id) => (info[id] ? `tier ${info[id].tier}` : '');
   const who = (w) => Object.entries(w || {}).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([n, q]) => `${esc(n)} ${q}`).join(', ') || '<span class="sub">nobody yet</span>';
+  const nameOf = (id) => L.rungs.find((r) => r.id === id)?.name || id;
   const cur = L.rungs.find((r) => r.current);
   const sc = cur && cur.stages[L.stage];
-  const bar = sc && sc.target ? `<div style="height:8px;background:var(--line);border-radius:4px;margin:6px 0"><div style="height:8px;width:${Math.round(100 * L.count / sc.target)}%;background:var(--good);border-radius:4px"></div></div>` : '';
-  const head = cur ? `<b>${esc(cur.name)}</b>, stage ${L.stage + 1} of 4: ${esc(sc.words)}${bar}<span class="sub">stage begun ${ago(L.stageStart)} ago</span>`
-    : L.offered.length ? `Choosing the next ambition among ${L.offered.map(esc).join(', ')}` : 'No rung under way';
+  const bar = sc && sc.target ? `<div class="oc-meter" style="margin:6px 0"><i style="width:${Math.min(100, Math.round(100 * L.count / sc.target))}%;background:var(--good)"></i></div>` : '';
+  const head = cur ? `<b>${esc(cur.name)}</b> <span class="sub">${tierOf(cur.id)}${info[cur.id] ? `: ${esc(info[cur.id].what)}` : ''}</span><div>stage ${L.stage + 1} of ${cur.stages.length}: ${esc(sc.words)}</div>${bar}<span class="sub">stage begun ${ago(L.stageStart)} ago</span>`
+    : L.offered.length ? `Choosing the next ambition among ${L.offered.map((id) => esc(nameOf(id))).join(', ')}` : 'No rung under way';
   const news = L.news ? `<div class="sub" style="margin-top:6px">${esc(L.news.text)} (${ago(L.news.t)} ago)</div>` : '';
+  const reached = L.rungs.filter((r) => r.reached).sort((a, b) => a.reached.t - b.reached.t);
+  const reachedLine = reached.length ? `<div class="sub" style="margin-top:6px">Reached: ${reached.map((r) => esc(r.name)).join(' → ')}</div>` : '';
+  const startLine = d.start ? `<div class="sub">Started on ${esc(nameOf(d.start))} (MC_LADDER_START): the rungs it needs were counted reached.</div>` : '';
+  // (members away from the overworld: the Nether's party, from the overview's `dim`)
+  const away = ((lastData && lastData.agents) || []).filter((a) => a.village === v.name && a.dim);
+  const awayLine = away.length ? `<div style="margin-top:6px"><span class="flag">${away.map((a) => `${esc(a.name)} in ${esc(dimWord(a.dim))}`).join(', ')}</span></div>` : '';
   const rows = L.rungs.filter((r) => r.current || r.reached || r.stages.some((s) => Object.keys(s.work).length)).map((r) => card(
-    `${esc(r.name)} <span class="sub">${r.reached ? `reached ${ago(r.reached.t)} ago${r.reached.day !== undefined && r.reached.day !== null ? `, day ${r.reached.day}` : ''}` : r.current ? 'under way' : ''}</span>`,
+    `${esc(r.name)} <span class="sub">· ${tierOf(r.id)}${r.reached ? `; reached ${ago(r.reached.t)} ago${r.reached.day !== undefined && r.reached.day !== null ? `, day ${r.reached.day}` : ''}` : r.current ? '; under way' : ''}</span>`,
     `<table class="grid"><tr><th>Stage</th><th>State</th><th>Ended</th><th>Who did the work</th></tr>${r.stages.map((s, i) => `<tr><td>${i + 1}. ${esc(s.words)}</td><td>${s.state}</td><td>${s.ended ? `${ago(s.ended)} ago` : ''}</td><td>${who(s.work)}</td></tr>`).join('')}</table>`)).join('');
-  const later = L.rungs.filter((r) => !r.current && !r.reached).map((r) => `${esc(r.name)}${r.after.length ? ` <span class="sub">(after ${r.after.join(', ')})</span>` : ''}`).join(' · ');
+  // (the rungs to come by tier, simplest first, as the ballot offers them; a rung the code cannot finish yet is marked)
+  const later = L.rungs.filter((r) => !r.current && !r.reached);
+  const tiers = [...new Set(later.map((r) => info[r.id]?.tier ?? 0))].sort((a, b) => a - b);
+  const laterHtml = tiers.map((t) => `<div><span class="sub">${t ? `tier ${t}` : 'tier ?'}:</span> ${later.filter((r) => (info[r.id]?.tier ?? 0) === t).map((r) => `<span title="${esc(info[r.id] ? `${info[r.id].what}; ${info[r.id].time}` : '')}">${esc(r.name)}${r.after.length ? ` <span class="sub">(after ${r.after.map((x) => esc(nameOf(x))).join(', ')})</span>` : ''}${info[r.id] && !info[r.id].implemented ? ' <span class="sub">(not counted with this run\'s flags)</span>' : ''}</span>`).join(' · ')}</div>`).join('');
   const given = d.given.length ? `<table class="grid"><tr><th>Tool</th><th>To</th><th>By</th><th>When</th></tr>${d.given.slice(-20).reverse().map((g) => `<tr><td>${esc(g.item.replace(/_/g, ' '))}</td><td>${esc(g.to)}</td><td>${esc(g.by)}</td><td>${ago(g.at)} ago</td></tr>`).join('')}</table>` : '<span class="sub">none given yet</span>';
   const iron = d.iron ? `level y ${d.iron.level ?? '?'}, ${d.iron.dug} cells dug in all, ${d.iron.legs} legs${d.iron.finished ? `; finished: ${esc(d.iron.finished)}` : ''}` : 'not started';
-  const ballots = L.ballots.length ? L.ballots.map((b) => `${ago(b.t)} ago: ${esc(b.winner || '?')} won among ${b.options.map(esc).join(', ')}`).join('<br>') : '<span class="sub">none yet</span>';
-  return card('The ladder of ages', head + news) + rows + card('Rungs to come', later || '<span class="sub">none</span>')
-    + card('Iron tools given to members', given) + card('The iron level', iron) + card('Rung ballots', ballots);
+  // (the rung ballots: the votes of topic rung with their tallies when the server sends them, else the ladder's own record)
+  const ballots = (d.votes || []).length ? d.votes.map((vt) => {
+    const max = Math.max(1, ...Object.values(vt.tally || {}));
+    const opts = vt.options.slice().sort((a, b) => (vt.tally[b.id] || 0) - (vt.tally[a.id] || 0)).map((o) => `<div style="display:flex;gap:8px;align-items:center"><span style="width:180px">${o.id === vt.winner ? '<b>' : ''}${esc(o.name || nameOf(o.id))}${o.id === vt.winner ? '</b> ✓' : ''}</span><span class="oc-meter thin" style="flex:1;max-width:200px"><i style="width:${Math.round(100 * (vt.tally[o.id] || 0) / max)}%;background:${o.id === vt.winner ? 'var(--good)' : 'var(--c1)'}"></i></span><span class="num sub">${vt.tally[o.id] || 0}</span></div>`).join('');
+    return `<div style="margin-bottom:8px"><div class="sub">ballot ${vt.k}, ${ago(vt.closedAt || vt.at)} ago: ${vt.cast} of ${vt.ballots} ballots, ${esc(vt.mode)}${vt.tie ? ', a tie drawn' : ''}</div>${opts}</div>`;
+  }).join('') + `<a class="sub" href="${hrefOf('society', 'votes')}">every ballot with its reason: Society › Votes</a>`
+    : L.ballots.length ? L.ballots.map((b) => `${ago(b.t)} ago: ${esc(nameOf(b.winner || '?'))} won among ${b.options.map((id) => esc(nameOf(id))).join(', ')}`).join('<br>') : '<span class="sub">none yet</span>';
+  const wg = d.wages;
+  const wages = !wg ? '' : card('Rung wages', !wg.on ? '<span class="sub">off (MC_RUNG_WAGE with MC_PAY: emeralds for chores that feed the current stage)</span>'
+    : `${plural(wg.wage, 'emerald')} a chore that feeds the stage, at most 5 a member a village day; ${plural(wg.paid, 'wage')} paid, ${plural(wg.total, 'emerald')} in all`
+      + (Object.keys(wg.by).length ? `<div class="sub">${Object.entries(wg.by).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([n, q]) => `${esc(n)} ${q}`).join(', ')}</div>` : '')
+      + (wg.recent.length ? det(`wages:${v.name}`, 'the latest wages', `<ul class="list">${wg.recent.map((r) => `<li class="sub">${ago(r.t)} ago: ${r.n} to ${esc(r.to || '?')}: ${esc(r.why)}</li>`).join('')}</ul>`) : ''));
+  return card('The ladder of ages', head + news + awayLine + reachedLine + startLine) + rungWorks(d.works, v) + rows + card('Rungs to come', laterHtml || '<span class="sub">none</span>')
+    + wages + card('Rung ballots', ballots) + card('Iron tools given to members', given) + card('The iron level', iron);
+}
+/** Each rung's own works as the village records them (the Ladder view): the Nether first, then the rest. */
+function rungWorks(w, v) {
+  if (!w) return '';
+  const at = (p) => (p ? `${p.x}, ${p.y}, ${p.z}` : '?');
+  const out = [];
+  const n = w.nether;
+  if (n) {
+    const party = ((lastData && lastData.agents) || []).filter((a) => a.village === v.name && a.dim === 'the_nether').map((a) => a.name);
+    const lines = [
+      n.portal ? `The portal at ${at(n.portal)} (${n.portal.axis} axis): <b>${n.portal.lit ? 'lit' : 'not lit yet'}</b>${n.portal.by ? `, by ${esc(n.portal.by)}` : ''}${n.portal.at ? ` ${ago(n.portal.at)} ago` : ''}` : 'No portal planned yet',
+      n.far ? `It leads to ${at(n.far)} in ${esc(dimWord(n.far.dim))}` : '',
+      `${plural(n.trips, 'trip')} made, ${plural(n.brought, 'Nether block')} brought back`,
+      `In the Nether now: ${party.length ? esc(party.join(', ')) : '<span class="sub">nobody</span>'}`,
+      n.bridge ? `The trek bridge: ${plural(n.bridge.cells, 'netherrack')} from ${at(n.bridge.from)} to ${at(n.bridge.land)}${n.bridge.by ? `, laid by ${esc(n.bridge.by)}` : ''}${n.bridge.at ? ` ${ago(n.bridge.at)} ago` : ''}` : '',
+      n.futile ? `<span class="bad">${plural(n.futile, 'debris trip')} in a row dug nothing</span>` : '',
+      n.fail ? `<span class="bad">Plan failed${n.at ? ` ${ago(n.at)} ago` : ''}: ${esc(n.fail)}</span>` : '',
+    ].filter(Boolean);
+    out.push(card('The Nether', lines.map((x) => `<div>${x}</div>`).join('')));
+  }
+  const m = w.machines;
+  if (m) out.push(card('Machines', [
+    m.collector ? `Egg collector fitted by ${esc(m.collector.by)} ${ago(m.collector.t)} ago` : 'No egg collector yet',
+    m.line ? (m.line.fail && !m.line.cells ? `<span class="bad">Rail line: ${esc(m.line.fail)}</span>` : `Rail line: ${m.line.laid} of ${m.line.cells} rails laid${m.line.done ? ' (whole)' : ''}, ${m.line.powered} powered${m.line.torch ? ', torch lit' : ''}${m.line.cart ? ', a cart on it' : ''}${m.line.fail ? ` <span class="bad">(${esc(m.line.fail)})</span>` : ''}`) : 'No rail line yet',
+  ].map((x) => `<div>${x}</div>`).join('')));
+  const ap = w.apiary;
+  if (ap) out.push(card('Bees', `${plural(ap.housed, 'nest')} housed, ${ap.tended} tended; ${plural(ap.wild, 'wild nest')} tended in place${ap.wildFailed ? ` <span class="sub">(${ap.wildFailed} could not be)</span>` : ''}`));
+  if (w.maps) out.push(card('Maps', `${plural(w.maps.charted, 'map area')} charted, ${w.maps.hung} of 4 frames hung on the map wall`));
+  const en = w.enchant;
+  if (en) {
+    const lv = Object.entries(en.levels || {}).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, q]) => `${esc(k)} ${q}`).join(', ');
+    out.push(card('Enchantment', [en.table ? `The enchanting table at ${en.table.join(', ')}` : 'No enchanting table yet', en.enchanter ? `The enchanter: ${esc(en.enchanter)}` : '', lv ? `Levels: ${lv}` : '', en.dry != null ? `<span class="sub">The level at y ${en.dry} has no still lava: obsidian waits for a deeper one</span>` : ''].filter(Boolean).map((x) => `<div>${x}</div>`).join('')));
+  }
+  if (w.dock) out.push(card('The dock', w.dock.fail && !w.dock.cells ? `<span class="bad">${esc(w.dock.fail)}</span>` : `${w.dock.laid} of ${w.dock.cells} blocks${w.dock.done ? ' (whole)' : ''}${w.dock.fail ? ` <span class="bad">(${esc(w.dock.fail)})</span>` : ''}`));
+  return out.join('');
 }
 
 function relationsBody(v) {
@@ -1084,7 +1143,7 @@ function extraState(key) {
   return '';
 }
 const preview = (x) => (typeof x === 'string' ? x : JSON.stringify(x) ?? '').slice(0, 140);
-const VOTE_TOPICS = { style: 'Neighbourhood style', work: 'Public work' };
+const VOTE_TOPICS = { style: 'Neighbourhood style', work: 'Public work', rung: 'Next ambition (ladder)', wall: 'The wall' };
 /** Votes of a village, newest first: options with their facts and tally, every ballot with its reason; with `agent`, only
  *  the votes it took part in, its own ballot first. */
 function votesBody(village, agent) {
@@ -1510,7 +1569,7 @@ globalThis.addEventListener?.('pagehide', saveTrails);
 function recordTrails(d) {
   const now = Date.now();
   for (const a of d.agents || []) {
-    if (!a.position) continue;
+    if (!a.position || a.dim) continue;
     const t = trails.get(a.name) || [];
     const last = t[t.length - 1];
     // (a new point once it moved half a block, or every 10 s while still)
@@ -1717,12 +1776,12 @@ function homeView() {
     const v = a.village && vs.find((u) => u.name === a.village), c = v && homeOf(v);
     if (c) return { x: c.x, z: c.z, k: WM_ZOOM.home };
   }
-  const a = agents.find((x) => x.position);
+  const a = agents.find((x) => x.position && !x.dim);
   return a ? { x: a.position.x, z: a.position.z, k: WM_ZOOM.home } : null;
 }
 /** Every agent and the whole of each running village (layouts, plots, the annex, the works plot), with a margin: Auto's frame. */
 function autoView() {
-  const agents = ((lastData && lastData.agents) || []).filter((a) => a.position);
+  const agents = ((lastData && lastData.agents) || []).filter((a) => a.position && !a.dim);
   if (!agents.length) return null;
   let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
   const add = (ax0, az0, ax1, az1) => { x0 = Math.min(x0, ax0); z0 = Math.min(z0, az0); x1 = Math.max(x1, ax1); z1 = Math.max(z1, az1); };
@@ -1799,7 +1858,9 @@ function drawWorld() {
   const label = (text, x, y) => { const at = place(text, x, y, false); if (at !== null) paint(text, x, at); };
   // Agents' names are placed first, painted last: every name while fewer than 8 agents are in view, else only the one
   // under the pointer (25 names buried a village's map)
-  const agents = ((lastData && lastData.agents) || []).filter((a) => a.position).map((a) => ({ a, x: X(a.position.x), z: Z(a.position.z) }));
+  // (a member in the Nether or the End is not drawn: its position is that dimension's; named in the corner instead)
+  const agents = ((lastData && lastData.agents) || []).filter((a) => a.position && !a.dim).map((a) => ({ a, x: X(a.position.x), z: Z(a.position.z) }));
+  const away = ((lastData && lastData.agents) || []).filter((a) => a.dim);
   wm.agentPts = agents;
   const inView = agents.filter((t) => t.x >= 0 && t.x <= w && t.z >= 0 && t.z <= h).length;
   for (const t of agents) if (inView < 8 || t.a.name === wm.hover) t.ly = place(t.a.name, t.x + 6, t.z - 4, true);
@@ -1832,6 +1893,17 @@ function drawWorld() {
     g.beginPath(); g.arc(t.x, t.z, 4, 0, Math.PI * 2); g.fill(); g.stroke();
   }
   for (const t of agents) if (t.ly !== undefined) paint(t.a.name, t.x + 6, t.ly);
+  // (the Nether rung: each village's portal in the overworld, purple once lit)
+  for (const vg of villages) {
+    const pt = vg.nether && vg.nether.portal;
+    if (!pt || !onScreen({ x1: pt.x, x2: pt.x + 3, z1: pt.z, z2: pt.z + 3 })) continue;
+    const pw = pt.axis === 'x' ? 4 : 1, pd = pt.axis === 'x' ? 1 : 4;
+    g.fillStyle = pt.lit ? 'rgba(150,60,220,.9)' : 'rgba(40,20,60,.9)'; g.strokeStyle = '#000'; g.lineWidth = 1;
+    g.fillRect(X(pt.x), Z(pt.z), Math.max(3, pw * v.k), Math.max(3, pd * v.k)); g.strokeRect(X(pt.x), Z(pt.z), Math.max(3, pw * v.k), Math.max(3, pd * v.k));
+    if (v.k >= 1.5) paint(`portal${pt.lit ? '' : ' (unlit)'}`, X(pt.x) + 8, Z(pt.z) + 4);
+  }
+  for (const [dm, names] of Object.entries(away.reduce((m, a) => ((m[a.dim] = m[a.dim] || []).push(a.name), m), {})))
+    paint(`In ${dimWord(dm)}: ${names.join(', ')}`, 12, 18 + 16 * Object.keys(DIM_WORDS).indexOf(dm));
   // A scale bar (a round number of blocks) and north
   const len = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000].find((b) => b * v.k >= 70) || 10000;
   const sx = 12, sy = h - 14, sw = len * v.k;
@@ -2019,10 +2091,16 @@ function drawMaps() {
       g.strokeRect(X(ar.x1), Z(ar.z1), (ar.x2 - ar.x1 + 1) * px, (ar.z2 - ar.z1 + 1) * px); g.restore();
     };
     const now = Date.now();
-    for (const v of villages) {
+    if (!a.dim) for (const v of villages) {
       for (const p of v.plots) rect(p, '#4cc27f');
       for (const s of v.structures) rect(s, '#8c5a28', 'rgba(140,90,40,.55)');
       for (const r of v.reservations) if (r.until > now) rect(r, '#f39c34', null, [4, 3]);
+    }
+    else for (const v of villages) {
+      // (its village's Nether ground: the trek bridge's cells and the far portal's stand cell, both in this dimension)
+      const n = v.nether || {};
+      if (n.bridge && n.bridge.dim === a.dim) for (const c of n.bridge.cells || []) rect({ x1: c.x, z1: c.z, x2: c.x, z2: c.z }, '#c9a227', 'rgba(201,162,39,.6)');
+      if (n.far && n.far.dim === a.dim) rect({ x1: n.far.x - 1, z1: n.far.z - 1, x2: n.far.x + 1, z2: n.far.z + 1 }, '#a64de0', 'rgba(150,60,220,.6)');
     }
     // The current action's target: a point or a box
     const t = a.currentAction && a.currentAction.args;
@@ -2039,7 +2117,8 @@ function drawMaps() {
       g.fillStyle = col; g.strokeStyle = '#000'; g.lineWidth = 1;
       g.beginPath(); g.arc(X(e.x), Z(e.z), 3.2, 0, Math.PI * 2); g.fill(); g.stroke();
     }
-    drawTrail(g, a.name, (x) => X(x), (z) => Z(z), 2.5);
+    if (!a.dim) drawTrail(g, a.name, (x) => X(x), (z) => Z(z), 2.5);
+    else { g.save(); g.font = '600 12px system-ui'; g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 3; g.strokeText(`in ${dimWord(a.dim)}`, 6, 16); g.fillText(`in ${dimWord(a.dim)}`, 6, 16); g.restore(); }
     // The agent: an arrow pointing where it faces (yaw 0 is north, -z, turning counter-clockwise)
     if (a.position) {
       const x = X(a.position.x), z = Z(a.position.z), yaw = a.yaw || 0;
@@ -2062,6 +2141,9 @@ async function refreshMaps() {
 // ---- the simple view ----
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const words = (s) => String(s ?? '').replace(/^minecraft:/, '').replace(/_/g, ' ');
+/** The Nether rung: a member's dimension when not the overworld (the overview's `dim`), in words. */
+const DIM_WORDS = { the_nether: 'the Nether', the_end: 'the End' };
+const dimWord = (d) => DIM_WORDS[d] || words(d);
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 /** A building's name as people say it: "plains_small_house_1" -> "Small house 1". */
 const buildingName = (id) => cap(words(String(id).replace(/^(plains|savanna|desert|taiga|snowy)_/, '')));
@@ -2130,6 +2212,8 @@ function doingWords(a) {
   return 'Waiting for work';
 }
 /** Trouble worth a glance: rescued lately, or failing again and again. */
+/** Where a member is when not the overworld (the Nether rung): a tag beside its flags, not a flag (it is no problem). */
+const dimTag = (a) => (a.dim ? `<span class="flag" style="border-color:#a64de0;color:#c08af0" title="its position is in ${esc(dimWord(a.dim))}, not the overworld">in ${esc(dimWord(a.dim))}</span>` : '');
 function flags(a) {
   const out = [];
   const st = a.status || {};
@@ -2250,14 +2334,14 @@ function simpleAgents(agents, scope) {
     const sub = a.task && a.currentAction ? a.task.title : '';
     return `<li>
       <div class="who-name">${compact ? `<i class="adot" style="background:${agentColor(a.name)}"></i>` : ''}<b>${esc(a.name)}</b>${compact ? appetiteBar(a, true) : ''}<span class="sub">${esc(a.villageRole || a.role)}</span>${(() => { const m = econOf(a.name); return m ? `<span class="sub" title="worth of its own chest at the board's prices${m.goal ? `; life goal ${esc(m.goal)}` : ''}">💰${m.worth}</span>${goalChip(m.goal)}` : ''; })()}${compact ? '' : appetiteBar(a)}</div>
-      <div class="who-doing"${compact && (sub || intentText(a)) ? ` title="${esc([sub, intentText(a) && `intent ${intentText(a)}`].filter(Boolean).join('\n'))}"` : ''}>${esc(doingWords(a))}${flags(a)}${sub && !compact ? `<div class="sub">${esc(sub)}</div>` : ''}${intentText(a) ? `<div class="sub clamp">${esc(intentText(a))}</div>` : ''}</div>
+      <div class="who-doing"${compact && (sub || intentText(a)) ? ` title="${esc([sub, intentText(a) && `intent ${intentText(a)}`].filter(Boolean).join('\n'))}"` : ''}>${esc(doingWords(a))}${flags(a)}${dimTag(a)}${sub && !compact ? `<div class="sub">${esc(sub)}</div>` : ''}${intentText(a) ? `<div class="sub clamp">${esc(intentText(a))}</div>` : ''}</div>
       <div class="who-state"><span class="state" style="--c:${color}">${esc(state)}</span>${st.since && !compact ? `<span class="sub">${ago(st.since)}</span>` : ''}</div></li>`;
   };
   // (the idle fold into one row of name chips: after completion 18 of 25 rows read "Waiting for work"; a chip with a
   // flag, hungry or failing, has a red edge and the flag in its tooltip)
   const chip = (a) => {
     const fl = flags(a).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    return `<span class="ichip${fl ? ' flagged' : ''}" title="${esc(`${a.name}: ${doingWords(a)}${fl ? `; ${fl}` : ''}`)}"><i class="adot" style="background:${agentColor(a.name)}"></i>${esc(compact ? shortName(a.name) : a.name)}</span>`;
+    return `<span class="ichip${fl ? ' flagged' : ''}" title="${esc(`${a.name}${a.dim ? ` (in ${dimWord(a.dim)})` : ''}: ${doingWords(a)}${fl ? `; ${fl}` : ''}`)}"><i class="adot" style="background:${agentColor(a.name)}"></i>${esc(compact ? shortName(a.name) : a.name)}</span>`;
   };
   const longest = (g) => {
     const since = g.map((a) => a.status?.since).filter(Boolean);
@@ -2644,10 +2728,12 @@ function projectsHtml(v) {
     const yard = Object.entries(m.yard || {}).sort((x, y) => y[1] - x[1]).slice(0, 2).map(([n, q]) => `${q} ${words(n)}`).join(', ');
     row(`${esc(cap(words(m.preset)))} <span class="sub">(${esc(m.noun)} 1:${m.scale})</span>`, `${m.jobs.done} / ${m.jobs.total ?? '?'} jobs`, m.jobs.total ? (100 * m.jobs.done) / m.jobs.total : 0,
       m.state === 'built' ? 'var(--st-good)' : idle ? 'var(--st-critical)' : 'var(--c1)',
-      `${m.state}${m.stage ? `, stage ${m.stage}${m.stages[m.stage - 1]?.name ? ` (${esc(m.stages[m.stage - 1].name)})` : ''}` : ''}${m.blocks.total ? ` · ${m.blocks.done} of ${m.blocks.total} blocks` : ''}${m.kiln ? ` · kiln of ${m.kiln.furnaces} (${m.kiln.tends} tends)` : ''}${yard ? ` · yard ${esc(yard)}` : ''}`);
+      `${m.asked ? `${esc(m.asked.from)}'s request ("${esc(m.asked.text)}") · ` : ''}${m.parked ? `the village's own ${esc(words(m.parked.preset))} set aside · ` : ''}${m.state}${m.stage ? `, stage ${m.stage}${m.stages[m.stage - 1]?.name ? ` (${esc(m.stages[m.stage - 1].name)})` : ''}` : ''}${m.blocks.total ? ` · ${m.blocks.done} of ${m.blocks.total} blocks` : ''}${m.kiln ? ` · kiln of ${m.kiln.furnaces} (${m.kiln.tends} tends)` : ''}${yard ? ` · yard ${esc(yard)}` : ''}`);
   }
   const l = cv.ladder;
-  if (l && l.name) row(esc(l.name), `stage ${Math.min(l.stage + 1, l.stages)} of ${l.stages}`, l.stages ? (100 * l.stage) / l.stages : 0, 'var(--c1)', `${esc(l.words || '')}${l.reached.length ? ` · reached: ${esc(l.reached.join(', '))}` : ''}`);
+  const away = ((lastData && lastData.agents) || []).filter((a) => a.village === v.name && a.dim);
+  const awayText = away.length ? ` · ${away.map((a) => `${esc(a.name)} in ${esc(dimWord(a.dim))}`).join(', ')}` : '';
+  if (l && l.name) row(`<a href="${hrefOf('village', 'ladder')}" style="color:inherit">${esc(l.name)}</a>`, `stage ${Math.min(l.stage + 1, l.stages)} of ${l.stages}`, l.stages ? (100 * l.stage) / l.stages : 0, 'var(--c1)', `${esc(l.words || '')}${l.reached.length ? ` · reached: ${esc(l.reached.join(', '))}` : ''}${awayText}`);
   else if (l && l.reached.length) row('Ladder of ages', 'all reached', 100, 'var(--st-good)', esc(l.reached.join(', ')));
   const h = cv.homes;
   if (h) row('Growth', plural(h.owned, 'home'), h.members ? (100 * h.owned) / h.members : 0, 'var(--c1)', `${plural(h.neighbourhoods, 'neighbourhood')}, ${plural(h.built, 'house')} built${h.growing ? '; growing now' : ''}`);
