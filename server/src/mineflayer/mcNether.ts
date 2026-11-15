@@ -337,17 +337,21 @@ async function homeFrom(a: BotAgent, v: Village, signal: AbortSignal): Promise<s
 }
 
 /** A walk on the far portal's ground to `s` (an expedition's): no digging, no scaffold, no drop over one. */
-async function groundWalk(a: BotAgent, s: Cell, signal: AbortSignal): Promise<void> {
+/** The walk rules an expedition keeps to on the far portal's ground: no digging, no scaffold, no drop over one (every walk
+ *  of the trip, mineBlock's own and its pick-up's too: netherT4's fell 26 blocks through a floor its walk to a block dug).
+ *  Returns the rules put back. */
+function groundMoves(a: BotAgent): () => void {
   const mv = a.moves();
   const saved = { canDig: mv.canDig, scafoldingBlocks: mv.scafoldingBlocks, allow1by1towers: mv.allow1by1towers, maxDropDown: mv.maxDropDown };
   Object.assign(mv, { canDig: false, scafoldingBlocks: [], allow1by1towers: false, maxDropDown: 1 });
-  try {
-    await walk(a, new goals.GoalBlock(s.x, s.y, s.z), `${s.x},${s.y},${s.z} on the far portal's ground`, signal, 30000, { scaffold: false });
-  } catch (e) {
-    if ((e as Error).message === 'cancelled') throw e;
-  } finally {
-    Object.assign(mv, saved);
-  }
+  return () => Object.assign(mv, saved);
+}
+
+/** A walk on the far portal's ground to `s` (an expedition's, under groundMoves). */
+async function groundWalk(a: BotAgent, s: Cell, signal: AbortSignal): Promise<void> {
+  await walk(a, new goals.GoalBlock(s.x, s.y, s.z), `${s.x},${s.y},${s.z} on the far portal's ground`, signal, 30000, { scaffold: false }).catch((e: Error) => {
+    if (e.message === 'cancelled') throw e;
+  });
 }
 
 /** The party's lease for this run (with the trip's deadline), or why not. */
@@ -381,6 +385,7 @@ export async function netherExpedition(a: BotAgent, args: Record<string, unknown
   const before = await counts(a, NETHER_BLOCKS);
   const notes: string[] = [];
   let dug = 0, failed = 0, back = '';
+  let putBack: (() => void) | undefined;
   try {
     notes.push(await enterPortal(a, v, signal));
     const far = v.nether!.far!;
@@ -394,6 +399,7 @@ export async function netherExpedition(a: BotAgent, args: Record<string, unknown
     const ground = islandDig(islandReach(s0, name, TRIP_OUT, TRIP_UPDOWN), name);
     const onGround = (p: Vec3) => ground.cells.has(`${p.x},${p.y},${p.z}`);
     KEEP_GROUND.add(a.name);
+    putBack = groundMoves(a);
     while (dug < want && Date.now() < deadline) {
       checkAbort(signal);
       const feet = a.bot.entity.position.floored();
@@ -418,7 +424,13 @@ export async function netherExpedition(a: BotAgent, args: Record<string, unknown
         const s = expeditionStand(c, ground, feet)!;
         if (s.x !== feet.x || s.y !== feet.y || s.z !== feet.z) await groundWalk(a, s, signal);
         const q = a.bot.entity.position.floored();
-        if (q.x !== s.x || q.y !== s.y || q.z !== s.z) throw new Error(`could not walk to ${s.x},${s.y},${s.z} on the island's ground to dig ${at(c)}`);
+        // (a stand not reached, or not within reach once there, is dropped: netherT4's members tried one stand 8 times a trip)
+        const eye = a.bot.entity.position.offset(0, 1.62, 0).distanceTo(new Vec3(c.x + 0.5, c.y + 0.5, c.z + 0.5));
+        if (q.x !== s.x || q.y !== s.y || q.z !== s.z || eye > 4.2) {
+          const k = `${s.x},${s.z}`, left = (ground.stands.get(k) ?? []).filter((t) => t.y !== s.y);
+          if (left.length) ground.stands.set(k, left); else ground.stands.delete(k);
+          throw new Error(`could not dig ${at(c)} from ${s.x},${s.y},${s.z} on the island's ground (at ${at(q)})`);
+        }
         // (the drops picked up only where they lie on the ground's own cells: mineBlock's pick-up walked to a drop that fell
         // below the edge, and netherT4's Dev and Finn followed it off the island at their first dig)
         await mineBlock(a, c, signal, false, 5000, false);
@@ -441,6 +453,7 @@ export async function netherExpedition(a: BotAgent, args: Record<string, unknown
     }
   } finally {
     KEEP_GROUND.delete(a.name);
+    putBack?.();
     back = await homeFrom(a, v, signal);
     netherParty.drop(v.name, a.name);
   }
