@@ -11,14 +11,14 @@ import type { BotAgent } from './botAgent';
 import type { Village } from '../village';
 import { villageHome } from '../village';
 import { NETHER_BLOCKS, NETHER_DEBRIS, NETHER_PARTY } from '../ladder';
-import { DEBRIS_REACH, DEBRIS_Y, DIG_NETHER, FRAME_BLOCKS, HOT, TREK, TRIP_BLOCKS, TRIP_MIN, chooseLeg, exposed, farStand, frameCells, inTripBox, innerCells, nearPortal, onBridge, planBridge, planPortal, planStair, safeToDig, stairStep, trekTarget, walkReach, type BridgePlan, type Cell, type PortalSite } from '../netherPlan';
+import { DEBRIS_REACH, DEBRIS_Y, DIG_NETHER, FRAME_BLOCKS, HOT, TREK, TRIP_BLOCKS, TRIP_MIN, TRIP_OUT, TRIP_UPDOWN, afterIslandDig, chooseLeg, expeditionStand, exposed, farStand, frameCells, inTripBox, innerCells, islandDig, islandReach, nearPortal, onBridge, planBridge, planPortal, planStair, safeToDig, stairStep, trekTarget, walkReach, type BridgePlan, type Cell, type PortalSite } from '../netherPlan';
 import { NETHER_TREK } from '../ladderFlags';
 import { dimOf, inDim, overworld } from './mcDim';
 import { recall } from './mcRescue';
 import { timeScale } from './mcRules';
 import { storageContents, withdrawItems } from './mcStorage';
 import { mineBlock } from './mcSurvival';
-import { at, checkAbort, goals, nearestBlocks, sleep, syncInventory, walk } from './mcUtil';
+import { KEEP_GROUND, at, checkAbort, goals, nearestBlocks, sleep, syncInventory, walk } from './mcUtil';
 import { runJob } from './mcBuild';
 
 /** The village's members in the Nether (a lease each, keyed by the village, held by the skill's run: dropped when it
@@ -336,6 +336,20 @@ async function homeFrom(a: BotAgent, v: Village, signal: AbortSignal): Promise<s
   return leavePortal(a, v, signal).catch(async (e: Error) => (await recall(a, `the way back failed (${e.message})`).catch(() => null)) ?? 'not brought back');
 }
 
+/** A walk on the far portal's ground to `s` (an expedition's): no digging, no scaffold, no drop over one. */
+async function groundWalk(a: BotAgent, s: Cell, signal: AbortSignal): Promise<void> {
+  const mv = a.moves();
+  const saved = { canDig: mv.canDig, scafoldingBlocks: mv.scafoldingBlocks, allow1by1towers: mv.allow1by1towers, maxDropDown: mv.maxDropDown };
+  Object.assign(mv, { canDig: false, scafoldingBlocks: [], allow1by1towers: false, maxDropDown: 1 });
+  try {
+    await walk(a, new goals.GoalBlock(s.x, s.y, s.z), `${s.x},${s.y},${s.z} on the far portal's ground`, signal, 30000, { scaffold: false });
+  } catch (e) {
+    if ((e as Error).message === 'cancelled') throw e;
+  } finally {
+    Object.assign(mv, saved);
+  }
+}
+
 /** The party's lease for this run (with the trip's deadline), or why not. */
 async function joinParty(a: BotAgent, v: Village, signal: AbortSignal, until: number): Promise<string | null> {
   void signal;
@@ -373,16 +387,41 @@ export async function netherExpedition(a: BotAgent, args: Record<string, unknown
     const ids = DIG_NETHER.map((n) => a.world.registry.blocksByName[n]?.id).filter((id): id is number => id !== undefined);
     const tried = new Set<string>();
     const name = (x: number, y: number, z: number) => nameAt(a, x, y, z);
+    // (the island's own ground, read once: walked by steps of one, dug from stands with no drop beside them, its floors
+    // never dug; netherT1's Dev and netherT3's Elena walked off its edge and were recalled from 23 and 11 blocks below)
+    const here = a.bot.entity.position.floored();
+    const s0 = far.stand ?? { x: here.x, y: here.y, z: here.z };
+    const ground = islandDig(islandReach(s0, name, TRIP_OUT, TRIP_UPDOWN), name);
+    const onGround = (p: Vec3) => ground.cells.has(`${p.x},${p.y},${p.z}`);
+    KEEP_GROUND.add(a.name);
     while (dug < want && Date.now() < deadline) {
       checkAbort(signal);
       const feet = a.bot.entity.position.floored();
-      const keep = (q: Vec3) => !tried.has(`${q.x},${q.y},${q.z}`) && inTripBox(far, q) && !nearPortal(far, q, true) && !onBridge(v.nether?.bridge, q) && exposed(q, name) && safeToDig(q, feet, name);
+      if (!onGround(feet)) {
+        // (off the island's ground: back to the stand by its own steps, else the trip ends where it is)
+        await groundWalk(a, s0, signal);
+        if (!onGround(a.bot.entity.position.floored())) {
+          notes.push(`off the far portal's ground at ${at(a.bot.entity.position.floored())}`);
+          break;
+        }
+        continue;
+      }
+      const keep = (q: Vec3) => !tried.has(`${q.x},${q.y},${q.z}`) && inTripBox(far, q) && !nearPortal(far, q, true) && !onBridge(v.nether?.bridge, q) && exposed(q, name) && safeToDig(q, feet, name)
+        && expeditionStand(q, ground, feet) !== null;
       const c = nearestBlocks(a, ids, 10, 24, keep)[0] ?? nearestBlocks(a, ids, 20, 24, keep)[0];
-      if (!c) break;
+      if (!c) {
+        if (!dug) notes.push(`no block in reach of the far portal's ground (${ground.cells.size} cells, ${ground.stands.size} columns with an inland stand)`);
+        break;
+      }
       tried.add(`${c.x},${c.y},${c.z}`);
       try {
-        await mineBlock(a, c, signal, false, 20000);
+        const s = expeditionStand(c, ground, feet)!;
+        if (s.x !== feet.x || s.y !== feet.y || s.z !== feet.z) await groundWalk(a, s, signal);
+        const q = a.bot.entity.position.floored();
+        if (q.x !== s.x || q.y !== s.y || q.z !== s.z) throw new Error(`could not walk to ${s.x},${s.y},${s.z} on the island's ground to dig ${at(c)}`);
+        await mineBlock(a, c, signal, false, 5000);
         dug++;
+        afterIslandDig(ground, c, name);
       } catch (e) {
         if ((e as Error).message === 'cancelled') throw e;
         if (++failed >= 8) {
@@ -392,6 +431,7 @@ export async function netherExpedition(a: BotAgent, args: Record<string, unknown
       }
     }
   } finally {
+    KEEP_GROUND.delete(a.name);
     back = await homeFrom(a, v, signal);
     netherParty.drop(v.name, a.name);
   }
@@ -573,8 +613,25 @@ async function digNear(a: BotAgent, feet: Cell, starts: Cell[], tried: Set<strin
     // found no path 35 blocks down through the Nether's rock, nether7 11-14)
     const why = await stairTo(a, c, deadline, signal, tally);
     if (why) throw new Error(why);
-    await mineBlock(a, c, signal, false, 30000);
-    console.log(`[nether] ${a.village()?.name}: ${a.name} dug the ancient debris at ${at(c)}`);
+    const had = await count(a, 'ancient_debris');
+    const mined = await mineBlock(a, c, signal, false, 30000);
+    // (the drop counted on the server: netherT1's Ben dug three and brought two; one at y 109, whose drop fell further
+    // than the pick-up's 4 blocks. A drop not taken is looked for below and round the cell, and walked to)
+    let got = (await count(a, 'ancient_debris')) > had, note = '';
+    if (!got) {
+      const p = new Vec3(c.x + 0.5, c.y, c.z + 0.5);
+      const drop = Object.values(a.bot.entities).filter((e) => e.name === 'item' && Math.hypot(e.position.x - p.x, e.position.z - p.z) <= 8 && e.position.y <= p.y + 1 && e.position.y >= p.y - 32)
+        .sort((u, w) => u.position.distanceTo(p) - w.position.distanceTo(p))[0];
+      if (drop) {
+        await walk(a, new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 0.5), 'the debris\'s drop', signal, 20000, { scaffold: false }).catch((e: Error) => {
+          if (e.message === 'cancelled') throw e;
+        });
+        await sleep(500, signal);
+        got = (await count(a, 'ancient_debris')) > had;
+        note = got ? ` (its drop picked up at ${at(drop.position.floored())})` : ` (its drop at ${at(drop.position.floored())} not reached)`;
+      } else note = ` (no drop seen: ${mined.slice(0, 60)})`;
+    }
+    console.log(`[nether] ${a.village()?.name}: ${a.name} dug the ancient debris at ${at(c)}${got ? '' : ', not counted'}${note}`);
     return { done: 'dug', seen: all.length, why: '', head: from };
   } catch (e) {
     if ((e as Error).message === 'cancelled') throw e;

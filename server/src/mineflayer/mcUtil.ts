@@ -114,6 +114,10 @@ export async function walk(a: BotAgent, goal: InstanceType<typeof goals.Goal>, t
   }
 }
 
+/** Agents whose walks keep to their ground for now (mcNether's expedition on the far portal's island): no drop of 8 when
+ *  no path is found. */
+export const KEEP_GROUND = new Set<string>();
+
 /** #204: each agent's recent stalls that got nowhere, or were spent in water (where the bot was, when), for `pinned`. */
 const stalls = new Map<string, Array<{ x: number; z: number; t: number }>>();
 const PINNED_STALLS = 3, PINNED_MS = 5 * 60000, PINNED_BLOCKS = 4;
@@ -181,6 +185,8 @@ async function walkRetrying(a: BotAgent, goal: InstanceType<typeof goals.Goal>, 
     // (with fall damage on, MC_WORLD_MODE: an 8-block drop costs 5 health, so only from full health; else 4, the
     // pathfinder's own limit, a fall of 1 damage, and no retry)
     if (takesDamage() && (a.bot.health ?? 20) < 20) throw e;
+    // (nor for a walk that keeps to its ground, mcNether's expedition: a drop of 8 off the far portal's island is a fall)
+    if (KEEP_GROUND.has(a.name)) throw e;
     const drop = moves.maxDropDown;
     moves.maxDropDown = 8;
     try {

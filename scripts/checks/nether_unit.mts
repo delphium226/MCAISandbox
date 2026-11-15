@@ -211,6 +211,30 @@ if (MODE === 'off' || MODE === 'hostile') {
   ok(JSON.stringify(P.trekPinned(trek, { x: 96, y: 50, z: 0 })) === '{"x":60,"y":50,"z":0}' && JSON.stringify(P.trekPinned(trek, { x: 110, y: 50, z: 0 })) === '{"x":95,"y":50,"z":0}', 'pinned on a trek: back to the last breadcrumb more than 6 off, not home');
   ok(P.trekPinned({ ...trek, backoffs: 2 }, { x: 96, y: 50, z: 0 }) === null && P.trekPinned({ crumbs: [], backoffs: 0 }, { x: 0, y: 50, z: 0 }) === null, 'twice at most, then the trek ends where it is');
   ok([0, 1, 2, 3, 9].map(P.futileBackoffMin).join(',') === '4,8,16,32,32', 'the debris option backs off 4, 8, 16, 32 minutes after trips that dug nothing');
+  // An expedition's ground (11-15: netherT1's Dev and netherT3's Elena walked off the island's edge): the island above with
+  // a pillar of 2 at 4,4, a block hanging at head height off its west edge (-1,51,4) and a wall of 2 beside its east edge (9,50-51,4)
+  const dugNow = new Set<string>();
+  const iw = (x: number, y: number, z: number) => {
+    if (dugNow.has(`${x},${y},${z}`)) return 'air';
+    if (x === 4 && z === 4 && (y === 50 || y === 51)) return 'netherrack';
+    if ((x === -1 && y === 51 && z === 4) || (x === 9 && (y === 50 || y === 51) && z === 4)) return 'netherrack';
+    return w(x, y, z);
+  };
+  const ir = P.islandReach({ x: 2, y: 50, z: 2 }, iw, P.TRIP_OUT, P.TRIP_UPDOWN);
+  ok(ir.size === 80 && [...ir.values()].every((c) => c.y === 50 && c.x >= 0 && c.x <= 8), `the island's ground: its 80 cells at y 50, the pillar's top (2 up) not walked to (${ir.size})`);
+  ok(!P.inland({ x: 0, y: 50, z: 4 }, iw) && P.inland({ x: 4, y: 50, z: 2 }, iw) && P.inland({ x: 8, y: 50, z: 4 }, iw), 'an edge stand has a drop beside it; one by the pillar or a wall does not');
+  const g = P.islandDig(ir, iw);
+  ok(P.expeditionStand({ x: 2, y: 49, z: 2 }, g, { x: 2, y: 50, z: 2 }) === null, 'the island\'s floor is never dug');
+  const sp = P.expeditionStand({ x: 4, y: 51, z: 4 }, g, { x: 2, y: 50, z: 2 });
+  ok(!!sp && P.inland(sp, iw), `the pillar dug from an inland stand (${JSON.stringify(sp)})`);
+  const se = P.expeditionStand({ x: -1, y: 51, z: 4 }, g, { x: 0, y: 50, z: 4 });
+  ok(!!se && se.x >= 1, `the block off the west edge dug from inland, not from the edge it hangs by (${JSON.stringify(se)})`);
+  dugNow.add('9,50,4');
+  P.afterIslandDig(g, { x: 9, y: 50, z: 4 }, iw);
+  ok(!(g.stands.get('8,4') ?? []).length, 'a wall dug away by a stand leaves it a drop: no longer a dig stand');
+  const NE = readFileSync(new URL('../../server/src/mineflayer/mcNether.ts', import.meta.url), 'utf-8');
+  ok(/KEEP_GROUND\.add\(a\.name\)/.test(NE) && /maxDropDown: 1/.test(NE) && /expeditionStand\(q, ground, feet\) !== null/.test(NE), 'the expedition walks its ground without drops and digs from its stands');
+  ok(/ancient_debris'\)\) > had/.test(NE), 'a debris drop is counted on the server and looked for when not taken');
   const BA2 = readFileSync(new URL('../../server/src/mineflayer/botAgent.ts', import.meta.url), 'utf-8');
   ok(/if \(this\.trek && !overworld\(this\)\) \{\s*const to = trekPinned\(this\.trek/.test(BA2) && /bridge\.cells\) this\.protectedCache\.boxes\.push/.test(BA2), 'rescuePinned keeps to the trek\'s breadcrumbs; the bridge is protected ground');
 }

@@ -290,6 +290,93 @@ export function walkReach(start: Cell, name: Name, radius = TREK.reach, cap = TR
   return out;
 }
 
+// ---------------------------------------------------------------------------------------------
+// An expedition's ground (11-15): netherT1's Dev and netherT3's Elena dug round the far portal on minevale3's floating
+// island, walked off its edge (the walk's drops of 4, then 8 when no path) and fell 11 and 23 blocks; the way back failed
+// and both were recalled. An expedition now walks only the island's own ground (level steps and steps of one up or down,
+// each walked back as it was walked out), digs from a stand with no drop beside it, and never digs a floor that ground is.
+// ---------------------------------------------------------------------------------------------
+
+/** The cells walked from `start` by level steps and steps of one up or down (no drops: every step walks back), within
+ *  `radius` across and `updown` up or down, at most `cap`. */
+export function islandReach(start: Cell, name: Name, radius: number, updown: number, cap = TREK.cap): Map<string, Cell> {
+  const out = new Map<string, Cell>([[key(start), start]]);
+  const q: Cell[] = [start];
+  for (let i = 0; i < q.length && out.size < cap; i++) {
+    const p = q[i];
+    for (const [dx, dz] of DIRS4) for (const dy of [0, 1, -1]) {
+      const n = { x: p.x + dx, y: p.y + dy, z: p.z + dz };
+      if (Math.abs(n.x - start.x) > radius || Math.abs(n.z - start.z) > radius || Math.abs(n.y - start.y) > updown || out.has(key(n))) continue;
+      // (head room over the lower of the two cells: over the start to step up, over the next cell to step down)
+      if (dy === 1 && !clearAt(name(p.x, p.y + 2, p.z))) continue;
+      if (dy === -1 && !clearAt(name(n.x, p.y + 1, n.z))) continue;
+      if (!standable(name, n.x, n.y, n.z)) continue;
+      out.set(key(n), n);
+      q.push(n);
+      if (out.size >= cap) break;
+    }
+  }
+  return out;
+}
+
+/** A stand with no drop beside it: each side cell at its level is a wall, or open with a floor one or two below (not
+ *  lava, fire or unloaded). */
+export function inland(c: Cell, name: Name): boolean {
+  for (const [dx, dz] of DIRS4) {
+    const x = c.x + dx, z = c.z + dz;
+    const f = name(x, c.y, z);
+    if (!f) return false;
+    if (!clearAt(f)) continue;
+    let floor = false;
+    for (const dy of [1, 2]) {
+      const g = name(x, c.y - dy, z);
+      if (!g || HOT.test(g)) return false;
+      if (!clearAt(g)) { floor = true; break; }
+    }
+    if (!floor) return false;
+  }
+  return true;
+}
+
+/** An island's dig stands, by column (x,z), and the floors under its cells: what expeditionStand reads. */
+export interface IslandDig { stands: Map<string, Cell[]>; floors: Set<string>; cells: Map<string, Cell> }
+export function islandDig(island: Map<string, Cell>, name: Name): IslandDig {
+  const stands = new Map<string, Cell[]>(), floors = new Set<string>();
+  for (const c of island.values()) {
+    floors.add(key({ x: c.x, y: c.y - 1, z: c.z }));
+    if (!inland(c, name)) continue;
+    const k = `${c.x},${c.z}`;
+    stands.set(k, [...(stands.get(k) ?? []), c]);
+  }
+  return { stands, floors, cells: island };
+}
+
+/** After a dig at `c`: the stands beside it read again (a wall dug away can leave a drop beside a stand). */
+export function afterIslandDig(d: IslandDig, c: Cell, name: Name): void {
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+    const k = `${c.x + dx},${c.z + dz}`, list = d.stands.get(k);
+    if (!list) continue;
+    const kept = list.filter((s) => inland(s, name));
+    if (kept.length) d.stands.set(k, kept); else d.stands.delete(k);
+  }
+}
+
+/** Where an expedition digs `c` from: an inland stand of the island within reach of it (the eye 4.2 from its middle),
+ *  nearest `feet`; null when `c` is a floor of the island's ground (a dug floor is a hole in the way back) or no stand
+ *  reaches it. */
+export function expeditionStand(c: Cell, d: IslandDig, feet: Cell): Cell | null {
+  if (d.floors.has(key(c))) return null;
+  let best: Cell | null = null, bd = Infinity;
+  for (let dx = -4; dx <= 4; dx++) for (let dz = -4; dz <= 4; dz++) {
+    for (const s of d.stands.get(`${c.x + dx},${c.z + dz}`) ?? []) {
+      if (Math.hypot(s.x + 0.5 - (c.x + 0.5), s.y + 1.62 - (c.y + 0.5), s.z + 0.5 - (c.z + 0.5)) > 4.2) continue;
+      const q = Math.hypot(s.x - feet.x, s.y - feet.y, s.z - feet.z);
+      if (q < bd) { bd = q; best = s; }
+    }
+  }
+  return best;
+}
+
 /** Whether a standing cell is on the mainland: walking from it reaches TREK.mainland cells (a small islet does not). */
 export function onMainland(c: Cell, name: Name): boolean {
   return walkReach(c, name, 64, TREK.mainland).size >= TREK.mainland;
