@@ -28,6 +28,11 @@ export const BAN_MEMBER = /^member$/i.test(rawSetting('MC_BAN_SCOPE') ?? '');
 /** MC_DECOR_MORE (on; off turns it off): own options banned per option (their ids are unrelated chores: three own-farm
  *  failures banned decorating with them for an hour), and up to 8 decoration slots a house (villageReads). */
 export const DECOR_MORE = !/^(off|0|false|no)$/i.test(rawSetting('MC_DECOR_MORE') ?? 'on');
+/** MC_QUICK_COOL (on; off turns it off): a chore over in under 30 s with nothing gained (MC_CONTROLLER's quick rule) cools
+ *  its member only and never counts toward a ban, and pen chores are banned per pen and chore, not as a kind (climb1: an
+ *  empty nest, a full pen and a pair still on its breeding cooldown banned every pen chore for 60 min, the age of
+ *  husbandry held from minute 23 to 83). */
+export const QUICK_COOL = !/^(off|0|false|no)$/i.test(rawSetting('MC_QUICK_COOL') ?? 'on');
 const BAN_MEMBER_MS = 20 * 60000 / Math.max(0.1, Number(rawSetting('MC_TIME_SCALE') ?? 1) || 1);
 /** MC_WORK_BLOCKS: model decisions paced through the hour (modelCallsLastHour), at most PACE_BURST at a time. */
 const PACED = LLM_LIMITS && /^(on|1|true|yes)$/i.test(rawSetting('MC_WORK_BLOCKS') ?? '');
@@ -986,6 +991,8 @@ export function choreProductive(kind: ChoiceKind | undefined, skill: string, ok:
 export interface ChoiceOutcome {
   village: string; agent: string; kind: ChoiceKind; id: string; ok: boolean; cut: boolean; contention: boolean;
   productive: boolean; minutes: number; at: number; line: string;
+  /** Failed only by MC_CONTROLLER's quick rule (done in under 30 s, nothing gained): with MC_QUICK_COOL it cools, never bans. */
+  quick?: boolean;
 }
 
 const MIN = 60000;
@@ -1098,13 +1105,14 @@ export class ChoiceStats {
     // BAN_MEMBER_MS, for BAN_MEMBER_MS; never the village's: one member's dig without a pickaxe kept iron off 851 of 908 menus)
     if (BAN_MEMBER) {
       if (!agent) return null;
-      const mine = this.list(village).filter((e) => e.agent === agent && e.kind === kind && e.id === id && !e.ok && !e.cut && !e.contention && e.at > now - BAN_MEMBER_MS && e.at <= now).map((e) => e.at).sort((a, b) => a - b);
+      const mine = this.list(village).filter((e) => e.agent === agent && e.kind === kind && e.id === id && !e.ok && !e.cut && !e.contention && !(QUICK_COOL && e.quick) && e.at > now - BAN_MEMBER_MS && e.at <= now).map((e) => e.at).sort((a, b) => a - b);
       return mine.length >= 2 ? (mine[mine.length - 1] + BAN_MEMBER_MS > now ? { until: mine[mine.length - 1] + BAN_MEMBER_MS, scope: 'id' } : null) : null;
     }
     // (G8, MC_IRON_AGE: dig, smelt and forge are separate works; a miner's failures never ban the smiths, staged I3)
     // (MC_DECOR_MORE: and own, whose ids are unrelated chores: the own farm's failures for want of land banned decorating)
-    const perId = kind === 'make' || kind === 'gather' || kind === 'light' || kind === 'furnish' || kind === 'initiate' || kind === 'help' || kind === 'activity' || (IRON_AGE && kind === 'iron') || (DECOR_MORE && kind === 'own');
-    const fails = this.list(village).filter((e) => e.kind === kind && !e.ok && !e.cut && !e.contention && e.at > now - 2 * HOUR && e.at <= now);
+    // (MC_QUICK_COOL: and penwork, whose ids are separate pens and chores: one pen's empty nest is not another's breeding)
+    const perId = kind === 'make' || kind === 'gather' || kind === 'light' || kind === 'furnish' || kind === 'initiate' || kind === 'help' || kind === 'activity' || (IRON_AGE && kind === 'iron') || (DECOR_MORE && kind === 'own') || (QUICK_COOL && kind === 'penwork');
+    const fails = this.list(village).filter((e) => e.kind === kind && !e.ok && !e.cut && !e.contention && !(QUICK_COOL && e.quick) && e.at > now - 2 * HOUR && e.at <= now);
     let own = 0, whole = 0;
     // Per id: any three of its failures within an hour
     const ats = fails.filter((e) => e.id === id).map((e) => e.at).sort((a, b) => a - b);

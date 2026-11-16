@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-320 settings.
+321 settings.
 
 ## Game speed
 
@@ -68,6 +68,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_INTENT_WEIGHT` | number | `1.3` |  |  | How much a member's intent weighs in the controller's pick. |
 | `MC_POLICY_OPTIONS` | flag | `on` |  |  | #122 (MC_POLICY_OPTIONS=on, off): on a menu that is empty or holds only filler makes, code's policy gates become options with their facts: a material nothing wants gathered anyway (under GATHER_ANYWAY_MAX in storage), a project past the village's cap (under twice it); the filler makes leave such... |
 | `MC_PRIMER` | flag | `off` |  |  | MC_PRIMER=on: a short primer of how the world works (peace, the day, chores, acts beside a choice, storage, laws, emeralds, the ages, a good life) in the chooser's system prompt, both modes (#172). |
+| `MC_QUICK_COOL` | flag | `on` |  |  | On by default (off turns it off): a chore over in under 30 s with nothing gained (MC_CONTROLLER's quick rule) cools its member for 5 minutes but never counts toward a village ban; pen chores (penwork) are banned per pen and chore, not as a kind; breeding is offered again 6 game minutes after the last, not 5 (the parents' cooldown is 5). Climb1 (11-16): an empty nest, a full pen and a pair still on its cooldown banned every pen chore for 60 min (unlogged), holding the age of husbandry from minute 23 to 83. |
 | `MC_QUICK_NEXT` | flag | `off` |  |  | The wait between chores (the user's, 10-22): MC_QUICK_NEXT=on runs the village's check within a few seconds of a chore's end (at most every QUICK_GAP_MS) instead of at the 30 s cycle, and skips the 10 s member cooling for a chore whose actions all finished (the cooling is for a stopped or... |
 | `MC_SCRIPTED_ACTS` | number | `0.3` |  |  | In scripted runs, the share of choices that make an act. |
 | `MC_WORK_BLOCKS` | flag | `off` |  |  | MC_WORK_BLOCKS: model decisions paced through the hour (modelCallsLastHour), at most PACE_BURST at a time. |

@@ -32,7 +32,7 @@ import { ARMS_GOODS, BEES_GOODS, ENCHANT_GOODS, NETHER_GOODS, SEA_GOODS, MACHINE
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
 import { PROMPT_SELF, UNUSED_GOOD, UNUSED_TAG, ambitionGap, feedKinds, needsLine as basicNeedsLine, scarcityLine, selfLine, type HouseFacts, type SelfFacts } from '../promptSelf';
-import { BAN_MEMBER, CHOOSE, ChoiceStats, DECOR_MORE, ChooserQueue, DISLIKED, basicOf, buildPrompt, choose, choreProductive, fixedPick, fnv1a, menuView, mulberry32, shuffled, trimMenu, weighted, weights } from '../choose';
+import { BAN_MEMBER, CHOOSE, QUICK_COOL, ChoiceStats, DECOR_MORE, ChooserQueue, DISLIKED, basicOf, buildPrompt, choose, choreProductive, fixedPick, fnv1a, menuView, mulberry32, shuffled, trimMenu, weighted, weights } from '../choose';
 import { Palette, reserved, type Dropped } from '../palette';
 import { workerNumber } from '../agentNames';
 import { KIND_PHRASE, TEMPERAMENT_MODE, activeKinds, kindWeights, optionWeight, personaOf, temperament, vectorOf } from '../temperament';
@@ -8745,7 +8745,7 @@ export class MineflayerWorld implements WorldAdapter {
         // (never the seeds a field's open planting still needs: G3f's neighbourhood field was sown half, s30)
         const lure = penLure(slot.kind!, store);
         const feed = (store[lure] ?? 0) - (lure === 'wheat_seeds' ? seedsForFields(v) : 0);
-        if ((pen.animals ?? 0) >= 2 && (pen.animals ?? 0) < breedRoom(v, cap) && feed >= 2 && due(pen, 'breed', 5 / scale) && !(PENS_BIG && (pen.youngUntil ?? 0) > now)) works.push([2, 'breed', 'breed_pen', `Breed the ${slot.kind === 'sheep' ? 'sheep' : `${slot.kind}s`}`, `${store[lure] ?? 0} ${words(lure)} in storage${PEN_VARIETY ? `; room for ${breedRoom(v, cap)}` : ''}`]);
+        if ((pen.animals ?? 0) >= 2 && (pen.animals ?? 0) < breedRoom(v, cap) && feed >= 2 && due(pen, 'breed', (QUICK_COOL ? 6 : 5) / scale) && !(PENS_BIG && (pen.youngUntil ?? 0) > now)) works.push([2, 'breed', 'breed_pen', `Breed the ${slot.kind === 'sheep' ? 'sheep' : `${slot.kind}s`}`, `${store[lure] ?? 0} ${words(lure)} in storage${PEN_VARIETY ? `; room for ${breedRoom(v, cap)}` : ''}`]);
         // (#229, MC_PENS_BIG: seeds for a chicken pen below its cap when storage is short of them (from the grass); an
         // emptied chicken pen below 4 hatched from stored eggs; a pen built before the doubling enlarged where it stands)
         if (PENS_BIG && lure === 'wheat_seeds' && (pen.animals ?? 0) >= 2 && (pen.animals ?? 0) < breedRoom(v, cap) && feed < 8 && !excluded(['penfeed='], busy) && !out.some((o) => o.id === 'penfeed'))
@@ -12804,7 +12804,7 @@ export class MineflayerWorld implements WorldAdapter {
     }
     if (SKILL.on && !cut) noteSkill(c.village, c.agent, kind, TEMPERAMENT_MODE === 'on' ? kindWeights(vectorOf(c.agent))[kind] ?? 1 : 1);
     this.choiceStats.record({
-      village: c.village, agent: c.agent, kind, id, ok: ok && !quick, cut, contention, productive, minutes: Math.round((now - c.choice.t) / 600) / 100, at: now,
+      village: c.village, agent: c.agent, kind, id, ok: ok && !quick, ...(quick ? { quick: true } : {}), cut, contention, productive, minutes: Math.round((now - c.choice.t) / 600) / 100, at: now,
       line: `${c.choice.name ?? id}: ${verb}, ${Math.round((now - c.choice.t) / 6000) / 10} min${known !== undefined ? `, ${known >= 0.1 ? 'new land' : 'little new land'}` : ''}`,
     });
     // (G2: a step on another member's project, done: help given and received)
@@ -12826,7 +12826,9 @@ export class MineflayerWorld implements WorldAdapter {
     if (BAN_MEMBER && !ok && !cut && kind === 'iron' && /no (stone |iron )?pickaxe/i.test(message)) this.needTool.set(c.agent.toLowerCase(), { item: 'stone_pickaxe', until: now + 20 * 60000 });
     // Bans apply only in model mode (D5): a fixed run logs none
     const agent = this.agents.get(c.agent.toLowerCase());
-    if (!ok && !cut && !contention && (agent ? this.chooseMode(agent) : CHOOSE.mode === 'open' ? 'model' : CHOOSE.mode) === 'model') {
+    // (a quick end with nothing gained is recorded as a failure, so a ban it starts is logged too: climb1's 60-min penwork
+    // ban had no [choice-ban] line)
+    if ((!ok || quick) && !cut && !contention && (agent ? this.chooseMode(agent) : CHOOSE.mode === 'open' ? 'model' : CHOOSE.mode) === 'model') {
       const ban = this.choiceStats.banned(c.village, kind, id, now, c.agent);
       // (a ban of the whole kind is logged once, under the kind's name)
       const name = ban?.scope === 'kind' ? kind : id;

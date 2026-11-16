@@ -14,7 +14,7 @@
  * Usage: node_modules/.bin/tsx scripts/checks/choose_unit.mts
  */
 import {
-  CHOOSE, ChoiceStats, ChooserQueue, DECOR_MORE, MENU_MAX, PER_KIND_MAX, buildPrompt, choose, choreProductive, clearQuotaBackoff, fixedPick, parseChoice, shuffled, trimMenu,
+  CHOOSE, ChoiceStats, ChooserQueue, DECOR_MORE, MENU_MAX, QUICK_COOL, PER_KIND_MAX, buildPrompt, choose, choreProductive, clearQuotaBackoff, fixedPick, parseChoice, shuffled, trimMenu,
 } from '../../server/src/choose';
 import { CallFallback, CallWithdrawn, type CallRequest, type Reply } from '../../server/src/modelCall';
 import { BudgetExceeded, usage } from '../../server/src/modelUsage';
@@ -443,6 +443,22 @@ const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
     eq(s5o.banned('V', 'own', 'own:decor', T + 4 * MIN), null, 'MC_DECOR_MORE: own farm failures leave decorating free');
     eq(s5o.banned('V', 'own', 'own:farm:wheat', T + 4 * MIN), { until: T + 63 * MIN, scope: 'id' }, 'MC_DECOR_MORE: the failing own option banned alone');
   } else eq(s5o.banned('V', 'own', 'own:decor', T + 4 * MIN), { until: T + 63 * MIN, scope: 'kind' }, 'MC_DECOR_MORE off: the whole own kind is banned');
+  // MC_QUICK_COOL (on): climb1's three quick pen ends with nothing gained (no eggs, a full pen, a pair on its cooldown) by
+  // three members over 16 minutes banned every pen chore for an hour; quick ends now only cool their member
+  const sq = new ChoiceStats();
+  for (const [a, i, m] of [['Nora', 'penwork:4:eggs', 7.5], ['Iris', 'penwork:4:breed', 12.5], ['Tess', 'penwork:3:breed', 23]] as const)
+    sq.record({ village: 'V', agent: a, kind: 'penwork', id: i, ok: false, quick: true, cut: false, contention: false, productive: false, minutes: 0.1, at: T + m * MIN, line: 'x' });
+  if (QUICK_COOL) {
+    eq(sq.banned('V', 'penwork', 'penwork:5:shear', T + 24 * MIN), null, 'MC_QUICK_COOL: quick ends with nothing gained ban nothing');
+    ok(sq.agentCooling('V', 'Tess', 'penwork', T + 24 * MIN), 'MC_QUICK_COOL: a quick end still cools its member');
+    ok(!sq.agentCooling('V', 'Ada', 'penwork', T + 24 * MIN), 'MC_QUICK_COOL: and nobody else');
+    // (real pen failures are banned per pen and chore: three on one pen's breeding leave its shearing free)
+    const sp = new ChoiceStats();
+    for (const [a, i, m] of [['Nora', 'penwork:4:eggs', 0], ['Iris', 'penwork:5:breed', 1], ['Tess', 'penwork:5:breed', 2], ['Nora', 'penwork:5:breed', 3]] as const)
+      sp.record({ village: 'V', agent: a, kind: 'penwork', id: i, ok: false, cut: false, contention: false, productive: false, minutes: 1, at: T + m * MIN, line: 'x' });
+    eq(sp.banned('V', 'penwork', 'penwork:5:shear', T + 4 * MIN), null, 'MC_QUICK_COOL: pen failures leave the other pen chores free');
+    eq(sp.banned('V', 'penwork', 'penwork:5:breed', T + 4 * MIN), { until: T + 63 * MIN, scope: 'id' }, 'MC_QUICK_COOL: the failing pen chore banned alone');
+  } else eq(sq.banned('V', 'penwork', 'penwork:5:shear', T + 24 * MIN), { until: T + 83 * MIN, scope: 'kind' }, 'MC_QUICK_COOL off: climb1\'s penwork ban');
 
   // The agent cooldown
   const s6 = new ChoiceStats();
