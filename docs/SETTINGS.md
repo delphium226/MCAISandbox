@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-325 settings.
+326 settings.
 
 ## Game speed
 
@@ -65,6 +65,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_CHOOSE_WAIT_MS` | string | (unset) |  |  | How long a member waits for its choice before the fixed pick. |
 | `MC_CONTROLLER` | flag | `off` |  |  | The controller: intents weigh the fixed and scripted picks. |
 | `MC_DECLINE_MS` | number | `90000` |  |  | A.3p: how long a disliked option waits for a member who likes it before anyone takes it (MC_DECLINE_MS). |
+| `MC_GATE_GUARDED` | flag | `on` |  |  | #256 (on by default, off turns it off): an option the guards take off a member's menu (banned, or cooling for that member) no longer keeps the gated options (#122: gathering nothing wants, projects past the cap, MC_STOCK_DIG's dig) off it; idle2: a banned forge of shears kept the stock dig off menus that ended empty from minute 40. |
 | `MC_INIT_SKIP_BAN` | flag | `on` |  |  | #256 (on by default, off turns it off): a small-work kind banned for the member is skipped on its initiate offer and the next kind offered in its place (climb1: the sapling, banned for leaves out of reach, was the only initiate offer from minute 50 to 110, and the menus it filled stayed empty). |
 | `MC_INTENT_WEIGHT` | number | `1.3` |  |  | How much a member's intent weighs in the controller's pick. |
 | `MC_POLICY_OPTIONS` | flag | `on` |  |  | #122 (MC_POLICY_OPTIONS=on, off): on a menu that is empty or holds only filler makes, code's policy gates become options with their facts: a material nothing wants gathered anyway (under GATHER_ANYWAY_MAX in storage), a project past the village's cap (under twice it); the filler makes leave such... |

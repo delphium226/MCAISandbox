@@ -157,6 +157,9 @@ const IRON_MONUMENT_ENOUGH = 64;
  *  option, on a menu with nothing else, while storage holds under STOCK_DIG_PER raw iron and ingots a member (climb2: from
  *  minute 50, 77-84% of agent-time idle with 8,000 cells of the iron level dug and none offered). */
 const STOCK_DIG = !/^(off|0|false|no)$/i.test(rawSetting('MC_STOCK_DIG') ?? 'on'), STOCK_DIG_PER = 8;
+/** #256, MC_GATE_GUARDED (on; off turns it off): options the guards take off a member's menu (banned, cooling) no longer
+ *  keep the gated options (#122) off it (idle2: a banned forge kept the stock dig off menus that ended empty). */
+const GATE_GUARDED = !/^(off|0|false|no)$/i.test(rawSetting('MC_GATE_GUARDED') ?? 'on');
 /** #133's backstop: a member under ground this long with nothing done is brought home. */
 const UNDER_MS = 8 * 60000;
 /** ...and what it may finish there without going anywhere (not progress). */
@@ -10267,7 +10270,11 @@ export class MineflayerWorld implements WorldAdapter {
     // (the wants spec: a far ring's point is the empty menu's outlet, filler here)
     const far = (o: ChoiceOption) => o.kind === 'explore' && Number(o.id.split(':')[1]) >= 8;
     if (gated.size) {
-      const fillerOnly = out.every((o) => gated.has(o) || o.kind === 'eat' || isFiller(o) || far(o));
+      // (#256, MC_GATE_GUARDED: an option the guards will take off, banned or cooling for this member, does not hold the
+      // gated ones off: idle2's banned forge of shears kept the stock dig off menus left empty from minute 40)
+      const guardedOff = (o: ChoiceOption) => GATE_GUARDED && guards && (!!this.choiceStats.banned(v.name, o.kind, o.id, now, a.name)
+        || this.choiceStats.agentCooling(v.name, a.name, o.kind, now, o.kind === 'make' || o.kind === 'gather' || o.kind === 'light' || o.kind === 'furnish' || o.kind === 'initiate' || o.kind === 'help' || o.kind === 'activity' ? o.id : undefined));
+      const fillerOnly = out.every((o) => gated.has(o) || o.kind === 'eat' || isFiller(o) || far(o) || guardedOff(o));
       for (let i = out.length - 1; i >= 0; i--) if (fillerOnly ? isFiller(out[i]) : gated.has(out[i])) pal.drop(out[i], 'view', fillerOnly ? 'filler, left for the gated options' : 'gated: nothing wants it');
       if (!fillerOnly) {
         for (const [k, w] of Object.entries(gateWhy) as Array<[ChoiceKind, string]>) if (!out.some((o) => o.kind === k)) reasons[k] = w;
