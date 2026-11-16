@@ -227,7 +227,11 @@ block ... {bees:[two bees]}`) once the apiary stands: the honest stand-in for th
 - **Waxing** (`wax_copper`, option `rung:wax_copper` while stage 4 is current and storage holds honeycomb): the copper
   canopy's roof cells (from its design at its structure) read from the server (copper, exposed, weathered or oxidised), a
   honeycomb taken and the waxed block of the same stage set, confirmed, the honeycomb given back otherwise. This is
-  copper's stage 3 "waxed copper roofs", done on the copper rung's own roof.
+  copper's stage 3 "waxed copper roofs", done on the copper rung's own roof. Offered once a canopy is built. With no
+  canopy built or posted while stage 4 is current (`beesCanopyWanted`: a village set on bees by `MC_LADDER_START`, or one
+  whose canopy is gone), the workshop makes its 5 copper blocks from storage's raw copper (`copperTarget`; the mine keeps
+  copper ore while storage holds under 45) and the village posts the canopy as the copper rung does (`postRungWorks`); the
+  stage feeds `make:copper_block` and `help:copper_canopy` too.
 
 Targets: a nest is full after five pollen trips by its 2 bees (some 5-10 minutes in daylight, the time frozen at day); 16
 honeycomb is about 6 shearings (3 each), 8 bottles 8 fillings, so some 14 full nests from 2 nests, about an hour; the nests
@@ -564,12 +568,17 @@ own sales and rods, 10-14 each way, are their own purses and never reach storage
 | trade | 39c72c8 | 5, 8, 20, 46 | 46 (was: not, 14 of 40 emeralds) | 95 / 8 |
 | bees | 39c72c8 | hives 20 (a wild nest at 10.9, 2 nests bought at 15.5); honeycomb 0: no shears | no | 35 / 21 |
 | bees2 | 2500e66 | hives 25 (the wild nest at 10.6, nests bought at 12.9 and 16.9), honeycomb 36 (village shears at 24.4), honey 50; waxing 0 | no: rt_base has no copper canopy to wax | 43 / 22 |
+| bees3 | d63aca9 | 21.2, 30.9, 43.0, 53.7 (5 copper blocks made 43-49, the canopy posted at 49.4 and built at 53.2, waxed 5 of 5 at 53.7) | **53.7** | - |
 
 Minevale3's atlas showed two wild nests in range: -1605,65,146 was tended in both bees runs (at 10.9 and 10.6); the other,
 -1573,88,-90, had no bee in it or within 16 both times (its campfire stays), so the apiary still took two bought nests.
 Bees' last stage cannot end from rt_base: `MC_LADDER_START=bees` counts copper as reached, but the checkpoint never built
 the copper canopy whose roof the stage waxes ("the village has no copper canopy standing"); a village that climbed through
-copper has one. Trade's stages took 46 minutes, so it was not resized. Gold from the world (mcMine.ts keeping gold ore on deep trips) was
+copper has one. d63aca9 puts the canopy up in stage 4 when none stands, and bees3 (rt_base, `MC_LADDER_START=bees`, 70
+min) **reached the rung at +53.7**: the wild nest at -1605,65,146 tended again (the other had no bees), the canopy's blocks
+made from storage's raw copper (wages for `make:copper_block`), built by 4 members in 3.7 min, all 5 waxed in one `wax_copper` (letters
+followed, reached at about +66). 0 `[lag]`, 89 `[stuck]`, 1 `[stuck-world]`. Its end was saved as checkpoint `bees_s4`
+(after the rung, not at stage 4: the stage ended inside the run). Trade's stages took 46 minutes, so it was not resized. Gold from the world (mcMine.ts keeping gold ore on deep trips) was
 left out: the mine was another session's file, and the merchant's gold reached machines at minute 11 once emeralds came in.
 
 ## Rungs we do not have yet

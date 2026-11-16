@@ -283,7 +283,7 @@ export const RUNG_DEFS: Record<RungId, RungDef> = {
         { words: '{n} of {t} bee nests with their bees over campfires among flowers (in the village apiary, or wild nests tended where they hang)', counter: 'hives', target: BEES_NESTS, feeds: /^(help:apiary|make:campfire|activity:lib:buy:bee_nest|activity:lib:sell|rung:wild_nest)$/ },
         { words: '{n} of {t} honeycomb sheared from full bee nests', counter: 'honeycomb', target: BEES_COMB, feeds: /^(rung:apiary:shear|activity:lib:honeycomb|iron:forge:shears)$/ },
         { words: '{n} of {t} honey bottles filled at the apiary', counter: 'honey', target: BEES_HONEY, feeds: /^(rung:apiary:bottle|make:glass_bottle)$/ },
-        { words: '{n} of {t} copper blocks of the copper canopy waxed with honeycomb', counter: 'waxed', target: BEES_WAX, feeds: /^(rung:wax_copper|rung:apiary:shear)$/ },
+        { words: '{n} of {t} copper blocks of the copper canopy waxed with honeycomb', counter: 'waxed', target: BEES_WAX, feeds: /^(rung:wax_copper|rung:apiary:shear|make:copper_block|help:copper_canopy)$/ },
       ]
       : [{ words: '2 bee hives with a campfire under each' }, { words: '16 honeycomb' }, { words: '8 honey bottles' }, { words: 'waxed copper' }],
   },
@@ -452,6 +452,16 @@ export const netherCurrent = (v: Village): boolean => NETHER_AGE && IRON_AGE && 
 export const seaCurrent = (v: Village): boolean => SEA_AGE && LADDER && v.ladder?.current === 'sea';
 /** The counter of the current rung's current stage ('' with none). */
 export const stageCounter = (v: Village): string => (v.ladder?.current ? RUNG_DEFS[v.ladder.current as RungId]?.stages[v.ladder.stage]?.counter ?? '' : '');
+/** Whether the village has a copper canopy (the copper rung's work) built. */
+export const canopyBuilt = (v: Village): boolean => (v.initiatives ?? []).some((i) => i.kind === COPPER_CANOPY && i.state === 'built');
+/**
+ * #251: whether the bees rung's waxing still wants a copper canopy put up: stage 4 is current and the village has none
+ * built or posted (a village set on bees by MC_LADDER_START, which counts copper reached without its canopy, or one whose
+ * canopy is gone). The workshop then makes the 5 copper blocks from the iron mine's raw copper and the village posts the
+ * canopy, as the copper rung does (copperTarget, mcWorld.ts postRungWorks).
+ */
+export const beesCanopyWanted = (v: Village): boolean => beesCurrent(v) && stageCounter(v) === 'waxed' && !canopyBuilt(v)
+  && !(v.initiatives ?? []).some((i) => i.kind === COPPER_CANOPY && i.state === 'open');
 
 /** Whether letters is the current rung (MC_LETTERS and MC_LADDER on). */
 export const lettersCurrent = (v: Village): boolean => LETTERS && LADDER && v.ladder?.current === 'letters';
@@ -493,6 +503,8 @@ export function lettersCounts(type: string, message: string): Array<[Counter, nu
  * 0 when copper is not current.
  */
 export function copperTarget(v: Village, item: string, store: Record<string, number>): number {
+  // (#251: the bees rung's waxing with no canopy standing: the canopy's 5 blocks in storage)
+  if (item === 'copper_block' && beesCanopyWanted(v)) return Math.max(store.copper_block ?? 0, COPPER_MADE);
   if (!copperCurrent(v)) return 0;
   const left = Math.max(0, COPPER_MADE - (v.ladder?.totals?.cblocks ?? 0)), have = store[item] ?? 0;
   if (item === 'copper_block') return have + left;

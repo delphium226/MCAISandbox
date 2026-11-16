@@ -179,6 +179,13 @@ const P = await import('../../server/src/padPaths');
   ok(news[0]?.stage === 2 && st.stage === 3 && L.rungGoodTarget(v, 'glass_bottle', {}) === 0, `stage 3 ends at ${L.BEES_HONEY} bottles: ${news[0]?.text}`);
   // stage 4: the canopy waxed
   ok(L.feedsStage(v, 'rung:wax_copper') && L.feedsStage(v, 'rung:apiary:shear'), 'stage 4 feeds the waxing and more honeycomb');
+  // (#251: no canopy standing, as from MC_LADDER_START=bees: its blocks made and the canopy posted, then nothing more)
+  ok(L.beesCanopyWanted(v) && L.copperTarget(v, 'copper_block', { copper_block: 2 }) === L.COPPER_MADE && L.copperTarget(v, 'spyglass', {}) === 0
+    && L.feedsStage(v, 'make:copper_block') && L.feedsStage(v, 'help:i9', 'help:copper_canopy'), 'stage 4 with no canopy: its 5 copper blocks wanted');
+  work(v, L.COPPER_CANOPY, 'open');
+  ok(!L.beesCanopyWanted(v) && L.copperTarget(v, 'copper_block', {}) === 0 && !L.canopyBuilt(v), 'none once the canopy is posted');
+  v.initiatives![v.initiatives!.length - 1].state = 'built';
+  ok(L.canopyBuilt(v) && !L.beesCanopyWanted(v), 'the canopy built: waxing offered');
   note(v, L.beesCounts('wax_copper', 'waxed 3 copper blocks of the copper canopy (3 of 5 waxed)'), 'Dan', 60);
   news = note(v, L.beesCounts('wax_copper', 'waxed 2 copper blocks of the copper canopy (5 of 5 waxed)'), 'Eve', 61);
   ok(news[0]?.kind === 'rung' && st.reached.some((r) => r.rung === 'bees'), `the rung is reached with the roof waxed: ${news[0]?.text}`);

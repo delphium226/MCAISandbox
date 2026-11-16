@@ -37,7 +37,7 @@ import { Palette, reserved, type Dropped } from '../palette';
 import { workerNumber } from '../agentNames';
 import { KIND_PHRASE, TEMPERAMENT_MODE, activeKinds, kindWeights, optionWeight, personaOf, temperament, vectorOf } from '../temperament';
 import { GOALS_ON, GOAL_PIN, ensureGoals, goalLine, goalName, goalScore, goalWeight, goalsOf, noteEnd as goalNoteEnd, goalPlanOf, goalWordsDue, serves, specOf, topCraft, type Goals, type OptionFacts } from '../goals';
-import { BEES_AGE, BEES_APIARY, BEES_NESTS, rungKeep, MACHINES_AGE, MACHINES_POWERED, MAPS_AGE, MAPS_WALL, MAPS_WALL_WORK, beesCounts, beesCurrent, cellKey as mapKey, chartPoint, chartWanted, machinesCurrent, mapsCurrent, stageCounter, villageCentre, wallCells } from '../ladder';
+import { BEES_AGE, BEES_APIARY, BEES_NESTS, rungKeep, MACHINES_AGE, MACHINES_POWERED, MAPS_AGE, MAPS_WALL, MAPS_WALL_WORK, beesCanopyWanted, beesCounts, beesCurrent, canopyBuilt, cellKey as mapKey, chartPoint, chartWanted, machinesCurrent, mapsCurrent, stageCounter, villageCentre, wallCells } from '../ladder';
 import { ENCHANTMENT_AGE, ENCHANT_BOOKS, ENCHANT_LEVELS, SEA_AGE, SEA_LIGHTHOUSE, enchantCounts, enchanterOf, enchantmentCurrent, seaCounts, seaCurrent } from '../ladder';
 import { NETHER_AGE, NETHER_BLOCKS, NETHER_BROUGHT, NETHER_DEBRIS, NETHER_OBSIDIAN, NETHER_PARTY, netherCounts, netherCurrent } from '../ladder';
 import { netherParty } from './mcNether';
@@ -866,7 +866,8 @@ export class MineflayerWorld implements WorldAdapter {
       goods = [...goods.filter((g) => !LETTERS_GOODS.some((q) => q.item === g.item)), ...LETTERS_GOODS.map((g) => (g.item === 'book' ? g : { ...g, wood }))];
     }
     // (#247, MC_COPPER_AGE: the rung's copper blocks, lightning rod and spyglass while copper is current)
-    if (copperCurrent(v)) goods = [...goods.filter((g) => !COPPER_GOODS.some((q) => q.item === g.item)), ...COPPER_GOODS];
+    // (#251: and the canopy's copper blocks while the bees rung's waxing wants a canopy put up)
+    if (copperCurrent(v) || beesCanopyWanted(v)) goods = [...goods.filter((g) => !COPPER_GOODS.some((q) => q.item === g.item)), ...COPPER_GOODS];
     // (MC_HUSBANDRY_AGE: hay bales while husbandry is current; MC_MUSIC_AGE: note blocks while music is)
     if (husbandryCurrent(v)) goods = [...goods.filter((g) => !HUSBANDRY_GOODS.some((q) => q.item === g.item)), ...HUSBANDRY_GOODS];
     if (musicCurrent(v)) goods = [...goods.filter((g) => !MUSIC_GOODS.some((q) => q.item === g.item)), ...MUSIC_GOODS];
@@ -4079,7 +4080,8 @@ export class MineflayerWorld implements WorldAdapter {
   private copperWants = { mon: false, rung: new Set<string>() };
   /** #247: a village's copper rung into the mine's copper keep, on a change. */
   private copperRungKeep(v: Village) {
-    const want = copperCurrent(v);
+    // (#251: and while the bees rung's waxing wants a copper canopy put up and storage lacks the raw copper for its blocks)
+    const want = copperCurrent(v) || (beesCanopyWanted(v) && (storageContents(v).raw_copper ?? 0) < 9 * COPPER_MADE);
     if (want === this.copperWants.rung.has(v.name)) return;
     if (want) this.copperWants.rung.add(v.name);
     else this.copperWants.rung.delete(v.name);
@@ -5502,7 +5504,7 @@ export class MineflayerWorld implements WorldAdapter {
         tag('rung:apiary:bottle', 'Fill bottles with honey at the apiary', `${store.glass_bottle} glass bottles in storage; a full nest fills one; ${store.honey_bottle ?? 0} honey bottles in storage`,
           'honey bottles for the age of bees', job('apiary:bottle', 'tend_apiary', { mode: 'bottle' }, ['honey_bottle', 'glass_bottle']));
     }
-    if (beesCurrent(v) && counter === 'waxed' && (store.honeycomb ?? 0) > 0 && !back('wax_copper'))
+    if (beesCurrent(v) && counter === 'waxed' && (store.honeycomb ?? 0) > 0 && canopyBuilt(v) && !back('wax_copper'))
       tag('rung:wax_copper', 'Wax the copper canopy\'s roof with honeycomb', `${store.honeycomb} honeycomb in storage, one a copper block; waxed copper keeps its colour`,
         'the copper canopy\'s roof waxed: the age of bees', job('wax_copper', 'wax_copper', {}, ['honeycomb']));
     if (mapsCurrent(v)) {
@@ -5623,7 +5625,8 @@ export class MineflayerWorld implements WorldAdapter {
     }
     const want = sd?.counter === 'stalls' && tradeCurrent(v) ? 'market_stall' : sd?.counter === 'croof' && copperCurrent(v) ? COPPER_CANOPY
       : sd?.counter === 'bandstand' && musicCurrent(v) ? MUSIC_BANDSTAND : sd?.counter === 'bell' && musicCurrent(v) ? MUSIC_BELL_POST
-      : sd?.counter === 'hives' && beesCurrent(v) ? BEES_APIARY : sd?.counter === 'mapwall' && mapsCurrent(v) ? MAPS_WALL_WORK
+      : sd?.counter === 'hives' && beesCurrent(v) ? BEES_APIARY : sd?.counter === 'waxed' && beesCurrent(v) ? COPPER_CANOPY
+      : sd?.counter === 'mapwall' && mapsCurrent(v) ? MAPS_WALL_WORK
       : sd?.counter === 'lighthouse' && seaCurrent(v) ? SEA_LIGHTHOUSE : '';
     if (!want || !st?.current) return;
     const same = (v.initiatives ?? []).filter((i) => i.kind === want);
