@@ -153,6 +153,10 @@ const COPPER_WAIT_MIN = 60, COPPER_LANES = 4;
 const GEM_WAIT_MIN = 20;
 /** #165: the iron stored (raw and ingots) above which no member digs for more while a monument is built. */
 const IRON_MONUMENT_ENOUGH = 64;
+/** #256, MC_STOCK_DIG (on; off turns it off): with the monument's iron stored (IRON_MONUMENT_ENOUGH) the dig stays a gated
+ *  option, on a menu with nothing else, while storage holds under STOCK_DIG_PER raw iron and ingots a member (climb2: from
+ *  minute 50, 77-84% of agent-time idle with 8,000 cells of the iron level dug and none offered). */
+const STOCK_DIG = !/^(off|0|false|no)$/i.test(rawSetting('MC_STOCK_DIG') ?? 'on'), STOCK_DIG_PER = 8;
 /** #133's backstop: a member under ground this long with nothing done is brought home. */
 const UNDER_MS = 8 * 60000;
 /** ...and what it may finish there without going anywhere (not progress). */
@@ -1271,7 +1275,7 @@ export class MineflayerWorld implements WorldAdapter {
    */
   private ironAgeOptions(v: Village, a: BotAgent, busy: Set<string>, store: Counts, now: number, reasons: Partial<Record<ChoiceKind, string>>,
     add: (o: Omit<ChoiceOption, 'holds'> & { holds?: string[] }, data: OptionRun) => void, record: (kind: ChoiceKind) => string,
-    lastOf: (kind: ChoiceKind, id?: string) => string, others: (kind: ChoiceKind, id?: string) => string) {
+    lastOf: (kind: ChoiceKind, id?: string) => string, others: (kind: ChoiceKind, id?: string) => string, gate?: (why: string) => void) {
     const m = v.mine;
     if (!m || m.level === undefined) {
       reasons.iron = 'no mine';
@@ -1311,7 +1315,9 @@ export class MineflayerWorld implements WorldAdapter {
     if (ironDone(m, now)) why.push('iron level finished');
     else if (stairsBy) why.push(`the iron stairs being dug by ${stairsBy}`);
     else if (full) why.push(`${numberWord(full.length)} miners on the iron level (${full.join(', ')})`);
-    else if (monumentBusy && raw + ingots >= IRON_MONUMENT_ENOUGH && !deep && !copperDig) why.push(`iron enough while the monument is built (${raw + ingots} stored)`);
+    // (#256, MC_STOCK_DIG: past the monument's iron the dig stays as a gated option, on a menu with nothing else, while
+    // storage holds under STOCK_DIG_PER iron a member: the mine's coal, iron, copper and lapis for the ages ahead)
+    else if (monumentBusy && raw + ingots >= IRON_MONUMENT_ENOUGH && !deep && !copperDig && !(STOCK_DIG && gate && raw + ingots < STOCK_DIG_PER * this.growMembers(v).length)) why.push(`iron enough while the monument is built (${raw + ingots} stored)`);
     else if (slot === undefined) why.push('every leg busy');
     else if (backing('dig')) why.push('digging backs off');
     else if (pickless) why.push(pickless);
@@ -1322,6 +1328,7 @@ export class MineflayerWorld implements WorldAdapter {
         facts: `${deep ? `${deep.facts}; ` : first ? `${first}; ` : ''}${copperDig ? `the mine keeps the copper ore it meets for the copper age (${v.ladder?.totals?.copper ?? 0} of ${COPPER_RAW} raw copper brought up); ` : ''}${raw} raw iron and ${ingots} iron ingots in storage; the iron level ${m.iron ? `${m.iron.level !== undefined ? `at y ${m.iron.level}, ` : ''}${m.iron.dug} cells dug` : 'not started'}${others('iron', 'iron:dig')}; ${record('iron')}${lastOf('iron', 'iron:dig')}`,
         effect: deep?.effect ?? `raw iron for the smelters (${raw} in storage)`,
       }, { kind: 'iron', stage: 'dig', tool: '', iron: raw });
+      if (monumentBusy && raw + ingots >= IRON_MONUMENT_ENOUGH && !deep && !copperDig && gate) gate(`iron enough while the monument is built (${raw + ingots} stored)`);
     }
     // (a works furnace first, else the hut's: the workshop's makes held all three works furnaces most of staged I1)
     const free = this.freeFurnaces(v, busy), k = free.find((q) => q >= 1) ?? free[0];
@@ -8797,7 +8804,10 @@ export class MineflayerWorld implements WorldAdapter {
     // while milking or the cake hold the buckets: storage reads none then, the fixes review's M1)
     const m = v.mine;
     // (G8, MC_IRON_AGE: dig, smelt and forge as kinds any number may hold, spec 4.1)
-    if (IRON_AGE) this.ironAgeOptions(v, a, busy, store, now, reasons, add, record, lastOf, others);
+    if (IRON_AGE) this.ironAgeOptions(v, a, busy, store, now, reasons, add, record, lastOf, others, (why) => {
+      gated.add(out[out.length - 1]);
+      gateWhy.iron = why;
+    });
     else if (!m || m.level === undefined) reasons.iron = 'no mine';
     else if (excluded(['iron', 'cake', 'penwork'], busy)) reasons.iron = 'busy';
     else {

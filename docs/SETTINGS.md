@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-324 settings.
+325 settings.
 
 ## Game speed
 
@@ -312,6 +312,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_SAND_PARTY` | number | `3` |  | `MC_SAND_TRIPS` | Sand expeditions out at once (#206): while the stage still wants that many loads (~25 sand a minute of digging each) after the trips out, up to this many members fetch sand together, each at a spot 32 blocks from the others' where the map has one. 1: one at a time, as #202 had it. |
 | `MC_SAND_TRIPS` | flag | `on` |  | `MC_MONUMENT` | MC_SAND_TRIPS=on (#202; off turns it off): when a monument or civic building still wants 128 sand or more for its sandstone and the sand within the village range has run out, members (up to MC_SAND_PARTY at once) fetch a full inventory from the nearest dry sand the atlas knows (beach or desert) up to 400 blocks from home, and brings it to the lodge ([sand] expedition lines). In a world with monsters only in the morning and within the curfew. Two trips that bring nothing end them, and the sandstone stands in as stone bricks. The short lists leave out a sandstone building when the sand the atlas knows in that range is short of it. |
 | `MC_SEA_AGE` | flag | `on` |  | `MC_LADDER` | MC_SEA_AGE (on by default; off turns it off, its stages in words and the rung off the ballot): the age of the sea's four counted stages (3 boats made, a dock built out over the nearest water, 24 fish caught, a lighthouse built); while the rung is current the workshop makes boats in the village's wood, a lantern and a lightning rod, and the village posts the lighthouse. |
+| `MC_STOCK_DIG` | flag | `on` |  |  | #256 (on by default, off turns it off): with a monument's iron stored (64 raw iron and ingots) the iron dig stays offered as a gated option, on a menu with nothing else, while storage holds under 8 raw iron and ingots a member (the mine's coal, iron, copper and lapis for the ages ahead); before, the dig went off for good (climb2: from minute 50, 77-84% of agent-time idle, none offered). |
 | `MC_TRADE_AGE` | flag | `on` |  | `MC_LADDER` | MC_TRADE_AGE (#246; on by default, the user's rule since 10-30; off turns it off, its stages in words and the rung off the ballot): the age of trade's four counted stages (20 lots sold to the merchant, 3 market stalls standing, 40 emeralds in storage, then 10 merchant orders filled with MC_MERCHANT_ORDERS or else 10 lots of the workshop's torches, glass, stone bricks or bread sold); while the rung is current the workshop keeps a lot more of those goods for sale, storage sells past its emerald keep, and the village posts market stalls. |
 | `MC_WILD_NESTS` | flag | `on` |  | `MC_BEES_AGE` | #251 (on by default; off turns it off): the bees rung tends the wild bee nests the atlas has seen within the village's range where they hang (a nest cannot be moved without Silk Touch): a lit campfire set under each (tend_wild_nest), then it counts as one of the 2 hives and is sheared and bottled like the apiary nests; no nest is bought while the wild ones cover the hives. |
 
