@@ -24,7 +24,7 @@ import { collectFilter, collectTargets, exposed, villageStationCell } from './mc
 import { at, nearestBlocks, onVillageGround, stateAt } from './mcUtil';
 import { teleportHome, underHome } from './mcRescue';
 import { NEST_BEES, annexBusy, apiaryNests, growBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, storeBusy, surfaceAt, wheatKeep, writeBoard } from './mcBuild';
-import { ironDone, ironLevelFeet, ironLevelFull, ironStairsHeld, mineAreas, mineGives, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
+import { ironDone, ironLevelFeet, ironLevelFull, ironStairsHeld, setIronMiners, mineAreas, mineGives, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PENS_BIG, PEN_KINDS, PEN_ORDER, PEN_VARIETY, SLOT_KINDS, SLOT_ORDER, enlargedSlot, penCap, penLure, penPlan, penSlotFit, penWords, pigCarrotKeep, restockLine, worksFurnaces } from '../farmSlots';
 import { bowsOn, archeryCounts } from './mcArchery';
 import { BOW_NW, BOW_RANK, FLINT_TRIP_MAX, arrowsLying, bowsFirst, flintCounts, flintShort, gravelOut, gravelSkip, gravelSource, recentShots, type GravelSpot } from './mcFlint';
@@ -69,7 +69,7 @@ import { Atlas } from './mcAtlas';
 import { VILLAGE_BIOMES, listPieces, pieceToDesign, readPiece, vanillaLibrary, vanillaLights, vanillaShelves, villageBiome } from '../vanillaPieces';
 import { bareFloorCells, buildingDecor, buildingLights, decorSlots, type DecorSlot, type HomeBasics, placedDoor, placedOutside, signLabel, type DecorSpot, type LightSpot, type SignPlace, type SignSpot } from '../streetPlan';
 import { buildCatalog, type ActivitySpec } from '../activities';
-import { LETTERS_PACE, NETHER_TREK, OWN_TOOLS } from '../ladderFlags';
+import { LETTERS_PACE, NETHER_TREK, OWN_TOOLS, ironMinersFor } from '../ladderFlags';
 import { TREK, futileBackoffMin } from '../netherPlan';
 import { isPaused } from '../runClock';
 import { BED_FLOWERS, FLOWER_MIX, GARDENS, GREENS_MIX, cappedGreens, flowerMix, gardenSpots, greenCounts, greenReserves, greensMixOrder, isFlowerWork, isGarden, menuWorks, mixWords, parterreShapeOf, reserveAreas, smallWorkKind, smallWorkKindOf, smallWorkSpots, smallWorkWood, type GardenSpot, type GreenArea, type GreenReserve, type SmallWorkKind } from '../smallWorks';
@@ -1289,7 +1289,10 @@ export class MineflayerWorld implements WorldAdapter {
     const ingots = Math.max(0, (store.iron_ingot ?? 0) - held);
     const why: string[] = [];
     let added = 0;
-    const slot = Array.from({ length: IRON_MINERS }, (_, i) => i + 1).find((q) => !busy.has(`irondig:${q}`));
+    // (#256, MC_MINE_LANES: a leg for every 5 members, the gate sized to match)
+    const miners = ironMinersFor(this.growMembers(v).length);
+    setIronMiners(v.name, miners);
+    const slot = Array.from({ length: miners }, (_, i) => i + 1).find((q) => !busy.has(`irondig:${q}`));
     // (#113: a level ended with no way down is offered again once its back-off is over: ironDone)
     // (#165: no digging while a monument is under way and storage holds IRON_MONUMENT_ENOUGH: Cologne's 1:3 run sent three
     // diggers down one shaft for 127 minutes with 230 ingots stored, 512 of its 1,376 [stuck] lines and most of its meals'
@@ -9569,7 +9572,9 @@ export class MineflayerWorld implements WorldAdapter {
 
     // Initiatives (s35): each open one's next step for anyone (ranks 1050 + r), then up to two of the member's own to start
     // (1100 + r) while fewer than INITIATIVES_MAX are open and it has none of its own open
-    if (family('initiatives') && INITIATIVES_MAX > 0 && v.storageHut) {
+    const IMAX = initiativesMax(this.growMembers(v).length);
+
+    if (family('initiatives') && IMAX > 0 && v.storageHut) {
       const open = (v.initiatives ?? []).filter((i) => i.state === 'open');
       const why: string[] = [];
       for (const [r, it] of open.entries()) {
@@ -9604,9 +9609,9 @@ export class MineflayerWorld implements WorldAdapter {
       const openN = open.length + this.heldProjects(v, a);
       // (#122: past the cap, under twice it, a member's projects are gated options; #142: only on a menu that is filler so
       // far, as the gate keeps them only there: the spot search ran for every member past the cap and was thrown away)
-      const past = POLICY_OPTIONS && openN >= INITIATIVES_MAX && openN < 2 * INITIATIVES_MAX && out.every((o) => gated.has(o) || o.kind === 'eat' || isFiller(o));
+      const past = POLICY_OPTIONS && openN >= IMAX && openN < 2 * IMAX && out.every((o) => gated.has(o) || o.kind === 'eat' || isFiller(o));
       if (mineOpen) why.push('own project open');
-      else if (openN >= INITIATIVES_MAX && !past) why.push('enough projects open');
+      else if (openN >= IMAX && !past) why.push('enough projects open');
       else {
         const wood = this.catalogWoodOf(v);
         // (two kinds a member, seeded by its name and how many initiatives the village has had: members differ, and a
@@ -9618,8 +9623,12 @@ export class MineflayerWorld implements WorldAdapter {
         const roomless: SmallWorkKind[] = [];
         // (#45: front gardens read alike: one of them a menu)
         let frontGarden = false;
+        // (#256, MC_INIT_SKIP_BAN: a kind banned for this member gives its place to the next: climb1's banned sapling, its
+        // leaves out of reach, was the only offer from minute 50 to 110 and the menus it filled stayed empty)
+        const bannedKind = (kind: string) => INIT_SKIP_BAN && !!this.choiceStats.banned(v.name, 'initiate', `initiate:${kind}`, now, a.name);
         for (const k of order) {
           if (r >= 2) break;
+          if (bannedKind(k.kind)) continue;
           // (a sapling is not a front garden: it took the slot from front_bed in staged L1)
           const front = GARDENS && isGarden(k.kind) && k.kind !== 'flower_ring' && k.kind !== 'sapling';
           if (front && frontGarden) continue;
@@ -9652,8 +9661,8 @@ export class MineflayerWorld implements WorldAdapter {
           add({
             id: `initiate:${k.kind}`, kind: 'initiate', key: `initiate:${a.name.toLowerCase()}`, excludes: [`initiate:${a.name.toLowerCase()}=`],
             name: past ? `Start another project: a ${k.words}${mix ? ` of ${mixWords(mix)}` : ''} (your own)` : `Start building a ${k.words}${mix ? ` of ${mixWords(mix)}` : ''} (your own project)`, rank: (past ? 1350 : 1100) + r, at: spot, ...(past ? { mark: PAST_TAG } : {}),
-            facts: past ? `${open.length} projects open${openN > open.length ? ` and ${openN - open.length} being chosen by others now` : ' already'}, past the usual ${INITIATIVES_MAX} (${alone} with nobody helping): another splits the helpers; a ${d.width}x${d.depth} ${k.words} at ${spot.x},${spot.z}; takes ${takes || 'little'}, gathered by you and whoever helps`
-              : `a ${d.width}x${d.depth} ${k.words} at ${spot.x},${spot.z}; takes ${takes || 'little'}, gathered by you and whoever helps; ${open.length} of ${INITIATIVES_MAX} projects open; others may help you`,
+            facts: past ? `${open.length} projects open${openN > open.length ? ` and ${openN - open.length} being chosen by others now` : ' already'}, past the usual ${IMAX} (${alone} with nobody helping): another splits the helpers; a ${d.width}x${d.depth} ${k.words} at ${spot.x},${spot.z}; takes ${takes || 'little'}, gathered by you and whoever helps`
+              : `a ${d.width}x${d.depth} ${k.words} at ${spot.x},${spot.z}; takes ${takes || 'little'}, gathered by you and whoever helps; ${open.length} of ${IMAX} projects open; others may help you`,
             effect: `your own ${k.words} in the village: ${k.forWhat}`,
           }, { kind: 'initiate', work: k.kind, ...(mix ? { mix } : {}) });
           if (past) {
@@ -9667,12 +9676,12 @@ export class MineflayerWorld implements WorldAdapter {
         const greens = v.plots.filter((p) => p.green).length;
         const greensMax = Math.max(1, Math.ceil(this.growMembers(v).length / GREENS_PER)) * (moreGreens(v) ? GREENS_MORE_TIMES : 1);
         if (!r && !past && roomless.length && !open.some((i) => i.pending) && greens < greensMax) {
-          const k = roomless[0];
+          const k = roomless[0]; // (banned kinds were never put here)
           const d = k.make(wood);
           add({
             id: `initiate:${k.kind}`, kind: 'initiate', key: `initiate:${a.name.toLowerCase()}`, excludes: [`initiate:${a.name.toLowerCase()}=`],
             name: `Start building a ${k.words} on a new green (your own project)`, rank: 1100 + r,
-            facts: `no room left on the village's plots: first a ${greenSize(v)}x${greenSize(v)} green is prepared near the village (room for more small works), then a ${d.width}x${d.depth} ${k.words}; ${open.length} of ${INITIATIVES_MAX} projects open; others may help you`,
+            facts: `no room left on the village's plots: first a ${greenSize(v)}x${greenSize(v)} green is prepared near the village (room for more small works), then a ${d.width}x${d.depth} ${k.words}; ${open.length} of ${IMAX} projects open; others may help you`,
             effect: `your own ${k.words} on a new green: ${k.forWhat}`,
           }, { kind: 'initiate', work: k.kind, green: true });
           r++;
@@ -13109,6 +13118,18 @@ const PROJECT_NONE = 'none', PROJECT_HOUSES = 'houses', PROJECT_REST_MS = Number
  *  members have no house; another member's house is its own to furnish and light this long, then anyone may help (H8). */
 const HOME_REQUEST_MS = 15 * 60000, OWNER_FIRST_MS = 3 * 60000, HOME_FIRST_MS = 10 * 60000, OWN_DECOR_MS = 10 * 60000;
 const INITIATIVES_MAX = Number(rawSetting('MC_INITIATIVES') ?? 3), INITIATIVE_GATHERERS = 2, INITIATIVE_LAPSE_MS = 30 * 60000;
+/** #256, MC_INIT_SCALE: the open projects a village keeps, one for every INIT_SCALE_MEMBERS members (5 at 25), else
+
+ *  INITIATIVES_MAX; MC_INITIATIVES set by hand keeps its number at any size. */
+
+const initiativesMax = (members: number) => (INIT_SCALE && rawSetting('MC_INITIATIVES') === undefined ? Math.max(INITIATIVES_MAX, Math.ceil(members / INIT_SCALE_MEMBERS)) : INITIATIVES_MAX);
+
+/** #256, MC_INIT_SKIP_BAN (on; off turns it off): an initiate kind banned for the member is skipped and the next kind offered
+ *  in its place (climb1: the sapling, banned for leaves out of reach, was the only initiate offer from minute 50 to 110). */
+const INIT_SKIP_BAN = !/^(off|0|false|no)$/i.test(rawSetting('MC_INIT_SKIP_BAN') ?? 'on');
+/** #256, MC_INIT_SCALE (on; off turns it off): a project open for every INIT_SCALE_MEMBERS members (5 at
+ *  25), not 3: climb2's projects held 3 crews of about 3 while 15-20 members had nothing feasible. */
+const INIT_SCALE = !/^(off|0|false|no)$/i.test(rawSetting('MC_INIT_SCALE') ?? 'on'), INIT_SCALE_MEMBERS = 5;
 /** MC_INITIATIVE_STORE=off: initiatives gather all their own (s36's rule); on by default since s40 (the user's, 10-20). */
 const INITIATIVE_STORE = !/^(off|0|false)$/i.test(rawSetting('MC_INITIATIVE_STORE') ?? 'on');
 /** #121: the storage yard is due at this share of the storage's slots used, with at most STORE_FREE spots free. */

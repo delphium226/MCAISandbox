@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-321 settings.
+324 settings.
 
 ## Game speed
 
@@ -65,6 +65,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_CHOOSE_WAIT_MS` | string | (unset) |  |  | How long a member waits for its choice before the fixed pick. |
 | `MC_CONTROLLER` | flag | `off` |  |  | The controller: intents weigh the fixed and scripted picks. |
 | `MC_DECLINE_MS` | number | `90000` |  |  | A.3p: how long a disliked option waits for a member who likes it before anyone takes it (MC_DECLINE_MS). |
+| `MC_INIT_SKIP_BAN` | flag | `on` |  |  | #256 (on by default, off turns it off): a small-work kind banned for the member is skipped on its initiate offer and the next kind offered in its place (climb1: the sapling, banned for leaves out of reach, was the only initiate offer from minute 50 to 110, and the menus it filled stayed empty). |
 | `MC_INTENT_WEIGHT` | number | `1.3` |  |  | How much a member's intent weighs in the controller's pick. |
 | `MC_POLICY_OPTIONS` | flag | `on` |  |  | #122 (MC_POLICY_OPTIONS=on, off): on a menu that is empty or holds only filler makes, code's policy gates become options with their facts: a material nothing wants gathered anyway (under GATHER_ANYWAY_MAX in storage), a project past the village's cap (under twice it); the filler makes leave such... |
 | `MC_PRIMER` | flag | `off` |  |  | MC_PRIMER=on: a short primer of how the world works (peace, the day, chores, acts beside a choice, storage, laws, emeralds, the ages, a good life) in the chooser's system prompt, both modes (#172). |
@@ -99,6 +100,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_HOME_PROGRAM_MODEL` | string | `ollama:qwen3.8:27b` |  |  | With MC_HOME_DESIGN=program: the model that writes each member's house program (qwen3.8 on the pinned local server: start it with scripts/ollama_exec.py and route it with MC_OLLAMA_ROUTES). |
 | `MC_HOUSE_DECOR` | flag | `off` |  |  | #141: house decorations: free slots in each home (carpet, painting, flower pot, lantern...), made by the trades into storage and placed by the house's owner from its own menu, and exterior details (door lantern, window boxes, a flower bed) on generated homes. |
 | `MC_HOUSING` | flag | `on` |  |  | N.2 housing (s37; on by default since s38, MC_HOUSING=off turns it off): each member owns a house, a street of houses is a member's own project (the chore menu's `grow:street`) or a voted work, and growth's code trigger is retired (growth lays out only on a request). Growth's machinery stays:... |
+| `MC_INIT_SCALE` | flag | `on` |  |  | #256 (on by default, off turns it off): a village keeps a project open for every 5 members (5 at 25), not 3 (MC_INITIATIVES set by hand keeps its number): climb2's 3 projects held crews of about 3 while 15-20 members had nothing feasible from minute 50. |
 | `MC_INITIATIVE_STORE` | flag | `on` |  |  | MC_INITIATIVE_STORE=off: initiatives gather all their own (s36's rule); on by default since s40 (the user's, 10-20). |
 | `MC_INITIATIVES` | number | `3` |  |  | Initiatives (small works members start) open at once in a village; 0: none. |
 | `MC_LIGHT_FACADES` | flag | `off` |  |  | Vanilla's facade torches lit too (D4: vanilla's own look); off, only the spots inside. |
@@ -282,6 +284,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_LODGE_TRIP` | number | `4` |  | `MC_LODGE` | Stacks one bulk monument trip aims for with MC_LODGE (#163): 4 (256 cobblestone, logs or sand), ended sooner by its 5-minute cap. |
 | `MC_MACHINES_AGE` | flag | `on` |  | `MC_LADDER`, `MC_IRON_AGE` | MC_MACHINES_AGE (#24; on by default; off turns it off, its stages in words and the rung off the ballot): the age of machines' four counted stages (a hopper egg collector under the chicken pen feeding a chest, 16 rails and a minecart made, a rail line laid from the mine to the storage hut, 6 powered rails on it lit by a redstone torch); while the rung is current the workshop makes the hopper, rails, minecart, powered rails and torch, and the merchant sells gold ingots and redstone for them. |
 | `MC_MAPS_AGE` | flag | `on` |  | `MC_LADDER` | MC_MAPS_AGE (on by default; off turns it off, its stages in words and the rung off the ballot): the age of maps' four counted stages (a cartography table, a map of the village's area made at its centre, a map wall of the four nearest areas' maps in item frames, a 3x3 atlas of the land around the village); while the rung is current the workshop makes the table, compasses, empty maps and item frames, and members walk out to chart the areas. |
+| `MC_MINE_LANES` | flag | `on` |  |  | #256 (on by default, off turns it off): the iron level takes a miner for every 5 members at once (3 at least, 8 at most; a level has 9 legs), not 3 whatever the village's size; every dig stage (the iron age's cells and raw iron, the copper age's raw copper, the diamond age's depth) gets the lanes. |
 | `MC_MINE_LEAVE` | string | (unset) |  |  | A tunnel's holder leaves its junction's branches to miners waiting for a face and digs on along the main tunnel (S.2; MC_MINE_LEAVE=0 for comparison runs: the holder then digs main, left, right in order however many wait). |
 | `MC_MINE_LEVEL_CELLS` | string | (unset) |  |  | Main tunnels at most per level: the first and the turns made from those that ended (V.5b); and tunnel cells dug at most per level (s40, F256: a cap on the whole mine spent B25x2's first level at 989 of 1080 and left levels 2-3 shut). |
 | `MC_MONUMENT` | flag | `on` |  | `MC_IRON_AGE` | MC_MONUMENT=on (M1, #144; off by default): once the village completes the iron age it builds a Gothic cathedral drawn by gothicGen.ts, stage by stage, on a pad of its own at the edge of the village, with no vote (the user, 10-25); members gather each stage bill into a yard (a ledger over storage, outside the bulk cap) and build its jobs of 300-800 blocks. |

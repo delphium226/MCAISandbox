@@ -77,6 +77,18 @@ if (!ORE) {
     MM.releaseIronClaims('G', 'Cal');
     ok(MM.ironGate('G', 'Dan', i, until) === null, 'a place freed is taken');
     for (const n of ['Ada', 'Ben', 'Dan']) MM.releaseIronClaims('G', n);
+    // #256, MC_MINE_LANES: a village sized for five miners lets five down and tells the sixth; the sizing follows members
+    {
+      const LF = await import('../../server/src/ladderFlags');
+      ok(LF.ironMinersFor(25) === (LF.MINE_LANES ? 5 : 3) && LF.ironMinersFor(4) === 3 && LF.ironMinersFor(200) === (LF.MINE_LANES ? 8 : 3), `miners by members (${LF.ironMinersFor(25)} at 25, ${LF.ironMinersFor(200)} at 200)`);
+      MM.setIronMiners('G5', 5);
+      const names = ['Ada', 'Ben', 'Cal', 'Dan', 'Eve'];
+      ok(names.every((n) => MM.ironGate('G5', n, i, until) === null), 'five miners go down on a level sized for five');
+      const sixth = MM.ironGate('G5', 'Fay', i, until);
+      ok(!!sixth && /five miners/.test(sixth), `a sixth is told (${sixth})`);
+      ok(!!MM.ironLevelFull('G5', 'Fay') && !MM.ironLevelFull('G5', 'Ada'), 'the menus read the level full for a sixth, not for one of the five');
+      for (const n of names) MM.releaseIronClaims('G5', n);
+    }
     // The stairs: taken only at their start (I4), so a miner on its way holds nothing
     const s = level({ level: undefined, legs: [] });
     ok(MM.ironGate('S', 'Ada', s, until) === null && MM.ironGate('S', 'Ben', s, until) === null, 'walkers to the stairs both go down');

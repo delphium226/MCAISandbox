@@ -81,3 +81,10 @@ export const LADDER_START = rawSetting('MC_LADDER_START') ?? '';
 export const OWN_TOOLS = flag('MC_OWN_TOOLS');
 /** Up to this many miners at once on the iron level, each on its own leg (spec B2). */
 export const IRON_MINERS = 3;
+/** #256, MC_MINE_LANES (on; off turns it off): the iron level takes a miner for every MINE_LANE_MEMBERS members at once
+ *  (IRON_MINERS at least, IRON_MINERS_MAX at most: a level has 9 legs), not 3 whatever the village's size: climb2's 25
+ *  members dug the iron age's 600 cells three at a time while 15-20 had nothing to do. */
+export const MINE_LANES = !/^(off|0|false|no)$/i.test(rawSetting('MC_MINE_LANES') ?? 'on');
+export const MINE_LANE_MEMBERS = 5, IRON_MINERS_MAX = 8;
+/** The miners a village of `members` puts on its iron level at once. */
+export const ironMinersFor = (members: number): number => (MINE_LANES ? Math.min(IRON_MINERS_MAX, Math.max(IRON_MINERS, Math.ceil(members / MINE_LANE_MEMBERS))) : IRON_MINERS);

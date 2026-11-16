@@ -1886,7 +1886,8 @@ export function ironGate(village: string, name: string, i: IronLevel, until: num
   const now = Date.now();
   const trips = ironTrips.get(village) ?? new Map<string, number>();
   ironTrips.set(village, trips);
-  if (ironLevelFull(village, name, now)) return `${['no', 'one', 'two', 'three', 'four'][IRON_MINERS] ?? IRON_MINERS} miners are on the iron level already; try again later`;
+  const cap = ironMinersOf(village);
+  if (ironLevelFull(village, name, now)) return `${['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight'][cap] ?? cap} miners are on the iron level already; try again later`;
   if (i.level === undefined) {
     const s = ironStairs.get(village);
     // (MC_IRON_STAIRS2: a second miner digs the second lane while its lock is free)
@@ -1898,6 +1899,14 @@ export function ironGate(village: string, name: string, i: IronLevel, until: num
   return null;
 }
 
+/** #256, MC_MINE_LANES: the miners each village's iron level takes at once, as its menus last sized it (ironMinersFor by
+ *  its members; IRON_MINERS until a menu has run). */
+const ironMinersBy = new Map<string, number>();
+export function setIronMiners(village: string, n: number): void {
+  ironMinersBy.set(village, n);
+}
+export const ironMinersOf = (village: string): number => ironMinersBy.get(village) ?? IRON_MINERS;
+
 /**
  * #169: the miners other than `name` holding the iron level's trip places, when they fill all IRON_MINERS (ironGate's
  * count), else null. The menus read it too: the monument's deep-level chores run iron trips without an irondig slot, so
@@ -1908,7 +1917,7 @@ export function ironLevelFull(village: string, name: string, now = Date.now()): 
   if (!trips) return null;
   for (const [n, t] of trips) if (t <= now) trips.delete(n);
   const others = [...trips.keys()].filter((n) => n !== name);
-  return others.length >= IRON_MINERS ? others : null;
+  return others.length >= ironMinersOf(village) ? others : null;
 }
 
 /** A trip place taken by hand (scripts/checks/iron_menu_unit.mts). */

@@ -31,6 +31,8 @@ const OFF = process.env.POLICY_CHILD === 'off';
 process.env.MC_CHOOSE = 'model';
 process.env.MC_VOTE = 'off';
 process.env.MC_GROW = '0';
+// (#256's MC_INIT_SCALE sizes the cap by members: this check's cap is the fixed 3)
+process.env.MC_INIT_SCALE = 'off';
 process.env.MC_TIME_SCALE = '1';
 process.env.MC_MODEL_RECORD = '0';
 process.env.MC_MEMORY = 'off';
