@@ -1077,9 +1077,9 @@ the world. There is no unit test suite: `npm run typecheck`, then agents are run
 
 ## 9. The village economy (real Minecraft)
 
-Villages in real Minecraft are built in survival from materials the agents gather themselves, in a world made safe:
-the agent server applies peaceful difficulty and game rules for no damage and keep-inventory at every start
-(`mcRules.ts`).
+Villages in real Minecraft are built in survival from materials the agents gather themselves, in a world made safe by
+default: the agent server applies peaceful difficulty and game rules for no damage and keep-inventory at every start
+(`mcRules.ts`). `MC_WORLD_MODE` (`worldMode.ts`; section 10) makes the world harder in stages.
 
 ```mermaid
 flowchart LR
@@ -1105,7 +1105,7 @@ flowchart LR
 
 | Part | File | What it does |
 |---|---|---|
-| World rules | `mcRules.ts` | peaceful; no fall, drowning, fire or freeze damage; keep-inventory; no monster spawning or fire spread; read back and shown in `/api/status` |
+| World rules | `mcRules.ts`, `worldMode.ts` | by default (`MC_WORLD_MODE=peaceful`) peaceful; no fall, drowning, fire or freeze damage; keep-inventory; no monster spawning or fire spread; the other modes (damage, easy, hostile, normal) turn these on stage by stage, keep-inventory always on; read back and shown in `/api/status` |
 | Bill of materials | `mcMaterials.ts` | blocks per design (a door once for two cells; grass and `dirt_path` charged as dirt, stripped logs and bark blocks as logs by `chargedItem`), the cheapest recipe chain to raw materials (wood-kind variants merged into "any planks", smelting from the jar's recipes or the hand table without it (section 5), whole batches, leftovers reused, fuel), unobtainable and hard-to-find items flagged |
 | Storage hut | `huts.ts`, `layout.ts` | a fixed 7x9x4 design (cobblestone floor, plank walls, log corners, plank roof, an open doorway in the middle of the south wall, no windows; the village's crafting table and furnace inside) with nine chest spots marked `_`, none side by side; added by code to a new village's first layout (the mayor does not name it, `design_building` refuses the name); tasks in order: prepare the plot, set up the storage (collect 10 logs, craft 4 chests, deposit puts them in the spots; in survival the preparer runs its craft and deposit steps at the end of `prepare_site` with the felled logs, `storageFromFelled`, and a failure there leaves the task on the board), gather for the hut, build it around the chests; other buildings' log gathering waits only for the storage, cobblestone for the mine, hand-gathered materials (sand, red sand, dirt, gravel, clay, seeds) for nothing (their deposit waits up to 10 minutes while the storage is set up), their builds for the hut; the hut's table and furnace serve every craft and smelt within 64 blocks (`villageStation`), so only the storage hut bills its own |
 | Mine | `huts.ts`, `mcMine.ts`, `layout.ts` | a wood-only 5x5 mining hut in the first layout, turned toward the plot's edge; `dig_mine` digs stairs to stone (7+ steps); `collect cobblestone` then extends main tunnels with 12-long branches every 3 cells, turns a new tunnel off one that ended, and digs the stairs on down to a new level when none can go on (see below); once the village is complete, `dig_iron` trips dig an iron level at y 18 with its own stairs and keep its iron and coal, and `make_iron_tool` makes an iron pickaxe and a bucket from storage (the iron age, below) |
@@ -1221,3 +1221,41 @@ storage set up from felled logs, whole buildings in a spare wood kind, the hut's
 the preparation, the lamps after the claims), staged VanO4 was complete in 6.1 minutes at 2x and the model-driven
 Minevale32 in 11.2 at 1x, with no failed actions. After completion (staged at 2x), VanX4 started and harvested a sugar
 cane and a pumpkin farm from sightings, and VanI7 made an iron pickaxe from stocked iron and a bucket from the iron level's ore.
+
+## 10. Module map: after completion (2026-11-16)
+
+Sections 2-9 cover the world interface, the brains, villages and building. Most modules added since are about the life
+of a complete village. They follow the same rule as `village.ts` and `designs.ts`: the decision, geometry and arithmetic
+are **world-free** (pure, checked offline by `scripts/checks/*.mts`), and the Mineflayer side (`mcWorld.ts`,
+`mcBuild.ts` and an `mc*.ts` file per area) reads the world, runs the skills and calls them. Every setting they read is
+registered in `settings.ts` (`docs/SETTINGS.md`).
+
+```mermaid
+flowchart LR
+  world["mcWorld.ts<br/>(menus, chores, records)"] --> choose["choose.ts<br/>an idle member picks a chore"]
+  choose --> skills["mcBuild.ts, mcMine.ts,<br/>mc*.ts skills"]
+  skills -- "messages, records" --> world
+  world --> ladder["ladder.ts<br/>stages counted, rung ballot"]
+  world --> civic["civic.ts, monument.ts<br/>public works"]
+  world --> talk["playerTalk.ts<br/>requests from people"]
+  ladder -- "progress line, stage tags" --> choose
+  vote["vote.ts<br/>the rung ballot"] --> ladder
+  talk --> civic
+```
+
+| Area | World-free modules | World side (`server/src/mineflayer/`) | What it does |
+|---|---|---|---|
+| Choosing work | `choose.ts`, `activities.ts`, `library.ts`, `palette.ts`, `controller.ts`, `instincts.ts`, `promptSelf.ts`, `llmLimits.ts` | `mcWorld.ts`, `mcWorkshop.ts`, `mcChoiceLog.ts` | the chore menu and the one decision call; activity specs and the workshop's catalogue from the game's recipes; foundry skills run as chores; learned rules; limits on model calls; the `[choice]` log |
+| The ladder of ages (G8) | `ladder.ts`, `ladderFlags.ts`, `wanted.ts`, `enchantSea.ts`, `netherPlan.ts`, `wildNests.ts` | `mcDiamond.ts`, `mcLibrary.ts`, `mcNether.ts`, `mcDim.ts`, and the rung skills in `mcBuild.ts` and `mcMine.ts` | thirteen rungs in five tiers, four counted stages each, the rung ballot, the progress line and stage tags; the rungs' geometry (the dock, the portal, the far side); `mcDim.ts` keeps world reads in the bot's own dimension |
+| Merchant and money | `merchant.ts`, `own.ts`, `pay.ts`, `barter.ts` | `mcPay.ts`, `foundry/trade.ts` | the trader in the market stall (emeralds for what a peaceful world lacks, the village's surplus bought), members' own chests and shares, payments, wages (and rung wages), barter |
+| Public works and monuments | `civic.ts`, `civicDraw.ts`, `timberGen.ts`, `towerGen.ts`, `monument.ts`, `gothicGen.ts`, `castleGen.ts`, `shortlist.ts`, `quarry.ts`, `kiln.ts`, `cutter.ts`, `dyeBed.ts`, `furnish.ts`, `lodge.ts`, `smallWorks.ts`, `refit.ts` | `mcQuarry.ts`, `mcKiln.ts`, `mcCutter.ts`, `mcDyeBed.ts`, `mcFurnish.ts`, `mcGeode.ts`, `mcGemCutter.ts`, `mcSandTrips.ts` | civic buildings drawn from real ones; the monument (a Gothic cathedral or a castle, 1:3) stage by stage with its own quarry, kiln, stonecutter and dyes; small works members start; refits |
+| Talking with the village (G7) | `playerTalk.ts`, `talkDesign.ts`, `talkPresets.ts`, `askedWork.ts`, `sculpture.ts`, `acts.ts` | `mcWorld.ts` | a person's line becomes a request answered in one line; pre-designed buildings, named monuments, or an architect's program (statues, works up to 30x30x30) run in the house sandbox |
+| Houses | `homeDesign.ts`, `houseStyle.ts`, `houseProgram.ts`, `houseSandbox.ts`, `houseProgramWorker.ts`, `houseDecor.ts`, `dressing.ts`, `bedWool.ts`, `placeNames.ts`, `outward.ts`, `padPaths.ts`, `grow.ts` | `mcHome.ts`, `mcAnimals.ts` | each member's own house (generator, model pick or a program in a `node:vm` worker), floors, basics, decorations, wall dressing, beds from the village's wool, street names, growth |
+| Survival | `worldMode.ts`, `walls.ts`, `castleWall.ts`, `wallBallot.ts` | `mcRules.ts`, `mcHazard.ts`, `mcSurvivalB.ts`, `mcCombat.ts`, `mcArchery.ts`, `mcFlint.ts`, `mcWalls.ts` | the world's stages (damage, hunger and nights, monsters); hazard and eating reflexes; combat, bows, the hunt; the fence ring and the stone castle wall, each after a vote |
+| Food, mines and supply | `appetite.ts`, `needs.ts`, `needWorks.ts`, `supply.ts`, `mineSite.ts`, `containers.ts` | `mcMoreMines.ts`, `mcMine.ts` | the village appetite, needs and the works that answer them, supply gaps, new mines when the first gives nothing |
+| Society (G1-G5) | `memory.ts`, `society.ts`, `social.ts`, `character.ts`, `archetypes.ts`, `temperament.ts`, `skill.ts`, `goals.ts`, `pursuits.ts`, `esteem.ts`, `restless.ts`, `vote.ts`, `council.ts`, `rules.ts`, `customs.ts`, `proposals.ts`, `tech.ts`, `techTree.ts` | `mcWorld.ts` | memory and the village clock, awareness, character and temperament, skill from practice, life goals and pursuits, esteem, votes, laws, customs, members' proposals, research |
+| Runs | `settings.ts`, `profiles.ts`, `schedule.ts`, `runClock.ts`, `goalMap.ts`, `scorecard.ts`, `utilisation.ts`, `modelCall.ts`, `agentNames.ts` | `mcApi.ts`, `foundry/` | the settings registry, run profiles and scheduled settings, pause, the start screen's goals, the scorecard and busy time, every model call recorded, member names; the foundry's skills (`foundry/list.ts`, locked to a rung by `foundry/lock.ts`) |
+
+**On the scale-50 branch only** (not on this branch until the merge, #239): the brain/body split for 50 members, each
+bot's body in a process of its own (`mineflayer/body*.ts`, `bodiesHost.ts`, `remoteAgent.ts`, `botWorld.ts`), with
+the village's reads gathered in `villageReads.ts`.

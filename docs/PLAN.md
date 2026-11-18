@@ -34,144 +34,58 @@ each phase's goal and design, and links to its issues; it no longer carries chec
 
 ## Next session starts with
 
-(updated 2026-11-03 ~22:30 by the planning session (local_14fb6824), paused for the evening by the user; the user: "make your own decisions and continue
-progressing"; the strategy is `docs/STRATEGY.md`, refreshed 11-03 in 31891da)
+(updated 2026-11-18 for the public publish, covering the work up to 6d03317 (11-16); the strategy is
+`docs/STRATEGY.md`; the note of 11-03..11-07 it replaces is at the top of `docs/plan-archive/handovers.md`)
 
 - **How work runs:** unchanged (the planning session briefs and checks work sessions; the context rule; the test
-  train; pushes to `private` without asking; LAN addresses beside 127.0.0.1). New flags default on (10-30); survival
-  modes are the exception (peaceful stays the default). Shared checkout: commit with `git commit -- <paths>`.
-  Sessions can only be started from a message typed in the desktop app: a planning session started by another
-  session can only propose cards, which the user starts with a click.
-- **Done 11-01..11-03 (all pushed):** trains 16 (F349), 17 (F350) and **18 (F351, `runs/2026-11-03/train18/report.md`)**;
-  survival (d) fixes #194-#197, the hunt, walls; civic variety, random shortlists, talk designs, wall dressing; #199
-  kiln; #202 sand trips; #206 sand parties; #204 river swim; #205 instincts builds 1-2 (MC_INSTINCTS,
-  MC_INSTINCT_SHARE, on); #207 even-width roofs; **#209** rescue loop (c677b04), **#210** instincts skip walk stalls
-  (f3158f0), **#208** sand recount (60360db: a short build recounts the yard, trips go below the minimum while the
-  sandstone is short, no stand-in while sand is coming, a stand-in is undone; staged run `runs/2026-11-03/fix208`:
-  recount 597 -> 442, two trips out, no stand-in; job 2's rebuild and the undo not seen live). STRATEGY.md refreshed.
-- **Decided 11-03 (planning):** #203's wall takes option (a): plan and build the ring once growth is done (houses >=
-  members or nothing left to lay out); `MC_WALLS_NOW` still forces it.
-- **Train 19 done (F352, 06d8c02, `runs/2026-11-03/train19/report.md`; checked against the logs by the planning
-  session):** both arms finished the Zytglogge in sandstone after #208's recounts (I1 +70.8, I0 +115.5), no stand-in;
-  only I1 began the cathedral (I0 slowed by a frozen member, #214). **Instincts changed behaviour for the first time,
-  but only on broken chores:** 24 lessons, all right or plausible; the avoid tag reached 843 model-made choices and
-  halved the model's pick of the tagged option (11.8% vs 25.4%); stone attempts -38%. Busy, houses and initiatives
-  within noise. The lessons were all about broken customs (#213). New: #212, #213, #214.
-- **#211 fixed** (82b5536). **#212** (ff58439), **#214** (4cff948, dig_teleport.cjs reproduces Finn's freeze) and
-  **#213** (83a430f; staged C4: 16 custom chores, 0 failures) fixed by fix212-214 (notes
-  `runs/2026-11-03/fix212-214/notes.md`; checked). **In flight:** survival-211-203
-  (local_07899354-6a53-4b35-9c68-6df0c2f90cef, world 2): #203 option (a) committed as 45f5049 (Refs), its runs N6/N7
-  going (wall voted at 480 cells after growth).
-- **Decided by the user 11-03 evening:** instincts go on to **harder ground** (train 20: instincts on vs off in the
-  hostile survival world); in survival, an unfinished wall **ranks like a village project** after a death or 5+
-  monsters inside at night (one builder per 6). survival-211-203 builds that and the wall's own-wood check (#189 needed
-  no fix; its notes `runs/2026-11-03/survival-211-203/notes.md`; new issues for the night watch outside the ring and
-  the daytime skeleton deaths).
-- **11-03 evening:** survival-211-203 done (4a18344 wall on own wood, a37a58c wall ranks 150 / 2x in danger; staged
-  N11 639 of 692 cells in 45 min); #203 open for the water crossings; #215, #216 filed.
-- **Train 20 done (F353, 0908eee, `runs/2026-11-04/train20/report.md`; checked against the I1 log by the planning
-  session):** instincts on harder ground learned 24 lessons, 1 right, none from 8 deaths (20 members learned "avoid the
-  sand gather" from the night band; 2 "avoid hunt" from low health; the finder reads no deaths). I0 crashed at +72 on
-  the hunt's creeper loop (#218), so the arms compare to +69 only (level). 4 of I1's deaths at the amethyst shaft
-  (#219). The wall was voted down 9-16 in both arms and 4 more times in I1 after deaths: 0 cells.
-- **Decided by the user 11-04:** the wall **keeps the members' vote** in danger (no bypass): a37a58c's rank applies
-  only once a vote passes. A wall that is never voted is a result, not a bug.
-- **#218-#220 fixed and checked** (dab63d7 hunt loop; e9eb298 amethyst trip off where falls hurt; be3e959 retry-later
-  failures teach nothing, a death teaches a place lesson E5; notes `runs/2026-11-04/fix218-220/notes.md`).
-- **Train 21 done (F354, e2161b4, `runs/2026-11-04/train21/report.md`; checked against the I1 log):** with #220 no
-  lesson from the night band or low health; 6 lessons (1 E2, 5 E5 from deaths), 2 right; deaths I1 6 / I0 3 (4 in one
-  night before any lesson; lessons reorder targets, never walks or night trips). Wall refused 3 times in each arm:
-  **0 of 10 wall votes passed over trains 20-21.** New: #221 (sand trip stuck 32 min in water), #222 (E5 wording and
-  trigger), #223 (guessed deaths at log-in).
-- **Decided by the user 11-05:** instincts **stay as they are** (on); no more instinct trains; fix #222 cheaply and
-  move on.
-- **#221-#223 fixed** (609410e collect's limits count from the first run after a reflex; 5374551 E5 lessons keep the
-  cause, key on a chore only when it took the member out, none within 48 of home; 7191565 no death at log-in), each with
-  a check that fails on the old code.
-- **#217 spec done** (b56730d, `docs/specs/castle-walls.md`): members refused all 12 wall votes (93 of 300 ballots yes);
-  the ballot framed the wall as everyone's public work, gave its cost but not its effect, and its "no" as freedom.
-- **Decided by the user 11-05 (spec Q1-Q5):** bows for wall watchers **and hunters**, penned chickens may be killed for
-  feathers; the first stone stage is **towers and gatehouses on the fence ring** (~3,500-4,700 stone), stone curtain
-  sections later as their own votes; the ballot changes go in (a member named as proposer, the vote by stages); water
-  crossings are **stone dams** (no iron bars).
-- **#217 built** (e8780f2, ebded05, 5a8458b, e346c8a; notes `runs/2026-11-05/castle-walls-build/notes.md`): five
-  flags, default on, monsters only (MC_WALL_BALLOT, MC_WALL_WATER, MC_CASTLE_WALL, MC_WALL_WATCH, MC_BOWS). Ballot
-  replay: 132 of 300 yes with danger shown, 91 with none (old 93): the danger facts move the vote; "no" reasons still
-  "I prefer..." (166 of 168). Staged pair from w203_n9 (60 min after): ring closed 692/692 with 28 dams and 0 water gaps
-  (off: 65 gaps), 21/21 towers and gatehouse (2,687 stone); watch reached 16 of 19 tower posts; bows 5 shots 3 hits,
-  little exercised (beds skip nights). Fixed after the pair, not yet run live: re-aim through the draw, the inside count
-  by height, the hunt's own arrows, feathers only with flint.
+  train; pushes to `private` without asking; new flags default on, survival modes the exception). **Since 11-07 most
+  work lands first on the branch `scale-50`** in the clone `D:\Projects\MCAISandbox-scale50` (its own test worlds) and is
+  ported here commit by commit (the `port-branch` skill); `scale-50` also holds the brain/body split, which is not here
+  (113 commits ahead at 6d03317). The skills `live-run`, `brief-agent` and `port-branch` (dfebf3f) hold how runs are
+  launched and read, how work agents are briefed and how commits are ported.
+- **Where G8 stands (the ladder of ages, the focus): every implemented rung has been reached live.** The ballot offers
+  only implemented rungs, lowest tier first (07e5ed8; the plan and each rung's stages, counters and runs are in
+  `docs/specs/ladder-rungs.md`). Twelve rungs in five tiers, each behind its own flag (on): iron; letters, trade,
+  copper, husbandry, music; diamond, machines, bees, maps; enchantment, the sea; the Nether (peaceful worlds only).
+  Reached: iron (10-24, W4) and letters (10-25, train 2) model-driven from a fresh village; the rest from the checkpoint
+  `rt_base` with `MC_LADDER_START` pinned to the rung, 25 members, model choices and votes: the rungs test (11-14/15,
+  F366) reached iron, the sea, copper, letters, maps, husbandry, diamond and music within 50 minutes at
+  2x; emeralds for the rungs (11-15, `MC_MERCHANT_MORE`, `MC_RUNG_BUYS_FIRST`) reached machines (+12) and trade (+46);
+  enchantment at +6.7 (11-15, after the deep dig's and the books' leather fixes); the Nether in netherT1 and again in
+  netherT8 (11-15, expeditions kept to the far portal's island, one trek bridge); bees at +53.7 (bees3, 11-16, with the
+  copper canopy). **Not yet shown:** one village climbing the whole ladder in a single run (climb1, 120 min, and climb2,
+  75 min, from `rt_base` went iron, husbandry, then copper or trade, and stalled on idle members, #256). Brewing and the
+  End (tiers 6-7) are in a spec only (`docs/specs/nether.md` on `scale-50`).
+- **Done 11-07..11-16 (all pushed):** train 26 (F364: hurt members heal, no tower stalls, hunts only with prey near,
+  pig carrots; #244 filed); the scale-50 work (F363, F365: 50-75 staged bots in one process, 200 bots on one Paper
+  from four processes; the brain/body split P-1..P3 on `scale-50` only, `MC_BODIES=0` by default); the panel's Village >
+  Defence tab and model-call gauge (d5883d0, e4a03a7); talk builds of statues, fountains and arches, any size up to
+  30x30x30 (`MC_TALK_BIG`) and named preset cathedrals or castles at 1:3 (`MC_TALK_PRESETS`); the ladder's ten new rungs
+  and their live fixes (07e5ed8..329753d, ~60 commits); a village wage for rung work (`MC_RUNG_WAGE`, #250); home floors
+  and more decorating (`MC_HOME_FLOORS`, `MC_DECOR_MORE`, #255); pens' quick ends cool instead of ban (`MC_QUICK_COOL`).
+- **In progress: #256, idle members after completion.** Once the one-off work runs out only ~5 of 25 members have work
+  (climb2: idle 77-84% of agent-time in minutes 50-70). Built (all on): `MC_MINE_LANES` (a miner on the iron level per 5
+  members), `MC_INIT_SKIP_BAN` (a banned initiate kind gives its place to the next), `MC_INIT_SCALE` (a project open per
+  5 members) in 4ab492d; `MC_STOCK_DIG` (the dig stays a gated option while storage holds under 8 iron a member) in
+  2002e91; `MC_GATE_GUARDED` (banned or cooling options no longer keep gated options off a menu) in 6d03317. Runs idle1
+  and idle2 (75 min from `rt_base`): busy 54-55% against climb2's 42%, the ladder ~10 min ahead, real work from minute
+  50 at 34-39% of agent-time (climb2 16-19%), **but idle still ~55% from minute 50** (target under 30%). Measure and
+  results: `runs/2026-11-16/idle256/measure.md` in the scale-50 clone; issue #256's comments.
 - **Next:**
-  1. **#217 model-driven pair done (F355, 550c154):** the new ballot passed the wall 9-4 (W0's old ballot refused 4-9;
-     danger facts differed, 15 vs 5 monsters); 428 of 692 ring cells, 29 dams, 0 water gaps, but the ring was not
-     closed by +82, so no stone vote; beds skipped every night (no watch, no bow shot). Deaths not the wall's: #227
-     (log-in in rock), #228 (witch at range, reflex only within 5). Still untested live: towers, the watch, bows; run
-     them from a checkpoint with the ring closed and nights that run, after item 2.
-  2. **Bows before walls and bigger pens built** (8fd0bf9, d4ccb1e, 77d70e0; MC_BOWS_FIRST, MC_PENS_BIG, on; notes
-     `runs/2026-11-05/bows-pens/notes.md`). Staged BP1/BP2 on world 4: flint trip and bows picked first (wall at +0.5);
-     BP2 3 bows, 36 arrows, 3 flint trips in 20 min; pens enlarged in place and bred full in ~10 min (chickens 6 -> 12,
-     sheep 4 -> 8); a chicken pen killed to 0 was back at 4 in ~11 min (led in + eggs hatched). Not yet live: the
-     `youngUntil` breeding fix after a restock. Open: flint trips 2-3 failed when surface gravel ran out (a gravel source
-     from the atlas, as #202's sand, would make it dependable); feathers wait while a restocked pen is all chicks.
-  3. **Train 22 done** (F356, 7f69c7f, checkpoint `w217_ring`): the stone stage passed 7-6 in both arms, 21 of 21 parts;
-     watchers reached 154 of 158 tower posts; bows 35 shots, 14 hits, 1 kill. But 26 / 37 deaths, most 100-220 blocks
-     out at night (no curfew once members have beds, #230); hunts fail at once at health 11-14 (#231); the stone-stage
-     "no" still reads "No wall for now" (#232). Pen restock and youngUntil still untested live (no pen fell to its line).
-  4. **Fixes built** (3980616 #230 MC_NIGHT_BAND, d041765 #231, ab86120 #232, dfc381d #225 MC_GRAVEL_TRIPS; notes
-     `runs/2026-11-05/fixes-230-232/notes.md`; check `fixes_230_232.mts` fails on the old code): home band holds with
-     beds while nights run, hunts start when offered, the stone-stage ballot asks about towers, flint trips walk to
-     atlas gravel. Offline only.
-  5. **Train 23 done** (F357, 8f9ec77): home by dusk works (deaths outside the ring at night 12 against the control's
-     26; 19 of 20 members the band reached walked home); the tower ballot reads right (passed 7-6 / 8-5 after a first
-     refusal); far gravel used once needed; the pen restock and youngUntil work live (back at 5 in 13 min, 11 of 12 by
-     +88). Still failing: hunts (12 of 20 fail at the start, health 6-11, hurt between the pick and the walk out, #231
-     open); bows 14 shots, 0 kills.
-  6. **Fixes built** (3373726 #231 a hunt hurt by its start is called off, creeper flees steer round walls; 9a4e363
-     #228 the reflex acts on ranged attackers; 4e241b7 #227 a log-in inside rock is moved to the surface; f06c2ae bows keep
-     their target and sword finishes count; notes `runs/2026-11-06/fixes-231-228/notes.md`, check `fixes_231_228.mts`).
-     No new flags. Offline only.
-  7. **Train 24 done** (F359, 3b91c5e): no more `hunt_edge` failures (12 calls-off instead) but hunts go out no more
-     often; bows hit 53-61% with 4 arrow and 7 sword-after-arrow kills (train 23: 0); creeper flees ended hurt 15% / 33%;
-     ranged attackers fought 28 / 19. Deaths 10 / 26 on the same code: the arms' spread is wider than any fix, so no death
-     count measures a fix. #227 not exercised. New: #234 (hunt summaries and call-off wording), #235 (endermen kill members
-     who fight them).
-  8. **#233 player chat** (the user's, 11-06): bench `scripts/bench/chatbench.mts` baseline 103 of 165 (F358, 57b1e1f);
-     situation facts in the talk prompt and the routing fix take it to 159 of 165 (F360, 4fe7b6e). Next: the live tier
-     (lines said in game on a test world), then the 6 left.
-  9. **Fixes built** (ac8b9a5 #235 endermen left alone unless one attacks, gaze turned off them, run to water;
-     da6517c #234 hunt summaries count kills across resumes; ce4a955 #231 the hunt's heal, call-off and hut recovery eat
-     to food 18 from storage, since members stayed at 14 health or less for 10-40 min; notes
-     `runs/2026-11-06/fixes-235-234/notes.md`). Offline only. Every train-24 call-off came on a resume after a reflex
-     fight 51-182 blocks out. Open for the user (mechanics): measure the hunt's reach from the storage hut (~64) instead
-     of the built bounds + 32/48, and let the hunt step away from creepers first.
-  10. **Hunt reach** (the user's, 11-06: "Yes, limit to 64"): 94e6d12, 64 blocks from the storage hut, beds or not.
-     **#233 live tier** (564a06c, F361): `scripts/chat_live.py` + `chatlive_score.mts`; 28 of 33 live, routing 33 of 33.
-     Live the chores menu is the limit (0-17 chores, ~4 typical, against the bench's 18-24), so true refusals leave the
-     person's request going nowhere. Failing: an empty talk reply is silence (#236), "Last night: no record" read as no
-     monsters, unarmed Grace answers skeletons with "make swords", Hugo refuses a farm he has on his list, Lena's bow.
-  11. **Chat follow-ups** (43f5192, offline): #236 retry and fallback line, `MC_TALK_PASS` (spec
-     `docs/specs/talk-pass-on.md`), facts for no record of last night, monsters near now, unarmed; F361 prompts re-asked
-     31 of 33, bench 155 of 165 (noise by A/B). Pass-on not live-tested.
-     **Train 25 done** (F362, 25e410b): endermen 0 fights, 0 deaths (#235 holds); #234 kills match; reach 64 holds
-     (45-59) and makes hunts safe (0 calls-off, 0 hunt deaths) but nearly empty (kills in hunts 4 / 5 against 54 / 46).
-     Deaths 6 / 13, all 71-158 out, 17 of 19 at night, 10 on initiative chores. New: #237 (112 `[stuck]` walks to two
-     raised ring spots), #238 (meals stop at food 14, so hurt members never heal: ~20% of member-time at health 14 or less).
-  12. **Fixes built** (offline): 0a45675 #238 hurt members eat to food 18, #237 hunt ring spots on level ground;
-     bc000ac (the user's, 11-07, DECISIONS: "Keep 64, restock pens", "(b) Hunt when monsters near") the hunt is offered
-     only with a skeleton or spider within 64 of the hut (`MC_HUNT_NEAR`), pigs get carrots (`MC_PIG_CARROTS`), led
-     animals pass the ring's gates.
-  13. **Next: test train 26** from `w217_ring` on worlds 4 and 5, train 25's setup: count the notes' lists
-     (`runs/2026-11-06/fixes-235-234/notes.md`, `runs/<date>/fixes-238-237/`): health over time (train 25: ~20% of
-     member-time at 14 or less), `[stuck]` edge walks (112), hunts offered and kills, pig and cow pens, bone and string
-     stock; then the chat live tier again for `MC_TALK_PASS` (43f5192). Also why initiative chores send members 71-158 out
-     at night.
-  14. **Scale to 50** (the user's, 11-07): branch `scale-50` on `private` (970a0f6, b720bea, e1351bf; worked in the clone
-     `D:\Projects\MCAISandbox-scale50`, test world 6), F363 there: one process now holds 50-75 staged bots
-     (`MC_FAST_BLOCKS`, `MC_SHARED_WORLD`, `MC_RCON_POOL`; limits raised to 150 members), 100 saturates it (loop p99
-     605 ms). Not merged. Open: #239 merge plan and player caps, #240 A* in worker threads, #241 event fan-out, #242 scans
-     by state id, #243 model throughput at 50 (unmeasured).
-  15. #208 follow-up (the yard over-counts sand by 12-140 at each recount); #193; the monument follow-ups
-     (#150-#163); #164 steps 3-5.
+  1. **Run `MC_GATE_GUARDED` live** (untested: idle2's stock dig was dropped from every late menu by a banned forge); then
+     the next #256 step: the projects are full from minute ~50 (5 open, help lanes busy), so more gatherers per project
+     or a further family of work.
+  2. Small G8 fixes found in the climbs: #258 (the forge offers shears to a member who holds a pair, fails and bans the
+     forge 60 min), #257 (husbandry's hay stage waits on wheat above the 6-wheat keep), #254 (a person's asked records
+     wait forever behind a stalled monument).
+  3. **A whole climb in one run**: a fresh village from iron to the Nether, model-driven, once #256 keeps members busy.
+  4. **#239, merge `scale-50` into `tiered-brain-building`**: the worlds' whitelists and player caps
+     (`scripts/whitelist_pool.py`), an on/off train for `MC_SHARED_WORLD`, `MC_FAST_BLOCKS` and `MC_RCON_POOL`, the
+     FINDINGS numbers; then #240-#243 (path search in worker threads, event fan-out, scans by state id, model throughput
+     at 50, which waits until the code sustains 200 members).
+  5. Open elsewhere (`gh issue list`): survival (#189, #215, #216, #224), castle walls and bows (#217, #225, #226), talk
+     and chat (#233, #244), monuments (#144-#163), houses (#166, #174, #175), economy and payments (#108, #111), choice
+     prompts and free time (#117-#119, #122, #127-#131), scale (#240-#243).
 
 ## Earlier phases
 

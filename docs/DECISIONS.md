@@ -526,7 +526,7 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 10-16 (s33, the user's) Phase X.3's foundry uses the Claude Code CLI (`claude -p`, headless), billed to the user's
   Claude subscription (no API key; the foundry caps turns and time per ticket), and the user approves every merge (gated
   work lands on `foundry/<ticket>` branches with a report). Installed by Claude the same day (`npm install -g
-  @anthropic-ai/claude-code`, 2.1.301, `C:\Users\rhett\AppData\Roaming\npm\claude`); it shares the extension's login
+  @anthropic-ai/claude-code`, 2.1.301, `%APPDATA%\npm\claude`); it shares the extension's login
   (a headless test call answered).
 - 10-16 (s34, the user's) Phase X.1's scope: the workshop from the recipe graph and decoration that uses goods up come
   first (forestry, more crops and animals later); catalogue goods keep giving work through consumers in the catalogue
@@ -1025,3 +1025,21 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   monsters near"): the hunt is offered only while a skeleton or spider is within 64 of the storage hut
   (`MC_HUNT_NEAR`); the pig pen gets carrots to breed (`MC_PIG_CARROTS`: the merchant sells them while no slot grows a
   pig's food) and led animals are no longer shut out by the ring's gates. The creeper step-away was not taken up.
+- 11-07 (the user, scale-50, #5) **The brain/body split as specified** (`docs/specs/brain-body.md` on `scale-50`,
+  "Approve, start P-1"): one village process (state, brains, choices, leases, a world mirror) and body processes of a
+  measured size (~35-40) running bots and skills; colliding writes as guarded ops and leases, the rest as hinted diffs;
+  reflexes in the bodies; `MC_BODIES=0` (default) one process as today; the village starts its bodies; P0 merged back
+  early with a lint; **P-1 first** (the village side at 200 members in one process, offline). Model throughput (#243)
+  waits until the code sustains 200 members ("i want the code to be capable of sustaining 200 members before we look
+  at that").
+- 11-12 (the user, scale-50, P2/P3, F367) **Work per member at 200 is accepted as a known gap**: the staged 200-member
+  village on 10 bodies of 20 met every load and correctness item of the brain/body spec's Done-when list; builds and
+  collects per member-minute (0.18-0.19 against 0.278) are left for later rather than holding the step.
+- 11-14 (the user's) **The age of letters is on by default** (`MC_LETTERS`, 99369dc), beside the other built rungs.
+- 11-15 (the user, Nether B4) **The debris trek crosses to the mainland by one flat netherrack bridge** at the far
+  portal's island's level (planned once, kept and protected), chosen from the measured options (the island reaches no
+  dry debris; 25 lie within 100 past a 26-block bridge). **The stair code's own bridging over caves near the island
+  stays** beside that one bridge (up to 64 netherrack carried, above the lava sea, never at its level).
+- 11-15 (the user's) **Homes get floors and more decorating** (`MC_HOME_FLOORS`, `MC_DECOR_MORE`, both on): every
+  generated home is drawn with a planks floor of its wood, an owned home standing without one gets it from its owner's
+  menu, own options are banned one by one (not the whole own kind), and a house takes up to 8 decorations.

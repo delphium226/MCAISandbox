@@ -438,3 +438,67 @@ mode reads well (2026-09-29).
     the simulator (own stock and wants, own makes, barter, claims, merchant sales with the levy, own farms of four kinds;
     F264: at real-rate growth trade and diet hold up, busy does not), a live pair Eco1/Eco2, innovation v1 (F265) and a
     50-member sim. Issues #78 (research points), #79 (life goals). Commits 2840a20 to f48a0e9 pushed; the live pair stopped at minute 95.
+
+From here on the work is no longer counted in numbered sessions: a planning session (the user's, 10-21) briefs work
+sessions, several at once, and writes `docs/STRATEGY.md` and PLAN.md's handover. The entries below go by period.
+
+58. 2026-10-21/22 (the planning session and its work sessions, overnight under the user's "make your own decisions"):
+    the goals G1-G8 worked side by side. G1 memory and the clock (deea7ea: journals, intentions, the village day, the
+    night's reflection; F272-F273); G2 social perception, acts and skill (6fc532b..c91b609, F279-F280); G6 the wanted
+    list and the foundry's first tickets from a running village (honeycomb, then wool and amethyst from members' wishes,
+    F274-F282, the request queue); G5 proposals and G3 rules, the council and the levy (889d1c9..e5cd19f); Experiment 1
+    stopped early as inconclusive (F284); character v2 (HEXACO traits, values, mood; 10f65e4..e740bdc, F286); the
+    panel's tabs within tabs; gardens and saplings (#45, #46) and `MC_QUICK_NEXT`. **G8, the ladder of ages, became the
+    focus** (5639a26): the iron age built and staged (3ba8753..eb176f3, F289). Commits deea7ea to eb176f3.
+59. 2026-10-23/24: the all-features runs Long1 and Long4 (F290-F294; a Claude app update killed detached runs, so
+    `detach.py` starts servers through WMI, #99); the iron age's ore mine, vein dig (#100), rung vote and two-lane stairs;
+    G3 done (F298-F300) with Experiment 2 at a ceiling; the monoculture pairs (F297, F302); payments (#108, `MC_PAY`);
+    building variety (#104: the jar's buildings, wood variants, generated homes); the foundry parked (dbd0296). On 10-24
+    **the iron rung was reached model-driven** (W4) and the letters rung built (#21); home basics, storage that grows
+    (#121), the choice prompt's own state; the settings registry and run profiles (#115, f88ccb5..1e983ec); **the test
+    train began** (train 1, F312), with each tested flag turned on by default after it. Commits f952fa1 to 1e983ec.
+60. 2026-10-25..27: **the letters rung reached model-driven** (train 2, F315); trains 2-7 (F315-F328); per-building
+    pads and outward growth (#84, #138), policy options (#122, F317, F322), varied pens, mixed flower beds, gardens always
+    on, the open storage hut and the newer building style always on. **The monument**: a Gothic cathedral grammar
+    (gothicGen.ts, M0) built after the iron age (M1), its quarry, kiln and glazing (M2), trades and news (M3), the castle
+    (castleGen.ts, Conwy), materials tiers 2 and 3 (stonecutter, dyes, deepslate, copper roofs, geodes), the masons'
+    lodge, Cologne; monuments at 1:3 by default (fdfeff1). Bigger houses and decorations (#141); members trapped under the
+    storage hut (#133); rules and customs (#164 steps 1-3). Commits 14e150d to 12f7f4c.
+61. 2026-10-28..30: the monument on by default (bbe4bfd); re-furnishing, new iron shafts, the greens mix; #164 steps
+    3-5 (train 8, F335); the open palette (`MC_CHOOSE=open`, #172, trains 9-9c, F336-F338: the menu stays the default);
+    the supply gaps; members design their own houses (#174) and house programs (#175; trains 10-12, F339-F341); **new
+    feature flags default on** (b8c78dd, the user's); G7 talking with the village (`MC_TALK`, 912b9bc); the diamond rung
+    (#22, cc4757d); members' wants (pursuits, restlessness, esteem); the start screen (a launcher on 8780, typed life
+    goals); survival research and stage (a) (`MC_WORLD_MODE`, peaceful the default; trains 13-14, F342-F344). Commits
+    5dc0dd1 to efd5537.
+62. 2026-10-31..11-03: survival stages (b) and (c) (damage, then hostile mobs and armed members) and (d) sections 0-5
+    (the danger count, lit grounds, the curfew, the night watch, the hunt, walls and gates; #194-#201); **the civic tier**
+    (13e1641: 40 real public buildings between the houses and the monument) and 40 more monument presets, the building
+    gallery; the wall dressing on every design (`MC_DRESSING`); random shortlists; talk builds in two tiers
+    (`MC_TALK_DESIGNS`); members own things by default; the panel's operator console and `run_report_html.py`; the sand
+    chain (#202, #206, #208); river swims (#204), even-width roofs (#207); instincts (#205); trains 15-19 (F347-F352);
+    STRATEGY.md refreshed (31891da). Commits f90833b to 22cc7b0.
+63. 2026-11-04..07: instincts on harder ground (trains 20-21, F353-F354; kept on, the instinct trains ended); fixes
+    #218-#223; **castle walls** (#217: the spec b56730d, the ballot, stone dams, towers and gatehouses, the watch, bows;
+    F355-F356, the stone stage passed 7-6); bows first and pens twice as big (#225, #229); home by dusk with beds and the
+    hunt's fixes (#227-#238; trains 22-26, F356-F364; the hunt reaches 64 blocks and goes out only with prey near); the
+    player chat bench and live tier (#233, F358-F361). Commits 0908eee to 339e8b7.
+64. 2026-11-07..12, **the parallel branch `scale-50`** (the user's, 11-07; worked in the clone
+    `D:\Projects\MCAISandbox-scale50` with its own test worlds, pushed to `private`): one process holds 50-75 staged bots
+    (`MC_FAST_BLOCKS`, `MC_SHARED_WORLD`, `MC_RCON_POOL`, F363), 200 bots ran on one Paper from four processes (F365);
+    then the brain/body split (the user's, 11-07: one village process and body processes; P-1 to P3, `MC_BODIES=0` by
+    default), with a staged 200-member village on 10 bodies. Since then most work lands on `scale-50` first and is ported
+    here (#239 holds the merge plan; `scale-50` is 113 commits ahead at 6d03317). Here on 11-12: the panel's Village >
+    Defence tab and model-call gauge, talk builds of statues, fountains and arches, and any size up to 30x30x30
+    (`MC_TALK_BIG`). Commits d5883d0 to 9438c10.
+65. 2026-11-14..16, **the ladder's rungs** (ported from `scale-50`): the ballot offers only implemented rungs, lowest
+    tier first (07e5ed8, `docs/specs/ladder-rungs.md`); ten new rungs built, each behind its flag (on): trade, copper,
+    husbandry, music, machines, bees, maps, enchantment, the sea and the Nether; `MC_LETTERS` on (the user's); a village
+    wage for rung work (#250); named preset monuments by talk (`MC_TALK_PRESETS`). The rungs test (F366)
+    and the runs after it took dozens of live fixes and **reached every rung live**, each from the checkpoint `rt_base`: eight in 50
+    minutes, then machines and trade once emeralds came in (#246), enchantment, the Nether (expeditions kept to the far
+    portal's island, a trek bridge) and bees (329753d). Home floors and more decorating (#255). Commits 07e5ed8 to
+    329753d. Then the climbs from `rt_base` (climb1, climb2) showed members idle once one-off work runs out: pens cool
+    instead of ban (1189071), and #256's first fixes (4ab492d, 2002e91, 6d03317: mine lanes, project scale, the stock
+    dig, gated options past guards; idle from minute 50 down from ~80% to ~55%, target under 30%). The skills
+    `live-run`, `brief-agent` and `port-branch` (dfebf3f). Commits 1189071 to 6d03317.

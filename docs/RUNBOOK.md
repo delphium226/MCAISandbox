@@ -69,9 +69,8 @@ reset_site.py on a locked world only warns. CLI: `scripts/goal_map.mts catalogue
      ballotbench.mts` (the style ballot for 25 voters, order bias and agreement with the predicted ballot; `MCAI_TEMPERAMENT=
      identical` is the control). Series specs: `scripts/series/a3p_fixed.json`, `a3p_fixed2.json`, `a3p_model.json`
      (world 2), `vote_staged.json`, `vote_off.json` (world 2), `vote_model.json`, `vote_model2.json`. The Claude Code CLI
-     (Phase X.3's foundry): `C:\Users\rhett\AppData\Roaming\npm\claude` (2.1.301; `claude -p "..."` headless, the
-     user's subscription). The foundry's second back-end, the Antigravity CLI: `C:\Users\rhett\AppData\Local\agy\bin\
-     agy.exe` (1.4.2, on the user PATH; the user's Google AI Pro login, cached): `agy -p "..." --model
+     (Phase X.3's foundry): `%APPDATA%\npm\claude` (2.1.301; `claude -p "..."` headless, the
+     user's subscription). The foundry's second back-end, the Antigravity CLI: `%LOCALAPPDATA%\agy\bin\agy.exe` (1.4.2, on the user PATH; the user's Google AI Pro login, cached): `agy -p "..." --model
      gemini-3.8-flash-high --output-format json --print-timeout 3m` (`agy models` lists the slugs; the foundry's
      default since 10-22, the user's: Argon's quota ran out). Gemini CLI (`gemini`,
      still installed) refuses AI Pro accounts since 2026-06-18. **Activities (X.1, s34)**: the families `catalog` (the workshop's goods from the recipe graph:
@@ -464,6 +463,45 @@ reset_site.py on a locked world only warns. CLI: `scripts/goal_map.mts catalogue
   user's subscription; verdicts with members' reasons go back into the store, accepted ones to `accepted.json` and
   `triage_issues.md` (drafts; nothing is filed). `--max-budget-usd` caps a run (`--budget`, default 1).
 - **Check:** `scripts/checks/proposals_unit.mts` (offline).
+
+## The ladder of ages, the scale-50 clone and project skills (G8; 2026-11-16)
+
+- **The ladder** (`ladder.ts`, `ladderFlags.ts`; spec `docs/specs/ladder-rungs.md`, each rung's stages, counters and
+  runs): `MC_LADDER=on` with `MC_IRON_AGE=on` (both off by default; the run profiles set them). Thirteen rungs in five
+  tiers, each behind its own flag (on): iron; letters, trade, copper, husbandry, music; diamond, machines, bees, maps;
+  enchantment, the sea; the Nether (`MC_NETHER_AGE`, peaceful worlds only; `docs/specs/nether.md` on scale-50). The
+  ballot offers only implemented rungs, lowest tier first. `MC_LADDER_START=<rung>` starts a village's new ladder on
+  that rung, its earlier rungs counted reached (a rung test from a checkpoint saved before the ladder began).
+  `MC_RUNG_WAGE` (1 emerald, with `MC_PAY=on`) pays a chore that fed the current stage. `GET /api/ladder?village=V`;
+  the panel's Village > Ladder tab. Log tags `[ladder]`, `[vote]` (the rung ballot), `[pay]`.
+- **Reading a ladder run:** `python .claude/skills/live-run/rung_times.py DIR/NAME [--log AGENT_LOG]` (the minute each
+  rung became the ambition, every stage and rung line, each ballot's tally; the agent log is found from the runner log);
+  `python scripts/ladder_use.py DIR/NAME [--log AGENT_LOG] [--source model]` (stage times, the iron work by kind and
+  member, specialists and a specialisation index against a permutation null, forge requests).
+- **Rung checkpoints** (in the scale-50 clone's `mc/testcheckpoints`; copy one across to use it here): `rt_base` (the
+  rungs test's village, 25 members, before the ladder began: pair it with `MC_LADDER_START`), `rt_ballot`, `ench_s4`
+  (enchantment at stage 4), `bees_s4` (bees at stage 4, the copper canopy up), `p01_b8`..`p03_b8`. The rung-test
+  settings: copy `runs/2026-11-15/houses/homes2.spec.json` (rt_base, 25 members, 2x, model choices).
+- **Checks** (offline, no server): `ladder_unit.mts`, `ladder_letters.mts`, `trade_copper_unit.mts`,
+  `husbandry_music_unit.mts`, `tier3_unit.mts` (machines, bees, maps), `tier4_unit.mts` (enchantment, the sea),
+  `nether_unit.mts`, `emerald_unit.mts` (`MC_MERCHANT_MORE`, `MC_RUNG_BUYS_FIRST`, `MC_WILD_NESTS`), `rung_wage_unit.mts`;
+  live probes on a test world: `nether_probe.mts NAME ...` (bots through a portal and back) and `portal_return.mts NAME
+  PORT X Y Z TIMESCALE`. Since 11-06 also: `home_floors.mts` (`MC_HOME_FLOORS` on a checkpoint's region files),
+  `talk_big.mts`, `talk_pass.mts`, `talk_presets.mts`, `talk_statue.mts` (requested builds, `docs/specs/
+  requested-builds.md`, `talk-pass-on.md`), `fixes_237.mts`, `fixes_238.mts`, `fixes_pens_hunt.mts` (train 25's fixes:
+  hunt ground, healing between meals, hunts only with prey near, pen restocks); bench `scripts/bench/bigbench.mts` (the
+  architect's big and material requests, `MODEL=... N=4`).
+- **Test worlds beyond 3:** `stack.py` lists every `mc/testserverN` that is set up (`MCAI_TEST_WORLD=N python
+  mc/testserver.py init`, N up to 9; game port 25565+N, agent server 8766+N). Here: worlds 1-5 (4 is the live chat
+  tests'); the scale-50 clone has 1, 2 and 6 (25571/8772). `python scripts/stack.py up test4` / `down test4`.
+- **The scale-50 clone** (`D:\Projects\MCAISandbox-scale50`, branch `scale-50`): most work lands there first, then is
+  ported here with the `port-branch` skill (cherry-pick, or by hand where this branch lacks a file such as
+  `villageReads.ts` or the brain/body split's body process); the merge of the two branches is #239. Each checkout runs
+  its own worlds and checkpoints.
+- **Project skills** (`.claude/skills/`, loaded by Claude Code): `live-run` (pick a free world, copy a spec, snapshot the
+  commit with `git archive`, `run_series.py --detach`, arm the watcher, read the result; `rung_times.py` lives there),
+  `brief-agent` (brief background work agents, keep them off each other's files and worlds, check their reports),
+  `port-branch` (scale-50 to tiered-brain-building; known check failures; list the drift for #239).
 
 ## Models (gpt-oss for every role; local models as a fallback)
 

@@ -33,10 +33,36 @@ a quick test bed; the brains, skills and API are the same in both.
 6. **Notice what the village needs.** Code measures the village's needs (unlit buildings, unfurnished rooms, hungry
    members, houses short, storage space, mine faces) and shows them to the members beside the chores that answer them.
    Leftover building parts get a chest of their own and the wooden ones are burned as furnace fuel.
+7. **Make homes of their own.** Each member's house is drawn for it by the building generator (or written by a model as
+   a short program), with a planks floor, its own bed, chest and table, furniture and decorations its owner places,
+   front gardens of flowers, and walls "dressed" with footings, quoins and sills so no two buildings look alike.
+8. **Climb the ladder of ages.** After the iron age the village votes at dawn on its next ambition, among the rungs
+   whose earlier rungs are reached and simpler ones first: letters (books and a library), copper, trade, husbandry,
+   music, then diamond, machines, bees and maps, then enchantment and the sea, and last the Nether (a portal and
+   expeditions for ancient debris). Each rung has four stages counted by code from the work members do; members see the
+   village's progress in their prompts, and with payments on the village pays a small emerald wage for each chore that
+   fed the current stage.
+9. **Trade with a merchant.** A trader in the first market stall sells what a peaceful world lacks (string, bone,
+   gunpowder, redstone, bee nests...) and buys the village's surplus, all for emeralds; the age of trade adds stalls,
+   orders and an emerald store.
+10. **Raise public buildings and monuments.** A complete village raises civic buildings (guildhalls, market halls, mills,
+    inns, lighthouses, clock towers, drawn by code from real ones), then a monument: a Gothic cathedral (Salisbury,
+    Cologne, Notre Dame...) or a castle (Conwy, the White Tower), at 1:3 of the real building, stage by stage, from its
+    own quarry and kiln.
+11. **Build what people ask for.** A player's line in chat ("build us a statue of a chicken", "Salisbury cathedral
+    here") becomes a request: the Mayor answers in one line and the village builds a pre-designed building, a named
+    monument, or a work the architect model designs (up to 30x30x30, in any block the village can get).
+12. **Survive.** The world is peaceful by default, but it can be made harder in stages (`MC_WORLD_MODE`): damage
+    (falls, drowning, fire), real hunger and nights (members eat to stay healed and sleep in beds made from their own
+    sheep's wool), and hostile mobs. With monsters, members keep home by dusk while the nights run long, fight back or
+    flee, arm themselves with swords, bows and armour, hunt at night when monsters come near, and vote on a fence ring
+    round the village and later a stone castle wall with towers and gatehouses.
 
-Housing, needs and the parts chest are newer features, switched on by settings (`MC_HOUSING=on`, `MC_NEEDS=on`,
-`MC_PARTS=on`; see [docs/RUNBOOK.md](docs/RUNBOOK.md)). In the best run so far, members chose their own work 45% of
-the time after the village was built, starting six streets of their own.
+Housing, the parts chest, homes, gardens, the merchant, talk builds, the rungs and survival's defences are on by
+default; the ladder itself and the iron age that the ladder, the civic tier and the monuments start from are switched on
+by the run profiles (`profiles/*.json`), and needs by `MC_NEEDS=on` (see [docs/RUNBOOK.md](docs/RUNBOOK.md) and
+[docs/SETTINGS.md](docs/SETTINGS.md)). In the best run so far, members chose their own work 45% of the time after the
+village was built, starting six streets of their own.
 
 ## How it works
 
@@ -53,8 +79,9 @@ models' tools and end in a message saying what happened and what to do next.
   new ones.
 - **A skill foundry.** New skills are written by an outside coding agent (the Antigravity CLI by default, or Claude
   Code) on a branch of its own, then pass gates: a scope check, the typecheck, the offline checks, a review, a live test
-  on a test world of its own and a run compared with a baseline. A person merges the result. Its first skill,
-  `shear_sheep` (wool, for beds), passed every gate.
+  on a test world of its own and a run compared with a baseline; a candidate that passes every gate is merged. Its
+  skills so far shear sheep, fish, trade with the merchant, gather string from cobwebs and harvest honeycomb and
+  amethyst.
 
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) shows how the parts fit together, with diagrams.
 
@@ -63,7 +90,9 @@ models' tools and end in a message saying what happened and what to do next.
 http://127.0.0.1:8766/panel follows everything live without joining the game, in six tabs, each with its own sub-tabs
 (every one has an address, such as `#/village/tasks/failed` or `#/members/Ada/mind`). **Overview** is the page to leave
 open: the village's numbers, the world map beside who is doing what, what needs a look and what happened. **Village**:
-buildings, tasks, storage, life (farms, pens, lights, growth), the tech tree and the land. **Members**: a list, and one
+buildings, tasks, storage, life (farms, pens, lights, growth), the tech tree, the **ladder** (the current rung, its tier
+and stage, every rung's stages with who did the work, the rung ballots and their tallies, the wages, who is away in the
+Nether), defence (walls, members' arms, watches and hunts, in a world with monsters) and the land. **Members**: a list, and one
 member's Now (plan, inventory, its map), Mind (journal, intention, notes), Social, Chores (its last chore menu), Model
 (its **thoughts**, what the executor and planner saw) and Log. **Society**: **votes** (every ballot with its reason),
 **initiatives**, proposals, rules, **needs** and culture. **Economy**: the market, wealth, the board, research, goals.
@@ -73,6 +102,20 @@ switches. A feature that is off keeps its tab, marked off, with its flag inside.
 (The screenshots above and below show the panel before its tabs, 2026-10-22.)
 
 ![The detailed view](docs/images/panel-detailed.png)
+
+## Where it stands
+
+Every rung of the ladder (thirteen, in five tiers) is implemented and has been reached in a live run: iron and letters
+from a fresh village, the others from a saved village started on that rung (`MC_LADDER_START`). One village climbing the
+whole ladder in a single run is not yet shown: long climbs stall on members left idle. Work in progress:
+
+- **50 agents.** On a separate branch (`scale-50`), each bot's body runs in a process of its own beside one brain
+  server, so a village can hold up to 50 members; it is to be merged into the main line.
+- **Idle members.** Making sure each member of a large village always has useful work: more miners per iron level, more
+  projects open at once, and options that guards had taken off a menu put back.
+- **Emergence.** The longer-term goals are specialisation, collective rules and culture as in Project Sid, memory over
+  hours and days, and new activities learned through the skill foundry; members' memory, character, votes, rules,
+  proposals and the foundry are in place, and the ladder is the current focus.
 
 ## Running it
 
@@ -102,6 +145,8 @@ MCAI_API=http://127.0.0.1:8766/api MCAI_GAMEMODE=survival \
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the system fits together |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Running, testing and benchmarking: every script, setting and check |
+| [docs/SETTINGS.md](docs/SETTINGS.md) | Every `MC_*`/`MCAI_*` setting with its default (generated from `server/src/settings.ts`) |
+| [docs/specs/](docs/specs/) | Specs of recent work: the ladder's rungs, castle walls, requested builds, chat tests |
 | [docs/API.md](docs/API.md) | The REST API, to control agents from any language |
 | [GitHub issues](https://github.com/delphium226/MCAISandbox/issues) | The roadmap and the todo list, labelled by phase |
 | [docs/PLAN.md](docs/PLAN.md) | The current work's handover and each phase's design |

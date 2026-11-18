@@ -2841,6 +2841,25 @@ CLAUDE.md when a phase ends.
     recovery only (2 meals in this train, both Dev's).
   - Deaths 6 / 13 (10 / 26), all 71-158 blocks out, 17 of 19 at night, 10 on initiative chores. Cost ~$0.47 / $0.54.
     Report `runs/2026-11-06/train25/report.md`.
+- F363 (11-07, scale-50, G1) **One agent-server process now holds 50-75 staged bots; 100 saturates it. The cost was
+  block reads and per-bot chunk copies, not the network.** `scale_probe25.py` (now any level) on test world 6 in the
+  scale-50 clone, staged mixed work (collect, build, store, find_site, 2-4 tiered agents), 150-180 s a level, 1x:
+  - **Baseline (a5c7af8), 50 bots:** CPU 87% busy (60 s profile), loop p99 123 ms, RCON p90 503 ms (51 at 40 bots),
+    RSS 2.25 GB (~45 MB a bot), Paper mspt 6.7, no `[lag]`. ~45% of the CPU was block reads: the pathfinder's neighbour
+    search building a prismarine Block per cell (`fromStateId` 10%, the constructor 5%, block entities 3%) and the
+    scans' `surfaceAt`/`stateAt`. Protocol decoding ~2%, physics 2%.
+  - **MC_FAST_BLOCKS + MC_SHARED_WORLD (b720bea), 50 bots:** CPU 69%, loop p99 76 ms, RCON p90 125 ms, RSS 660 MB.
+    One world for every bot: 3 bots in one place decode 329 columns once (658 copies skipped).
+  - **+ MC_RCON_POOL (3 connections, a lane per agent), 50 / 75 / 100 bots** (a wider spawn ring for 100, so longer
+    walks than the runs above): CPU 79 / 96 / 102%, loop p99 100 / 139 / 605 ms, RCON p90 74 / 261 / 1334 ms, API p90
+    0.07 / 0.13 / 0.44 s, RSS 610 / 841 / 921 MB, mspt 5.6 / 9.9 / 14.0, no `[lag]`, 0 RCON timeouts.
+  - **At 100 the remaining costs** (profile): the shared world's event fan-out (`view.<computed>` 8.8%: every block
+    change reaches every bot's listeners, among them a per-bot `atlas.touched` for the one shared atlas), the pathfinder
+    (~15%: `getNeighbors` and the moves over the fast getBlock), `surfaceAt`/`stateAt` scans (~5%), the bot tick (3%),
+    `selfDefence` (2%). Paper is fine (mspt 14 at 100).
+  - Memory is no longer a limit (921 MB at 100). Next: the pathfinder in worker threads (spec step 4), one atlas
+    listener per process, the scans by state id; then a second process. Model throughput at 50 is unmeasured.
+    Notes `runs/2026-11-07/scale-50/notes.md` (in the clone); spec `docs/specs/scale-50.md`.
 - F364 (11-07, #238, #237, #231, #233, test train 26) **Hurt members heal now: member-time at health 14 or less fell
   from 19-21% to 4%, and the hunt's walk no longer stalls at the towers (village-edge `[stuck]` 57 / 55 -> 0 / 6).**
   Both arms on a5c7af8, train 25's setup (w217_ring, hostile, 1x, nights run, 90 min, gpt-oss cloud), worlds 4 and 5;
@@ -2858,3 +2877,163 @@ CLAUDE.md when a phase ends.
   - **#233 live tier with `MC_TALK_PASS`: 30 of 33** (F361 28), replied 33 of 33 (#236 holds). The pass-on routed all 4
     "no chore" refusals, but no receiver promised: 3 chatted, 1 refused, Iris with gather:logs on her list ("Good
     morning!"). New #244. Reports `runs/2026-11-07/train26/report.md`, `runs/2026-11-07/chat-live/notes.md`.
+- F365 (11-07, scale-50, G1) **200 staged bots run on one Paper from four agent processes, and Paper's main thread is
+  the next wall, not the agent side: at 200 it averages 35-43 ms a tick (worst 5 s 42-88, max up to 279) whether the
+  groups are packed or 500+ blocks apart. A quarter of that was the locator bar (every player's waypoint to every
+  other, any distance); with `gamerule locator_bar false` Paper averages 30.7 ms (worst 5 s 38.5, max 67) and its CPU
+  falls by a third.** Four agent servers (8772-8775, own data dirs, one code snapshot) on test world 6, four
+  `scale_probe25.py` of 50 side by side (8f14a8e: NAME_OFFSET, PROBE_SECTOR, WORK_AT; 210 names), no model calls, 170 s of
+  work, 1x, default flags; fresh agent servers each run. Agent CPU is % of one core per process, mspt Paper's 5 s average:
+  - **(a) one process, 100 bots:** CPU 100%, loop p99 454 ms, RCON p90 1.0 s, RSS 791 MB, mspt 10.8 (worst 12.4): F363's
+    figure again.
+  - **(b) packed, 4 x 50 round one point:** each process 101-104% (50 bots alone: 79%, F363), loop p99 223-307 ms,
+    RCON p90 0.5-1.1 s; Paper CPU 340%, mspt 35.7 / worst 77 / max 279. The extra agent cost is the other processes'
+    bots as entities (profile: packet decoding and events 9% vs 5% spread).
+  - **(c, e, f) spread, 4 x 50 at four sites 480-1040 apart:** each process 70-93%, loop p99 80-250 ms, RCON p90
+    104-412 ms (one 1.0 s), RSS 0.55-0.84 GB; Paper CPU 205-233%, mspt 34.8-42.9 / worst 42-88 / max 71-279 (c built a
+    third as much as e and f: its fourth site had no box spots). The machine was 38-42% busy.
+  - **Not the cause:** cores. (e) pinned Paper to logical CPUs 0-7 at AboveNormal and the agent servers to 8-15: mspt
+    40.3 / 83 against the unpinned repeat (f) 42.9 / 88; CPUs 0-7 were ~28% busy. Nor the distances: (d) packed with
+    view 6, simulation 4, player tracking 48 (from 8 / 6 / 128): 32.7 / 67 against (b)'s 35.7 / 77.
+  - **Paper's main thread in (f)** (flight recording, `-XX:StartFlightRecording`; 4,742 samples): the locator bar
+    (`ServerWaypointManager.updateWaypoint` 15% on every entity move, `updatePlayer` ~11%, each copying a set of all
+    players), movement packets 17% (mineflayer sends them only on a change, as vanilla does), natural spawning 11%
+    (peaceful's animals and bats), mob AI 11% (bats 3.6%, `TemptGoal` scanning players), entity tracking 11%.
+  - **(g) as (f) with `locator_bar false`:** mspt 30.7 / 38.5 / 67, Paper CPU 156% (233%), machine 37%; agents 73-84%,
+    RCON p90 176-444 ms. No `[lag]`, RCON timeout or kick in any run.
+  - **So:** Paper first: the locator bar off in the world rules now (our bots have no use for it); then natural spawning
+    and mob AI near players. Then the agent side scales by processes, one village (or group) each, kept apart: packed
+    costs each process ~20% more CPU and triples RCON waits, while Paper's average is the same either way. #240 (A* in
+    workers) is what lets one process (one big village) go past ~60 bots; at 4 x 50 the processes keep 7-30% headroom.
+    Paper at 30.7 ms for 200 leaves room for perhaps 250-300 before it passes 50 ms. Notes
+    `runs/2026-11-07/scale200/notes.md` (in the clone).
+- F367 (11-12, scale-50, G1; the P2/P3 finding, numbered on 11-16 after F366) **A staged village of 200 members runs from one
+  village process and 10 body processes of 20 on one Paper with every load and correctness item of the brain/body
+  spec's Done-when list met; the work-per-member bar is accepted as a known gap (the user's, 11-12).** Test world 6, 1x,
+  haste 5, random ticks 30, `MC_VILLAGE_RANGE=208`, view distance 6, verify on (H200k; H200l/m alike):
+  - **Load:** bodies' ELU mean 0.37-0.48 (single samples 1.0), loop p99 median 25-34 ms; village ELU 0.24-0.34, loop p99
+    ~50 ms; Paper mspt mean 22.8, worst 5 s 41.8 (51.2 at view distance 8). CPU (% of one core): Paper ~213, 10 bodies
+    ~410, village ~25: ~45% of the machine. Bodies of 30 sat at ELU 0.95-1.0 under real work (a body pays for the whole
+    population's entity traffic): 20 is the size at 200. A packet filter halved parsed packets but did not move ELU.
+  - **Correctness:** no lost lease, double claim, memory race or stale patch; one stray `unsent rt workshop.makeLeft`
+    in H200m (open); 4-14 `bump clamped` on the monument yard (benign). `MC_BODIES=0`: goldens identical.
+  - **Work:** busy 44-49% (bar 43.1% from a 50-member one-process village, Z50); builds+collects 0.18-0.19 per
+    member-minute against 0.278 (accepted gap). Members move 77-85% of the 50 village's material per member, but a
+    collect takes 1.3-1.4 min against 0.8 (stands near the village cut) and a build 3.5-3.8 min against ~1 (houses, not
+    front beds). The first 200 run was 12% busy: after-phase work did not grow with members. `MC_GROW_SCALE` and
+    `MC_WORK_SCALE` (on, inactive below 80) scale streets under way (members/25), initiatives (members/8), gathering
+    wants, keeps, the logs cap and gatherers (x members/50), let streets go on without waiting for plot preparation or
+    window panes, replant felled trees and prepare more greens. Commits be66b82..2d72f9f; notes p3-live-notes.md.
+- F366 (11-14/15, scale-50, G8, the rungs test; report runs/2026-11-14/rungs/report.md) **Eight of twelve built rungs
+  were reached live from a complete village in 50 minutes at 2x; trade, machines, bees and enchantment were not.**
+  Reached: iron +12, sea +10, copper +17, letters +24.1, maps +25, husbandry +32, diamond +35, music +40. Twenty-six
+  runs (two stopped by hand): checkpoint rt_base, MC_LADDER_START per rung, 25 members, model choices and votes.
+  - **What stopped the first runs was code, and each fault took a fix and a rerun:** a worked-out mine with no shaft
+    (copper 0/64); the pens' cap (husbandry 12/20); music's redstone keep falling to zero (4/8); the deep dig held for an
+    unforgeable pickaxe, a chain laid deep only when no leg was busy, stairs into the range's edge (diamond 0, 44/56,
+    stopped); the collector counting only ingots, a rail line boxed in by a sign's margin (machines); the map wall's
+    frames with no leather source (maps 0/4 hung); a water bucket put back, a dry level visited 15 times, the diamond
+    pickaxe taken for a member's own chest, the table's diamonds forged into pickaxes (enchantment). 17 fixes on both
+    branches; twelve verified in a later run, five not.
+  - **What still stops the unreached rungs is emeralds and the deep mine.** Trade (20 lots at the merchant's pace, then 40
+    emeralds), machines' gold (6 ingots, 2 emeralds each: 4 bought), bees' nests (6 emeralds each: 1 bought) all wait on
+    the village's emerald income; enchantment waits on reaching a level with still lava (y -8 is dry; the deep stairs
+    stalled in one run of two) and has not run stages 2-4.
+  - **The wage pays in every run** (3-32 lines, nearly all minted, from storage 0-8). **The ballot** cast 25 of 25 every
+    time; husbandry won every first ballot, copper three of four second ones; music never above 3 votes.
+  - **Talk:** two asked records (a Salisbury preset, an architect-drawn pyramid) were accepted and waited to the end
+    behind the village's own stalled monument (`talkCivicStart` returns while `monumentHolds`), filed as #254.
+  - Common: 130-190 failures a run (half `keep_custom`), busy falling from ~70% to 22-45% by minute 30-40, members idle
+    while a rung waits on the mine.
+- F368 (11-15, #25, G8, the Nether rung; runs/2026-11-15/nether and deep, in the scale-50 clone) **The Nether rung is
+  reached live, through the trek over one bridge, and again once expeditions kept to the far portal's ground.** rt_base,
+  `MC_LADDER_START=nether`, 7 members (Mayor and 6), 3x, haste 5, ticks 30, 75 min after:
+  - **netherT1 (world 2)** ended stages 3 and 4 at +30 and +31 (stairs near the island; the trek's bridge not yet planned
+    for want of loaded chunks). Busy 26%, ~$0.047. Dev and Elena walked off minevale3's floating island and were recalled
+    from 23 and 11 blocks below; Ben dug three debris and brought two.
+  - **netherT3 (world 6)** ended both through the trek alone: Clara laid the 26-netherrack bridge, dug debris 54-104 blocks
+    out over two trips, stage 3 at +40.8, the ingot at +41.4. Busy 29% (48% in the first 10 minutes, 18% from 50), ~$0.047,
+    0 `[lag]`, 3 `[stuck]`.
+  - **netherT4-7 (world 2) were each stopped by hand once a new way to lose a trip showed:** drops followed off the edge;
+    mineBlock's own walk dug through the island's floor (Finn and Ben fell 26 blocks); drops walked to only where read at
+    arrival (24 dug a trip, none brought back); digs under the island's edge dropped all 24 a trip into the lava sea.
+  - **netherT8 (8761689) reached the rung again:** stage 2 at +17 in 3 trips with no fall or recall, stage 3 at +38, the
+    ingot at +40; then husbandry was chosen and reached by +49. Busy 33%, ~$0.052, 0 `[lag]`, 18 `[stuck]`. A trek's
+    walk to the bridge fell once (fixed in 79854d0, not run live); the way back along breadcrumbs reached none of 4 on the
+    third trek (the teleport to the far portal took her home). The stair bridging over caves near the island stays (the
+    user, 11-15). Notes: docs/specs/ladder-rungs.md (the Nether, B4).
+- F369 (11-15, #23, G8, the enchantment rung; runs/2026-11-15/deep) **The age of enchantment is reached live: each run
+  found the next missing link, and the rung ended at +6.7 from a checkpoint at its last stage.** World 2, rt_base,
+  `MC_LADDER_START=enchantment`, 25 members, 2x, the rungs test's settings:
+  - **enchantment6's stall was a progress check:** a trip that laid the landing at y 25 was read as no progress against
+    the old level's counts and the village's dig was banned for an hour (85b8a3f).
+  - **enchantment7** (50 min): no dig failed or was banned; the chain opened a shaft from the dry y -8 level to y -56 and
+    cast 4 obsidian there; stages 1-3 at +29, +29, +40 (the table's 2 diamonds kept: 908ab0c verified), then stage 4
+    stopped at the 2 stocked books, no leather coming in. Busy 51%, ~$0.35, 70 `[stuck]`.
+  - **enchantment8** (60 min; the leather kept): stages 1-3 at +34/+34/+50, stage 4 at +51, no leather bought (the trade's
+    keep read the leather only for maps). Busy 59%, ~$0.47, 123 `[stuck]`.
+  - **enchantment9** (75 min; the trade's keep): stages 1-3 only at +59; it kept 3 leather and bought none (leather was not
+    among the goods in use, so `lib:buy` never offered it). Busy 57%, ~$0.59, 134 `[stuck]`.
+  - **enchantment10** (30 min from `ench_s4`, saved from enchantment9; 117fdcc): 4 leather bought at +1.5, books bound and 3
+    enchanted by +6.6, **the rung reached at +6.7**; then copper and husbandry ran on. Busy 36%, ~$0.16. Books are enchanted
+    by the charged command every time (the table's window never answered on 26.1). Emeralds and lapis were never short.
+- F370 (11-15/16, #246, #24, #251, G8, emeralds for the rungs and the bees rung; runs/2026-11-15/emerald,
+  runs/2026-11-16/bees) **With more for the merchant to buy and rung goods bought first, machines are reached at 12 and
+  trade at 46; the age of bees is reached at +53.7 once its waxing stage puts up its own copper canopy.** Measured first
+  in the rungs test: 15-21 emeralds earned in 50 minutes, `lib:sell` offered in 2% of choices (none of the merchant's nine
+  goods above its keep while storage held ~700 pumpkins and ~600 each of granite, andesite and diorite), and 8 of 15-17
+  emeralds spent on carrots and rods while gold and nests waited. Built `MC_MERCHANT_MORE`, `MC_RUNG_BUYS_FIRST` and
+  `MC_WILD_NESTS` (on). rt_base, 25 members, 2x, 50 min after:
+  - **machines** (39c72c8): stages at 6, 8, 10, 12 (6 gold bought at 11-11.5), reached at 12 (was 0 of 6 powered rails);
+    28 emeralds earned, 22 spent in 24 min (stopped once reached).
+  - **trade**: stages at 5, 8, 20, 46, reached at 46 (was 14 of 40 emeralds); 95 earned, 8 spent. Busy 44%, ~$0.32.
+  - **bees**: hives at 20 (a wild nest tended at 10.9, 2 nests bought at 15.5), no honeycomb: no shears (1 ingot and 66 raw
+    iron in storage, the forge's pickaxes took every ingot; 915e40d). 35 earned, 21 spent. Busy 44%, ~$0.35.
+  - **bees2** (2500e66): hives at 25, honeycomb 36 (shears at 24.4), honey at 50, waxing 0: rt_base has no copper canopy
+    and `MC_LADDER_START=bees` counts copper reached without one. Busy 46%, ~$0.35. One of minevale3's two wild nests had
+    no bee in it or within 16 both times.
+  - **bees3** (11-16, d63aca9, 70 min): stages at 21.2, 30.9, 43.0, 53.7 (5 copper blocks made 43-49, the canopy posted at
+    49.4 and built at 53.2, waxed 5 of 5): **reached at +53.7**. Busy 48%, ~$0.50.
+- F371 (11-15, #255, the user's 11-15 homes; runs/2026-11-15/houses) **Bare generated homes get their floors, 387 of 387
+  cells in 3.1 minutes, and members decorate again.** rt_base's 10 gen homes stood on 387 cells of grass and dirt.
+  homes1 (world 6, 45 min after, busy 53%, ~$0.32): all 10 owners chose `own:floor` in the first 10 minutes, but each laid
+  only its dirt and cobblestone cells (38 of 387, 3-5 a house: 26.1's `#minecraft:dirt` holds no grass_block, lesson 116
+  again) and the partial floor was recorded as done. homes2 (3174e4f, 12 min): 10 floors of 24-52 planks, 387 of 387
+  cells by +3.1, one failure (another member took the planks); 18 `decorate_home` done. Busy 74%, ~$0.10, 27 `[stuck]`.
+  Before, every rung run's members decorated in the first 2-3 minutes and never again (three own-farm failures banned
+  the whole own kind for an hour; now each own option is banned alone).
+- F372 (11-16, G8, the climbs; runs/2026-11-16/climb, climb2) **A ban fed by quick ends with nothing gained held the
+  age of husbandry back 66 minutes in climb1; with `MC_QUICK_COOL` hus1 reached husbandry in 17.9 minutes and climb2 20
+  minutes after its vote, its last stage waiting on wheat (#257).** rt_base, 25 members, 2x, haste 5, ticks 30, model
+  choices and votes, every rung from iron:
+  - **climb1** (world 2, 120 min, busy 38%, ~$0.75, 154 `[stuck]`, 0 `[lag]`): iron, then husbandry chosen at 20.3 (10 of
+    25 votes) and reached only at 86.3. An empty nest (7.5 min), a full pen (12.5) and a pair still on its breeding
+    cooldown (23.0), each over in under 30 s with nothing gained, counted as failures by the controller's quick rule;
+    three ids by three members banned the whole penwork kind for 60 min, unlogged, so no pen chore ran from 23 to 83.
+    Then copper (11 votes) by ~110, letters by ~120, trade current at the end. Fixed by 1189071 (`MC_QUICK_COOL`, on: the
+    quick rule cools its member only, penwork is banned per id, breeding is offered 6 game minutes after the last).
+  - **hus1** (world 6, `MC_LADDER_START=husbandry`, 45 min, busy 53%, ~$0.34): husbandry reached at 17.9, copper next
+    (14 votes) by 30.2, letters by 39.9, trade current at the end.
+  - **climb2** (world 2, 1f267a5 with `MC_QUICK_COOL`, 75 min, busy 42%, ~$0.47, 80 `[stuck]`): iron by 19.9, husbandry
+    chosen at 20.4 (a tie drawn), stages 1-3 done at 26.7, but the 8 hay bales stood at 7 of 8 until 40.5: `make:hay_block`
+    needs 9 wheat above the 6 kept, and storage held 4-8 from 18 to 34 min (breeding lures and bread take it; 2,000 seeds
+    stored). Reached at 40.6; copper by 49.9; trade current at the end. Busy fell from 70% (0-10) to 24% (50-60) and 17%
+    (60-70): #256, F373.
+- F373 (11-16, #256, G8, idle members; runs/2026-11-16/idle256/measure.md) **After minute 50 a climbing village of 25 had
+  nothing to do 77-84% of the time; dig lanes and projects sized to the village cut that to ~55%.** Measured on climb2
+  (choices by family per 10-min bin, `[choice-none]` idle time-weighted): iron, innovation and makes fill the first 30
+  minutes, then the work runs out. The dig goes off once 64 raw iron and ingots are stored beside the monument (3 legs at
+  most while a rung digs), 3 projects open at most with crews of 2-4, the banned `initiate:sapling` was the only initiate
+  offer from ~65 (and kept the new-green offer away), every good stood at its keep, torches were banned 60 min from 42 (850
+  mine torch spots unlit), growth stopped at ~9 for want of ground. Per rung stage only the dig stages can take many
+  members; the rest are short crafts, one merchant or animals on their cooldown. climb1 had the same shape (idle 67-89%
+  in bins 50-120).
+  - **Runs** (75 min from rt_base, climb settings; `[choice-none]` idle in bins 50 / 60 / 70, no-chore 50 / 60, husbandry
+    vote to the next rung, trade chosen): climb2 (1f267a5) busy 42%, idle 77 / 84 / 52 (part bin), no-chore 76 / 83, 20.6,
+    49.9, 80 `[stuck]`, ~$0.47; **idle1** (world 2, 12ed6c9: `MC_MINE_LANES`, `MC_INIT_SKIP_BAN`, `MC_INIT_SCALE`) busy
+    54%, idle 53 / 55 / 34, no-chore 56 / 60, 19.9, 40.0, 133 `[stuck]`, ~$0.61; **idle2** (world 6, 630f4a0, adding
+    `MC_STOCK_DIG`) busy 55%, idle 57 / 55 / 46, no-chore 62 / 61, 20.4, 39.9, 122 `[stuck]`, ~$0.60.
+  - The iron age at 9.8-9.9 min (climb2 19.9); real work 34-39% of agent-time a bin from minute 50 (climb2 16-19%).
+    idle2's stock dig never ran: it was built on every late menu and dropped, because a banned option (the forge of
+    shears for a member holding shears, a candle) counted as other work and held the gated options off; those menus
+    ended empty. `MC_GATE_GUARDED` (6d03317) fixes that; not yet run live.

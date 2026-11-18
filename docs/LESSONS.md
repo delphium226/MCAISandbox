@@ -730,3 +730,54 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    pathfinder's `digging` flag held every later path ("busy" on every tick, moved 0, 20 minutes, 12 teleports). Now a dig
    whose chunk is gone aborts, and any path reset ends a dig mineflayer no longer runs. Read `busy` in `[stuck]` as the
    pathfinder's own flags, not as work; a teleport mid-action leaves library state behind (`scripts/checks/dig_teleport.cjs`).
+184. **A ban fed by quick no-gain ends can silence a whole chore family, and say nothing** (climb1, F372, 2026-11-16):
+   an empty nest, a full pen and a pair still on its breeding cooldown each ended in under 30 s with nothing gained;
+   the controller's quick rule counted them as failures, and three ids by three members banned the whole penwork kind
+   for an hour. The ban log read the unflagged ok, so no line said so: no pen chore ran from minute 23 to 83 and the age
+   of husbandry, chosen at 20, was reached at 86. The same shape had banned the whole own kind (decorating with it) after
+   three own-farm failures. Ban the id, not the kind; let "nothing to do here" cool its member, not the village; log every
+   ban with what started it; and when a family goes quiet, look for a ban first.
+185. **Rung work must offer parallel lanes sized to the village** (#256, F373): from minute 50 a climbing village of 25
+   had nothing feasible 77-84% of the time. The rungs' one-off work had run out: the dig stopped once 64 iron stood
+   beside the monument and ran 3 legs at most for 25 members, 3 projects held crews of ~3, every good stood at its keep.
+   Write each stage's lanes down in Minecraft terms (measure.md's table): only the dig stages can take many members; the
+   rest are short crafts, one merchant, or animals on a 5-minute cooldown, where a second member adds nothing. Size the
+   lanes that can grow to members (a miner per 5, a project per 5) and expect the others to stay narrow.
+186. **Count the work a rung gives over time, not whether it was offered** (climb2, idle1-2): every rung was offered and
+   chosen, and busy still fell from 70% to 17% by minute 60. Bin the choices by family per 10 minutes against the
+   `[choice-none]` reasons; the reasons named each gap at once (a keep reached, a cap of open projects, a banned kind
+   that was the only offer and kept the next offer away). Lessons 129, 130, 136 and 144 again, now for the ladder.
+187. **A guarded option must not count as other work** (idle2, 6d03317): the stock dig was a gated option, offered only on
+   a menu with nothing else. It was built on every late menu and dropped each time, because a banned forge of shears (for
+   a member already holding shears) or a banned candle counted as other work; those menus then ended empty, 55-62% idle.
+   Decide "nothing else" after the guards (bans, cooling) have taken their options off, or gates and bans lock each other
+   out. Lesson 139 from the other side.
+188. **A trip to another dimension keeps to the ground it can stand on, on every walk, the library's included** (netherT1-8,
+   F368): the far portal stood on a floating island over the lava sea. Each run found a new way off it: members walked off
+   the edge (recalled from 23 blocks below), followed a drop over the edge, were walked through the island's floor by
+   mineBlock's own pick-up walk (26-block fall), and dug blocks under the edge whose drops (24 a trip) fell into the lava
+   sea. Every walk now steps by one with no digging and no drop over one, digs only blocks with something solid under
+   them, and keeps a floor two thick. A rule kept by our walks and not by the library's walks is no rule; read what a
+   library call does on its own way to its goal (lesson 31 again).
+189. **A progress check must count what the trip did where it went** (enchantment6, 85b8a3f): a trip that laid the deep
+   stairs' landing at y 25 was compared with the old level's counts, found "no progress", and the guard banned the
+   village's dig for an hour; the chain stalled at y 16. A new level, or a second lane's steps, is progress. When a guard
+   bans on "no progress", check its measure against each kind of useful trip first (lesson 177 is the same guard).
+190. **Trace every consumer of a rung's input before calling it supplied** (enchantment4-9, bees, F369-F370): the one
+   diamond pickaxe went into a member's own chest; the forge spent the table's 2 diamonds on miners' pickaxes; the
+   forge's pickaxes took every iron ingot, so no shears with 66 raw iron stored; leather was kept only for maps, then
+   kept but never bought because the merchant offered only goods "in use". Each run found the next link and each cost a
+   run. List every keep, trade keep, buy list, forge and own-tool rule an input passes through, and stock a checkpoint
+   at the stage to test the last link alone (enchantment10 reached the rung in 6.7 minutes from `ench_s4`).
+191. **A checkpoint started mid-ladder lacks what a climbing village has built** (bees2, F370): `MC_LADDER_START=bees`
+   counted copper as reached, but rt_base never built the copper canopy whose roof the waxing stage waxes, so the rung
+   could not end. A stage must put up what it works on when none stands (d63aca9), or a test start must lay the earlier
+   rungs' works, not only their flags.
+192. **Record a job done by its cells, not by its choice** (homes1, F371): all 10 owners chose the floor and each laid only
+   the dirt and cobblestone cells (38 of 387), since 26.1's `#minecraft:dirt` holds no grass_block (lesson 116, met a
+   second time after #213), and the partial floor was recorded as done, so it was never offered again. Name ground kinds
+   one by one and record a job at what the cells show (9 in 10, or no more could be laid). Lesson 138 for owners' chores.
+193. **A give-up counter that only success resets is a permanent off switch** (878dbcd, the rungs test): the village's
+   `projectFails` reached 3 and reset only when a project was built; no project is offered from 3, so none was built,
+   and the Mayor refused every person's request for good ("building rests for now"). Hold such a counter by time (the
+   projects' timed rest), and say for how long.

@@ -24,13 +24,20 @@ issues live there (moved with their numbers); the public `origin` stays as it wa
 - `docs/RUNBOOK.md`: the full running, testing and benchmarking notes: every check script and its arguments, staged-run
   flags, model and Ollama details, the Mineflayer adapter's files and skills, where land was good in the main world.
   Look there before writing a new check or a new way to run something.
-- `docs/LESSONS.md`: what earlier sessions learned (11 sandbox lessons, then the adapter's list, 153 so far). "Lesson N"
+- `docs/LESSONS.md`: what earlier sessions learned (11 sandbox lessons, then the adapter's list, 193 so far). "Lesson N"
   means the adapter's list. **Grep it for the area you are about to change** (pathfinder, storage, mine, chores...).
 - `docs/FINDINGS.md` (F1...), `docs/RUNS.md`, `docs/DECISIONS.md`: the logs. `docs/HISTORY.md`: what each session did and
   committed. `docs/plan-archive/`: finished phases and earlier handovers.
 - `docs/JOURNEY.md`: a short, readable story of the project; refresh it now and then (the user's, 10-21).
 - `README.md` (a short overview), `docs/ARCHITECTURE.md` (how the system fits together, with diagrams), `docs/API.md`
-  (the REST API), `docs/SANDBOX.md` (the browser sandbox).
+  (the REST API), `docs/SANDBOX.md` (the browser sandbox), `docs/specs/` (recent specs: the ladder's rungs,
+  `ladder-rungs.md`; requested builds; castle walls).
+- **Project skills** (`.claude/skills/`): `live-run` (launch a run from a code snapshot, watch it, read it; its
+  `rung_times.py` times a ladder run's rungs), `brief-agent` (brief and check background work agents), `port-branch`
+  (scale-50 commits to this branch).
+- **The scale-50 clone** `D:\Projects\MCAISandbox-scale50` (branch `scale-50`, pushed to `private`): most work lands
+  there first (the brain/body split for 50 members, `villageReads.ts`, its own worlds 1, 2 and 6 and checkpoints such
+  as `rt_base`, `ench_s4`, `bees_s4`) and is ported here with the `port-branch` skill; the branches' merge is #239.
 
 ## Running and checking
 
@@ -60,13 +67,15 @@ issues live there (moved with their numbers); the public `origin` stays as it wa
   scripts/stage_village.py V --site SITE` (or watch_village.py with the same two settings). `MCAI_TEST_WORLD=2` (any
   script, or `"world": 2` in a run_series spec) uses a second test world (`mc/testserver2`, 25567, agent server 8768), so
   two series can run at once; test world 3 (`MCAI_TEST_WORLD=3`, 25568, agent server 8769) belongs to the skill foundry
-  (`scripts/foundry.py`, agy CLI by default). Sites:
+  (`scripts/foundry.py`, agy CLI by default). Worlds 4 and 5 (`mc/testserver4`/`5`, 25569/8770, 25570/8771; 4 is the
+  live chat tests') are set up here too: `MCAI_TEST_WORLD=N` reaches any `mc/testserverN` up to 9 (25565+N, agent server
+  8766+N), and `stack.py` lists each one set up. Sites:
   `scripts/test_sites.json`; minevale3 is the usual one. The main world is full of old test villages: build elsewhere
   (`scripts/checks/fresh_land.py`) if you must use it.
 - Agent-server settings worth knowing: `MC_TIME_SCALE=2` (staged runs and checks; never for model-driven acceptance
   runs), for staged after-phase tests `MC_RANDOM_TICK=30` (crops ripen ~7x faster: first harvest at +2.4 min, not ~+17)
   and `MC_HASTE=5` (bots dig faster for real; never in acceptance runs); with `MC_TIME_SCALE=3` a 3-agent staged
-  build completes 35% sooner (H5T3 3.2 min, CPv1 4.9; untested at 25 agents, where the agent server is the limit), `MC_GROW=0` (no growth after completion), `MC_VILLAGE_RANGE` (144 since s43; growth reaches 16 inside it), `MC_WORKS_REPEAT=on` (public works repeat once the pool is used; off), the economy's `MC_OWN`, `MC_BARTER`, `MC_SPECIAL=claim`, `MC_OWN_SALES`, `MC_OWN_FARM`, `MC_INNOVATE` (all off; RUNBOOK), `MC_GROW_FARMS=1` and `MC_APPETITE=18` (food; both off by default),
+  build completes 35% sooner (H5T3 3.2 min, CPv1 4.9; untested at 25 agents, where the agent server is the limit), `MC_GROW=0` (no growth after completion), `MC_VILLAGE_RANGE` (144 since s43; growth reaches 16 inside it), `MC_WORKS_REPEAT=on` (public works repeat once the pool is used; off), the economy's `MC_OWN` (on since 11-01), `MC_BARTER`, `MC_SPECIAL=claim`, `MC_OWN_SALES`, `MC_OWN_FARM`, `MC_INNOVATE`, `MC_PAY` (off; RUNBOOK), `MC_GROW_FARMS=1` and `MC_APPETITE=18` (food; both off by default),
   `MC_CHOOSE=fixed|model`, `MC_CHOICE_FAMILIES` (`initiatives` in the default since s37, `activities` since s42), `MC_MERCHANT=off` (on since s42), `MC_MERCHANT_ORDERS=on` (off), `MC_NEEDS=off|show|on`,
   `MC_HOUSING=off`, `MC_PARTS=off`, `MC_NEED_WORKS=off` (Phase N; needs off by default, housing and parts on since s38,
   need works since s40; RUNBOOK "Phase N and the foundry"), `MCAI_TEMPERAMENT=on|identical|off` (A.3p's personalities, on;
@@ -164,7 +173,9 @@ issues live there (moved with their numbers); the public `origin` stays as it wa
   mining huts), `designs.ts`, `buildingGen.ts` (the building generator), `vanillaPieces.ts` / `vanillaData.ts` (pieces
   and data from the Minecraft jar).
 - After completion: `choose.ts` (the chore menu), `grow.ts` (neighbourhoods until a house per member), `appetite.ts`
-  (food).
+  (food), `ladder.ts` + `ladderFlags.ts` (G8's rungs, stages and ballot; `MC_LADDER_START=<rung>` starts a test on a
+  rung), `civic.ts` / `monument.ts` (public works, cathedrals and castles), `playerTalk.ts` (requests from people),
+  `worldMode.ts` (survival stages); ARCHITECTURE section 10 maps the rest.
 - `mineflayer/`: the real-Minecraft world. `index.ts` (agent server on 8766), `mcWorld.ts` (`MineflayerWorld`: the
   WorldAdapter, spawns, chores), `botAgent.ts` (`BotAgent`), `mcSkills.ts` (skill registry), `mcSurvival.ts` (collect,
   craft, smelt...), `mcBuild.ts` (find_site, prepare_site, builds by command charged to the inventory), `mcStorage.ts`,
