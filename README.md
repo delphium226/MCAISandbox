@@ -10,7 +10,7 @@ The agents play real Minecraft Java Edition 26.1 (a local Paper server, each age
 [Mineflayer](https://github.com/PrismarineJS/mineflayer) bot). A browser voxel sandbox written for this project serves as
 a quick test bed; the brains, skills and API are the same in both.
 
-![The control panel's simple view](docs/images/panel-simple.png)
+![The control panel's overview: a complete village of 13 members, its world map, what needs a look and the society's numbers](docs/images/panel-overview.png)
 
 ## What the agents do
 
@@ -99,9 +99,14 @@ member's Now (plan, inventory, its map), Mind (journal, intention, notes), Socia
 **Run**: how busy the members are, the scorecard, how chores were chosen, models and cost, every event, and the run's
 switches. A feature that is off keeps its tab, marked off, with its flag inside.
 
-(The screenshots above and below show the panel before its tabs, 2026-10-22.)
+The screenshots show a saved village (48 buildings in three neighbourhoods, a cathedral under way) taken up again with 13
+members on 2026-11-19.
 
-![The detailed view](docs/images/panel-detailed.png)
+![The Ladder tab: the age of letters under way after the iron age, each stage with who did the work, and the rungs to come](docs/images/panel-ladder.png)
+
+![A member's page: who they are, what they own and owe, what they hold, and their map](docs/images/panel-member.png)
+
+![The Buildings tab: every building built, the neighbourhoods and their houses](docs/images/panel-buildings.png)
 
 ## Where it stands
 
@@ -112,7 +117,8 @@ whole ladder in a single run is not yet shown: long climbs stall on members left
 - **50 agents.** On a separate branch (`scale-50`), each bot's body runs in a process of its own beside one brain
   server, so a village can hold up to 50 members; it is to be merged into the main line.
 - **Idle members.** Making sure each member of a large village always has useful work: more miners per iron level, more
-  projects open at once, and options that guards had taken off a menu put back.
+  projects open at once, and options that guards had taken off a menu put back. In a 75-minute climb this cut the time
+  members spent with nothing to choose, after the first 50 minutes, from about 80% to about 55%; the aim is under 30%.
 - **Emergence.** The longer-term goals are specialisation, collective rules and culture as in Project Sid, memory over
   hours and days, and new activities learned through the skill foundry; members' memory, character, votes, rules,
   proposals and the foundry are in place, and the ladder is the current focus.
@@ -148,7 +154,7 @@ MCAI_API=http://127.0.0.1:8766/api MCAI_GAMEMODE=survival \
 | [docs/SETTINGS.md](docs/SETTINGS.md) | Every `MC_*`/`MCAI_*` setting with its default (generated from `server/src/settings.ts`) |
 | [docs/specs/](docs/specs/) | Specs of recent work: the ladder's rungs, castle walls, requested builds, chat tests |
 | [docs/API.md](docs/API.md) | The REST API, to control agents from any language |
-| [GitHub issues](https://github.com/delphium226/MCAISandbox/issues) | The roadmap and the todo list, labelled by phase |
+| [GitHub issues](https://github.com/delphium226/MCAISandbox/issues) | The roadmap and the todo list, by goal milestone (G1-G8) and label; [docs/ISSUES.md](docs/ISSUES.md) maps the older issue numbers used in commits and notes |
 | [docs/PLAN.md](docs/PLAN.md) | The current work's handover and each phase's design |
 | [docs/RUNS.md](docs/RUNS.md), [docs/FINDINGS.md](docs/FINDINGS.md), [docs/LESSONS.md](docs/LESSONS.md) | Every run, what it found, and what was learned |
 | [docs/SANDBOX.md](docs/SANDBOX.md) | The browser sandbox |
