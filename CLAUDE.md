@@ -15,8 +15,10 @@ of every session, work step by step, and record as you go (PLAN.md's "How to use
 `idea`, `on-hold`; milestones G1-G8, Support, Parked); close or comment on an issue with the commit that settles it, and
 file new work as an issue with a milestone, not as a checkbox in PLAN.md.
 **Ongoing work is private** (the user's, 2026-10-20): branches are pushed to the private repo
-`delphium226/MCAISandbox-dev` (remote `private`, the upstream of `tiered-brain-building`; `gh` defaults to it) and the
-issues live there (moved with their numbers); the public `origin` stays as it was until the user says to publish.
+`delphium226/MCAISandbox-dev` (remote `private`, the upstream of `tiered-brain-building`); `main` on both repos was
+published at 980f9ee (the user's, 11-18) and is pushed only when the user asks. **The issues are public** (11-19):
+`delphium226/MCAISandbox` (`gh` defaults to it); the open ones were copied there with new numbers (#72 on), and
+`docs/ISSUES.md` maps the old numbers that commits and older notes use; closed issues stay in the private repo.
 
 ## Where things are
 

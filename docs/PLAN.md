@@ -13,7 +13,9 @@ The logs live beside it (moved out on 2026-10-15 to keep this file short):
 
 **The todo list lives in GitHub issues** (the user's, 2026-10-18): https://github.com/delphium226/MCAISandbox/issues
 (`gh issue list`), labelled by phase (`phase-N`, `phase-X`, ...), `bug`, `idea`, `on-hold`. This file keeps the handover,
-each phase's goal and design, and links to its issues; it no longer carries checkboxes for open work.
+each phase's goal and design, and links to its issues; it no longer carries checkboxes for open work. Issue numbers
+in this file and older notes are the private repo's (before 11-19): `docs/ISSUES.md` gives each open one's public number
+(#256 is now #217).
 
 ## How to use this plan in a session
 
